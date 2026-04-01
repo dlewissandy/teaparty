@@ -100,6 +100,9 @@ class BusEventListener:
         self._send_socket_path = ''
         self._reply_socket_path = ''
         self._sock_dir = ''
+        # Per-agent re-invocation locks: serializes concurrent --resume calls for
+        # the same agent (see conversation-model.md — Fan-In vs. Mid-Task Clarification).
+        self._reinvoke_locks: dict[str, asyncio.Lock] = {}
 
     async def start(self) -> tuple[str, str]:
         """Start both socket servers.
@@ -268,9 +271,11 @@ class BusEventListener:
 
             # Re-invoke the caller only when all fan-out workers have replied
             # (pending_count reached zero) and a session_id is available to --resume.
+            # Use a per-agent lock so only one --resume per caller is active at a time
+            # (conversation-model.md — per-agent re-invocation lock).
             if self.reinvoke_fn is not None and should_reinvoke and parent_session_id:
                 asyncio.create_task(
-                    self.reinvoke_fn(parent_context_id, parent_session_id, message)
+                    self._locked_reinvoke(parent_context_id, parent_session_id, message)
                 )
 
         except Exception:
@@ -281,6 +286,22 @@ class BusEventListener:
                 await writer.wait_closed()
             except Exception:
                 pass
+
+    async def _locked_reinvoke(
+        self, context_id: str, session_id: str, message: str,
+    ) -> None:
+        """Serialized wrapper for reinvoke_fn — enforces the per-agent re-invocation lock.
+
+        Ensures only one --resume call for a given context_id is active at a time.
+        A second re-invocation request for the same agent queues until the first
+        completes (conversation-model.md — Fan-In vs. Mid-Task Clarification).
+        """
+        if context_id not in self._reinvoke_locks:
+            self._reinvoke_locks[context_id] = asyncio.Lock()
+        lock = self._reinvoke_locks[context_id]
+        async with lock:
+            if self.reinvoke_fn is not None:
+                await self.reinvoke_fn(context_id, session_id, message)
 
     # ── Synchronous DB helpers (called from async context) ────────────────────
 

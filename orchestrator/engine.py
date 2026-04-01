@@ -408,8 +408,9 @@ class Orchestrator:
         """Re-invoke a caller agent after all fan-out workers have replied (Issue #358).
 
         Called by BusEventListener when pending_count reaches zero, meaning all
-        workers in a fan-out have replied.  Resumes the caller's claude session
-        via --resume so it can read the replies and continue.
+        workers in a fan-out have replied.  Appends the reply to the caller's
+        conversation history (JSONL session file) then resumes via --resume so
+        the caller can read the reply and continue (conversation-model.md step 4).
 
         Creates a fresh worktree for the resumed session (the original worktree was
         cleaned up when the caller's previous turn exited).
@@ -417,7 +418,7 @@ class Orchestrator:
         Args:
             context_id: The caller's context_id (parent context, keyed by their spawn).
             session_id: The caller's claude session_id, used for --resume.
-            message:    The last reply message (informational; caller reads from bus).
+            message:    The reply message to inject into the caller's history.
         """
         if not session_id:
             _log.warning('reinvoke: no session_id for context %s — cannot resume', context_id)
@@ -425,6 +426,7 @@ class Orchestrator:
 
         import subprocess
         from orchestrator.agent_spawner import AgentSpawner
+        from orchestrator.messaging import inject_composite_into_history
         spawner = AgentSpawner(teaparty_home=self.poc_root)
         # Extract caller's agent role from context_id: agent:{initiator_id}:{recipient_id}:{uuid}
         parts = context_id.split(':')
@@ -434,7 +436,22 @@ class Orchestrator:
         resume_dir = os.path.join(self.infra_dir, 'agents', f'{safe_id}_resume')
         mcp_config = self._mcp_config
 
+        # Derive the caller's session file path from project_workdir and session_id.
+        # Claude Code stores sessions at ~/.claude/projects/{cwd_hash}/{session_id}.jsonl
+        # where cwd_hash is the cwd with '/' replaced by '-' (observed layout).
+        project_hash = self.project_workdir.replace('/', '-')
+        caller_session_file = os.path.join(
+            os.path.expanduser('~'), '.claude', 'projects',
+            project_hash, f'{session_id}.jsonl',
+        )
+
         def resume_in_worktree() -> None:
+            # Step 4a: append the reply to the caller's conversation history before
+            # --resume so the caller can read it (conversation-model.md step 4-5).
+            inject_composite_into_history(
+                caller_session_file, message, session_id, self.project_workdir,
+            )
+
             wt_result = subprocess.run(
                 ['git', 'worktree', 'add', resume_dir, 'HEAD'],
                 cwd=self.project_workdir,
@@ -447,6 +464,7 @@ class Orchestrator:
                 )
                 os.makedirs(resume_dir, exist_ok=True)
             try:
+                # Step 4b: resume the caller session so it sees the injected reply.
                 spawner.spawn(
                     'All workers have replied. Continue from where you left off.',
                     worktree=resume_dir,

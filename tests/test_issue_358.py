@@ -402,16 +402,167 @@ class TestEngineReinvokeAgent(unittest.TestCase):
             'Orchestrator.run must wire _bus_reinvoke_agent as reinvoke_fn',
         )
 
-    def test_bus_reinvoke_agent_uses_resume_session(self):
-        """AC7: _bus_reinvoke_agent source must contain resume_session to pass --resume."""
-        import inspect
+    def test_bus_reinvoke_agent_calls_spawn_with_correct_session_id(self):
+        """AC7: _bus_reinvoke_agent must call AgentSpawner.spawn with resume_session=session_id at runtime."""
+        import unittest.mock
         from orchestrator.engine import Orchestrator
 
-        source = inspect.getsource(Orchestrator._bus_reinvoke_agent)
+        # Build a minimal Orchestrator with the fields _bus_reinvoke_agent accesses.
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_dir = os.path.join(tmpdir, 'project')
+            os.makedirs(project_dir)
+            infra_dir = os.path.join(tmpdir, 'infra', 'agents')
+            os.makedirs(infra_dir)
+
+            orch = object.__new__(Orchestrator)
+            orch.poc_root = tmpdir
+            orch.project_workdir = project_dir
+            orch.infra_dir = os.path.join(tmpdir, 'infra')
+            orch._mcp_config = {}
+
+            spawn_calls = []
+
+            def fake_spawn(_self, task_message, *, worktree, role, project_dir, mcp_config=None, resume_session='', **kw):
+                spawn_calls.append({'resume_session': resume_session, 'role': role})
+                return 'new-session-id'
+
+            with unittest.mock.patch('orchestrator.agent_spawner.AgentSpawner.spawn', fake_spawn), \
+                 unittest.mock.patch('subprocess.run') as mock_run, \
+                 unittest.mock.patch('orchestrator.messaging.inject_composite_into_history'):
+                mock_run.return_value = unittest.mock.MagicMock(returncode=0)
+                asyncio.run(orch._bus_reinvoke_agent(
+                    'agent:proj/lead:proj/worker:uuid1',
+                    'test-session-abc',
+                    'reply text',
+                ))
+
+        self.assertEqual(len(spawn_calls), 1, '_bus_reinvoke_agent must call spawner.spawn exactly once')
+        self.assertEqual(
+            spawn_calls[0]['resume_session'],
+            'test-session-abc',
+            '_bus_reinvoke_agent must pass the caller session_id as resume_session',
+        )
+
+    def test_bus_reinvoke_agent_injects_reply_into_history_before_spawn(self):
+        """Finding 1: _bus_reinvoke_agent must inject reply into caller history before --resume.
+
+        Spec (conversation-model.md step 4): 'appends it to the caller's local
+        conversation history file, then re-invokes caller via --resume $SESSION_ID.'
+        inject_composite_into_history must be called before spawner.spawn.
+        """
+        import unittest.mock
+        from orchestrator.engine import Orchestrator
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_dir = os.path.join(tmpdir, 'project')
+            os.makedirs(project_dir)
+            os.makedirs(os.path.join(tmpdir, 'infra', 'agents'))
+
+            orch = object.__new__(Orchestrator)
+            orch.poc_root = tmpdir
+            orch.project_workdir = project_dir
+            orch.infra_dir = os.path.join(tmpdir, 'infra')
+            orch._mcp_config = {}
+
+            call_order = []
+
+            def fake_inject(session_file, composite, session_id, cwd, **kw):
+                call_order.append(('inject', session_id, composite))
+
+            def fake_spawn(_self, task_message, *, worktree, role, project_dir, mcp_config=None, resume_session='', **kw):
+                call_order.append(('spawn', resume_session))
+                return 'new-session-id'
+
+            with unittest.mock.patch('orchestrator.agent_spawner.AgentSpawner.spawn', fake_spawn), \
+                 unittest.mock.patch('subprocess.run') as mock_run, \
+                 unittest.mock.patch('orchestrator.messaging.inject_composite_into_history', fake_inject):
+                mock_run.return_value = unittest.mock.MagicMock(returncode=0)
+                asyncio.run(orch._bus_reinvoke_agent(
+                    'agent:proj/lead:proj/worker:uuid2',
+                    'caller-session-xyz',
+                    'worker reply content',
+                ))
+
         self.assertIn(
-            'resume_session',
-            source,
-            '_bus_reinvoke_agent must pass resume_session= to AgentSpawner.spawn',
+            ('inject', 'caller-session-xyz', 'worker reply content'),
+            call_order,
+            '_bus_reinvoke_agent must call inject_composite_into_history with session_id and reply',
+        )
+        inject_idx = next(i for i, c in enumerate(call_order) if c[0] == 'inject')
+        spawn_idx = next(i for i, c in enumerate(call_order) if c[0] == 'spawn')
+        self.assertLess(
+            inject_idx, spawn_idx,
+            'inject_composite_into_history must be called BEFORE spawner.spawn',
+        )
+
+
+# ── Finding 2: per-agent re-invocation lock ────────────────────────────────────
+
+
+class TestPerAgentReinvokeLock(unittest.TestCase):
+    """Finding 2: BusEventListener must serialize concurrent --resume calls per agent.
+
+    Spec (conversation-model.md): 'Only one --resume call for a given agent_id
+    can be active at a time. A second re-invocation request queues until the
+    first completes.'
+    """
+
+    def test_locked_reinvoke_serializes_concurrent_calls_for_same_context(self):
+        """Concurrent _locked_reinvoke calls for the same context_id must run sequentially."""
+        from orchestrator.bus_event_listener import BusEventListener
+
+        order = []
+        gate = asyncio.Event()
+
+        async def slow_reinvoke(context_id: str, session_id: str, message: str) -> None:
+            order.append(f'start:{message}')
+            await gate.wait()
+            order.append(f'end:{message}')
+
+        listener = BusEventListener(reinvoke_fn=slow_reinvoke)
+
+        async def run():
+            # Schedule both concurrently — second must wait for first to finish.
+            t1 = asyncio.create_task(listener._locked_reinvoke('ctx-A', 's1', 'first'))
+            t2 = asyncio.create_task(listener._locked_reinvoke('ctx-A', 's1', 'second'))
+            await asyncio.sleep(0.05)  # let both tasks start competing for the lock
+            gate.set()                  # unblock first; second should then run
+            await asyncio.gather(t1, t2)
+
+        asyncio.run(run())
+
+        self.assertEqual(
+            order,
+            ['start:first', 'end:first', 'start:second', 'end:second'],
+            'reinvoke calls for the same context_id must be fully serialized',
+        )
+
+    def test_locked_reinvoke_allows_concurrent_calls_for_different_contexts(self):
+        """Concurrent _locked_reinvoke calls for DIFFERENT context_ids must run in parallel."""
+        from orchestrator.bus_event_listener import BusEventListener
+
+        started = []
+        gate = asyncio.Event()
+
+        async def gated_reinvoke(context_id: str, session_id: str, message: str) -> None:
+            started.append(context_id)
+            await gate.wait()
+
+        listener = BusEventListener(reinvoke_fn=gated_reinvoke)
+
+        async def run():
+            t1 = asyncio.create_task(listener._locked_reinvoke('ctx-A', 's1', 'msg'))
+            t2 = asyncio.create_task(listener._locked_reinvoke('ctx-B', 's2', 'msg'))
+            await asyncio.sleep(0.05)  # both should have started before gate opens
+            gate.set()
+            await asyncio.gather(t1, t2)
+
+        asyncio.run(run())
+
+        self.assertEqual(
+            set(started),
+            {'ctx-A', 'ctx-B'},
+            'reinvoke calls for different context_ids must be allowed to run concurrently',
         )
 
 
