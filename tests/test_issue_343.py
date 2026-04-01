@@ -46,12 +46,10 @@ def _make_teaparty_home(tmpdir: str, project_name: str, project_path: str) -> st
         'name': 'Test Team',
         'description': 'test',
         'lead': 'office-manager',
-        'decider': 'darrell',
-        'agents': [],
-        'humans': [{'name': 'darrell', 'role': 'decider'}],
-        'teams': [{'name': project_name, 'path': project_path}],
+        'humans': {'decider': 'darrell'},
+        'members': {'agents': [], 'projects': [project_name]},
+        'projects': [{'name': project_name, 'path': project_path, 'config': ''}],
         'workgroups': [],
-        'skills': [],
         'scheduled': [],
     }
     with open(os.path.join(tp_home, 'teaparty.yaml'), 'w') as f:
@@ -68,11 +66,9 @@ def _make_project_yaml(project_dir: str, pins: list | None = None) -> str:
         'name': os.path.basename(project_dir),
         'description': '',
         'lead': '',
-        'decider': '',
-        'agents': [],
-        'humans': [],
+        'humans': {},
+        'members': {'workgroups': []},
         'workgroups': [],
-        'skills': [],
     }
     if pins is not None:
         data['artifact_pins'] = pins

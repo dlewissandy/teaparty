@@ -5,39 +5,28 @@
 name: Management Team
 description: Cross-project coordination, human interaction, organizational strategy, and configuration management.
 lead: office-manager                            # → .claude/agents/office-manager.md
-decider: darrell                                # human whose approval matters at gates
-
-agents:
-  - office-manager                              # team lead
-  - auditor                                     # specialist
-  - researcher                                  # specialist
-  - strategist                                  # specialist
-  # each name → .claude/agents/{name}.md
-
 humans:
-  - name: darrell
-    role: decider                               # final call; proxy models this human
-  - name: alice
-    role: advisor                               # can interject; advice not directive
+  decider: darrell                              # human whose approval matters at gates
+  advisors:
+    - alice                                     # can interject; advice not directive
 
-teams:
+projects:
   - name: My Backend
     path: ~/git/my-backend                      # git repo location on disk
+    config: .teaparty/project.yaml
   - name: Joke-book
     path: ~/work/joke-book
+    config: .teaparty/project.yaml
+
+members:
+  projects:
+    - My Backend
+    - Joke-book
+  # agents: []  # optional — OM dispatches to project leads by default
 
 workgroups:
   - name: Configuration
     config: workgroups/configuration.yaml       # relative to ~/.teaparty/
-    status: active
-
-skills:
-  - sprint-plan                                 # each name → .claude/skills/{name}/
-  - audit
-  - close-milestone
-  - fix-issue
-  - refine
-  - research
 
 scheduled:
   - name: nightly-test-sweep

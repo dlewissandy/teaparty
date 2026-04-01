@@ -55,7 +55,7 @@ def _make_workgroup(**kwargs):
     from orchestrator.config_reader import Workgroup
     defaults = dict(
         name='Coding', description='Test workgroup', lead='coding-lead',
-        agents=[], skills=[], norms={}, budget={},
+        members_agents=[], norms={}, budget={},
     )
     defaults.update(kwargs)
     return Workgroup(**defaults)
@@ -72,40 +72,35 @@ class TestSerializeWorkgroupExposesFullDataModel(unittest.TestCase):
 
     def test_agents_are_included_in_serialized_workgroup(self):
         """_serialize_workgroup(detail=True) must include the agents list."""
-        wg = _make_workgroup(agents=[
-            {'name': 'Developer', 'role': 'specialist', 'model': 'claude-sonnet-4'},
-        ])
+        wg = _make_workgroup(members_agents=['developer'])
         result = self.bridge._serialize_workgroup(wg, detail=True)
         self.assertIn('agents', result,
             '_serialize_workgroup(detail=True) must include agents; got: ' + str(list(result.keys())))
         self.assertEqual(len(result['agents']), 1)
-        self.assertEqual(result['agents'][0]['name'], 'Developer')
+        self.assertEqual(result['agents'][0]['name'], 'developer')
 
-    def test_agent_fields_include_name_role_model(self):
-        """Each agent entry must have name, role, and model fields."""
-        wg = _make_workgroup(agents=[
-            {'name': 'Architect', 'role': 'specialist', 'model': 'claude-opus-4'},
-        ])
+    def test_agent_fields_include_name_and_source(self):
+        """Each agent entry must have name and source fields.
+
+        Role and model are no longer in workgroup YAML (removed in #362 — they are
+        per-agent concerns read from agent config files, not from workgroup YAML).
+        """
+        wg = _make_workgroup(members_agents=['architect'])
         result = self.bridge._serialize_workgroup(wg, detail=True)
         agent = result['agents'][0]
-        self.assertEqual(agent['name'], 'Architect')
-        self.assertEqual(agent['role'], 'specialist')
-        self.assertEqual(agent['model'], 'claude-opus-4')
+        self.assertEqual(agent['name'], 'architect')
+        self.assertIn('source', agent)
 
     def test_agent_includes_source_badge(self):
         """Each agent entry in detail mode must have a source field for source badge rendering."""
-        wg = _make_workgroup(agents=[
-            {'name': 'Developer', 'role': 'specialist', 'model': 'claude-sonnet-4'},
-        ])
+        wg = _make_workgroup(members_agents=['developer'])
         result = self.bridge._serialize_workgroup(wg, detail=True)
         self.assertIn('source', result['agents'][0],
             'Each agent dict must include a source field for source badge rendering')
 
     def test_agent_source_is_shared_when_in_org_catalog(self):
         """Agent with name in org catalog must have source='shared'."""
-        wg = _make_workgroup(agents=[
-            {'name': 'office-manager', 'role': 'lead', 'model': 'claude-opus-4'},
-        ])
+        wg = _make_workgroup(members_agents=['office-manager'])
         result = self.bridge._serialize_workgroup(
             wg, detail=True, org_agents={'office-manager', 'auditor'}
         )
@@ -114,52 +109,19 @@ class TestSerializeWorkgroupExposesFullDataModel(unittest.TestCase):
 
     def test_agent_source_is_local_when_not_in_org_catalog(self):
         """Agent with name not in org catalog must have source='local'."""
-        wg = _make_workgroup(agents=[
-            {'name': 'Coding Lead', 'role': 'team-lead', 'model': 'claude-sonnet-4'},
-        ])
+        wg = _make_workgroup(members_agents=['coding-lead'])
         result = self.bridge._serialize_workgroup(
             wg, detail=True, org_agents={'office-manager', 'auditor'}
         )
         self.assertEqual(result['agents'][0]['source'], 'local',
             "Agent not in org catalog must have source='local'")
 
-    def test_skills_are_included_in_serialized_workgroup(self):
-        """_serialize_workgroup(detail=True) must include skills as objects with source."""
-        wg = _make_workgroup(skills=['fix-issue', 'code-cleanup'])
+    def test_skills_not_in_serialized_workgroup(self):
+        """_serialize_workgroup must not include a skills key — skills removed from workgroup schema (#362)."""
+        wg = _make_workgroup()
         result = self.bridge._serialize_workgroup(wg, detail=True)
-        self.assertIn('skills', result,
-            '_serialize_workgroup(detail=True) must include skills; got: ' + str(list(result.keys())))
-        names = [s['name'] for s in result['skills']]
-        self.assertIn('fix-issue', names)
-        self.assertIn('code-cleanup', names)
-
-    def test_skill_includes_source_badge(self):
-        """Each skill entry in detail mode must be an object with name and source fields."""
-        wg = _make_workgroup(skills=['fix-issue'])
-        result = self.bridge._serialize_workgroup(wg, detail=True)
-        skill = result['skills'][0]
-        self.assertIn('name', skill, 'Skill entry must have name field')
-        self.assertIn('source', skill, 'Skill entry must have source field for source badge')
-
-    def test_skill_source_is_shared_when_in_org_catalog(self):
-        """Skill in org catalog must have source='shared'."""
-        wg = _make_workgroup(skills=['fix-issue'])
-        result = self.bridge._serialize_workgroup(
-            wg, detail=True, org_catalog_skills=['fix-issue', 'audit']
-        )
-        skill_map = {s['name']: s['source'] for s in result['skills']}
-        self.assertEqual(skill_map['fix-issue'], 'shared',
-            "Skill in org catalog must have source='shared'")
-
-    def test_skill_source_is_local_when_not_in_org_catalog(self):
-        """Skill not in org catalog must have source='local'."""
-        wg = _make_workgroup(skills=['bespoke-skill'])
-        result = self.bridge._serialize_workgroup(
-            wg, detail=True, org_catalog_skills=['fix-issue', 'audit']
-        )
-        skill_map = {s['name']: s['source'] for s in result['skills']}
-        self.assertEqual(skill_map['bespoke-skill'], 'local',
-            "Skill not in org catalog must have source='local'")
+        self.assertNotIn('skills', result,
+            '_serialize_workgroup must not include skills — workgroup YAML no longer has skills (issue #362)')
 
     def test_norms_are_included_in_serialized_workgroup(self):
         """_serialize_workgroup(detail=True) must include the norms dict."""
@@ -186,7 +148,7 @@ class TestSerializeWorkgroupExposesFullDataModel(unittest.TestCase):
             name='Editorial',
             description='Editorial team',
             lead='editor',
-            agents=[{'name': 'Editor', 'role': 'lead', 'model': 'claude-opus-4'}],
+            members_agents=['editor'],
         )
         result = self.bridge._serialize_workgroup(wg)
         self.assertEqual(result['name'], 'Editorial')
@@ -202,18 +164,15 @@ class TestSerializeWorkgroupExposesFullDataModel(unittest.TestCase):
             'budget must be present even when empty; UI decides whether to hide it')
 
     def test_list_mode_omits_detail_fields(self):
-        """Default (detail=False) must not include agents, skills, norms, budget."""
+        """Default (detail=False) must not include agents, norms, budget."""
         wg = _make_workgroup(
-            agents=[{'name': 'Dev', 'role': 'specialist', 'model': 'claude-sonnet-4'}],
-            skills=['fix-issue'],
+            members_agents=['dev'],
             norms={'quality': ['Review required']},
             budget={'daily_tokens': 500.0},
         )
         result = self.bridge._serialize_workgroup(wg)
         self.assertNotIn('agents', result,
             'List mode must omit agents — use detail=True for the detail endpoint')
-        self.assertNotIn('skills', result,
-            'List mode must omit skills — use detail=True for the detail endpoint')
         self.assertNotIn('norms', result,
             'List mode must omit norms — use detail=True for the detail endpoint')
         self.assertNotIn('budget', result,
@@ -264,8 +223,8 @@ class TestWorkgroupDetailEndpointReturnsFullData(unittest.TestCase):
 
         bridge = self._make_bridge_with_workgroup('coding', {
             'name': 'Coding', 'description': 'Implementation', 'lead': 'coding-lead',
-            'agents': [{'name': 'Developer', 'role': 'specialist', 'model': 'claude-sonnet-4'}],
-            'skills': [], 'norms': {}, 'budget': {},
+            'members': {'agents': ['developer'], 'hooks': []},
+            'norms': {}, 'budget': {},
         })
 
         async def run():
@@ -277,15 +236,16 @@ class TestWorkgroupDetailEndpointReturnsFullData(unittest.TestCase):
         body = _run(run())
         self.assertIn('agents', body,
             'GET /api/workgroups/{name} response must include agents')
-        self.assertEqual(body['agents'][0]['name'], 'Developer')
+        self.assertEqual(body['agents'][0]['name'], 'developer')
 
-    def test_get_workgroup_detail_returns_skills(self):
-        """GET /api/workgroups/{name} body must include skills list with name and source."""
+    def test_get_workgroup_detail_has_no_skills(self):
+        """GET /api/workgroups/{name} must not include skills — removed from workgroup schema (#362)."""
         from aiohttp.test_utils import TestClient, TestServer
 
         bridge = self._make_bridge_with_workgroup('coding', {
             'name': 'Coding', 'description': 'Implementation', 'lead': 'coding-lead',
-            'agents': [], 'skills': ['fix-issue', 'code-cleanup'], 'norms': {}, 'budget': {},
+            'members': {'agents': [], 'hooks': []},
+            'norms': {}, 'budget': {},
         })
 
         async def run():
@@ -295,11 +255,8 @@ class TestWorkgroupDetailEndpointReturnsFullData(unittest.TestCase):
                 return await resp.json()
 
         body = _run(run())
-        self.assertIn('skills', body,
-            'GET /api/workgroups/{name} response must include skills')
-        skill_names = [s['name'] for s in body['skills']]
-        self.assertIn('fix-issue', skill_names,
-            "Skills must include 'fix-issue' by name")
+        self.assertNotIn('skills', body,
+            'GET /api/workgroups/{name} must not include skills — removed in issue #362')
 
     def test_get_workgroup_detail_returns_norms(self):
         """GET /api/workgroups/{name} body must include norms dict."""
@@ -307,7 +264,7 @@ class TestWorkgroupDetailEndpointReturnsFullData(unittest.TestCase):
 
         bridge = self._make_bridge_with_workgroup('coding', {
             'name': 'Coding', 'description': 'Implementation', 'lead': 'coding-lead',
-            'agents': [], 'skills': [],
+            'members': {'agents': [], 'hooks': []},
             'norms': {'quality': ['Code review required']},
             'budget': {},
         })
@@ -329,7 +286,8 @@ class TestWorkgroupDetailEndpointReturnsFullData(unittest.TestCase):
 
         bridge = self._make_bridge_with_workgroup('coding', {
             'name': 'Coding', 'description': 'Implementation', 'lead': 'coding-lead',
-            'agents': [], 'skills': [], 'norms': {},
+            'members': {'agents': [], 'hooks': []},
+            'norms': {},
             'budget': {'daily_tokens': 1000.0},
         })
 

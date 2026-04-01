@@ -372,7 +372,7 @@ class Orchestrator:
             return None
 
         wg_dicts = [
-            {'name': wg.name, 'lead': wg.lead, 'agents': wg.agents}
+            {'name': wg.name, 'lead': wg.lead, 'agents': wg.members_agents}
             for wg in workgroups
         ]
         project_name = self.project_slug or os.path.basename(self.project_dir)

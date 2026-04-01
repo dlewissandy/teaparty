@@ -43,8 +43,8 @@ def _write_teaparty_yaml(home: str, teams: list[dict], workgroups: list[dict] | 
     data = {
         'name': 'Management Team',
         'lead': 'office-manager',
-        'agents': ['office-manager'],
-        'teams': teams,
+        'members': {'agents': ['office-manager'], 'projects': [t['name'] for t in teams]},
+        'projects': [{'name': t['name'], 'path': t['path'], 'config': ''} for t in teams],
         'workgroups': workgroups or [],
     }
     with open(os.path.join(home, 'teaparty.yaml'), 'w') as f:

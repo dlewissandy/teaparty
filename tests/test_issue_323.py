@@ -35,12 +35,10 @@ def _write_teaparty_yaml(home: str, teams: list[dict]) -> None:
         'name': 'Test Management Team',
         'description': '',
         'lead': '',
-        'decider': '',
-        'agents': [],
-        'humans': [],
-        'teams': teams,
+        'humans': {'decider': ''},
+        'members': {'agents': [], 'projects': [t['name'] for t in teams]},
+        'projects': [{'name': t['name'], 'path': t['path'], 'config': ''} for t in teams],
         'workgroups': [],
-        'skills': [],
     }
     with open(os.path.join(home, 'teaparty.yaml'), 'w') as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)

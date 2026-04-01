@@ -53,18 +53,18 @@ def _make_management_team(tmpdir, agents=None, humans=None, skills=None, hooks=N
     from orchestrator.config_reader import load_management_team
     teaparty_home = os.path.join(tmpdir, '.teaparty')
     os.makedirs(teaparty_home, exist_ok=True)
+    # humans accepts dict (new schema) or list (old schema, still handled by loader)
+    humans_block = humans or {'decider': 'Darrell'}
     data = {
         'name': 'Management Team',
         'description': 'Test org',
         'lead': 'Office Manager',
-        'decider': 'darrell',
-        'agents': agents or ['Office Manager', 'Auditor'],
-        'humans': humans or [{'name': 'Darrell', 'role': 'decider'}],
-        'skills': skills or ['sprint-plan', 'audit'],
+        'humans': humans_block,
+        'members': {'agents': agents or ['Office Manager', 'Auditor']},
         'hooks': hooks or [{'event': 'PreToolUse', 'matcher': 'Bash', 'type': 'command'}],
         'scheduled': scheduled or [{'name': 'nightly', 'schedule': '0 2 * * *', 'skill': 'audit', 'enabled': True}],
         'workgroups': workgroups or [],
-        'teams': [],
+        'projects': [],
     }
     with open(os.path.join(teaparty_home, 'teaparty.yaml'), 'w') as f:
         yaml.dump(data, f)
@@ -72,21 +72,25 @@ def _make_management_team(tmpdir, agents=None, humans=None, skills=None, hooks=N
 
 
 def _make_project_team(project_dir, agents=None, humans=None, skills=None, hooks=None, scheduled=None, workgroups=None):
-    """Write a project.yaml and return a loaded ProjectTeam."""
+    """Write a project.yaml and return a loaded ProjectTeam.
+
+    agents and skills params are accepted for backward compatibility but are
+    not written to YAML (project teams dispatch to workgroups, not direct agents).
+    """
     from orchestrator.config_reader import load_project_team
     tp_local = os.path.join(project_dir, '.teaparty.local')
     os.makedirs(tp_local, exist_ok=True)
+    # humans accepts dict (new schema) or list (old schema, still handled by loader)
+    humans_block = humans or [{'name': 'Alice', 'role': 'advisor'}]
     data = {
         'name': 'Test Project',
         'description': 'A test project',
         'lead': 'Project Lead',
-        'decider': 'darrell',
-        'agents': agents or ['Project Lead', 'Reviewer'],
-        'humans': humans or [{'name': 'Alice', 'role': 'advisor'}],
-        'skills': skills or ['fix-issue'],
+        'humans': humans_block,
         'hooks': hooks or [{'event': 'Stop', 'type': 'agent'}],
         'scheduled': scheduled or [{'name': 'health', 'schedule': '*/30 * * * *', 'skill': 'audit', 'enabled': True}],
         'workgroups': workgroups or [],
+        'members': {'workgroups': []},
     }
     with open(os.path.join(tp_local, 'project.yaml'), 'w') as f:
         yaml.dump(data, f)
@@ -97,11 +101,16 @@ def _make_workgroup_yaml(directory, name='Coding', lead='Coding Lead', agents=No
     """Write a workgroup YAML and return the path."""
     os.makedirs(directory, exist_ok=True)
     path = os.path.join(directory, f'{name.lower().replace(" ", "-")}.yaml')
+    # agents accepts list[dict] (old format) or list[str] (new format); normalize to str
+    if agents:
+        members_agents = [a['name'] if isinstance(a, dict) else a for a in agents]
+    else:
+        members_agents = ['developer']
     data = {
         'name': name,
         'description': f'{name} team',
         'lead': lead,
-        'agents': agents or [{'name': 'Developer', 'role': 'Specialist'}],
+        'members': {'agents': members_agents},
     }
     with open(path, 'w') as f:
         yaml.dump(data, f)
@@ -189,10 +198,10 @@ class TestProjectTeamSerialization(unittest.TestCase):
         result = self.bridge._serialize_project_team(self.team)
         self.assertIn('agents', result, '_serialize_project_team must include agents')
 
-    def test_serialized_project_team_agents_contains_names(self):
+    def test_serialized_project_team_agents_is_empty(self):
+        """Project teams dispatch to workgroups; agents is always [] in new schema."""
         result = self.bridge._serialize_project_team(self.team)
-        names = [a['name'] for a in result['agents']]
-        self.assertIn('Project Lead', names)
+        self.assertEqual(result['agents'], [])
 
     def test_serialized_project_team_includes_humans(self):
         result = self.bridge._serialize_project_team(self.team)
@@ -276,14 +285,12 @@ class TestConfigEndpointProjectSlug(unittest.IsolatedAsyncioTestCase):
             'name': 'Management Team',
             'description': 'Test org',
             'lead': 'Office Manager',
-            'decider': 'darrell',
-            'agents': [],
-            'humans': [],
-            'skills': [],
+            'humans': {'decider': 'darrell'},
+            'members': {'agents': []},
             'hooks': [],
             'scheduled': [],
             'workgroups': [],
-            'teams': [{'name': 'My Project', 'path': project_path}],
+            'projects': [{'name': 'My Project', 'path': project_path, 'config': ''}],
         }
         teaparty_home = os.path.join(self.tmpdir, '.teaparty')
         os.makedirs(teaparty_home, exist_ok=True)
@@ -341,10 +348,8 @@ class TestConfigProjectWorkgroupSourceTags(unittest.TestCase):
             'name': 'POC',
             'description': 'Test project',
             'lead': 'Project Lead',
-            'decider': 'darrell',
-            'agents': [],
-            'humans': [],
-            'skills': [],
+            'humans': {},
+            'members': {'workgroups': []},
             'hooks': [],
             'scheduled': [],
             'workgroups': [
@@ -535,7 +540,10 @@ class TestWorkgroupOverrideDetection(unittest.TestCase):
 # ── Agent source tags ─────────────────────────────────────────────────────────
 
 class TestAgentSourceTags(unittest.TestCase):
-    """_serialize_project_team must tag agents generated/shared/local."""
+    """Project teams have no direct agents in the new schema — agents is always [].
+
+    Agent source tagging now happens at the workgroup level via _serialize_workgroup.
+    """
 
     def setUp(self):
         self.tmpdir = _make_tmpdir()
@@ -546,52 +554,41 @@ class TestAgentSourceTags(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
-    def test_lead_agent_tagged_generated(self):
-        """Agent whose name equals team.lead must be tagged source='generated'."""
-        team = _make_project_team(
-            self.project_dir, agents=['Project Lead', 'Reviewer'], skills=[],
-        )
+    def test_project_team_agents_is_empty(self):
+        """Project teams dispatch to workgroups; agents is [] in the new schema."""
+        team = _make_project_team(self.project_dir)
         result = self.bridge._serialize_project_team(team)
-        by_name = {a['name']: a['source'] for a in result['agents']}
-        self.assertEqual(by_name['Project Lead'], 'generated')
+        self.assertEqual(result['agents'], [])
 
-    def test_org_agent_tagged_shared(self):
-        """Agent present in org agents list (but not the lead) must be tagged 'shared'."""
-        _make_management_team(self.tmpdir, agents=['Shared Reviewer', 'Other'])
-        team = _make_project_team(
-            self.project_dir, agents=['Project Lead', 'Shared Reviewer'], skills=[],
-        )
-        result = self.bridge._serialize_project_team(team, org_agents=['Shared Reviewer', 'Other'])
-        by_name = {a['name']: a['source'] for a in result['agents']}
-        self.assertEqual(by_name['Shared Reviewer'], 'shared')
-
-    def test_project_only_agent_tagged_local(self):
-        """Agent not in org agents and not the lead must be tagged 'local'."""
-        team = _make_project_team(
-            self.project_dir, agents=['Project Lead', 'Local Bot'], skills=[],
-        )
-        result = self.bridge._serialize_project_team(team, org_agents=['Office Manager'])
-        by_name = {a['name']: a['source'] for a in result['agents']}
-        self.assertEqual(by_name['Local Bot'], 'local')
-
-    def test_generated_takes_priority_over_shared(self):
-        """If the lead also appears in org agents, source is still 'generated'."""
-        team = _make_project_team(
-            self.project_dir, agents=['Project Lead'], skills=[],
-        )
-        result = self.bridge._serialize_project_team(team, org_agents=['Project Lead'])
-        by_name = {a['name']: a['source'] for a in result['agents']}
-        self.assertEqual(by_name['Project Lead'], 'generated')
-
-    def test_agents_returned_as_objects(self):
-        """Each agent entry must be a dict with 'name' and 'source' keys."""
-        team = _make_project_team(self.project_dir, agents=['Bot'], skills=[])
+    def test_project_team_agents_is_list(self):
+        """agents key must be present and a list (not missing)."""
+        team = _make_project_team(self.project_dir)
         result = self.bridge._serialize_project_team(team)
         self.assertIsInstance(result['agents'], list)
-        self.assertTrue(len(result['agents']) > 0)
-        agent = result['agents'][0]
-        self.assertIn('name', agent)
-        self.assertIn('source', agent)
+
+    def test_project_team_agents_empty_with_org_agents_param(self):
+        """Passing org_agents does not add agents to the project team serialization."""
+        team = _make_project_team(self.project_dir)
+        result = self.bridge._serialize_project_team(team, org_agents=['Org Agent'])
+        self.assertEqual(result['agents'], [])
+
+    def test_workgroup_agent_source_tagging_shared(self):
+        """Agents in org agent set are tagged 'shared' in _serialize_workgroup."""
+        from orchestrator.config_reader import Workgroup
+        wg = Workgroup(name='Coding', lead='Dev Lead', members_agents=['org-agent', 'local-agent'])
+        result = self.bridge._serialize_workgroup(wg, source='shared', detail=True,
+                                                  org_agents={'org-agent'})
+        by_name = {a['name']: a['source'] for a in result['agents']}
+        self.assertEqual(by_name['org-agent'], 'shared')
+
+    def test_workgroup_agent_source_tagging_local(self):
+        """Agents not in org agent set are tagged 'local' in _serialize_workgroup."""
+        from orchestrator.config_reader import Workgroup
+        wg = Workgroup(name='Coding', lead='Dev Lead', members_agents=['org-agent', 'local-agent'])
+        result = self.bridge._serialize_workgroup(wg, source='shared', detail=True,
+                                                  org_agents={'org-agent'})
+        by_name = {a['name']: a['source'] for a in result['agents']}
+        self.assertEqual(by_name['local-agent'], 'local')
 
 
 # ── Skill source tags ─────────────────────────────────────────────────────────
@@ -748,28 +745,23 @@ class TestConfigProjectHandlerEndToEnd(unittest.IsolatedAsyncioTestCase):
         self.assertIn('team', data)
         self.assertIn('workgroups', data)
 
-    async def test_handle_config_project_agents_have_source(self):
-        """All agents in the handler response must include a 'source' field."""
+    async def test_handle_config_project_agents_is_empty(self):
+        """Project teams dispatch to workgroups; team.agents is [] in new schema."""
         resp = await self.bridge._handle_config_project(self._call())
         data = json.loads(resp.body)
-        agents = data['team']['agents']
-        self.assertTrue(len(agents) > 0, 'Expected at least one agent')
-        for agent in agents:
-            self.assertIn('source', agent, f'Agent {agent.get("name")} missing source')
+        self.assertEqual(data['team']['agents'], [])
 
-    async def test_handle_config_project_lead_tagged_generated(self):
-        """Handler must tag the project lead agent as source='generated'."""
+    async def test_handle_config_project_agents_key_present(self):
+        """The agents key must be present (even as empty list) in handler response."""
         resp = await self.bridge._handle_config_project(self._call())
         data = json.loads(resp.body)
-        by_name = {a['name']: a['source'] for a in data['team']['agents']}
-        self.assertEqual(by_name.get('Project Lead'), 'generated')
+        self.assertIn('agents', data['team'])
 
-    async def test_handle_config_project_org_agent_tagged_shared(self):
-        """Handler must tag org-catalog agents as source='shared'."""
+    async def test_handle_config_project_workgroups_present(self):
+        """Handler response must include a workgroups key (agent dispatch is via workgroups)."""
         resp = await self.bridge._handle_config_project(self._call())
         data = json.loads(resp.body)
-        by_name = {a['name']: a['source'] for a in data['team']['agents']}
-        self.assertEqual(by_name.get('Org Agent'), 'shared')
+        self.assertIn('workgroups', data)
 
     async def test_handle_config_project_skills_have_source(self):
         """All skills in the handler response must include a 'source' field."""

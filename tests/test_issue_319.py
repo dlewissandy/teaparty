@@ -7,7 +7,7 @@ Acceptance criteria:
 3. load_project_team() reads from .teaparty.local/project.yaml by default
 4. _scaffold_project_yaml() creates .teaparty.local/project.yaml
 5. bridge/static/ exists at repo root and is served by bridge/__main__.py
-6. .teaparty/teaparty.yaml has TeaParty in teams:, darrell in humans:,
+6. .teaparty/teaparty.yaml has TeaParty in projects:, darrell in humans:,
    lead: office-manager, and Configuration workgroup
 7. .teaparty.local/project.yaml exists at repo root
 8. resolve_workgroups uses .teaparty.local/workgroups/ for project-level overrides
@@ -206,7 +206,7 @@ class TestScaffoldProjectYaml(unittest.TestCase):
         tp_dir = os.path.join(home, '.teaparty')
         os.makedirs(tp_dir)
         with open(os.path.join(tp_dir, 'teaparty.yaml'), 'w') as f:
-            yaml.dump({'name': 'Org', 'lead': 'boss', 'decider': 'boss', 'teams': []}, f)
+            yaml.dump({'name': 'Org', 'lead': 'boss', 'humans': {'decider': 'boss'}, 'members': {'agents': []}, 'projects': []}, f)
 
         add_project('TestProj', proj, teaparty_home=tp_dir)
 
@@ -229,7 +229,7 @@ class TestScaffoldProjectYaml(unittest.TestCase):
         tp_dir = os.path.join(home, '.teaparty')
         os.makedirs(tp_dir)
         with open(os.path.join(tp_dir, 'teaparty.yaml'), 'w') as f:
-            yaml.dump({'name': 'Org', 'lead': 'boss', 'decider': 'boss', 'teams': []}, f)
+            yaml.dump({'name': 'Org', 'lead': 'boss', 'humans': {'decider': 'boss'}, 'members': {'agents': []}, 'projects': []}, f)
 
         add_project('TestProj', proj, teaparty_home=tp_dir)
 
@@ -258,7 +258,7 @@ class TestScaffoldProjectYaml(unittest.TestCase):
         tp_dir = os.path.join(home, '.teaparty')
         os.makedirs(tp_dir)
         with open(os.path.join(tp_dir, 'teaparty.yaml'), 'w') as f:
-            yaml.dump({'name': 'Org', 'lead': 'boss', 'decider': 'boss', 'teams': []}, f)
+            yaml.dump({'name': 'Org', 'lead': 'boss', 'humans': {'decider': 'boss'}, 'members': {'agents': []}, 'projects': []}, f)
 
         add_project('TestProj', proj, teaparty_home=tp_dir)
 
@@ -319,20 +319,20 @@ class TestTeapartyYamlInvariants(unittest.TestCase):
             'teaparty.yaml must have lead: office-manager',
         )
 
-    def test_teaparty_registered_in_teams(self):
-        """teaparty.yaml must register TeaParty itself in teams:."""
+    def test_teaparty_registered_in_projects(self):
+        """teaparty.yaml must register TeaParty itself in projects:."""
         data = self._load_yaml()
-        teams = data.get('teams', [])
+        projects = data.get('projects', [])
         self.assertTrue(
-            any(t['name'] == 'TeaParty' for t in teams),
-            f'teaparty.yaml must register TeaParty in teams:; found: {[t["name"] for t in teams]}',
+            any(t['name'] == 'TeaParty' for t in projects),
+            f'teaparty.yaml must register TeaParty in projects:; found: {[t["name"] for t in projects]}',
         )
 
-    def test_no_stale_projects_poc_in_teams(self):
+    def test_no_stale_projects_poc_in_projects(self):
         """teaparty.yaml must not contain stale projects/POC entry."""
         data = self._load_yaml()
-        teams = data.get('teams', [])
-        stale = [t for t in teams if 'projects/POC' in t.get('path', '') or t.get('name') == 'POC']
+        projects = data.get('projects', [])
+        stale = [t for t in projects if 'projects/POC' in t.get('path', '') or t.get('name') == 'POC']
         self.assertEqual(
             stale,
             [],
@@ -340,13 +340,18 @@ class TestTeapartyYamlInvariants(unittest.TestCase):
         )
 
     def test_user_in_humans(self):
-        """teaparty.yaml must include at least one human."""
+        """teaparty.yaml humans: must be a dict with a decider key."""
         data = self._load_yaml()
-        humans = data.get('humans', [])
-        self.assertGreater(
-            len(humans),
-            0,
-            'teaparty.yaml must include at least one human in humans:',
+        humans = data.get('humans', {})
+        self.assertIsInstance(
+            humans,
+            dict,
+            'teaparty.yaml humans: must be a dict (new schema)',
+        )
+        self.assertIn(
+            'decider',
+            humans,
+            'teaparty.yaml humans: must include a decider',
         )
 
     def test_configuration_workgroup_present(self):
@@ -486,10 +491,10 @@ class TestResolveWorkgroupsLocalPath(unittest.TestCase):
 # ── Relative team path resolution ─────────────────────────────────────────────
 
 class TestRelativeTeamPathResolution(unittest.TestCase):
-    """teams: entries with relative paths must be resolved relative to teaparty_home parent."""
+    """projects: entries with relative paths must be resolved relative to teaparty_home parent."""
 
     def test_relative_team_path_resolved_to_repo_root(self):
-        """A teams: entry with path '.' resolves to the repo root directory."""
+        """A projects: entry with path '.' resolves to the repo root directory."""
         import yaml
         from orchestrator.config_reader import load_management_team, discover_projects
 
@@ -504,8 +509,9 @@ class TestRelativeTeamPathResolution(unittest.TestCase):
             yaml.dump({
                 'name': 'Org',
                 'lead': 'boss',
-                'decider': 'boss',
-                'teams': [{'name': 'Self', 'path': '.'}],
+                'humans': {'decider': 'boss'},
+                'members': {'agents': []},
+                'projects': [{'name': 'Self', 'path': '.', 'config': ''}],
             }, f)
 
         team = load_management_team(teaparty_home=tp_dir)
