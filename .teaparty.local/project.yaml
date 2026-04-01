@@ -1,10 +1,13 @@
 name: TeaParty
 description: Research platform for durable, scalable agent coordination.
 lead: office-manager
-decider: darrell
-agents: []
 humans:
-  - name: darrell
-    role: decider
-workgroups: []
-skills: []
+  decider: darrell
+workgroups:
+  - name: Coding
+    config: .teaparty/workgroups/coding.yaml
+  - name: Configuration
+    config: .teaparty/workgroups/configuration.yaml
+members:
+  workgroups:
+    - Coding

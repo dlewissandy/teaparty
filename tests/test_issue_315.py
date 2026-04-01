@@ -277,59 +277,52 @@ class TestWorkgroupConfigurationYaml(unittest.TestCase):
 
 class TestLiveConfigurationWorkgroup(unittest.TestCase):
     """.teaparty/workgroups/configuration.yaml must reflect the current agent
-    roster and the full skills catalog."""
+    roster. Skills are per-agent in the new schema (workgroup-model proposal),
+    not listed at the workgroup level."""
 
     def setUp(self):
         self.data = yaml.safe_load(_LIVE_CONFIG_YAML.read_text())
 
-    def test_live_config_has_six_agents(self):
-        """Configuration Team must have 6 agents: lead + 5 specialists."""
-        agents = self.data.get('agents', [])
+    def _member_agents(self):
+        return self.data.get('members', {}).get('agents', [])
+
+    def test_live_config_has_five_member_agents(self):
+        """Configuration Team must have 5 member agents (lead is not listed in members)."""
+        agents = self._member_agents()
         self.assertEqual(
-            len(agents), 6,
-            f'Expected 6 agents (lead + 5 specialists), got {len(agents)}: '
-            f'{[a["name"] for a in agents]}',
+            len(agents), 5,
+            f'Expected 5 member agents (lead excluded per spec), got {len(agents)}: {agents}',
         )
 
     def test_live_config_includes_project_specialist(self):
-        """Live config must include Project Specialist."""
-        names = [a['name'] for a in self.data.get('agents', [])]
-        self.assertIn('Project Specialist', names)
+        """Live config must include project-specialist."""
+        self.assertIn('project-specialist', self._member_agents())
 
     def test_live_config_includes_workgroup_specialist(self):
-        """Live config must include Workgroup Specialist."""
-        names = [a['name'] for a in self.data.get('agents', [])]
-        self.assertIn('Workgroup Specialist', names)
+        """Live config must include workgroup-specialist."""
+        self.assertIn('workgroup-specialist', self._member_agents())
 
     def test_live_config_includes_agent_specialist(self):
-        """Live config must include Agent Specialist."""
-        names = [a['name'] for a in self.data.get('agents', [])]
-        self.assertIn('Agent Specialist', names)
+        """Live config must include agent-specialist."""
+        self.assertIn('agent-specialist', self._member_agents())
 
     def test_live_config_includes_skills_specialist(self):
-        """Live config must include Skills Specialist."""
-        names = [a['name'] for a in self.data.get('agents', [])]
-        self.assertIn('Skills Specialist', names)
+        """Live config must include skills-specialist."""
+        self.assertIn('skills-specialist', self._member_agents())
 
     def test_live_config_does_not_use_old_names(self):
         """Old agent names must not appear in the live config."""
-        names = [a['name'] for a in self.data.get('agents', [])]
-        self.assertNotIn('Skill Architect', names)
-        self.assertNotIn('Agent Designer', names)
+        self.assertNotIn('skill-architect', self._member_agents())
+        self.assertNotIn('agent-designer', self._member_agents())
 
-    def test_live_config_skills_catalog_includes_optimize_skill(self):
-        """optimize-skill must be in the live catalog (it is a distinct operation)."""
-        skills = self.data.get('skills', [])
-        self.assertIn(
-            'optimize-skill', skills,
-            'optimize-skill is a distinct operation from edit-skill and must be in the catalog',
+    def test_live_config_has_no_workgroup_level_skills(self):
+        """Skills are per-agent (workgroup-model proposal); workgroup YAML must not
+        have a top-level skills: key."""
+        self.assertNotIn(
+            'skills', self.data,
+            'configuration.yaml must not have a workgroup-level skills: — '
+            'skills are selected per agent on the agent config screen',
         )
-
-    def test_live_config_skills_catalog_includes_scheduled_task_ops(self):
-        """The live catalog must include scheduled-task CRUD skills."""
-        skills = self.data.get('skills', [])
-        for skill in ('create-scheduled-task', 'edit-scheduled-task', 'remove-scheduled-task'):
-            self.assertIn(skill, skills, f'live config must include {skill!r}')
 
 
 # ── Criterion: existing .claude/agents/ definitions ──────────────────────────

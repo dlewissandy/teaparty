@@ -319,20 +319,20 @@ class TestTeapartyYamlInvariants(unittest.TestCase):
             'teaparty.yaml must have lead: office-manager',
         )
 
-    def test_teaparty_registered_in_teams(self):
-        """teaparty.yaml must register TeaParty itself in teams:."""
+    def test_teaparty_registered_in_projects(self):
+        """teaparty.yaml must register TeaParty itself in projects:."""
         data = self._load_yaml()
-        teams = data.get('teams', [])
+        projects = data.get('projects', [])
         self.assertTrue(
-            any(t['name'] == 'TeaParty' for t in teams),
-            f'teaparty.yaml must register TeaParty in teams:; found: {[t["name"] for t in teams]}',
+            any(t['name'] == 'TeaParty' for t in projects),
+            f'teaparty.yaml must register TeaParty in projects:; found: {[t["name"] for t in projects]}',
         )
 
-    def test_no_stale_projects_poc_in_teams(self):
+    def test_no_stale_projects_poc_in_projects(self):
         """teaparty.yaml must not contain stale projects/POC entry."""
         data = self._load_yaml()
-        teams = data.get('teams', [])
-        stale = [t for t in teams if 'projects/POC' in t.get('path', '') or t.get('name') == 'POC']
+        projects = data.get('projects', [])
+        stale = [t for t in projects if 'projects/POC' in t.get('path', '') or t.get('name') == 'POC']
         self.assertEqual(
             stale,
             [],

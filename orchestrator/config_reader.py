@@ -119,9 +119,19 @@ class ProjectTeam:
 
 # ── Parsers ──────────────────────────────────────────────────────────────────
 
-def _parse_humans(raw: list[dict] | None) -> list[Human]:
+def _parse_humans(raw: list[dict] | dict | None) -> list[Human]:
     if not raw:
         return []
+    if isinstance(raw, dict):
+        # New schema: {decider: name, advisors: [...], inform: [...]}
+        result: list[Human] = []
+        if 'decider' in raw:
+            result.append(Human(name=raw['decider'], role='decider'))
+        for name in raw.get('advisors', []) or []:
+            result.append(Human(name=name, role='advisor'))
+        for name in raw.get('inform', []) or []:
+            result.append(Human(name=name, role='informed'))
+        return result
     return [Human(name=h['name'], role=h['role']) for h in raw]
 
 

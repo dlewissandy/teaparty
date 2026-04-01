@@ -2,32 +2,29 @@ name: Management Team
 description: Cross-project coordination, human interaction, organizational strategy,
   and configuration management.
 lead: office-manager
-decider: darrell
-agents:
-- office-manager
-- auditor
-- researcher
-- strategist
 humans:
-- name: darrell
-  role: decider
-teams:
-- name: TeaParty
-  path: .
-- name: pybayes
-  path: /Users/darrell/git/pybayes
-- name: Jainai
-  path: /Users/darrell/git/jainai
+  decider: darrell
+projects:
+  - name: TeaParty
+    path: .
+    config: .teaparty/project.yaml
+  - name: pybayes
+    path: /Users/darrell/git/pybayes
+    config: .teaparty/project.yaml
+  - name: Jainai
+    path: /Users/darrell/git/jainai
+    config: .teaparty/project.yaml
+members:
+  projects:
+    - TeaParty
+    - pybayes
+    - Jainai
+  agents:
+    - auditor
+    - researcher
+    - strategist
 workgroups:
-- name: Configuration
-  config: workgroups/configuration.yaml
-  status: active
-skills:
-- sprint-plan
-- audit
-- close-milestone
-- fix-issue
-- refine
-- research
+  - name: Configuration
+    config: workgroups/configuration.yaml
 stats:
   storage: .teaparty/stats/management.json
