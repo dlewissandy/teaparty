@@ -427,14 +427,17 @@ def resolve_workgroups(
                     f"{project_path} or {org_path}"
                 )
         elif isinstance(entry, WorkgroupEntry):
-            # config path is relative to the project's .teaparty.local/ dir
-            config_path = os.path.join(project_dir, '.teaparty.local', entry.config)
-            if os.path.exists(config_path):
-                resolved.append(load_workgroup(config_path))
+            # New schema: config path is repo-root-relative (e.g. .teaparty/workgroups/coding.yaml)
+            # Fall back to .teaparty.local/-relative (old schema) then org-level
+            repo_root_path = os.path.join(project_dir, entry.config)
+            legacy_path = os.path.join(project_dir, '.teaparty.local', entry.config)
+            org_path = os.path.join(home, entry.config)
+            if os.path.exists(repo_root_path):
+                resolved.append(load_workgroup(repo_root_path))
+            elif os.path.exists(legacy_path):
+                resolved.append(load_workgroup(legacy_path))
             else:
-                # Try org-level
-                config_path = os.path.join(home, entry.config)
-                resolved.append(load_workgroup(config_path))
+                resolved.append(load_workgroup(org_path))
 
     return resolved
 

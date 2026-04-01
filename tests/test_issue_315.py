@@ -153,124 +153,108 @@ class TestProposalDocumentsEnforcement(unittest.TestCase):
 # ── Criterion 4: workgroup-coding.yaml catalog vs allowlist distinction ───────
 
 class TestWorkgroupCodingYamlCatalogComment(unittest.TestCase):
-    """workgroup-coding.yaml must have a comment distinguishing the workgroup-level
-    skills: field (catalog for dispatch) from the agent-level skills: allowlist."""
+    """workgroup-coding.yaml must NOT have a workgroup-level skills: field.
+    Per the workgroup-model proposal, skills are selected per agent, not per workgroup."""
 
     def setUp(self):
         self.content = _WG_CODING_YAML.read_text()
+        self.data = yaml.safe_load(self.content)
 
     def test_comment_clarifies_skills_is_not_access_control(self):
-        """The skills: section must be preceded by a comment stating it is NOT an ACL."""
-        # The comment must make clear this is catalog/dispatch context, not access control.
-        # Check for either "NOT an access control" or "not an access control" phrasing.
-        has_clarification = (
-            'NOT an access control' in self.content
-            or 'not an access control' in self.content
-            or 'catalog' in self.content.lower()
-        )
-        self.assertTrue(
-            has_clarification,
-            'workgroup-coding.yaml must have a comment clarifying that the workgroup-level '
-            'skills: is a catalog/dispatch list, not an access control list. '
-            'Per-agent access is controlled by skills: in each agent definition.',
+        """workgroup-coding.yaml must not have a top-level skills: field.
+        Skills are per-agent in the new schema — no workgroup-level skills list."""
+        self.assertNotIn(
+            'skills',
+            self.data,
+            'workgroup-coding.yaml must not have a top-level skills: field '
+            '(per workgroup-model proposal: skills are selected per agent)',
         )
 
     def test_comment_points_to_agent_definitions_for_per_agent_access(self):
-        """The comment must point readers to per-agent agent definitions for access control."""
-        has_pointer = (
-            'agent' in self.content.lower() and
-            ('definition' in self.content.lower() or 'allowlist' in self.content.lower())
-        )
-        self.assertTrue(
-            has_pointer,
-            'workgroup-coding.yaml comment must direct readers to agent definitions '
-            'for per-agent skill access control',
+        """workgroup-coding.yaml must use members.agents (new schema), not flat agents:."""
+        members = self.data.get('members', {})
+        self.assertIn(
+            'agents',
+            members,
+            'workgroup-coding.yaml must have members.agents (new schema)',
         )
 
 
 # ── Criterion 5: workgroup-configuration.yaml catalog vs allowlist + roster ───
 
 class TestWorkgroupConfigurationYaml(unittest.TestCase):
-    """workgroup-configuration.yaml must have the updated agent roster and
-    the catalog-vs-allowlist distinction."""
+    """workgroup-configuration.yaml must have the updated agent roster in members.agents
+    and must NOT have a workgroup-level skills: field (new schema: skills are per-agent)."""
 
     def setUp(self):
         self.content = _WG_CONFIG_YAML.read_text()
         self.data = yaml.safe_load(self.content)
 
+    def _member_agents(self):
+        return self.data.get('members', {}).get('agents', [])
+
     def test_comment_clarifies_skills_is_not_access_control(self):
-        """The skills: section must be preceded by a comment that it is NOT an ACL."""
-        has_clarification = (
-            'NOT an access control' in self.content
-            or 'not an access control' in self.content
-            or 'catalog' in self.content.lower()
-        )
-        self.assertTrue(
-            has_clarification,
-            'workgroup-configuration.yaml must have a comment clarifying that the '
-            'workgroup-level skills: is not an access control list',
+        """workgroup-configuration.yaml must not have a top-level skills: field.
+        Per the workgroup-model proposal, skills are selected per agent."""
+        self.assertNotIn(
+            'skills',
+            self.data,
+            'workgroup-configuration.yaml must not have a top-level skills: field '
+            '(per workgroup-model proposal: skills are selected per agent)',
         )
 
     def test_agent_roster_includes_project_specialist(self):
-        """Configuration Team roster must include Project Specialist."""
-        names = [a['name'] for a in self.data.get('agents', [])]
+        """Configuration Team roster must include project-specialist in members.agents."""
+        agents = self._member_agents()
         self.assertIn(
-            'Project Specialist', names,
-            f'workgroup-configuration.yaml agents must include Project Specialist, got: {names}',
+            'project-specialist', agents,
+            f'workgroup-configuration.yaml members.agents must include project-specialist, got: {agents}',
         )
 
     def test_agent_roster_includes_workgroup_specialist(self):
-        """Configuration Team roster must include Workgroup Specialist."""
-        names = [a['name'] for a in self.data.get('agents', [])]
+        """Configuration Team roster must include workgroup-specialist in members.agents."""
+        agents = self._member_agents()
         self.assertIn(
-            'Workgroup Specialist', names,
-            f'workgroup-configuration.yaml agents must include Workgroup Specialist, got: {names}',
+            'workgroup-specialist', agents,
+            f'workgroup-configuration.yaml members.agents must include workgroup-specialist, got: {agents}',
         )
 
     def test_agent_roster_includes_agent_specialist(self):
-        """Configuration Team roster must include Agent Specialist."""
-        names = [a['name'] for a in self.data.get('agents', [])]
+        """Configuration Team roster must include agent-specialist in members.agents."""
+        agents = self._member_agents()
         self.assertIn(
-            'Agent Specialist', names,
-            f'workgroup-configuration.yaml agents must include Agent Specialist, got: {names}',
+            'agent-specialist', agents,
+            f'workgroup-configuration.yaml members.agents must include agent-specialist, got: {agents}',
         )
 
     def test_agent_roster_includes_skills_specialist(self):
-        """Configuration Team roster must include Skills Specialist."""
-        names = [a['name'] for a in self.data.get('agents', [])]
+        """Configuration Team roster must include skills-specialist in members.agents."""
+        agents = self._member_agents()
         self.assertIn(
-            'Skills Specialist', names,
-            f'workgroup-configuration.yaml agents must include Skills Specialist, got: {names}',
+            'skills-specialist', agents,
+            f'workgroup-configuration.yaml members.agents must include skills-specialist, got: {agents}',
         )
 
     def test_agent_roster_does_not_use_old_names(self):
-        """Old agent names (Skill Architect, Agent Designer) must not appear."""
-        names = [a['name'] for a in self.data.get('agents', [])]
+        """Old agent names (skill-architect, agent-designer) must not appear in members.agents."""
+        agents = self._member_agents()
         self.assertNotIn(
-            'Skill Architect', names,
-            'workgroup-configuration.yaml must use Skills Specialist, not Skill Architect',
+            'skill-architect', agents,
+            'workgroup-configuration.yaml must use skills-specialist, not skill-architect',
         )
         self.assertNotIn(
-            'Agent Designer', names,
-            'workgroup-configuration.yaml must use Agent Specialist, not Agent Designer',
+            'agent-designer', agents,
+            'workgroup-configuration.yaml must use agent-specialist, not agent-designer',
         )
 
     def test_skills_catalog_includes_full_crud_surface(self):
-        """The workgroup-level skills catalog must list all CRUD skills for all domains."""
-        skills = self.data.get('skills', [])
-        expected = [
-            'create-project', 'edit-project', 'remove-project',
-            'create-workgroup', 'edit-workgroup', 'remove-workgroup',
-            'create-agent', 'edit-agent', 'remove-agent',
-            'create-skill', 'edit-skill', 'remove-skill', 'optimize-skill',
-            'create-hook', 'edit-hook', 'remove-hook',
-            'create-scheduled-task', 'edit-scheduled-task', 'remove-scheduled-task',
-        ]
-        for skill in expected:
-            self.assertIn(
-                skill, skills,
-                f'workgroup-configuration.yaml skills catalog must include {skill!r}',
-            )
+        """Per the workgroup-model proposal, skills are per-agent — no workgroup-level skills: field."""
+        self.assertNotIn(
+            'skills',
+            self.data,
+            'workgroup-configuration.yaml must not have a top-level skills: field '
+            '(skills are per-agent, not per-workgroup)',
+        )
 
 
 # ── Criterion 6: .teaparty/workgroups/configuration.yaml live config ─────────

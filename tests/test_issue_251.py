@@ -514,7 +514,7 @@ class TestDesignDocExamples(unittest.TestCase):
             self.skipTest('Example YAML not found')
         team = load_management_team(teaparty_home=str(path.parent), config_filename=str(path.name))
         self.assertEqual(team.name, 'Management Team')
-        self.assertIn('office-manager', team.agents)
+        self.assertEqual(team.lead, 'office-manager')
         self.assertEqual(len(team.humans), 2)
 
     def test_load_project_yaml_example(self):
@@ -523,7 +523,7 @@ class TestDesignDocExamples(unittest.TestCase):
             self.skipTest('Example YAML not found')
         team = load_project_team(str(path.parent.parent), config_path=str(path))
         self.assertEqual(team.name, 'My Backend')
-        self.assertIn('project-lead', team.agents)
+        self.assertEqual(team.lead, 'project-lead')
 
     def test_load_workgroup_yaml_example(self):
         path = self._example_path('workgroup-coding.yaml')

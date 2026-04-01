@@ -340,13 +340,18 @@ class TestTeapartyYamlInvariants(unittest.TestCase):
         )
 
     def test_user_in_humans(self):
-        """teaparty.yaml must include at least one human."""
+        """teaparty.yaml humans: must be a dict with a decider key."""
         data = self._load_yaml()
-        humans = data.get('humans', [])
-        self.assertGreater(
-            len(humans),
-            0,
-            'teaparty.yaml must include at least one human in humans:',
+        humans = data.get('humans', {})
+        self.assertIsInstance(
+            humans,
+            dict,
+            'teaparty.yaml humans: must be a dict (new schema)',
+        )
+        self.assertIn(
+            'decider',
+            humans,
+            'teaparty.yaml humans: must include a decider',
         )
 
     def test_configuration_workgroup_present(self):
