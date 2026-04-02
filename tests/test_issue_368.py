@@ -197,9 +197,9 @@ class TestRenderWorkgroupHasHooksPanel(unittest.TestCase):
     def test_renderWorkgroup_hooks_have_toggles_for_click_to_toggle(self):
         """renderWorkgroup Hooks items must have toggles that call toggleMembership with type 'hook'."""
         body = _extract_render_workgroup_body(_get_config_html())
-        self.assertIn(
-            "'hook'",
-            body,
+        # In the HTML source the type string is escape-quoted as \'hook\' (JS inside a string literal)
+        self.assertTrue(
+            "'hook'" in body or "\\'hook\\'" in body,
             "renderWorkgroup() Hooks items must call toggleMembership with type 'hook' for click-to-toggle"
         )
 

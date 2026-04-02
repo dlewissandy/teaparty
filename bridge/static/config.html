@@ -530,6 +530,10 @@ async function renderProject(slug) {
     '</div>';
 }
 
+var _currentWgName = null;
+var _currentWgProjectSlug = null;
+var _currentWgArtifacts = [];
+
 async function renderWorkgroup(name, projectSlug) {
   showLoading();
   var url = '/api/workgroups/' + encodeURIComponent(name);
@@ -547,9 +551,18 @@ async function renderWorkgroup(name, projectSlug) {
     return;
   }
 
+  _currentWgName = name;
+  _currentWgProjectSlug = projectSlug || null;
+  _currentWgArtifacts = (wgData.artifacts || []).slice();
+
   document.title = 'TeaParty \u2014 ' + name + ' Workgroup';
 
-  var agentItems = (wgData.agents || []).map(function(a) {
+  var leadItems = [];
+  if (wgData.lead) {
+    leadItems.push('<div class="item"><div class="item-icon icon-member">&#9733;</div><div class="item-body"><div class="item-title">' + wgData.lead + '</div><div class="item-meta">workgroup lead</div></div></div>');
+  }
+
+  var memberItems = (wgData.agents || []).map(function(a) {
     var aName = a.name;
     var isActive = a.active !== false;
     var src = sourceBadge(a.source);
@@ -559,25 +572,59 @@ async function renderWorkgroup(name, projectSlug) {
     return '<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-member">&#9672;</div><div class="item-body"><div class="item-title">' + aName + ' ' + src + '</div><div class="item-meta">' + (a.role || '') + (a.model ? ' &middot; ' + a.model : '') + '</div></div>' + toggle + '</div>';
   });
 
-  var participantItems = (wgData.humans || []).map(function(h) {
+  var hookItems = (wgData.hooks || []).map(function(h) {
+    var isActive = h.active !== false;
+    var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
+    var toggle = '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleMembership(\'wg:' + name + '\', \'hook\', \'' + (h.event || '') + '\', ' + !isActive + ', \'' + (projectSlug || '') + '\')"></span>';
+    return '<div class="item' + cls + '"><div class="item-icon icon-hook">&#9889;</div><div class="item-body"><div class="item-title">' + (h.event || '') + (h.matcher ? ' [' + h.matcher + ']' : '') + '</div><div class="item-meta">' + (h.type || '') + '</div></div>' + toggle + '</div>';
+  });
+
+  var humanItems = (wgData.humans || []).map(function(h) {
     var sel = ['decider','advisor','inform','none'].map(function(r) {
       return '<option value="' + r + '"' + (h.role === r ? ' selected' : '') + '>' + r + '</option>';
     }).join('');
     return '<div class="item"><div class="item-icon icon-member">&#9786;</div><div class="item-body"><div class="item-title">' + h.name + '</div></div><select class="role-select" onchange="setParticipantRole(\'wg:' + name + '\',\'' + h.name + '\',this.value,\'' + (projectSlug || '') + '\')">' + sel + '</select></div>';
   });
 
-  var artifactItems = [];
-  var norms = wgData.norms || {};
-  Object.keys(norms).forEach(function(category) {
-    artifactItems.push('<div class="item-group-heading">' + category + '</div>');
-    (norms[category] || []).forEach(function(rule) {
-      artifactItems.push('<div class="item"><div class="item-icon icon-hook">&#9679;</div><div class="item-body"><div class="item-title">' + rule + '</div></div></div>');
-    });
-  });
-  (wgData.artifacts || []).forEach(function(a) {
+  var artifactItems = (wgData.artifacts || []).map(function(a) {
     var label = typeof a === 'object' ? (a.label || a.path || a) : a;
-    artifactItems.push('<div class="item"><div class="item-icon" style="background:rgba(78,204,163,0.15);color:var(--green)">&#9654;</div><div class="item-body"><div class="item-title">' + label + '</div></div></div>');
+    var path = typeof a === 'object' ? (a.path || '') : a;
+    var unpin = '<span class="catalog-toggle toggle-on" onclick="event.stopPropagation();unpinWorkgroupArtifact(\'' + path.replace(/\\/g, '\\\\').replace(/'/g, "\\'") + '\')"></span>';
+    return '<div class="item item-catalog-active"><div class="item-icon" style="background:rgba(78,204,163,0.15);color:var(--green)">&#9654;</div><div class="item-body"><div class="item-title">' + label + '</div><div class="item-meta">' + path + '</div></div>' + unpin + '</div>';
   });
+
+  var contextSection = '';
+  if (!projectSlug) {
+    try {
+      var cfgResp = await fetch('/api/config');
+      if (cfgResp.ok) {
+        var cfgData = await cfgResp.json();
+        var projectItems = (cfgData.projects || []).map(function(p) {
+          var isActive = p.active !== false;
+          var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
+          var cardClick = ' onclick="configNav(\'project\',\'' + p.name + '\')" style="cursor:pointer"';
+          var toggle = '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleMembership(\'global\', \'project\', \'' + p.name + '\', ' + !isActive + ')"></span>';
+          return '<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-project">&#9654;</div><div class="item-body"><div class="item-title">' + p.name + '</div><div class="item-meta">' + (p.path || '') + '</div></div>' + toggle + '</div>';
+        });
+        contextSection = sectionCard('Projects', projectItems, { empty: 'No projects' });
+      }
+    } catch (e) { }
+  } else {
+    try {
+      var prjResp = await fetch('/api/config/' + encodeURIComponent(projectSlug));
+      if (prjResp.ok) {
+        var prjData = await prjResp.json();
+        var subwgItems = (prjData.workgroups || []).map(function(w) {
+          var isActive = w.active === true;
+          var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
+          var cardClick = ' onclick="configNav(\'workgroup\',\'' + w.name + '\',\'' + projectSlug + '\')" style="cursor:pointer"';
+          var toggle = '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleMembership(\'' + projectSlug + '\', \'workgroup\', \'' + w.name + '\', ' + !isActive + ')"></span>';
+          return '<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-workgroup">&#9670;</div><div class="item-body"><div class="item-title">' + w.name + '</div><div class="item-meta">' + (w.lead || '') + '</div></div>' + toggle + '</div>';
+        });
+        contextSection = sectionCard('Workgroups', subwgItems, { empty: 'No workgroups' });
+      }
+    } catch (e) { }
+  }
 
   var breadcrumb = '<div class="breadcrumb-bar"><a onclick="configNav(\'global\')" style="cursor:pointer">Global Config</a>';
   if (projectSlug) {
@@ -586,17 +633,35 @@ async function renderWorkgroup(name, projectSlug) {
   breadcrumb += ' <span>/</span> <a>' + name + '</a></div>';
 
   var sections = '<div class="sections">' +
-    sectionCard('Agents', agentItems, { addBtn: true, catalogBtn: true, empty: 'No agents' }) +
-    sectionCard('Participants', participantItems) +
-    sectionCard('Artifacts', artifactItems, { empty: 'No artifacts' }) +
+    sectionCard('Lead', leadItems, { empty: 'No lead assigned' }) +
+    sectionCard('Members', memberItems, { addBtn: true, catalogBtn: true, empty: 'No members' }) +
+    sectionCard('Hooks', hookItems, { addBtn: true, empty: 'No hooks' }) +
+    sectionCard('Humans', humanItems, { empty: 'No humans' }) +
+    sectionCard('Artifacts', artifactItems, { addBtn: true, empty: 'No artifacts' }) +
+    contextSection +
   '</div>';
 
   document.getElementById('content').innerHTML =
     breadcrumb +
     '<div class="pane-title">' + name + '</div>' +
     '<div class="pane-description">' + (wgData.description || '') + '</div>' +
-    '<div class="pane-subtitle">Lead: ' + (wgData.lead || '') + ' &middot; ' + (wgData.agents_count || 0) + ' agents</div>' +
+    '<div class="pane-subtitle">Lead: ' + (wgData.lead || '') + ' &middot; ' + (wgData.agents_count || 0) + ' members</div>' +
     sections;
+}
+
+async function unpinWorkgroupArtifact(path) {
+  var updated = (_currentWgArtifacts || []).filter(function(a) {
+    var p = typeof a === 'object' ? (a.path || '') : a;
+    return p !== path;
+  });
+  var url = '/api/workgroups/' + encodeURIComponent(_currentWgName);
+  if (_currentWgProjectSlug) url += '?project=' + encodeURIComponent(_currentWgProjectSlug);
+  await fetch(url, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({artifacts: updated}),
+  });
+  renderWorkgroup(_currentWgName, _currentWgProjectSlug);
 }
 
 var urlParams = new URLSearchParams(window.location.search);

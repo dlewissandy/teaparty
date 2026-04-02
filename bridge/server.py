@@ -737,6 +737,10 @@ class TeaPartyBridge:
             if not isinstance(body['hooks'], list):
                 return web.json_response({'error': 'hooks must be a list'}, status=400)
             members['hooks'] = body['hooks']
+        if 'artifacts' in body:
+            if not isinstance(body['artifacts'], list):
+                return web.json_response({'error': 'artifacts must be a list'}, status=400)
+            data['artifacts'] = body['artifacts']
         with open(yaml_path, 'w') as f:
             yaml.dump(data, f, default_flow_style=False, sort_keys=False)
         wg = load_workgroup(yaml_path)
