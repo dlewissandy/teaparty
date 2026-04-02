@@ -124,7 +124,10 @@ class TestManagementTeamAgentsHaveFilePath(unittest.TestCase):
             self.assertIn('file', a, f'Agent entry missing "file": {a}')
 
     def test_agent_file_points_to_agents_md(self):
-        """Agent 'file' must be absolute path to .claude/agents/{name}.md at repo root."""
+        """Agent 'file' must be absolute path to .claude/agents/{name}.md when definition exists."""
+        agents_dir = os.path.join(self.tmp, '.claude', 'agents')
+        _make_agent_file(agents_dir, 'office-manager')
+        _make_agent_file(agents_dir, 'auditor')
         result = self.bridge._serialize_management_team(
             self.team, discovered_skills=[], teaparty_home=self.teaparty_home
         )
@@ -134,11 +137,15 @@ class TestManagementTeamAgentsHaveFilePath(unittest.TestCase):
                 f'Agent {a["name"]} file path mismatch')
 
     def test_agent_file_is_absolute_path(self):
-        """Agent file path must be absolute."""
+        """Agent file path must be absolute when definition exists on disk."""
+        agents_dir = os.path.join(self.tmp, '.claude', 'agents')
+        _make_agent_file(agents_dir, 'office-manager')
+        _make_agent_file(agents_dir, 'auditor')
         result = self.bridge._serialize_management_team(
             self.team, discovered_skills=[], teaparty_home=self.teaparty_home
         )
         for a in result['agents']:
+            self.assertIsNotNone(a['file'], f'Agent {a["name"]} file must not be None when .md exists')
             self.assertTrue(os.path.isabs(a['file']),
                 f'Agent file path must be absolute: {a["file"]}')
 
