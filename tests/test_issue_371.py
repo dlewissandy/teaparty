@@ -125,16 +125,17 @@ class TestConfigHtmlBladePresentAndCollapsed(unittest.TestCase):
         self.assertRegex(self.source, r'function\s+toggleBlade\s*\(',
             'config.html must define a toggleBlade() function')
 
-    def test_blade_has_message_area(self):
-        """The blade body must contain a messages display area."""
-        self.assertIn('blade-messages', self.source,
-            'Blade must contain a messages area (id or class "blade-messages")')
+    def test_blade_has_iframe(self):
+        """The blade body must embed chat.html via an iframe rather than re-implementing the chat UI."""
+        self.assertIn('blade-iframe', self.source,
+            'Blade must embed chat.html in an iframe (id "blade-iframe") — do not re-implement chat UI')
 
-    def test_blade_has_input_area(self):
-        """The blade body must contain a text input for sending messages."""
-        # Look for an input/textarea within blade context
-        self.assertIn('blade-input', self.source,
-            'Blade must contain an input element (id "blade-input")')
+    def test_blade_iframe_loads_chat_html(self):
+        """The blade iframe must point to chat.html with minimal=1 to suppress the navigator."""
+        self.assertIn('chat.html', self.source,
+            'Blade iframe must load chat.html')
+        self.assertIn('minimal=1', self.source,
+            'Blade iframe URL must include minimal=1 to suppress the chat navigator')
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

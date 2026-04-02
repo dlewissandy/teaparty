@@ -46,6 +46,7 @@ var convId = params.get('conv') || '';
 var convProjectName = params.get('name') || '';
 var selectedItem = params.get('task') || params.get('session') || null;
 var seedMessage = params.get('seed') || '';
+var minimal = params.get('minimal') === '1';
 
 // ── Determine chat type from conv ID prefix ───────────────────────────────────
 // job:{project}:{session_id}               → job chat (task sidebar)
@@ -440,7 +441,7 @@ function renderJobLayout() {
     'color:var(--red);padding:3px 10px;border-radius:3px;cursor:pointer;font-family:inherit;font-size:9px">Withdraw</button>' +
     '</div>';
 
-  renderMainArea(navHtml, headerTitle, headerScope, headerActions);
+  renderMainArea(minimal ? '' : navHtml, headerTitle, headerScope, headerActions);
 }
 
 function buildParticipantNavHtml() {
@@ -480,7 +481,7 @@ function renderParticipantLayout() {
     headerScope = sParts.length > 1 ? sParts.slice(1).join(':') : selectedItem;
   }
   document.title = 'TeaParty — ' + headerTitle;
-  renderMainArea(buildParticipantNavHtml(), headerTitle, headerScope, '');
+  renderMainArea(minimal ? '' : buildParticipantNavHtml(), headerTitle, headerScope, '');
 }
 
 function renderMainArea(navHtml, headerTitle, headerScope, headerActions) {
@@ -494,10 +495,11 @@ function renderMainArea(navHtml, headerTitle, headerScope, headerActions) {
     'style="background:transparent;border:1px solid var(--border);color:var(--text-dim);' +
     'padding:3px 10px;border-radius:3px;cursor:pointer;font-family:inherit;font-size:9px">Copy</button>';
 
+  if (minimal) document.getElementById('content').style.padding = '0';
   document.getElementById('content').innerHTML =
     '<div class="chat-layout">' + navHtml +
     '<div class="chat-main">' +
-    '<div class="chat-header" style="display:flex;justify-content:space-between;align-items:center">' +
+    '<div class="chat-header" style="' + (minimal ? 'display:none' : 'display:flex;justify-content:space-between;align-items:center') + '">' +
     '<div><div class="chat-header-title">' + headerTitle +
     '<span class="session-status" style="display:none;font-size:8px;margin-left:6px;padding:1px 4px;border-radius:2px;border:1px solid currentColor"></span>' +
     '</div>' +
