@@ -574,7 +574,7 @@ def _load_management_yaml(
         return yaml.safe_load(f)
 
 
-_MEMBERSHIP_KEYS = {'agent': 'agents', 'skill': 'skills', 'hook': 'hooks'}
+_MEMBERSHIP_KEYS = {'agent': 'agents', 'project': 'projects', 'skill': 'skills', 'hook': 'hooks'}
 
 
 def _toggle_hook_active(hooks: list[dict], event: str, active: bool) -> list[dict]:

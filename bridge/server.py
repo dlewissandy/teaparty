@@ -488,9 +488,9 @@ class TeaPartyBridge:
         kind = body.get('type', '')
         name = body.get('name', '')
         active = body.get('active')
-        if kind not in ('agent', 'skill', 'hook') or not name or not isinstance(active, bool):
+        if kind not in ('agent', 'project', 'skill', 'hook') or not name or not isinstance(active, bool):
             return web.json_response(
-                {'error': 'body must include type (agent|skill|hook), name, and active (bool)'},
+                {'error': 'body must include type (agent|project|skill|hook), name, and active (bool)'},
                 status=400,
             )
         try:
