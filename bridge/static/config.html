@@ -517,7 +517,9 @@ async function renderProject(slug) {
   var pinItems = (pinsData || []).map(function(p) {
     var icon = p.is_dir ? '&#9654;' : '&#9679;';
     var click = ' onclick="window.open(\'artifacts.html?project=' + encodeURIComponent(slug) + '\',\'_blank\')" style="cursor:pointer"';
-    return '<div class="item"' + click + '><div class="item-icon" style="background:rgba(78,204,163,0.15);color:var(--green)">' + icon + '</div><div class="item-body"><div class="item-title">' + p.label + '</div><div class="item-meta">' + p.path + '</div></div></div>';
+    var displayPath = p.rel_path || p.path;
+    var unpin = '<span class="catalog-toggle toggle-on" onclick="event.stopPropagation();unpinProjectPin(\'' + slug + '\',\'' + displayPath.replace(/\\/g, '\\\\').replace(/'/g, "\\'") + '\')"></span>';
+    return '<div class="item item-catalog-active"' + click + '><div class="item-icon" style="background:rgba(78,204,163,0.15);color:var(--green)">' + icon + '</div><div class="item-body"><div class="item-title">' + p.label + '</div><div class="item-meta">' + displayPath + '</div></div>' + unpin + '</div>';
   });
 
   document.getElementById('content').innerHTML =
@@ -672,6 +674,18 @@ async function unpinWorkgroupArtifact(path) {
     body: JSON.stringify({artifacts: updated}),
   });
   renderWorkgroup(_currentWgName, _currentWgProjectSlug);
+}
+
+async function unpinProjectPin(slug, relPath) {
+  var updated = (_currentProjectPins || []).filter(function(p) {
+    return p.path !== relPath;
+  });
+  await fetch('/api/artifacts/' + encodeURIComponent(slug) + '/pins', {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({artifact_pins: updated}),
+  });
+  renderProject(slug);
 }
 
 async function openFileBrowser(type, name, projectSlug) {

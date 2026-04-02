@@ -436,3 +436,69 @@ class TestPatchArtifactPinsSavesLabel(unittest.TestCase):
             labels,
             "PATCH must preserve the label provided in the request body"
         )
+
+
+# ── Project pin display and unpin ─────────────────────────────────────────────
+
+class TestProjectPinDisplaysRelativePath(unittest.TestCase):
+    """Project pinItems must display relative path (rel_path), not absolute path."""
+
+    def test_project_pin_items_use_rel_path_for_display(self):
+        """renderProject() pinItems must use rel_path (not path) for the meta display."""
+        body = _extract_render_project_body(_get_config_html())
+        # pinItems rendering must reference rel_path for display
+        pin_items_section = re.search(
+            r'var pinItems.*?(?=\n\s*document\.getElementById)',
+            body, re.DOTALL
+        )
+        self.assertIsNotNone(pin_items_section, "pinItems not found in renderProject()")
+        items_src = pin_items_section.group(0)
+        self.assertIn(
+            'rel_path',
+            items_src,
+            "renderProject() pinItems must use rel_path for the path meta display "
+            "so users see relative paths (e.g. 'NORMS.md') not absolute paths"
+        )
+
+
+class TestProjectPinHasUnpinControl(unittest.TestCase):
+    """Project Artifacts panel must have per-item unpin controls."""
+
+    def test_project_pin_items_have_unpin_toggle(self):
+        """renderProject() pinItems must include an unpin toggle (catalog-toggle)."""
+        body = _extract_render_project_body(_get_config_html())
+        pin_items_section = re.search(
+            r'var pinItems.*?(?=\n\s*document\.getElementById)',
+            body, re.DOTALL
+        )
+        self.assertIsNotNone(pin_items_section, "pinItems not found in renderProject()")
+        items_src = pin_items_section.group(0)
+        self.assertTrue(
+            'catalog-toggle' in items_src or 'unpinProjectPin' in items_src,
+            "renderProject() pinItems must include an unpin control (catalog-toggle or unpinProjectPin) "
+            "so users can remove individual pins without typing paths"
+        )
+
+    def test_unpin_project_pin_function_exists(self):
+        """config.html must define an unpinProjectPin() function."""
+        source = _get_config_html()
+        self.assertIn(
+            'function unpinProjectPin',
+            source,
+            "config.html must define unpinProjectPin() to handle per-pin removal in the project panel"
+        )
+
+    def test_unpin_project_pin_patches_artifact_pins_endpoint(self):
+        """unpinProjectPin() must PATCH /api/artifacts/{slug}/pins to persist the removal."""
+        source = _get_config_html()
+        m = re.search(
+            r'function unpinProjectPin.*?(?=\nasync function |\nfunction )',
+            source, re.DOTALL
+        )
+        self.assertIsNotNone(m, "unpinProjectPin function not found")
+        fn_body = m.group(0)
+        self.assertIn(
+            '/api/artifacts/',
+            fn_body,
+            "unpinProjectPin() must PATCH /api/artifacts/{slug}/pins to persist pin removal"
+        )
