@@ -1,42 +1,35 @@
 #!/usr/bin/env python3
 """Tests for issue #144: AskTeam MCP tool replaces dispatch_cli.
 
-AskTeam(team, task) is a single parameterized MCP tool.  Liaison agents
-call it instead of python3 -m dispatch_cli.  The orchestrator handles
-subteam lifecycle (worktree, child CfA, merge, learning) behind the tool.
+AskTeam(team, task) replaced dispatch_cli as the dispatch tool in issue #144.
+Issue #359 retired AskTeam in favour of Send/Reply bus dispatch.  These tests
+verify the state of affairs after that migration:
 
-Tests verify:
-  1. AskTeam tool is registered in the MCP server
-  2. The dispatch listener handles ask_team requests
-  3. dispatch() is called with team and task from the tool parameters
-  4. Concurrent AskTeam calls run in parallel (not serialized)
-  5. AskTeam is in permissions.allow for all phases
-  6. Liaison prompts reference AskTeam, not dispatch_cli
-  7. dispatch() accepts explicit parameters (no os.environ dependency)
+  1. AskTeam is NOT registered in the MCP server (retired in #359)
+  2. Send is registered — the replacement dispatch tool
+  3. Reply is registered — the Send counterpart
+  4. dispatch() still accepts explicit session parameters (used by other paths)
+  5. dispatch() is the correct dispatch mechanism (not AskTeam)
 """
-import asyncio
 import json
 import os
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-
-def _run(coro):
-    return asyncio.run(coro)
+_PHASE_CONFIG = Path(__file__).parent.parent / 'orchestrator' / 'phase-config.json'
 
 
-# ── MCP server registers AskTeam ────────────────────────────────────────────
+# ── AskTeam is retired ──────────────────────────────────────────────────────
 
-class TestAskTeamToolRegistered(unittest.TestCase):
-    """The MCP server must register an AskTeam tool."""
+class TestAskTeamRetired(unittest.TestCase):
+    """AskTeam must not be registered — it was retired in issue #359."""
 
-    def test_mcp_server_has_ask_team_tool(self):
-        """create_server() must register an AskTeam tool."""
+    def test_mcp_server_does_not_have_ask_team_tool(self):
+        """create_server() must not register an AskTeam tool after retirement."""
         try:
             import mcp  # noqa: F401
         except ImportError:
@@ -44,13 +37,52 @@ class TestAskTeamToolRegistered(unittest.TestCase):
 
         from orchestrator.mcp_server import create_server
         server = create_server()
-        # FastMCP stores tools — check that AskTeam is registered
         tool_names = [t.name for t in server._tool_manager.list_tools()]
-        self.assertIn('AskTeam', tool_names,
-                      f"AskTeam must be registered. Found: {tool_names}")
+        self.assertNotIn('AskTeam', tool_names,
+                         f"AskTeam must not be registered after retirement. Found: {tool_names}")
 
-    def test_ask_team_accepts_team_and_task(self):
-        """AskTeam must accept team and task parameters."""
+    def test_dispatch_listener_module_does_not_exist(self):
+        """dispatch_listener.py must not exist — it was deleted in issue #359."""
+        dispatch_listener_path = Path(__file__).parent.parent / 'orchestrator' / 'dispatch_listener.py'
+        self.assertFalse(
+            dispatch_listener_path.exists(),
+            'dispatch_listener.py must be deleted — it served only the AskTeam blocking RPC',
+        )
+
+
+# ── Send and Reply are the replacement dispatch tools ───────────────────────
+
+class TestSendReplyRegistered(unittest.TestCase):
+    """Send and Reply must be registered — they are the replacement for AskTeam."""
+
+    def test_mcp_server_has_send_tool(self):
+        """create_server() must register a Send tool."""
+        try:
+            import mcp  # noqa: F401
+        except ImportError:
+            self.skipTest('mcp package not installed')
+
+        from orchestrator.mcp_server import create_server
+        server = create_server()
+        tool_names = [t.name for t in server._tool_manager.list_tools()]
+        self.assertIn('Send', tool_names,
+                      f"Send must be registered as the dispatch tool. Found: {tool_names}")
+
+    def test_mcp_server_has_reply_tool(self):
+        """create_server() must register a Reply tool."""
+        try:
+            import mcp  # noqa: F401
+        except ImportError:
+            self.skipTest('mcp package not installed')
+
+        from orchestrator.mcp_server import create_server
+        server = create_server()
+        tool_names = [t.name for t in server._tool_manager.list_tools()]
+        self.assertIn('Reply', tool_names,
+                      f"Reply must be registered as the Send counterpart. Found: {tool_names}")
+
+    def test_send_accepts_member_and_message(self):
+        """Send must accept member and message parameters."""
         try:
             import mcp  # noqa: F401
         except ImportError:
@@ -59,182 +91,45 @@ class TestAskTeamToolRegistered(unittest.TestCase):
         from orchestrator.mcp_server import create_server
         server = create_server()
         tools = server._tool_manager.list_tools()
-        ask_team = next((t for t in tools if t.name == 'AskTeam'), None)
-        self.assertIsNotNone(ask_team)
-        props = ask_team.parameters.get('properties', {})
-        self.assertIn('team', props, "AskTeam must accept a 'team' parameter")
-        self.assertIn('task', props, "AskTeam must accept a 'task' parameter")
+        send = next((t for t in tools if t.name == 'Send'), None)
+        self.assertIsNotNone(send)
+        props = send.parameters.get('properties', {})
+        self.assertIn('member', props, "Send must accept a 'member' parameter")
+        self.assertIn('message', props, "Send must accept a 'message' parameter")
 
 
-# ── Dispatch listener handles ask_team requests ─────────────────────────────
+# ── AskTeam not in phase permissions ────────────────────────────────────────
 
-class TestDispatchListenerHandlesAskTeam(unittest.TestCase):
-    """The dispatch listener must handle ask_team requests from the MCP server."""
-
-    def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-
-    def tearDown(self):
-        import shutil; shutil.rmtree(self.tmpdir, ignore_errors=True)
-
-    def test_listener_routes_ask_team_to_dispatch(self):
-        """ask_team request must call dispatch() with team and task."""
-        from orchestrator.dispatch_listener import DispatchListener
-        from orchestrator.events import EventBus
-
-        bus = MagicMock(spec=EventBus)
-        bus.publish = AsyncMock()
-
-        listener = DispatchListener(
-            event_bus=bus,
-            session_worktree=self.tmpdir,
-            infra_dir=self.tmpdir,
-            project_slug='test-project',
-            session_id='test-session',
-            poc_root=self.tmpdir,
-        )
-
-        mock_result = {
-            'status': 'completed',
-            'team': 'writing',
-            'task': 'Write jokes',
-            'terminal_state': 'COMPLETED_WORK',
-        }
-
-        with patch('orchestrator.dispatch_listener.dispatch',
-                   new_callable=AsyncMock, return_value=mock_result) as mock_dispatch:
-            result = _run(listener._handle_dispatch('writing', 'Write jokes'))
-
-        mock_dispatch.assert_called_once()
-        call_kwargs = mock_dispatch.call_args
-        all_args = str(call_kwargs)
-        self.assertIn('writing', all_args)
-        self.assertIn('Write jokes', all_args)
-
-    def test_listener_returns_dispatch_result(self):
-        """The dispatch result must be returned to the MCP server."""
-        from orchestrator.dispatch_listener import DispatchListener
-        from orchestrator.events import EventBus
-
-        bus = MagicMock(spec=EventBus)
-        bus.publish = AsyncMock()
-
-        listener = DispatchListener(
-            event_bus=bus,
-            session_worktree=self.tmpdir,
-            infra_dir=self.tmpdir,
-            project_slug='test-project',
-            session_id='test-session',
-            poc_root=self.tmpdir,
-        )
-
-        mock_result = {
-            'status': 'completed',
-            'team': 'art',
-            'task': 'Draw logo',
-            'terminal_state': 'COMPLETED_WORK',
-            'backtrack_count': 0,
-        }
-
-        with patch('orchestrator.dispatch_listener.dispatch',
-                   new_callable=AsyncMock, return_value=mock_result):
-            result = _run(listener._handle_dispatch('art', 'Draw logo'))
-
-        self.assertEqual(result['status'], 'completed')
-        self.assertEqual(result['team'], 'art')
-
-
-# ── Concurrent dispatch ─────────────────────────────────────────────────────
-
-class TestConcurrentDispatch(unittest.TestCase):
-    """Multiple AskTeam calls must run concurrently, not serialize."""
-
-    def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-
-    def tearDown(self):
-        import shutil; shutil.rmtree(self.tmpdir, ignore_errors=True)
-
-    def test_two_dispatches_run_concurrently(self):
-        """Two AskTeam calls should overlap in time, not run sequentially."""
-        from orchestrator.dispatch_listener import DispatchListener
-        from orchestrator.events import EventBus
-        import time
-
-        bus = MagicMock(spec=EventBus)
-        bus.publish = AsyncMock()
-
-        listener = DispatchListener(
-            event_bus=bus,
-            session_worktree=self.tmpdir,
-            infra_dir=self.tmpdir,
-            project_slug='test',
-            session_id='test',
-            poc_root=self.tmpdir,
-        )
-
-        call_times = []
-
-        async def slow_dispatch(*args, **kwargs):
-            call_times.append(('start', time.monotonic()))
-            await asyncio.sleep(0.1)
-            call_times.append(('end', time.monotonic()))
-            return {'status': 'completed', 'team': 'test', 'terminal_state': 'COMPLETED_WORK'}
-
-        async def run_concurrent():
-            with patch('orchestrator.dispatch_listener.dispatch',
-                       side_effect=slow_dispatch):
-                results = await asyncio.gather(
-                    listener._handle_dispatch('art', 'task 1'),
-                    listener._handle_dispatch('writing', 'task 2'),
-                )
-            return results
-
-        results = _run(run_concurrent())
-
-        self.assertEqual(len(results), 2)
-        # Both should complete — verify we got 4 timing events (2 starts + 2 ends)
-        self.assertEqual(len(call_times), 4)
-        # The second start should happen before the first end (parallel, not serial)
-        starts = [t for label, t in call_times if label == 'start']
-        ends = [t for label, t in call_times if label == 'end']
-        self.assertTrue(starts[1] < ends[0],
-                        "Second dispatch must start before first finishes (parallel)")
-
-
-# ── Permissions ─────────────────────────────────────────────────────────────
-
-class TestAskTeamPermissions(unittest.TestCase):
-    """AskTeam must be in permissions.allow for all phases."""
+class TestAskTeamNotInPhasePermissions(unittest.TestCase):
+    """AskTeam must not appear in any phase's permissions.allow after retirement."""
 
     def _load_config(self) -> dict:
-        config_path = Path(__file__).parent.parent / 'orchestrator' / 'phase-config.json'
-        with open(config_path) as f:
+        with open(_PHASE_CONFIG) as f:
             return json.load(f)
 
-    def test_intent_phase_allows_ask_team(self):
+    def test_intent_phase_does_not_allow_ask_team(self):
         config = self._load_config()
         allowed = config['phases']['intent']['settings_overlay']['permissions']['allow']
-        mcp_tools = [t for t in allowed if 'AskTeam' in t]
-        self.assertTrue(len(mcp_tools) > 0,
-                        f"AskTeam must be in intent phase permissions.allow. Got: {allowed}")
+        ask_team_entries = [t for t in allowed if 'AskTeam' in t]
+        self.assertEqual(ask_team_entries, [],
+                         f"AskTeam must not be in intent phase permissions.allow after retirement. Got: {ask_team_entries}")
 
-    def test_planning_phase_allows_ask_team(self):
+    def test_planning_phase_does_not_allow_ask_team(self):
         config = self._load_config()
         allowed = config['phases']['planning']['settings_overlay']['permissions']['allow']
-        mcp_tools = [t for t in allowed if 'AskTeam' in t]
-        self.assertTrue(len(mcp_tools) > 0,
-                        f"AskTeam must be in planning phase permissions.allow. Got: {allowed}")
+        ask_team_entries = [t for t in allowed if 'AskTeam' in t]
+        self.assertEqual(ask_team_entries, [],
+                         f"AskTeam must not be in planning phase permissions.allow after retirement. Got: {ask_team_entries}")
 
-    def test_execution_phase_allows_ask_team(self):
+    def test_execution_phase_does_not_allow_ask_team(self):
         config = self._load_config()
         allowed = config['phases']['execution']['settings_overlay']['permissions']['allow']
-        mcp_tools = [t for t in allowed if 'AskTeam' in t]
-        self.assertTrue(len(mcp_tools) > 0,
-                        f"AskTeam must be in execution phase permissions.allow. Got: {allowed}")
+        ask_team_entries = [t for t in allowed if 'AskTeam' in t]
+        self.assertEqual(ask_team_entries, [],
+                         f"AskTeam must not be in execution phase permissions.allow after retirement. Got: {ask_team_entries}")
 
 
-# ── dispatch() accepts explicit parameters ──────────────────────────────────
+# ── dispatch() still accepts explicit parameters ────────────────────────────
 
 class TestDispatchAcceptsParameters(unittest.TestCase):
     """dispatch() must accept session context as parameters, not os.environ."""

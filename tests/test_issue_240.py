@@ -197,26 +197,6 @@ class TestDispatchSkipsMergeForDirect(unittest.TestCase):
             mock_merge.assert_not_called()
 
 
-# ── 6. DispatchListener passes execution model ──────────────────────────────
-
-class TestDispatchListenerExecutionModel(unittest.TestCase):
-    """DispatchListener allows configuration team dispatches."""
-
-    def test_configuration_team_not_rejected_by_listener(self):
-        """configuration team is in _valid_teams so dispatch is not rejected."""
-        from orchestrator.dispatch_listener import DispatchListener
-        from orchestrator.events import EventBus
-
-        listener = DispatchListener(
-            event_bus=EventBus(),
-            session_worktree='/tmp/worktree',
-            infra_dir='/tmp/infra',
-            project_slug='test',
-            poc_root=find_poc_root(),
-        )
-        self.assertIn('configuration', listener._valid_teams)
-
-
 # ── 7. Existing teams retain worktree model ──────────────────────────────────
 
 class TestExistingTeamsBackwardCompat(unittest.TestCase):

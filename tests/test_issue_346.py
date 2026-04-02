@@ -129,10 +129,10 @@ class TestRoutingMdSpecifiesRejectionBehavior(unittest.TestCase):
                       "routing.md must specify transport-level rejection for unauthorized posts")
 
     def test_two_layer_enforcement_is_described(self):
-        """routing.md must describe both the AskTeam pre-check and the dispatcher transport check."""
+        """routing.md must describe both the Send pre-check and the dispatcher transport check."""
         text = _routing_text()
-        self.assertIn("AskTeam", text,
-                      "routing.md must describe the AskTeam client-side pre-check")
+        self.assertIn("Send", text,
+                      "routing.md must describe Send as the client-side pre-check tool")
         self.assertIn("independent enforcement point", text,
                       "routing.md must describe the dispatcher as an independent enforcement point")
 

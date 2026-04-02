@@ -9,7 +9,7 @@
       "approval_state": "INTENT_ASSERT",
       "settings_overlay": {
         "permissions": {
-          "allow": ["Write", "Edit", "WebFetch", "WebSearch", "mcp__ask-question__AskQuestion", "mcp__ask-question__AskTeam"]
+          "allow": ["Write", "Edit", "WebFetch", "WebSearch", "mcp__ask-question__AskQuestion"]
         }
       }
     },
@@ -22,7 +22,7 @@
       "approval_state": "PLAN_ASSERT",
       "settings_overlay": {
         "permissions": {
-          "allow": ["Write", "Edit", "WebFetch", "WebSearch", "mcp__ask-question__AskQuestion", "mcp__ask-question__AskTeam"]
+          "allow": ["Write", "Edit", "WebFetch", "WebSearch", "mcp__ask-question__AskQuestion"]
         }
       }
     },
@@ -35,7 +35,7 @@
       "approval_state": "WORK_ASSERT",
       "settings_overlay": {
         "permissions": {
-          "allow": ["Write", "Edit", "SendMessage", "Bash", "Task", "TaskOutput", "mcp__ask-question__AskQuestion", "mcp__ask-question__AskTeam"]
+          "allow": ["Write", "Edit", "SendMessage", "Bash", "Task", "TaskOutput", "mcp__ask-question__AskQuestion"]
         }
       }
     }

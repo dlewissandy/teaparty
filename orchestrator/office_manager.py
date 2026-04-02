@@ -1,7 +1,7 @@
 """Office manager session — multi-turn human-agent conversation.
 
 The office manager is a team lead one level above projects. It coordinates
-across projects via AskTeam dispatch, synthesizes status, records durable
+across projects via Send/Reply dispatch, synthesizes status, records durable
 preferences via memory-based steering, and takes direct intervention actions.
 
 Runtime: a `claude -p` agent invoked via CLI. Multi-turn via `--resume`.
@@ -354,7 +354,7 @@ def _make_configuration_liaison_def() -> dict:
             '   - What skills are defined: .claude/skills/\n'
             '   - What hooks are active: .claude/settings.json\n'
             '2. Dispatch configuration requests to the Configuration Team when asked:\n'
-            '   AskTeam(team="configuration", task="<specific configuration request>")\n'
+            '   Send(member="configuration-lead", message="<specific configuration request>")\n'
             '3. Report results to the office manager: '
             'SendMessage(to="office-manager", content="<your answer>")\n\n'
             'POINT-NOT-PASTE: Reference files by path, not by pasting their contents.'

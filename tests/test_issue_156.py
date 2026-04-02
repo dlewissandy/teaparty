@@ -39,20 +39,6 @@ def _make_phase_config():
     return PhaseConfig(find_poc_root())
 
 
-def _make_dispatch_listener():
-    """Build a minimal DispatchListener for testing."""
-    from orchestrator import find_poc_root
-    from orchestrator.dispatch_listener import DispatchListener
-    from orchestrator.events import EventBus
-    return DispatchListener(
-        event_bus=EventBus(),
-        session_worktree='/tmp/worktree',
-        infra_dir='/tmp/infra',
-        project_slug='test',
-        poc_root=find_poc_root(),
-    )
-
-
 # ── Risk 2C: Proxy agent must not have Bash ──────────────────────────────────
 
 class TestProxyNoBash(unittest.TestCase):
@@ -156,42 +142,6 @@ class TestExecutionPhaseNoWebTools(unittest.TestCase):
         allowed = plan_spec.settings_overlay.get('permissions', {}).get('allow', [])
         self.assertIn('WebFetch', allowed)
         self.assertIn('WebSearch', allowed)
-
-
-# ── Risk 9: Team name validation at dispatch socket ───────────────────────────
-
-class TestDispatchTeamValidation(unittest.TestCase):
-    """The dispatch listener must reject unknown team names at the socket
-    handler level, before any further processing."""
-
-    def test_invalid_team_rejected(self):
-        """A team name not in phase-config.json must be rejected."""
-        listener = _make_dispatch_listener()
-        result = asyncio.run(
-            listener._handle_dispatch('evil-team', 'do bad things')
-        )
-        self.assertEqual(result['status'], 'failed')
-        self.assertIn('team', result.get('reason', '').lower(),
-                       "Rejection reason should mention the invalid team name.")
-
-    def test_valid_teams_not_rejected(self):
-        """Known team names from phase-config.json must not be rejected
-        at the validation level (they may still fail for other reasons)."""
-        config = _make_phase_config()
-        listener = _make_dispatch_listener()
-        # We only test that the team name validation passes —
-        # the actual dispatch will fail because there's no real session.
-        # We patch dispatch() to isolate the validation.
-        async def _run_all():
-            for team_name in config.teams:
-                with patch('orchestrator.dispatch_listener.dispatch',
-                           return_value={'status': 'completed'}):
-                    result = await listener._handle_dispatch(team_name, 'test task')
-                    self.assertNotEqual(
-                        result.get('reason', ''), f'unknown team: {team_name}',
-                        f'Valid team {team_name!r} should not be rejected',
-                    )
-        asyncio.run(_run_all())
 
 
 if __name__ == '__main__':

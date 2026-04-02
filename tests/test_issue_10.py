@@ -251,39 +251,6 @@ class TestSessionWiring(unittest.TestCase):
         self.assertEqual(set(config.project_teams), {'coding'})
 
 
-class TestDispatchListenerWiring(unittest.TestCase):
-    """DispatchListener validates against project-scoped teams."""
-
-    def test_listener_uses_project_teams(self):
-        """With project_dir, listener validates against project-scoped teams."""
-        from orchestrator.dispatch_listener import DispatchListener
-        from orchestrator.events import EventBus
-        d = _make_project_dir({'teams': {'coding': {}, 'research': {}}})
-        listener = DispatchListener(
-            event_bus=EventBus(),
-            session_worktree='/tmp/worktree',
-            infra_dir='/tmp/infra',
-            project_slug='test',
-            poc_root=find_poc_root(),
-            project_dir=d,
-        )
-        self.assertEqual(listener._valid_teams, frozenset({'coding', 'research'}))
-
-    def test_listener_without_project_dir_uses_all(self):
-        """Without project_dir, listener validates against all org teams."""
-        from orchestrator.dispatch_listener import DispatchListener
-        from orchestrator.events import EventBus
-        listener = DispatchListener(
-            event_bus=EventBus(),
-            session_worktree='/tmp/worktree',
-            infra_dir='/tmp/infra',
-            project_slug='test',
-            poc_root=find_poc_root(),
-        )
-        org_config = PhaseConfig(find_poc_root())
-        self.assertEqual(listener._valid_teams, frozenset(org_config.teams))
-
-
 class TestDispatchCliWiring(unittest.TestCase):
     """dispatch_cli resolves project_dir from env."""
 

@@ -1,7 +1,7 @@
 ---
 name: configuration-lead
 description: Configuration Team lead. Routes configuration requests from the Office Manager to the right specialist. Coordinates multi-domain operations (e.g., new workgroup requiring agent definitions, skills, and hooks). Use for multi-artifact or ambiguous configuration requests.
-tools: Read, Glob, Grep, Bash, AskTeam
+tools: Read, Glob, Grep, Bash, Send
 model: claude-sonnet-4-5
 maxTurns: 20
 ---
