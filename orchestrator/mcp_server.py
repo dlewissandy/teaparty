@@ -404,6 +404,51 @@ async def _default_reply_post(message: str) -> str:
         await writer.wait_closed()
 
 
+CloseConvPostFn = Callable[[str], Awaitable[str]]
+
+
+async def close_conversation_handler(
+    context_id: str,
+    *,
+    post_fn: CloseConvPostFn | None = None,
+) -> str:
+    """Core handler logic for CloseConversation.
+
+    Posts the context_id to the close socket so BusEventListener can set
+    conversation_status='closed'.  Only the originator should call this —
+    the trust boundary is possession of CLOSE_CONV_SOCKET.
+
+    Args:
+        context_id: The conversation context ID to close.
+        post_fn: Async function that posts context_id and returns a result
+            string.  Defaults to the CLOSE_CONV_SOCKET transport.
+    """
+    if not context_id or not context_id.strip():
+        raise ValueError('CloseConversation requires a non-empty context_id')
+
+    if post_fn is None:
+        post_fn = _default_close_conv_post
+    return await post_fn(context_id)
+
+
+async def _default_close_conv_post(context_id: str) -> str:
+    """Default CloseConversation transport: post via CLOSE_CONV_SOCKET."""
+    socket_path = os.environ.get('CLOSE_CONV_SOCKET', '')
+    if not socket_path:
+        raise RuntimeError('CLOSE_CONV_SOCKET not set — cannot close conversation')
+    reader, writer = await asyncio.open_unix_connection(socket_path)
+    try:
+        request = json.dumps({'type': 'close_conversation', 'context_id': context_id})
+        writer.write(request.encode() + b'\n')
+        await writer.drain()
+        response_line = await reader.readline()
+        response = json.loads(response_line.decode())
+        return json.dumps(response)
+    finally:
+        writer.close()
+        await writer.wait_closed()
+
+
 async def intervention_handler(request_type: str, **kwargs) -> str:
     """Core handler for intervention tools (WithdrawSession, PauseDispatch, etc.).
 
@@ -1283,6 +1328,21 @@ def create_server() -> FastMCP:
             message: Your reply — result, answer, or completion notice.
         """
         return await reply_handler(message=message)
+
+    @server.tool()
+    async def CloseConversation(context_id: str) -> str:
+        """Close a conversation thread you opened.
+
+        Marks the conversation as closed so no further follow-up Sends
+        are accepted on this thread.  Only the originator of the thread
+        should call this.  Does not affect the session turn — use Reply
+        to close the current session turn.
+
+        Args:
+            context_id: The conversation context ID returned by the
+                original Send call.
+        """
+        return await close_conversation_handler(context_id=context_id)
 
     @server.tool()
     async def AskTeam(team: str, task: str) -> str:

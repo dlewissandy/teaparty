@@ -41,6 +41,8 @@ _log = logging.getLogger('orchestrator.bus_event_listener')
 # Type aliases for the pluggable spawn and re-invocation functions.
 # spawn_fn(member, composite, context_id) -> session_id
 SpawnFn = Callable[[str, str, str], Awaitable[str]]
+# resume_fn(member, composite, session_id) -> session_id
+ResumeFn = Callable[[str, str, str], Awaitable[str]]
 # reinvoke_fn(context_id, session_id, message) -> None
 ReinvokeFn = Callable[[str, str, str], Awaitable[None]]
 
@@ -89,6 +91,7 @@ class BusEventListener:
         *,
         bus_db_path: str = '',
         spawn_fn: SpawnFn | None = None,
+        resume_fn: ResumeFn | None = None,
         reply_fn: ReinvokeFn | None = None,
         reinvoke_fn: ReinvokeFn | None = None,
         current_context_id: str = '',
@@ -97,6 +100,7 @@ class BusEventListener:
     ) -> None:
         self.bus_db_path = bus_db_path
         self.spawn_fn = spawn_fn
+        self.resume_fn = resume_fn
         self.reply_fn = reply_fn
         self.reinvoke_fn = reinvoke_fn
         self.current_context_id = current_context_id
@@ -105,22 +109,35 @@ class BusEventListener:
 
         self._send_server: asyncio.AbstractServer | None = None
         self._reply_server: asyncio.AbstractServer | None = None
+        self._close_server: asyncio.AbstractServer | None = None
+        self._interjection_server: asyncio.AbstractServer | None = None
         self._send_socket_path = ''
         self._reply_socket_path = ''
+        self._close_socket_path = ''
+        self._interjection_socket_path = ''
         self._sock_dir = ''
         # Per-agent re-invocation locks: serializes concurrent --resume calls for
         # the same agent (see conversation-model.md — Fan-In vs. Mid-Task Clarification).
         self._reinvoke_locks: dict[str, asyncio.Lock] = {}
 
-    async def start(self) -> tuple[str, str]:
-        """Start both socket servers.
+    @property
+    def interjection_socket_path(self) -> str:
+        """Path to the interjection Unix socket for bridge-triggered --resume."""
+        return self._interjection_socket_path
+
+    async def start(self) -> tuple[str, str, str]:
+        """Start all socket servers.
 
         Returns:
-            (send_socket_path, reply_socket_path)
+            (send_socket_path, reply_socket_path, close_socket_path)
+
+        The interjection socket path is available via ``self.interjection_socket_path``.
         """
         self._sock_dir = tempfile.mkdtemp(prefix='teaparty-bus-')
         self._send_socket_path = os.path.join(self._sock_dir, 'send.sock')
         self._reply_socket_path = os.path.join(self._sock_dir, 'reply.sock')
+        self._close_socket_path = os.path.join(self._sock_dir, 'close.sock')
+        self._interjection_socket_path = os.path.join(self._sock_dir, 'interject.sock')
 
         self._send_server = await asyncio.start_unix_server(
             self._handle_send_connection,
@@ -130,20 +147,39 @@ class BusEventListener:
             self._handle_reply_connection,
             path=self._reply_socket_path,
         )
-        _log.info('BusEventListener started: send=%s reply=%s',
-                  self._send_socket_path, self._reply_socket_path)
-        return self._send_socket_path, self._reply_socket_path
+        self._close_server = await asyncio.start_unix_server(
+            self._handle_close_connection,
+            path=self._close_socket_path,
+        )
+        self._interjection_server = await asyncio.start_unix_server(
+            self._handle_interjection_connection,
+            path=self._interjection_socket_path,
+        )
+        _log.info(
+            'BusEventListener started: send=%s reply=%s close=%s interject=%s',
+            self._send_socket_path, self._reply_socket_path,
+            self._close_socket_path, self._interjection_socket_path,
+        )
+        return self._send_socket_path, self._reply_socket_path, self._close_socket_path
 
     async def stop(self) -> None:
-        """Stop both servers and clean up socket files."""
-        for server in (self._send_server, self._reply_server):
+        """Stop all servers and clean up socket files."""
+        for server in (
+            self._send_server, self._reply_server,
+            self._close_server, self._interjection_server,
+        ):
             if server is not None:
                 server.close()
                 await server.wait_closed()
         self._send_server = None
         self._reply_server = None
+        self._close_server = None
+        self._interjection_server = None
 
-        for path in (self._send_socket_path, self._reply_socket_path):
+        for path in (
+            self._send_socket_path, self._reply_socket_path,
+            self._close_socket_path, self._interjection_socket_path,
+        ):
             if path:
                 try:
                     os.unlink(path)
@@ -158,6 +194,8 @@ class BusEventListener:
 
         self._send_socket_path = ''
         self._reply_socket_path = ''
+        self._close_socket_path = ''
+        self._interjection_socket_path = ''
         self._sock_dir = ''
 
     async def _handle_send_connection(
@@ -194,7 +232,32 @@ class BusEventListener:
                     await writer.drain()
                     return
 
-            # Create the context record synchronously so the caller has a context_id
+            # Follow-up to an existing conversation: resume or reject
+            if context_id and self.bus_db_path:
+                conv_status = self._get_conversation_status(context_id)
+                if conv_status == 'closed':
+                    err_response = {
+                        'status': 'error',
+                        'reason': f'Conversation {context_id!r} is closed; '
+                                  'originator must open a new conversation',
+                    }
+                    writer.write(json.dumps(err_response).encode() + b'\n')
+                    await writer.drain()
+                    return
+                if conv_status == 'open':
+                    # Resume the recipient's prior session instead of spawning fresh
+                    session_id = self._get_session_id(context_id)
+                    response = {'status': 'queued', 'context_id': context_id}
+                    writer.write(json.dumps(response).encode() + b'\n')
+                    await writer.drain()
+                    if self.resume_fn is not None and session_id:
+                        asyncio.create_task(
+                            self._resume_and_record(member, composite, context_id, session_id)
+                        )
+                    return
+
+            # New conversation: create the context record synchronously so
+            # the caller has a context_id immediately
             if not context_id:
                 context_id = make_agent_context_id(
                     self.initiator_agent_id or 'unknown',
@@ -234,6 +297,17 @@ class BusEventListener:
                 self._set_session_id(context_id, session_id)
         except Exception:
             _log.exception('Error spawning agent for context %s', context_id)
+
+    async def _resume_and_record(
+        self, member: str, composite: str, context_id: str, session_id: str,
+    ) -> None:
+        """Background task: resume recipient with prior session_id."""
+        try:
+            new_session_id = await self.resume_fn(member, composite, session_id)
+            if new_session_id and new_session_id != session_id and self.bus_db_path:
+                self._set_session_id(context_id, new_session_id)
+        except Exception:
+            _log.exception('Error resuming agent for context %s', context_id)
 
     async def _handle_reply_connection(
         self,
@@ -324,6 +398,110 @@ class BusEventListener:
             if self.reinvoke_fn is not None:
                 await self.reinvoke_fn(context_id, session_id, message)
 
+    async def _handle_close_connection(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        """Handle a CloseConversation MCP tool call.
+
+        Protocol:
+          MCP → listener: {type: "close_conversation", context_id: str}
+          listener → MCP: {status: "ok"} | {status: "error", reason: str}
+
+        Sets conversation_status='closed' so subsequent follow-up Sends are
+        rejected.  Only the originator should send this (enforced by trust boundary
+        — any holder of CLOSE_CONV_SOCKET can call this).
+        """
+        try:
+            line = await reader.readline()
+            if not line:
+                return
+            request = json.loads(line.decode())
+            context_id = request.get('context_id', '')
+            if not context_id:
+                err = {'status': 'error', 'reason': 'context_id is required'}
+                writer.write(json.dumps(err).encode() + b'\n')
+                await writer.drain()
+                return
+
+            if self.bus_db_path:
+                self._close_conversation(context_id)
+
+            response = {'status': 'ok'}
+            writer.write(json.dumps(response).encode() + b'\n')
+            await writer.drain()
+
+        except Exception:
+            _log.exception('Error handling CloseConversation connection')
+        finally:
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
+
+    async def _handle_interjection_connection(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        """Handle a human interjection from the bridge.
+
+        Protocol:
+          bridge → listener: {type: "interject", context_id: str, message: str}
+          listener → bridge: {status: "ok"} | {status: "error", reason: str}
+
+        Looks up the active session_id for the conversation and calls reinvoke_fn
+        (--resume) so the agent receives the human's message.  Rejected if the
+        conversation is closed.
+        """
+        try:
+            line = await reader.readline()
+            if not line:
+                return
+            request = json.loads(line.decode())
+            context_id = request.get('context_id', '')
+            message = request.get('message', '')
+
+            if not context_id:
+                err = {'status': 'error', 'reason': 'context_id is required'}
+                writer.write(json.dumps(err).encode() + b'\n')
+                await writer.drain()
+                return
+
+            if self.bus_db_path:
+                conv_status = self._get_conversation_status(context_id)
+                if conv_status == 'closed':
+                    err = {
+                        'status': 'error',
+                        'reason': f'Conversation {context_id!r} is closed',
+                    }
+                    writer.write(json.dumps(err).encode() + b'\n')
+                    await writer.drain()
+                    return
+                session_id = self._get_session_id(context_id)
+            else:
+                session_id = ''
+
+            response = {'status': 'ok'}
+            writer.write(json.dumps(response).encode() + b'\n')
+            await writer.drain()
+
+            if self.reinvoke_fn is not None:
+                asyncio.create_task(
+                    self._locked_reinvoke(context_id, session_id, message)
+                )
+
+        except Exception:
+            _log.exception('Error handling interjection connection')
+        finally:
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
+
     # ── Synchronous DB helpers (called from async context) ────────────────────
 
     def _create_context_record(self, context_id: str, recipient_agent_id: str) -> None:
@@ -382,5 +560,38 @@ class BusEventListener:
         bus = SqliteMessageBus(self.bus_db_path)
         try:
             return bus.decrement_pending_count(parent_context_id)
+        finally:
+            bus.close()
+
+    def _get_conversation_status(self, context_id: str) -> str:
+        """Return conversation_status for context_id, or '' if not found."""
+        from orchestrator.messaging import SqliteMessageBus
+        bus = SqliteMessageBus(self.bus_db_path)
+        try:
+            ctx = bus.get_agent_context(context_id)
+            if ctx is None:
+                return ''
+            return ctx.get('conversation_status', 'open')
+        finally:
+            bus.close()
+
+    def _get_session_id(self, context_id: str) -> str:
+        """Return session_id for context_id, or '' if not found."""
+        from orchestrator.messaging import SqliteMessageBus
+        bus = SqliteMessageBus(self.bus_db_path)
+        try:
+            ctx = bus.get_agent_context(context_id)
+            if ctx is None:
+                return ''
+            return ctx.get('session_id', '')
+        finally:
+            bus.close()
+
+    def _close_conversation(self, context_id: str) -> None:
+        """Set conversation_status='closed' for context_id."""
+        from orchestrator.messaging import SqliteMessageBus
+        bus = SqliteMessageBus(self.bus_db_path)
+        try:
+            bus.close_agent_conversation(context_id)
         finally:
             bus.close()

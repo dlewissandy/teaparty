@@ -178,7 +178,7 @@ class TestReplyClosesSessionNotConversation(unittest.TestCase):
         )
 
         async def run():
-            send_path, reply_path = await listener.start()
+            send_path, reply_path, close_path = await listener.start()
             try:
                 reader, writer = await asyncio.open_unix_connection(reply_path)
                 writer.write(
@@ -261,7 +261,7 @@ class TestFollowUpSendResumesSession(unittest.TestCase):
         )
 
         async def run():
-            send_path, reply_path = await listener.start()
+            send_path, reply_path, close_path = await listener.start()
             try:
                 reader, writer = await asyncio.open_unix_connection(send_path)
                 writer.write(
@@ -309,7 +309,7 @@ class TestFollowUpSendResumesSession(unittest.TestCase):
         )
 
         async def run():
-            send_path, reply_path = await listener.start()
+            send_path, reply_path, close_path = await listener.start()
             try:
                 reader, writer = await asyncio.open_unix_connection(send_path)
                 writer.write(
@@ -392,7 +392,7 @@ class TestFollowUpRejectedForClosedConversation(unittest.TestCase):
         )
 
         async def run():
-            send_path, reply_path = await listener.start()
+            send_path, reply_path, close_path = await listener.start()
             try:
                 reader, writer = await asyncio.open_unix_connection(send_path)
                 writer.write(

@@ -309,13 +309,15 @@ class Orchestrator:
                 initiator_agent_id=lead_agent_id,
                 current_context_id=self._bus_lead_context_id,
                 spawn_fn=self._bus_spawn_agent,
+                resume_fn=self._bus_resume_agent,
                 reply_fn=self._bus_inject_reply,
                 reinvoke_fn=self._bus_reinvoke_agent,
                 dispatcher=self._build_bus_dispatcher(),
             )
-            send_socket, reply_socket = await self._bus_event_listener.start()
+            send_socket, reply_socket, close_socket = await self._bus_event_listener.start()
             mcp_env['SEND_SOCKET'] = send_socket
             mcp_env['REPLY_SOCKET'] = reply_socket
+            mcp_env['CLOSE_CONV_SOCKET'] = close_socket
 
             self._mcp_config = {
                 'ask-question': {
@@ -431,6 +433,45 @@ class Orchestrator:
 
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, spawn_in_worktree)
+
+    async def _bus_resume_agent(
+        self, member: str, composite: str, session_id: str,
+    ) -> str:
+        """Resume a recipient agent for a follow-up to an open conversation (Issue #383).
+
+        Injects the composite into the recipient's existing session file and
+        re-invokes via --resume session_id.  The agent receives the follow-up
+        message in its conversation history without starting a fresh session.
+
+        Returns the session_id (unchanged — --resume reuses the existing session).
+        """
+        import subprocess
+        from orchestrator.agent_spawner import AgentSpawner
+
+        if not session_id:
+            # No prior session captured — fall back to a fresh spawn via a new context.
+            _log.warning(
+                '_bus_resume_agent called without session_id for member %s; '
+                'cannot resume — no-op',
+                member,
+            )
+            return ''
+
+        spawner = AgentSpawner(teaparty_home=self.poc_root)
+        # Reuse the session worktree if available, otherwise fall back to project dir
+        agent_dir = self.session_worktree or self.project_workdir
+
+        def resume_in_worktree() -> str:
+            return spawner.spawn(
+                composite,
+                worktree=agent_dir,
+                role=member,
+                project_dir=self.project_workdir,
+                resume_session=session_id,
+            )
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, resume_in_worktree)
 
     async def _bus_inject_reply(
         self, context_id: str, session_id: str, message: str,
