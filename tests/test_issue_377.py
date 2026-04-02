@@ -243,63 +243,167 @@ class TestProjectToggleWorkgroupEndpoint(unittest.TestCase):
         self.assertIn('Coding', wg_names, 'Deactivated workgroup must remain in registered catalog')
 
 
+# ── AC2: server-side Configuration workgroup guard ────────────────────────────
+
+class TestConfigurationWorkgroupCannotBeActivated(unittest.TestCase):
+    """POST /api/config/{project}/toggle must reject activating the Configuration workgroup."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.project_dir = os.path.join(self.tmp, 'testproject')
+        os.makedirs(self.project_dir)
+        _make_project_yaml(
+            self.project_dir,
+            workgroups=[
+                {'name': 'Coding', 'config': '.teaparty/workgroups/coding.yaml'},
+                {'name': 'Configuration', 'config': '.teaparty/workgroups/configuration.yaml'},
+            ],
+            member_workgroups=['Coding'],
+        )
+        teaparty_home = os.path.join(self.tmp, '.teaparty')
+        _make_teaparty_yaml(
+            teaparty_home,
+            projects=[{'name': 'testproject', 'path': self.project_dir}],
+        )
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _run_toggle(self, body: dict) -> tuple[int, dict]:
+        bridge = _make_bridge(self.tmp, self.project_dir)
+
+        async def _call():
+            request = MagicMock()
+            request.match_info = {'project': 'testproject'}
+            request.json = AsyncMock(return_value=body)
+            response = await bridge._handle_config_project_toggle(request)
+            return response.status, json.loads(response.body)
+
+        return _run_async(_call())
+
+    def test_activating_configuration_workgroup_returns_400(self):
+        """Attempting to activate the Configuration workgroup must return 400."""
+        status, body = self._run_toggle({'type': 'workgroup', 'name': 'Configuration', 'active': True})
+        self.assertEqual(status, 400, f'Expected 400 but got {status}: {body}')
+
+    def test_activating_configuration_workgroup_does_not_write_to_disk(self):
+        """Attempting to activate Configuration must not add it to members.workgroups in project.yaml."""
+        self._run_toggle({'type': 'workgroup', 'name': 'Configuration', 'active': True})
+        data = _read_project_yaml(self.project_dir)
+        self.assertNotIn(
+            'Configuration',
+            data.get('members', {}).get('workgroups', []),
+            'Configuration must never appear in members.workgroups',
+        )
+
+    def test_activating_configuration_workgroup_case_insensitive(self):
+        """The Configuration guard must reject activation regardless of name casing."""
+        status, _ = self._run_toggle({'type': 'workgroup', 'name': 'configuration', 'active': True})
+        self.assertEqual(status, 400, 'Lowercase "configuration" must also be rejected')
+
+    def test_deactivating_configuration_workgroup_is_allowed(self):
+        """Deactivating (removing) Configuration is a no-op and must succeed, not be rejected."""
+        status, _ = self._run_toggle({'type': 'workgroup', 'name': 'Configuration', 'active': False})
+        self.assertEqual(status, 200, 'Deactivating Configuration (active=False) must succeed')
+
+
 # ── AC1 & AC2: config.html renderProject() workgroup rendering ────────────────
+
+def _extract_wg_items_block(content: str) -> str:
+    """Extract the wgItems workgroup map block from renderProject() in config.html."""
+    import re
+    match = re.search(
+        r'var wgItems = workgroups\.map\(function\(w\)(.*?)var agentItems',
+        content,
+        re.DOTALL,
+    )
+    return match.group(0) if match else ''
+
 
 class TestConfigHtmlWorkgroupRendering(unittest.TestCase):
     """renderProject() must render workgroups with active/inactive distinction and Configuration special-cased."""
 
     def setUp(self):
         self.content = _read_config_html()
+        self.wg_block = _extract_wg_items_block(self.content)
+
+    def test_wg_items_block_exists_in_render_project(self):
+        """renderProject() must contain a wgItems = workgroups.map block."""
+        self.assertTrue(
+            self.wg_block,
+            'renderProject() must define wgItems via workgroups.map(function(w){...})',
+        )
 
     def test_render_project_uses_workgroup_active_flag(self):
-        """renderProject() must read w.active to determine workgroup membership state."""
+        """The wgItems block must read w.active to determine workgroup membership state."""
         self.assertIn(
             'w.active',
-            self.content,
-            'renderProject() must use w.active to distinguish active workgroups from registered-only',
+            self.wg_block,
+            'wgItems block must use w.active to distinguish active workgroups from registered-only',
         )
 
     def test_render_project_workgroups_use_catalog_active_class(self):
-        """renderProject() workgroup items must use item-catalog-active for active workgroups."""
-        # The class is already used for agents/skills in renderProject; verify it applies to workgroups
-        # by checking the pattern appears in the workgroup rendering block
+        """The wgItems block must apply item-catalog-active for active workgroups."""
         self.assertIn(
             'item-catalog-active',
-            self.content,
-            'renderProject() must apply item-catalog-active to active workgroups',
+            self.wg_block,
+            'wgItems block must apply item-catalog-active to active workgroups',
         )
 
     def test_render_project_workgroups_use_catalog_inactive_class(self):
-        """renderProject() workgroup items must use item-catalog-inactive for inactive workgroups."""
+        """The wgItems block must apply item-catalog-inactive for inactive workgroups."""
         self.assertIn(
             'item-catalog-inactive',
-            self.content,
-            'renderProject() must apply item-catalog-inactive to registered-only workgroups',
+            self.wg_block,
+            'wgItems block must apply item-catalog-inactive to registered-only workgroups',
         )
 
     def test_render_project_workgroup_toggle_uses_workgroup_type(self):
-        """renderProject() workgroup toggle calls must use type 'workgroup'."""
+        """The wgItems block must call toggleMembership with type 'workgroup'."""
+        # In config.html the JS string escapes single quotes as \', so 'workgroup' appears as \'workgroup\'
         self.assertIn(
-            "'workgroup'",
-            self.content,
-            "renderProject() must call toggleMembership with 'workgroup' type",
+            r"\'workgroup\'",
+            self.wg_block,
+            "wgItems block must call toggleMembership with 'workgroup' type",
         )
 
-    def test_configuration_workgroup_not_toggleable(self):
-        """Configuration workgroup must not have a membership toggle handler in renderProject()."""
-        # The Configuration workgroup must be identified and rendered without toggleMembership onclick.
-        # Its name must be checked case-insensitively to skip the toggle path.
+    def test_configuration_workgroup_guard_in_wg_block(self):
+        """The wgItems block must contain the Configuration workgroup guard."""
         self.assertIn(
-            'configuration',
-            self.content.lower(),
-            'renderProject() must reference the Configuration workgroup by name for special handling',
+            "'configuration'",
+            self.wg_block.lower(),
+            'wgItems block must guard against the Configuration workgroup by name',
         )
 
     def test_configuration_workgroup_check_is_case_insensitive(self):
-        """The Configuration workgroup guard must use lowercase comparison to be case-insensitive."""
-        # Looking for toLower or toLowerCase applied before the comparison
+        """The Configuration workgroup guard in the wgItems block must use toLowerCase."""
         self.assertIn(
             'toLowerCase',
-            self.content,
+            self.wg_block,
             'Configuration workgroup check must use toLowerCase for case-insensitive comparison',
+        )
+
+    def test_configuration_workgroup_rendered_without_toggle_membership(self):
+        """The Configuration workgroup branch must use configNav, not toggleMembership."""
+        import re
+        # Capture the body of the if (... === 'configuration') { ... } block
+        config_if_match = re.search(
+            r"if \(w\.name\.toLowerCase\(\) === 'configuration'\) \{([^}]+)\}",
+            self.wg_block,
+        )
+        self.assertTrue(
+            config_if_match,
+            "wgItems block must contain an if-block guarding the Configuration workgroup",
+        )
+        config_branch_body = config_if_match.group(1)
+        self.assertIn(
+            'configNav',
+            config_branch_body,
+            'Configuration branch must use configNav for navigation',
+        )
+        self.assertNotIn(
+            'toggleMembership',
+            config_branch_body,
+            'Configuration branch must NOT call toggleMembership',
         )
