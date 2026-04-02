@@ -318,6 +318,11 @@ class Orchestrator:
             mcp_env['SEND_SOCKET'] = send_socket
             mcp_env['REPLY_SOCKET'] = reply_socket
             mcp_env['CLOSE_CONV_SOCKET'] = close_socket
+            # Write interjection socket path for bridge to use when human
+            # posts to an agent-to-agent conversation (issue #383)
+            _interjection_path_file = os.path.join(self.infra_dir, 'interjection_socket')
+            with open(_interjection_path_file, 'w') as _f:
+                _f.write(self._bus_event_listener.interjection_socket_path)
 
             self._mcp_config = {
                 'ask-question': {
