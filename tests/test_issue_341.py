@@ -379,7 +379,7 @@ class TestSessionUsesJobConversationType(unittest.TestCase):
 # ── AC9: Dispatch creates TASK conversation ───────────────────────────────────
 
 class TestDispatchCreatesTaskConversation(unittest.TestCase):
-    """dispatch_listener._handle_dispatch must create a TASK conversation in the session bus."""
+    """Dispatch must create a TASK conversation in the session bus for the job chat sidebar."""
 
     def test_task_conversation_id_has_task_prefix(self):
         """make_conversation_id(TASK, ...) must produce 'task:...' ID."""

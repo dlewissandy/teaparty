@@ -12,8 +12,7 @@ Covers:
  3. configuration team has execution_model "direct"
  4. dispatch_cli skips worktree creation for direct-model teams
  5. dispatch_cli skips merge-back for direct-model teams
- 6. dispatch_listener passes execution_model through to dispatch
- 7. existing teams retain worktree execution_model (backward compat)
+ 6. existing teams retain worktree execution_model (backward compat)
 """
 import asyncio
 import json
