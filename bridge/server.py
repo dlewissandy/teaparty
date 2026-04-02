@@ -23,6 +23,8 @@ import logging
 import os
 from typing import Set
 
+import yaml
+
 from aiohttp import web
 
 from orchestrator.messaging import ConversationType, SqliteMessageBus
@@ -530,9 +532,9 @@ class TeaPartyBridge:
         kind = body.get('type', '')
         name = body.get('name', '')
         active = body.get('active')
-        if kind not in ('agent', 'skill') or not name or not isinstance(active, bool):
+        if kind not in ('agent', 'hook') or not name or not isinstance(active, bool):
             return web.json_response(
-                {'error': 'body must include type (agent|skill), name, and active (bool)'},
+                {'error': 'body must include type (agent|hook), name, and active (bool)'},
                 status=400,
             )
         claude_base = os.path.dirname(self.teaparty_home)
@@ -562,6 +564,7 @@ class TeaPartyBridge:
     async def _handle_workgroup_detail(self, request: web.Request) -> web.Response:
         name = request.match_info['name']
         project_slug = request.rel_url.query.get('project')
+        project_dir: str | None = None
         try:
             if project_slug:
                 project_dir = self._lookup_project_path(project_slug)
@@ -581,17 +584,30 @@ class TeaPartyBridge:
         org_catalog_agents: list[str] = discover_agents(
             os.path.join(claude_base, '.claude', 'agents')
         )
-        org_skills: list[str] = discover_skills(
-            os.path.join(claude_base, '.claude', 'skills')
+        org_hooks: list[dict] = discover_hooks(
+            os.path.join(claude_base, '.claude', 'settings.json')
         )
+        # org_agents_set used for source tagging: org filesystem agents → 'shared', project-local → 'local'
+        org_agents_set: set[str] = set(org_catalog_agents)
+        # If project-scoped, extend catalog with project-level agents and hooks (spec §"Catalog and Active Selection")
+        if project_dir:
+            proj_claude = os.path.join(project_dir, '.claude')
+            for a in discover_agents(os.path.join(proj_claude, 'agents')):
+                if a not in org_catalog_agents:
+                    org_catalog_agents = org_catalog_agents + [a]
+            existing_events = {h.get('event') for h in org_hooks}
+            for h in discover_hooks(os.path.join(proj_claude, 'settings.json')):
+                if h.get('event') not in existing_events:
+                    org_hooks = org_hooks + [h]
 
         for w in workgroups:
             if w.name == name:
                 return web.json_response(
                     self._serialize_workgroup(
                         w, detail=True,
+                        org_agents=org_agents_set,
                         org_catalog_agents=org_catalog_agents,
-                        org_catalog_skills=org_skills,
+                        org_hooks_catalog=org_hooks,
                     )
                 )
         return web.json_response({'error': f'workgroup not found: {name}'}, status=404)
@@ -1403,9 +1419,10 @@ class TeaPartyBridge:
     def _serialize_workgroup(
         self, w, source: str | None = None, overrides: list[str] | None = None,
         detail: bool = False,
+        org_agents: set | list | None = None,
         org_catalog_agents: list[str] | None = None,
         org_catalog_skills: list[str] | None = None,
-        org_agents: set | None = None,
+        org_hooks_catalog: list[dict] | None = None,
     ) -> dict:
         result = {
             'name': w.name,
@@ -1417,10 +1434,9 @@ class TeaPartyBridge:
         }
         if detail:
             active_agent_names: set[str] = set(w.members_agents)
-            org_agents_set: set[str] = org_agents or set()
-            # Full agent catalog: all org filesystem agents + any local active ones.
-            # Source is 'shared' if in org agents set, 'local' otherwise.
-            catalog = org_catalog_agents or []
+            org_agents_set: set[str] = set(org_agents or [])
+            # Full agent catalog: all org filesystem agents, mark active if in workgroup
+            catalog = list(org_catalog_agents or [])
             for name in active_agent_names:
                 if name not in catalog:
                     catalog = catalog + [name]
@@ -1432,7 +1448,13 @@ class TeaPartyBridge:
                 }
                 for n in catalog
             ]
-            # Skills are a per-agent concern in the new schema; workgroups have no skills.
+            # Workgroups have no skills (issue #362/#367); skills key is omitted.
+            # Full hooks catalog: org settings.json hooks with active flag from w.members_hooks
+            active_hook_events: set[str] = set(w.members_hooks)
+            result['hooks'] = [
+                {**h, 'active': h.get('event', '') in active_hook_events}
+                for h in (org_hooks_catalog or [])
+            ]
             result['norms'] = dict(w.norms)
             result['budget'] = dict(w.budget)
         return result

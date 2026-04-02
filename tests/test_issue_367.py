@@ -47,18 +47,19 @@ def _make_bridge(tmpdir: str):
 
 
 def _make_management_yaml(teaparty_home: str, agents: list, skills: list | None = None):
-    """Write teaparty.yaml with given active agents list."""
+    """Write teaparty.yaml with given active agents/skills list."""
     data = {
         'name': 'Management',
         'description': 'Test',
         'lead': 'office-manager',
-        'decider': 'darrell',
-        'humans': [{'name': 'darrell', 'role': 'decider'}],
-        'members': {'agents': agents, 'skills': skills or []},
+        'humans': {'decider': 'darrell'},
+        'members': {
+            'agents': agents,
+            'skills': skills or [],
+        },
         'hooks': [],
         'scheduled': [],
         'workgroups': [],
-        'teams': [],
     }
     os.makedirs(teaparty_home, exist_ok=True)
     with open(os.path.join(teaparty_home, 'teaparty.yaml'), 'w') as f:
@@ -73,9 +74,11 @@ def _make_project_yaml(project_dir: str, agents: list, skills: list | None = Non
         'name': 'Test Project',
         'description': 'A test project',
         'lead': 'project-lead',
-        'decider': 'darrell',
-        'humans': [{'name': 'darrell', 'role': 'decider'}],
-        'members': {'agents': agents, 'skills': skills or []},
+        'humans': {'decider': 'darrell'},
+        'members': {
+            'agents': agents,
+            'skills': skills or [],
+        },
         'hooks': [],
         'scheduled': [],
         'workgroups': [],
@@ -210,8 +213,7 @@ class TestToggleManagementMembership(unittest.TestCase):
         toggle_management_membership(self.teaparty_home, 'agent', 'auditor', True)
         data = _read_management_yaml(self.teaparty_home)
         self.assertEqual(data['lead'], 'office-manager')
-        self.assertEqual(data['decider'], 'darrell')
-        self.assertIn({'name': 'darrell', 'role': 'decider'}, data['humans'])
+        self.assertEqual(data['humans']['decider'], 'darrell')
 
     def test_deactivate_hook_sets_active_false(self):
         """Deactivating a hook sets active=False on the hook entry in teaparty.yaml."""
@@ -289,7 +291,7 @@ class TestToggleProjectMembership(unittest.TestCase):
         toggle_project_membership(self.project_dir, 'agent', 'reviewer', True)
         data = _read_project_yaml(self.project_dir)
         self.assertEqual(data['lead'], 'project-lead')
-        self.assertEqual(data['decider'], 'darrell')
+        self.assertEqual(data['humans']['decider'], 'darrell')
 
 
 # ── _serialize_management_team: full catalog with active flag ────────────────
@@ -572,8 +574,7 @@ class TestToggleProjectEndpoint(unittest.TestCase):
         _make_project_yaml(self.project_dir, agents=['auditor'])
         # Register project in management YAML
         data = _read_management_yaml(self.teaparty_home)
-        data.setdefault('teams', [])
-        data['teams'] = [{'name': 'myproject', 'path': self.project_dir}]
+        data['projects'] = [{'name': 'myproject', 'path': self.project_dir}]
         with open(os.path.join(self.teaparty_home, 'teaparty.yaml'), 'w') as f:
             yaml.dump(data, f, default_flow_style=False, sort_keys=False)
         org_agents_dir = os.path.join(self.tmp, '.claude', 'agents')
@@ -707,8 +708,10 @@ def _make_workgroup_yaml(workgroup_yaml_path: str, agents: list, skills: list | 
         'name': os.path.basename(workgroup_yaml_path).replace('.yaml', ''),
         'description': 'Test workgroup',
         'lead': 'auditor',
-        'members': {'agents': [{'name': a} for a in agents]},
-        'skills': skills or [],
+        'members': {
+            'agents': agents,
+            'skills': skills or [],
+        },
     }
     with open(workgroup_yaml_path, 'w') as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
@@ -736,8 +739,7 @@ class TestToggleWorkgroupMembership(unittest.TestCase):
         from orchestrator.config_reader import toggle_workgroup_membership
         toggle_workgroup_membership(self.yaml_path, 'agent', 'researcher', True)
         data = _read_workgroup_yaml(self.yaml_path)
-        agent_names = [a['name'] if isinstance(a, dict) else a
-                       for a in data.get('members', {}).get('agents', [])]
+        agent_names = [a['name'] if isinstance(a, dict) else a for a in data['members'].get('agents', [])]
         self.assertIn('researcher', agent_names)
 
     def test_deactivate_agent_removes_from_agents(self):
@@ -745,23 +747,29 @@ class TestToggleWorkgroupMembership(unittest.TestCase):
         from orchestrator.config_reader import toggle_workgroup_membership
         toggle_workgroup_membership(self.yaml_path, 'agent', 'auditor', False)
         data = _read_workgroup_yaml(self.yaml_path)
-        agent_names = [a['name'] if isinstance(a, dict) else a
-                       for a in data.get('members', {}).get('agents', [])]
+        agent_names = [a['name'] if isinstance(a, dict) else a for a in data['members'].get('agents', [])]
         self.assertNotIn('auditor', agent_names)
 
-    def test_activate_skill_adds_to_skills(self):
-        """toggle_workgroup_membership with active=True adds skill to workgroup YAML."""
+    def test_activate_hook_adds_to_hooks(self):
+        """toggle_workgroup_membership with active=True adds hook event to workgroup YAML."""
         from orchestrator.config_reader import toggle_workgroup_membership
-        toggle_workgroup_membership(self.yaml_path, 'skill', 'review-pr', True)
+        toggle_workgroup_membership(self.yaml_path, 'hook', 'PostToolUse', True)
         data = _read_workgroup_yaml(self.yaml_path)
-        self.assertIn('review-pr', data.get('skills', []))
+        self.assertIn('PostToolUse', data['members'].get('hooks', []))
 
-    def test_deactivate_skill_removes_from_skills(self):
-        """toggle_workgroup_membership with active=False removes skill from workgroup YAML."""
+    def test_deactivate_hook_removes_from_hooks(self):
+        """toggle_workgroup_membership with active=False removes hook event from workgroup YAML."""
         from orchestrator.config_reader import toggle_workgroup_membership
-        toggle_workgroup_membership(self.yaml_path, 'skill', 'commit', False)
+        toggle_workgroup_membership(self.yaml_path, 'hook', 'PreToolUse', True)
+        toggle_workgroup_membership(self.yaml_path, 'hook', 'PreToolUse', False)
         data = _read_workgroup_yaml(self.yaml_path)
-        self.assertNotIn('commit', data.get('skills', []))
+        self.assertNotIn('PreToolUse', data['members'].get('hooks', []))
+
+    def test_skill_toggle_raises_value_error(self):
+        """toggle_workgroup_membership must reject kind='skill' — skills are per-agent, not per-workgroup."""
+        from orchestrator.config_reader import toggle_workgroup_membership
+        with self.assertRaises(ValueError):
+            toggle_workgroup_membership(self.yaml_path, 'skill', 'commit', True)
 
 
 # ── _serialize_workgroup catalog expansion ────────────────────────────────────
@@ -860,16 +868,14 @@ class TestToggleWorkgroupEndpoint(unittest.TestCase):
         """POST /api/workgroups/{name}/toggle writes updated agents to workgroup YAML."""
         self._run('backlog', {'type': 'agent', 'name': 'researcher', 'active': True})
         data = _read_workgroup_yaml(self.wg_path)
-        agent_names = [a['name'] if isinstance(a, dict) else a
-                       for a in data.get('members', {}).get('agents', [])]
+        agent_names = [a['name'] if isinstance(a, dict) else a for a in data['members'].get('agents', [])]
         self.assertIn('researcher', agent_names)
 
     def test_deactivate_agent_writes_workgroup_yaml(self):
         """POST /api/workgroups/{name}/toggle removes agent from workgroup YAML."""
         self._run('backlog', {'type': 'agent', 'name': 'auditor', 'active': False})
         data = _read_workgroup_yaml(self.wg_path)
-        agent_names = [a['name'] if isinstance(a, dict) else a
-                       for a in data.get('members', {}).get('agents', [])]
+        agent_names = [a['name'] if isinstance(a, dict) else a for a in data['members'].get('agents', [])]
         self.assertNotIn('auditor', agent_names)
 
 
@@ -905,12 +911,16 @@ class TestLocalProjectSkillsActiveFlag(unittest.TestCase):
         )
         team = load_project_team(self.project_dir)
         local_skills = discover_skills(os.path.join(self.project_dir, '.claude', 'skills'))
+        import yaml as _yaml
+        with open(os.path.join(self.project_dir, '.teaparty.local', 'project.yaml')) as _f:
+            _proj_data = _yaml.safe_load(_f) or {}
+        registered = _proj_data.get('members', {}).get('skills') or []
         result = bridge._serialize_project_team(
             team,
             org_agents=[],
             org_catalog_agents=[],
             local_skills=local_skills,
-            registered_org_skills=['commit'],
+            registered_org_skills=registered,
             org_catalog_skills=[],
             teaparty_home=self.teaparty_home,
             project_dir=self.project_dir,
@@ -953,12 +963,16 @@ class TestHooksCatalogHighlighting(unittest.TestCase):
             'renderWorkgroup() must use a.active for catalog rendering',
         )
 
-    def test_render_workgroup_uses_active_flag_for_skills(self):
-        """renderWorkgroup() must check s.active to render active/inactive skills."""
-        self.assertIn(
-            's.active',
-            self.content,
-            'renderWorkgroup() must use s.active for catalog rendering',
+    def test_render_workgroup_has_no_skills_section(self):
+        """renderWorkgroup() must NOT render a skills section — skills are per-agent, not per-workgroup."""
+        source = self.content
+        start = source.find('async function renderWorkgroup(')
+        end = source.find('\nvar urlParams', start)
+        body = source[start:end] if end != -1 else source[start:]
+        self.assertNotIn(
+            'skillItems',
+            body,
+            'renderWorkgroup() must not contain skillItems — skills are per-agent per spec',
         )
 
     def test_toggle_membership_handles_workgroup_scope(self):
@@ -1007,6 +1021,99 @@ class TestStylesCssCatalogClasses(unittest.TestCase):
             self.content,
             'styles.css must define .item-catalog-inactive',
         )
+
+
+# ── Project-level catalog extension for workgroup detail ─────────────────────
+
+class TestWorkgroupDetailProjectCatalogExtension(unittest.TestCase):
+    """GET /api/workgroups/{name}?project=slug must extend catalog with project-level items."""
+
+    def setUp(self):
+        import json as _json
+        self.tmp = tempfile.mkdtemp()
+        self.teaparty_home = os.path.join(self.tmp, '.teaparty')
+        self.project_dir = os.path.join(self.tmp, 'myproject')
+        # Management team with workgroup
+        _make_management_yaml(self.teaparty_home, agents=[])
+        wg_dir = os.path.join(self.teaparty_home, 'workgroups')
+        os.makedirs(wg_dir, exist_ok=True)
+        self.wg_path = os.path.join(wg_dir, 'backlog.yaml')
+        _make_workgroup_yaml(self.wg_path, agents=[], skills=[])
+        # Register workgroup in teaparty.yaml
+        data = _read_management_yaml(self.teaparty_home)
+        data['workgroups'] = [{'name': 'backlog', 'config': 'workgroups/backlog.yaml'}]
+        data['projects'] = [{'name': 'myproject', 'path': self.project_dir}]
+        with open(os.path.join(self.teaparty_home, 'teaparty.yaml'), 'w') as f:
+            yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+        # Project directory
+        os.makedirs(self.project_dir)
+        proj_local = os.path.join(self.project_dir, '.teaparty.local')
+        os.makedirs(proj_local)
+        with open(os.path.join(proj_local, 'project.yaml'), 'w') as f:
+            yaml.dump({
+                'name': 'My Project', 'description': 'Test', 'lead': 'pm',
+                'workgroups': [{'ref': 'backlog'}],
+                'members': {'agents': [], 'skills': []},
+                'hooks': [], 'scheduled': [],
+            }, f)
+        # Project-level agent not in org catalog
+        proj_agents_dir = os.path.join(self.project_dir, '.claude', 'agents')
+        os.makedirs(proj_agents_dir)
+        with open(os.path.join(proj_agents_dir, 'proj-agent.md'), 'w') as f:
+            f.write('# proj-agent\n')
+        # Project-level hook not in org hooks
+        proj_claude_dir = os.path.join(self.project_dir, '.claude')
+        with open(os.path.join(proj_claude_dir, 'settings.json'), 'w') as f:
+            _json.dump({'hooks': {'ProjectHookEvent': [{'matcher': '', 'hooks': [{'type': 'command', 'command': 'echo hi'}]}]}}, f)
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _call(self) -> dict:
+        import asyncio
+        from unittest.mock import MagicMock
+        from bridge.server import TeaPartyBridge
+        bridge = TeaPartyBridge(
+            teaparty_home=self.teaparty_home,
+            static_dir=os.path.join(self.tmp, 'static'),
+        )
+        bridge._project_path_cache = {'myproject': self.project_dir}
+
+        async def _run():
+            request = MagicMock()
+            request.match_info = {'name': 'backlog'}
+            request.rel_url.query.get = MagicMock(return_value='myproject')
+            return await bridge._handle_workgroup_detail(request)
+
+        loop = asyncio.new_event_loop()
+        try:
+            resp = loop.run_until_complete(_run())
+            return json.loads(resp.body)
+        finally:
+            loop.close()
+
+    def test_project_local_agent_appears_in_catalog(self):
+        """Project-level agents must appear in workgroup catalog when accessed via ?project=slug."""
+        body = self._call()
+        agent_names = [a['name'] for a in body.get('agents', [])]
+        self.assertIn('proj-agent', agent_names,
+            'Project-level agent must appear in workgroup agent catalog (spec §Catalog and Active Selection)')
+
+    def test_project_local_agent_tagged_local(self):
+        """Project-level agents must be tagged source='local' in workgroup catalog."""
+        body = self._call()
+        agents = {a['name']: a for a in body.get('agents', [])}
+        self.assertIn('proj-agent', agents)
+        self.assertEqual(agents['proj-agent']['source'], 'local',
+            'Project-level agent must have source=local (not org filesystem)')
+
+    def test_project_level_hook_appears_in_catalog(self):
+        """Project-level hooks must appear in workgroup hooks catalog when accessed via ?project=slug."""
+        body = self._call()
+        hook_events = [h.get('event') for h in body.get('hooks', [])]
+        self.assertIn('ProjectHookEvent', hook_events,
+            'Project-level hook must appear in workgroup hooks catalog (spec §Catalog and Active Selection)')
 
 
 if __name__ == '__main__':
