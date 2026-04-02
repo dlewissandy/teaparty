@@ -536,6 +536,11 @@ class TeaPartyBridge:
                 {'error': 'body must include type (agent|workgroup|skill|hook|scheduled_task), name, and active (bool)'},
                 status=400,
             )
+        if kind == 'workgroup' and name.lower() == 'configuration' and active:
+            return web.json_response(
+                {'error': 'Configuration workgroup cannot be added to dispatch members'},
+                status=400,
+            )
         try:
             toggle_project_membership(project_dir, kind, name, active)
         except (FileNotFoundError, ValueError) as exc:

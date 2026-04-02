@@ -255,7 +255,15 @@ async function renderProject(slug) {
     var src = sourceBadge(w.source);
     var ovr = overrideBadge(w.overrides);
     var agentInfo = w.agents_count != null ? w.agents_count + ' agents' : '';
-    return '<div class="item" onclick="configNav(\'workgroup\',\'' + w.name + '\',\'' + slug + '\')"><div class="item-icon icon-workgroup">&#9670;</div><div class="item-body"><div class="item-title">' + w.name + ' ' + src + ' ' + ovr + '</div><div class="item-meta">' + (w.lead || '') + (agentInfo ? ' &middot; ' + agentInfo : '') + '</div></div></div>';
+    if (w.name.toLowerCase() === 'configuration') {
+      return '<div class="item" onclick="configNav(\'workgroup\',\'' + w.name + '\',\'' + slug + '\')"><div class="item-icon icon-config">&#9881;</div><div class="item-body"><div class="item-title">' + w.name + ' ' + src + '</div><div class="item-meta">config &middot; ' + (w.lead || '') + '</div></div></div>';
+    }
+    var isActive = w.active === true;
+    var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
+    var click = isActive
+      ? ' onclick="toggleMembership(\'' + slug + '\', \'workgroup\', \'' + w.name + '\', false)"'
+      : ' onclick="toggleMembership(\'' + slug + '\', \'workgroup\', \'' + w.name + '\', true)"';
+    return '<div class="item' + cls + '"' + click + '><div class="item-icon icon-workgroup">&#9670;</div><div class="item-body"><div class="item-title">' + w.name + ' ' + src + ' ' + ovr + '</div><div class="item-meta">' + (w.lead || '') + (agentInfo ? ' &middot; ' + agentInfo : '') + '</div></div></div>';
   });
 
   var agentItems = (team.agents || []).map(function(a) {
