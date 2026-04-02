@@ -104,6 +104,17 @@ body {
 .item-catalog-active { background: rgba(78,204,163,0.06); border-left: 2px solid var(--green); padding-left: 8px; }
 .item-catalog-inactive { opacity: 0.45; }
 .item-catalog-inactive:hover { opacity: 0.8; }
+.catalog-toggle {
+  width: 28px; height: 14px; background: rgba(136,136,136,0.25); border-radius: 7px;
+  position: relative; cursor: pointer; flex-shrink: 0; transition: background 0.2s;
+}
+.catalog-toggle::after {
+  content: ''; position: absolute; width: 10px; height: 10px;
+  background: var(--text-dim); border-radius: 50%; top: 2px; left: 2px;
+  transition: transform 0.2s, background 0.2s;
+}
+.catalog-toggle.toggle-on { background: rgba(78,204,163,0.35); }
+.catalog-toggle.toggle-on::after { transform: translateX(14px); background: var(--green); }
 .badge-done { background: rgba(78,204,163,0.15); color: var(--green); }
 .badge-working { background: rgba(78,204,163,0.15); color: var(--green); }
 .badge-reviewing { background: rgba(240,192,64,0.15); color: var(--yellow); }

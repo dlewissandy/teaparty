@@ -1238,8 +1238,9 @@ class TeaPartyBridge:
         skills_dir = os.path.join(claude_base, '.claude', 'skills')
         config_yaml = os.path.join(home, 'teaparty.yaml')
 
-        def _agent_file(name: str) -> str:
-            return os.path.join(agents_dir, f'{name}.md')
+        def _agent_file(name: str) -> str | None:
+            path = os.path.join(agents_dir, f'{name}.md')
+            return path if os.path.isfile(path) else None
 
         def _skill_file(name: str) -> str:
             return os.path.join(skills_dir, name, 'SKILL.md')
@@ -1458,11 +1459,19 @@ class TeaPartyBridge:
             for name in active_agent_names:
                 if name not in catalog:
                     catalog = catalog + [name]
+            _wg_claude_base = os.path.dirname(self.teaparty_home)
+            _wg_agents_dir = os.path.join(_wg_claude_base, '.claude', 'agents')
+
+            def _wg_agent_file(n: str) -> str | None:
+                path = os.path.join(_wg_agents_dir, f'{n}.md')
+                return path if os.path.isfile(path) else None
+
             result['agents'] = [
                 {
                     'name': n,
                     'source': 'shared' if n in org_agents_set else 'local',
                     'active': n in active_agent_names,
+                    'file': _wg_agent_file(n) if n in org_agents_set else None,
                 }
                 for n in catalog
             ]

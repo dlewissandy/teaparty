@@ -137,12 +137,12 @@ async function renderGlobal() {
 
   var agentItems = (m.agents || []).map(function(a) {
     var name = typeof a === 'object' ? a.name : a;
+    var file = typeof a === 'object' ? a.file : null;
     var isActive = typeof a === 'object' ? a.active !== false : true;
     var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
-    var click = isActive
-      ? ' onclick="toggleMembership(\'global\', \'agent\', \'' + name + '\', false)"'
-      : ' onclick="toggleMembership(\'global\', \'agent\', \'' + name + '\', true)"';
-    return '<div class="item' + cls + '"' + click + '><div class="item-icon icon-member">&#9672;</div><div class="item-body"><div class="item-title">' + name + '</div></div></div>';
+    var cardClick = file ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + file + '\'),\'_blank\')" style="cursor:pointer"' : '';
+    var toggle = '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleMembership(\'global\', \'agent\', \'' + name + '\', ' + !isActive + ')"></span>';
+    return '<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-member">&#9672;</div><div class="item-body"><div class="item-title">' + name + '</div></div>' + toggle + '</div>';
   });
 
   var participantItems = [];
@@ -248,14 +248,14 @@ async function renderProject(slug) {
 
   var agentItems = (team.agents || []).map(function(a) {
     var name = typeof a === 'object' ? a.name : a;
+    var file = typeof a === 'object' ? a.file : null;
     var source = typeof a === 'object' ? a.source : null;
     var isActive = typeof a === 'object' ? a.active !== false : true;
     var src = sourceBadge(source);
     var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
-    var click = isActive
-      ? ' onclick="toggleMembership(\'' + slug + '\', \'agent\', \'' + name + '\', false)"'
-      : ' onclick="toggleMembership(\'' + slug + '\', \'agent\', \'' + name + '\', true)"';
-    return '<div class="item' + cls + '"' + click + '><div class="item-icon icon-member">&#9672;</div><div class="item-body"><div class="item-title">' + name + ' ' + src + '</div></div></div>';
+    var cardClick = file ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + file + '\'),\'_blank\')" style="cursor:pointer"' : '';
+    var toggle = '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleMembership(\'' + slug + '\', \'agent\', \'' + name + '\', ' + !isActive + ')"></span>';
+    return '<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-member">&#9672;</div><div class="item-body"><div class="item-title">' + name + ' ' + src + '</div></div>' + toggle + '</div>';
   });
 
   var participantItems = [];
@@ -347,13 +347,13 @@ async function renderWorkgroup(name, projectSlug) {
 
   var agentItems = (wgData.agents || []).map(function(a) {
     var aName = a.name;
+    var file = a.file || null;
     var isActive = a.active !== false;
     var src = sourceBadge(a.source);
     var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
-    var click = isActive
-      ? ' onclick="toggleMembership(\'wg:' + name + '\', \'agent\', \'' + aName + '\', false, \'' + (projectSlug || '') + '\')"'
-      : ' onclick="toggleMembership(\'wg:' + name + '\', \'agent\', \'' + aName + '\', true, \'' + (projectSlug || '') + '\')"';
-    return '<div class="item' + cls + '"' + click + '><div class="item-icon icon-member">&#9672;</div><div class="item-body"><div class="item-title">' + aName + ' ' + src + '</div><div class="item-meta">' + (a.role || '') + (a.model ? ' &middot; ' + a.model : '') + '</div></div></div>';
+    var cardClick = file ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + file + '\'),\'_blank\')" style="cursor:pointer"' : '';
+    var toggle = '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleMembership(\'wg:' + name + '\', \'agent\', \'' + aName + '\', ' + !isActive + ', \'' + (projectSlug || '') + '\')"></span>';
+    return '<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-member">&#9672;</div><div class="item-body"><div class="item-title">' + aName + ' ' + src + '</div><div class="item-meta">' + (a.role || '') + (a.model ? ' &middot; ' + a.model : '') + '</div></div>' + toggle + '</div>';
   });
 
   var hookItems = (wgData.hooks || []).map(function(h) {
