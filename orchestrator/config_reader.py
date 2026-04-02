@@ -372,6 +372,89 @@ def discover_hooks(settings_json_path: str) -> list[dict[str, str]]:
     return result
 
 
+@dataclass
+class MergedCatalog:
+    """Merged catalog combining management-level and project-level .claude/ entries.
+
+    Project-level entries take precedence over management-level entries with the
+    same name (per proposal.md §"Catalog and Active Selection").
+
+    Attributes:
+        agents: Unique agent names. Project entries shadow management entries on collision.
+        skills: Unique skill names. Project entries shadow management entries on collision.
+        hooks: Merged hook dicts. Project hooks shadow management on same (event, matcher).
+        project_agents: Names sourced from the project .claude/agents/ (for source tagging).
+        project_skills: Names sourced from the project .claude/skills/ (for source tagging).
+    """
+    agents: list[str]
+    skills: list[str]
+    hooks: list[dict]
+    project_agents: set[str]
+    project_skills: set[str]
+
+
+def merge_catalog(
+    mgmt_claude_dir: str,
+    project_claude_dir: str | None = None,
+) -> MergedCatalog:
+    """Build a merged catalog from management and optional project-level .claude/ directories.
+
+    Reads agents, skills, and hooks from each level and merges them with project
+    entries taking precedence. If a project defines an agent, skill, or hook with
+    the same identifier as a management entry, the project's version is used and
+    the management's version is excluded.
+
+    Hook precedence key: (event, matcher). Two hooks with the same event and
+    matcher are considered the same hook; the project's wins.
+
+    Args:
+        mgmt_claude_dir: Path to the management-level .claude/ directory.
+        project_claude_dir: Optional path to the project's .claude/ directory.
+            If None or the directory does not exist, only management entries
+            are returned.
+
+    Returns:
+        MergedCatalog with merged agents, skills, and hooks.
+    """
+    mgmt_agents = discover_agents(os.path.join(mgmt_claude_dir, 'agents'))
+    mgmt_skills = discover_skills(os.path.join(mgmt_claude_dir, 'skills'))
+    mgmt_hooks = discover_hooks(os.path.join(mgmt_claude_dir, 'settings.json'))
+
+    if not project_claude_dir or not os.path.isdir(project_claude_dir):
+        return MergedCatalog(
+            agents=mgmt_agents,
+            skills=mgmt_skills,
+            hooks=mgmt_hooks,
+            project_agents=set(),
+            project_skills=set(),
+        )
+
+    proj_agents = discover_agents(os.path.join(project_claude_dir, 'agents'))
+    proj_skills = discover_skills(os.path.join(project_claude_dir, 'skills'))
+    proj_hooks = discover_hooks(os.path.join(project_claude_dir, 'settings.json'))
+
+    proj_agent_set = set(proj_agents)
+    proj_skill_set = set(proj_skills)
+
+    # Project entries come first; management entries not already present are appended.
+    merged_agents = list(proj_agents) + [a for a in mgmt_agents if a not in proj_agent_set]
+    merged_skills = list(proj_skills) + [s for s in mgmt_skills if s not in proj_skill_set]
+
+    proj_hook_keys = {(h.get('event'), h.get('matcher')) for h in proj_hooks}
+    merged_hooks = list(proj_hooks) + [
+        h for h in mgmt_hooks
+        if (h.get('event'), h.get('matcher')) not in proj_hook_keys
+    ]
+
+    return MergedCatalog(
+        agents=merged_agents,
+        skills=merged_skills,
+        hooks=merged_hooks,
+        project_agents=proj_agent_set,
+        project_skills=proj_skill_set,
+    )
+
+
 def discover_projects(team: ManagementTeam) -> list[dict[str, Any]]:
     """Walk projects: entries and check which paths are valid TeaParty projects.
 

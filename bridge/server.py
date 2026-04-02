@@ -45,6 +45,7 @@ from orchestrator.config_reader import (
     discover_agents,
     discover_skills,
     discover_hooks,
+    merge_catalog,
     load_management_workgroups,
     resolve_workgroups,
     toggle_management_membership,
@@ -438,6 +439,11 @@ class TeaPartyBridge:
             os.path.join(project_dir, '.claude', 'skills')
         )
 
+        project_catalog = merge_catalog(
+            os.path.join(claude_base, '.claude'),
+            os.path.join(project_dir, '.claude'),
+        )
+
         members_workgroups_lower = {m.lower() for m in team.members_workgroups}
         workgroups = []
         for entry in team.workgroups:
@@ -483,6 +489,7 @@ class TeaPartyBridge:
                 org_catalog_skills=org_catalog_skills,
                 teaparty_home=self.teaparty_home,
                 project_dir=project_dir,
+                catalog_hooks=project_catalog.hooks,
             ),
             'workgroups': workgroups,
         })
@@ -588,24 +595,16 @@ class TeaPartyBridge:
             return web.json_response({'error': str(exc)}, status=404)
 
         claude_base = os.path.dirname(self.teaparty_home)
-        org_catalog_agents: list[str] = discover_agents(
-            os.path.join(claude_base, '.claude', 'agents')
+        catalog = merge_catalog(
+            os.path.join(claude_base, '.claude'),
+            os.path.join(project_dir, '.claude') if project_dir else None,
         )
-        org_hooks: list[dict] = discover_hooks(
-            os.path.join(claude_base, '.claude', 'settings.json')
+        org_catalog_agents: list[str] = catalog.agents
+        org_hooks: list[dict] = catalog.hooks
+        # Management-only set for 'shared' vs 'local' source tagging in the serializer.
+        org_agents_set: set[str] = set(
+            discover_agents(os.path.join(claude_base, '.claude', 'agents'))
         )
-        # org_agents_set used for source tagging: org filesystem agents → 'shared', project-local → 'local'
-        org_agents_set: set[str] = set(org_catalog_agents)
-        # If project-scoped, extend catalog with project-level agents and hooks (spec §"Catalog and Active Selection")
-        if project_dir:
-            proj_claude = os.path.join(project_dir, '.claude')
-            for a in discover_agents(os.path.join(proj_claude, 'agents')):
-                if a not in org_catalog_agents:
-                    org_catalog_agents = org_catalog_agents + [a]
-            existing_events = {h.get('event') for h in org_hooks}
-            for h in discover_hooks(os.path.join(proj_claude, 'settings.json')):
-                if h.get('event') not in existing_events:
-                    org_hooks = org_hooks + [h]
 
         members_lower: set[str] | None = (
             {m.lower() for m in team.members_workgroups} if project_slug else None
@@ -1317,6 +1316,7 @@ class TeaPartyBridge:
         org_catalog_skills: list[str] | None = None,
         teaparty_home: str | None = None,
         project_dir: str | None = None,
+        catalog_hooks: list[dict] | None = None,
     ) -> dict:
         org_agents_set = set(org_agents or [])
         local_skills_set = set(local_skills or [])
@@ -1402,8 +1402,11 @@ class TeaPartyBridge:
             })
             seen_skills.add(name)
 
-        proj_settings = os.path.join(proj, '.claude', 'settings.json') if proj else ''
-        settings_hooks = discover_hooks(proj_settings) if proj_settings else []
+        if catalog_hooks is not None:
+            settings_hooks = catalog_hooks
+        else:
+            proj_settings = os.path.join(proj, '.claude', 'settings.json') if proj else ''
+            settings_hooks = discover_hooks(proj_settings) if proj_settings else []
         yaml_hooks = [
             {**h, 'active': h.get('active', True), 'source': 'yaml'}
             for h in t.hooks
