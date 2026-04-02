@@ -415,8 +415,9 @@ async def close_conversation_handler(
     """Core handler logic for CloseConversation.
 
     Posts the context_id to the close socket so BusEventListener can set
-    conversation_status='closed'.  Only the originator should call this —
-    the trust boundary is possession of CLOSE_CONV_SOCKET.
+    conversation_status='closed'.  Only the originator may close a
+    conversation — BusEventListener enforces this by checking caller_agent_id
+    against the context record's initiator_agent_id.
 
     Args:
         context_id: The conversation context ID to close.
