@@ -564,7 +564,7 @@ class TestBusEventListenerLifecycle(unittest.TestCase):
 
         async def mock_spawn_fn(member, composite, context_id):
             spawned['member'] = member
-            return 'mock-session-id'
+            return ('mock-session-id', '')
 
         async def run():
             listener = BusEventListener(bus_db_path=bus_db, spawn_fn=mock_spawn_fn)
@@ -649,7 +649,7 @@ class TestBusEventListenerLifecycle(unittest.TestCase):
 
         async def mock_spawn_fn(member, composite, context_id):
             spawned['composite'] = composite
-            return 'sess-id'
+            return ('sess-id', '')
 
         composite_sent = '## Task\nwrite tests\n\n## Context\ncurrent state'
 
@@ -706,7 +706,7 @@ class TestNonBlockingDispatch(unittest.TestCase):
             # Simulate slow agent — 50ms delay
             await asyncio.sleep(0.05)
             spawn_completed.append(True)
-            return 'sess-slow'
+            return ('sess-slow', '')
 
         result = {}
 

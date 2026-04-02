@@ -39,10 +39,10 @@ from typing import Awaitable, Callable
 _log = logging.getLogger('orchestrator.bus_event_listener')
 
 # Type aliases for the pluggable spawn and re-invocation functions.
-# spawn_fn(member, composite, context_id) -> session_id
-SpawnFn = Callable[[str, str, str], Awaitable[str]]
-# resume_fn(member, composite, session_id) -> session_id
-ResumeFn = Callable[[str, str, str], Awaitable[str]]
+# spawn_fn(member, composite, context_id) -> (session_id, worktree_path)
+SpawnFn = Callable[[str, str, str], Awaitable[tuple[str, str]]]
+# resume_fn(member, composite, session_id, context_id) -> session_id
+ResumeFn = Callable[[str, str, str, str], Awaitable[str]]
 # reinvoke_fn(context_id, session_id, message) -> None
 ReinvokeFn = Callable[[str, str, str], Awaitable[None]]
 
@@ -290,11 +290,14 @@ class BusEventListener:
     async def _spawn_and_record(
         self, member: str, composite: str, context_id: str,
     ) -> None:
-        """Background task: spawn recipient and record the session_id."""
+        """Background task: spawn recipient and record the session_id and worktree_path."""
         try:
-            session_id = await self.spawn_fn(member, composite, context_id)
-            if session_id and self.bus_db_path:
-                self._set_session_id(context_id, session_id)
+            session_id, worktree_path = await self.spawn_fn(member, composite, context_id)
+            if self.bus_db_path:
+                if session_id:
+                    self._set_session_id(context_id, session_id)
+                if worktree_path:
+                    self._set_worktree_path(context_id, worktree_path)
         except Exception:
             _log.exception('Error spawning agent for context %s', context_id)
 
@@ -303,7 +306,7 @@ class BusEventListener:
     ) -> None:
         """Background task: resume recipient with prior session_id."""
         try:
-            new_session_id = await self.resume_fn(member, composite, session_id)
+            new_session_id = await self.resume_fn(member, composite, session_id, context_id)
             if new_session_id and new_session_id != session_id and self.bus_db_path:
                 self._set_session_id(context_id, new_session_id)
         except Exception:
@@ -584,6 +587,27 @@ class BusEventListener:
             if ctx is None:
                 return ''
             return ctx.get('session_id', '')
+        finally:
+            bus.close()
+
+    def _set_worktree_path(self, context_id: str, worktree_path: str) -> None:
+        """Store the agent's worktree path for use on follow-up resume."""
+        from orchestrator.messaging import SqliteMessageBus
+        bus = SqliteMessageBus(self.bus_db_path)
+        try:
+            bus.set_agent_context_worktree_path(context_id, worktree_path)
+        finally:
+            bus.close()
+
+    def _get_worktree_path(self, context_id: str) -> str:
+        """Return the agent's stored worktree path, or '' if not set."""
+        from orchestrator.messaging import SqliteMessageBus
+        bus = SqliteMessageBus(self.bus_db_path)
+        try:
+            ctx = bus.get_agent_context(context_id)
+            if ctx is None:
+                return ''
+            return ctx.get('agent_worktree_path', '')
         finally:
             bus.close()
 

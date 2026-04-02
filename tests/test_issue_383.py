@@ -228,11 +228,11 @@ class TestFollowUpSendResumesSession(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
-    async def _capture_spawn(self, member: str, composite: str, context_id: str) -> str:
+    async def _capture_spawn(self, member: str, composite: str, context_id: str) -> tuple[str, str]:
         self.spawn_calls.append({'member': member, 'context_id': context_id})
-        return 'new-session-id'
+        return ('new-session-id', '')
 
-    async def _capture_resume(self, member: str, composite: str, session_id: str) -> str:
+    async def _capture_resume(self, member: str, composite: str, session_id: str, context_id: str) -> str:
         self.resume_calls.append({'member': member, 'session_id': session_id})
         return session_id
 
@@ -359,9 +359,9 @@ class TestFollowUpRejectedForClosedConversation(unittest.TestCase):
 
     async def _capture_spawn(self, member, composite, context_id):
         self.spawn_calls.append(context_id)
-        return 'new-session'
+        return ('new-session', '')
 
-    async def _capture_resume(self, member, composite, session_id):
+    async def _capture_resume(self, member, composite, session_id, context_id):
         self.resume_calls.append(session_id)
         return session_id
 
@@ -767,6 +767,122 @@ class TestCloseConversationMCPTool(unittest.TestCase):
         self.assertEqual(posts[0], 'ctx-close-1')
         response = json.loads(result)
         self.assertEqual(response['status'], 'ok')
+
+
+# ── SC8: Bridge interjection routing ─────────────────────────────────────────
+
+
+class TestBridgeInterjectionRouting(unittest.TestCase):
+    """SC8: The bridge's POST /api/conversations/{agent:...} endpoint must route
+    through _handle_agent_conversation_post → _find_interjection_socket → the
+    interjection socket server, triggering --resume on the active session.
+
+    This covers the chat-dialog entry point that was previously untested.
+    """
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_post_to_agent_conversation_forwards_to_interjection_socket(self):
+        """SC8: POST /api/conversations/agent:... must reach the interjection socket."""
+        import asyncio
+        import json
+        import os
+        from aiohttp import web
+        from aiohttp.test_utils import TestClient, TestServer
+
+        conv_id = 'agent:proj-lead:proj-worker:test-sc8-1'
+        received = {}
+
+        async def run():
+            # Start a mock interjection socket server that records what it receives.
+            sock_path = os.path.join(self.tmpdir, 'interject.sock')
+
+            async def handle_interjection(reader, writer):
+                line = await reader.readline()
+                payload = json.loads(line.decode())
+                received['payload'] = payload
+                writer.write(json.dumps({'status': 'ok'}).encode() + b'\n')
+                await writer.drain()
+                writer.close()
+
+            sock_server = await asyncio.start_unix_server(handle_interjection, path=sock_path)
+
+            try:
+                # Build a minimal bridge with _find_interjection_socket mocked
+                # to return the socket path above.  This isolates the bridge-side
+                # routing logic (_handle_agent_conversation_post) from project
+                # discovery (_resolve_session_infra).
+                from bridge.server import TeaPartyBridge
+                bridge = TeaPartyBridge(
+                    teaparty_home=self.tmpdir,
+                    static_dir=self.tmpdir,
+                )
+                bridge._find_interjection_socket = lambda cid: sock_path
+
+                app = web.Application()
+                app.router.add_post(
+                    '/api/conversations/{id}',
+                    bridge._handle_conversation_post,
+                )
+
+                async with TestClient(TestServer(app)) as client:
+                    resp = await client.post(
+                        f'/api/conversations/{conv_id}',
+                        json={'content': 'hello from human'},
+                    )
+                    data = await resp.json()
+
+                self.assertEqual(resp.status, 200, f'expected 200, got {resp.status}: {data}')
+                self.assertEqual(data.get('status'), 'ok')
+            finally:
+                sock_server.close()
+                await sock_server.wait_closed()
+
+        _run(run())
+
+        self.assertIn('payload', received, 'interjection socket must receive a payload')
+        self.assertEqual(received['payload'].get('type'), 'interject')
+        self.assertEqual(received['payload'].get('context_id'), conv_id)
+        self.assertEqual(received['payload'].get('message'), 'hello from human')
+
+    def test_post_to_agent_conversation_returns_404_when_socket_not_found(self):
+        """SC8: POST to agent conversation with no active session must return 404."""
+        import asyncio
+        from aiohttp import web
+        from aiohttp.test_utils import TestClient, TestServer
+
+        conv_id = 'agent:proj-lead:proj-worker:test-sc8-2'
+
+        async def run():
+            from bridge.server import TeaPartyBridge
+            bridge = TeaPartyBridge(
+                teaparty_home=self.tmpdir,
+                static_dir=self.tmpdir,
+            )
+            # No active session — _find_interjection_socket returns empty string.
+            bridge._find_interjection_socket = lambda cid: ''
+
+            app = web.Application()
+            app.router.add_post(
+                '/api/conversations/{id}',
+                bridge._handle_conversation_post,
+            )
+
+            async with TestClient(TestServer(app)) as client:
+                resp = await client.post(
+                    f'/api/conversations/{conv_id}',
+                    json={'content': 'hello'},
+                )
+                data = await resp.json(content_type=None)
+                return resp.status, data
+
+        status, data = _run(run())
+        self.assertEqual(status, 404)
+        self.assertIn('error', data)
 
 
 if __name__ == '__main__':
