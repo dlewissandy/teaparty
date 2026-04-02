@@ -40,10 +40,14 @@ from orchestrator.config_reader import (
     load_project_team,
     load_workgroup,
     discover_projects,
+    discover_agents,
     discover_skills,
     discover_hooks,
     load_management_workgroups,
     resolve_workgroups,
+    toggle_management_membership,
+    toggle_project_membership,
+    toggle_workgroup_membership,
     WorkgroupRef,
     WorkgroupEntry,
 )
@@ -235,8 +239,11 @@ class TeaPartyBridge:
 
         # ── Config endpoints ──────────────────────────────────────────────────
         app.router.add_get('/api/config', self._handle_config)
+        app.router.add_post('/api/config/management/toggle', self._handle_config_management_toggle)
         app.router.add_get('/api/config/{project}', self._handle_config_project)
+        app.router.add_post('/api/config/{project}/toggle', self._handle_config_project_toggle)
         app.router.add_get('/api/workgroups', self._handle_workgroups)
+        app.router.add_post('/api/workgroups/{name}/toggle', self._handle_workgroup_toggle)
         app.router.add_get('/api/workgroups/{name}', self._handle_workgroup_detail)
 
         # ── Message endpoints ─────────────────────────────────────────────────
@@ -382,11 +389,16 @@ class TeaPartyBridge:
             projects = discover_projects(team)
             for p in projects:
                 p['slug'] = os.path.basename(p['path'])
-            org_skills_dir = os.path.join(os.path.dirname(self.teaparty_home), '.claude', 'skills')
+            claude_base = os.path.dirname(self.teaparty_home)
+            org_agents_dir = os.path.join(claude_base, '.claude', 'agents')
+            org_skills_dir = os.path.join(claude_base, '.claude', 'skills')
+            discovered_agents = discover_agents(org_agents_dir)
             discovered_skills = discover_skills(org_skills_dir)
             return web.json_response({
                 'management_team': self._serialize_management_team(
-                    team, discovered_skills=discovered_skills,
+                    team,
+                    discovered_agents=discovered_agents,
+                    discovered_skills=discovered_skills,
                 ),
                 'projects': projects,
             })
@@ -403,15 +415,20 @@ class TeaPartyBridge:
         except FileNotFoundError:
             return web.json_response({'error': f'project config not found: {slug}'}, status=404)
 
+        claude_base = os.path.dirname(self.teaparty_home)
         try:
             mgmt = load_management_team(teaparty_home=self.teaparty_home)
             org_agents: list[str] = mgmt.members_agents
             org_catalog_skills: list[str] = discover_skills(
-                os.path.join(os.path.dirname(self.teaparty_home), '.claude', 'skills')
+                os.path.join(claude_base, '.claude', 'skills')
             )
         except FileNotFoundError:
             org_agents = []
             org_catalog_skills = []
+
+        org_catalog_agents: list[str] = discover_agents(
+            os.path.join(claude_base, '.claude', 'agents')
+        )
 
         local_skills: list[str] = discover_skills(
             os.path.join(project_dir, '.claude', 'skills')
@@ -451,6 +468,7 @@ class TeaPartyBridge:
             'team': self._serialize_project_team(
                 team,
                 org_agents=org_agents,
+                org_catalog_agents=org_catalog_agents,
                 local_skills=local_skills,
                 registered_org_skills=org_catalog_skills,
                 org_catalog_skills=org_catalog_skills,
@@ -459,6 +477,79 @@ class TeaPartyBridge:
             ),
             'workgroups': workgroups,
         })
+
+    async def _handle_config_management_toggle(self, request: web.Request) -> web.Response:
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({'error': 'invalid JSON body'}, status=400)
+        kind = body.get('type', '')
+        name = body.get('name', '')
+        active = body.get('active')
+        if kind not in ('agent', 'skill', 'hook') or not name or not isinstance(active, bool):
+            return web.json_response(
+                {'error': 'body must include type (agent|skill|hook), name, and active (bool)'},
+                status=400,
+            )
+        try:
+            toggle_management_membership(self.teaparty_home, kind, name, active)
+        except (FileNotFoundError, ValueError) as exc:
+            return web.json_response({'error': str(exc)}, status=404)
+        return web.json_response({'ok': True})
+
+    async def _handle_config_project_toggle(self, request: web.Request) -> web.Response:
+        slug = request.match_info['project']
+        project_dir = self._lookup_project_path(slug)
+        if project_dir is None:
+            return web.json_response({'error': f'project not found: {slug}'}, status=404)
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({'error': 'invalid JSON body'}, status=400)
+        kind = body.get('type', '')
+        name = body.get('name', '')
+        active = body.get('active')
+        if kind not in ('agent', 'skill', 'hook') or not name or not isinstance(active, bool):
+            return web.json_response(
+                {'error': 'body must include type (agent|skill|hook), name, and active (bool)'},
+                status=400,
+            )
+        try:
+            toggle_project_membership(project_dir, kind, name, active)
+        except (FileNotFoundError, ValueError) as exc:
+            return web.json_response({'error': str(exc)}, status=404)
+        return web.json_response({'ok': True})
+
+    async def _handle_workgroup_toggle(self, request: web.Request) -> web.Response:
+        wg_name = request.match_info['name']
+        project_slug = request.rel_url.query.get('project')
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({'error': 'invalid JSON body'}, status=400)
+        kind = body.get('type', '')
+        name = body.get('name', '')
+        active = body.get('active')
+        if kind not in ('agent', 'skill') or not name or not isinstance(active, bool):
+            return web.json_response(
+                {'error': 'body must include type (agent|skill), name, and active (bool)'},
+                status=400,
+            )
+        claude_base = os.path.dirname(self.teaparty_home)
+        if project_slug:
+            project_dir = self._lookup_project_path(project_slug)
+            if project_dir is None:
+                return web.json_response({'error': f'project not found: {project_slug}'}, status=404)
+            yaml_path = os.path.join(project_dir, '.teaparty.local', 'workgroups', f'{wg_name}.yaml')
+            if not os.path.exists(yaml_path):
+                yaml_path = os.path.join(self.teaparty_home, 'workgroups', f'{wg_name}.yaml')
+        else:
+            yaml_path = os.path.join(self.teaparty_home, 'workgroups', f'{wg_name}.yaml')
+        try:
+            toggle_workgroup_membership(yaml_path, kind, name, active)
+        except (FileNotFoundError, ValueError) as exc:
+            return web.json_response({'error': str(exc)}, status=404)
+        return web.json_response({'ok': True})
 
     async def _handle_workgroups(self, request: web.Request) -> web.Response:
         try:
@@ -486,22 +577,20 @@ class TeaPartyBridge:
         except FileNotFoundError as exc:
             return web.json_response({'error': str(exc)}, status=404)
 
-        try:
-            mgmt = load_management_team(teaparty_home=self.teaparty_home)
-            org_agents: set[str] = set(mgmt.members_agents)
-            org_skills: list[str] = discover_skills(
-                os.path.join(os.path.dirname(self.teaparty_home), '.claude', 'skills')
-            )
-        except FileNotFoundError:
-            org_agents = set()
-            org_skills = []
+        claude_base = os.path.dirname(self.teaparty_home)
+        org_catalog_agents: list[str] = discover_agents(
+            os.path.join(claude_base, '.claude', 'agents')
+        )
+        org_skills: list[str] = discover_skills(
+            os.path.join(claude_base, '.claude', 'skills')
+        )
 
         for w in workgroups:
             if w.name == name:
                 return web.json_response(
                     self._serialize_workgroup(
                         w, detail=True,
-                        org_agents=org_agents,
+                        org_catalog_agents=org_catalog_agents,
                         org_catalog_skills=org_skills,
                     )
                 )
@@ -1107,7 +1196,9 @@ class TeaPartyBridge:
         }
 
     def _serialize_management_team(
-        self, t, discovered_skills: list[str] | None = None,
+        self, t,
+        discovered_agents: list[str] | None = None,
+        discovered_skills: list[str] | None = None,
         teaparty_home: str | None = None,
     ) -> dict:
         home = teaparty_home or self.teaparty_home
@@ -1138,7 +1229,35 @@ class TeaPartyBridge:
             return path if os.path.isfile(path) else None
 
         settings_hooks = discover_hooks(os.path.join(claude_base, '.claude', 'settings.json'))
-        all_hooks = t.hooks + settings_hooks
+        yaml_hooks = [
+            {**h, 'active': h.get('active', True), 'source': 'yaml'}
+            for h in t.hooks
+        ]
+        sys_hooks = [{**h, 'active': True, 'source': 'settings'} for h in settings_hooks]
+        all_hooks = yaml_hooks + sys_hooks
+
+        # Full agent catalog: all agents in .claude/agents/, with active: bool.
+        # Auto-discover from filesystem when not given an explicit list.
+        active_agents_set = set(t.members_agents)
+        all_catalog_agents: list[str] = (
+            discovered_agents if discovered_agents is not None
+            else discover_agents(agents_dir)
+        )
+        # Include any active agents not found on disk (e.g. missing / not yet created)
+        for name in t.members_agents:
+            if name not in all_catalog_agents:
+                all_catalog_agents = all_catalog_agents + [name]
+        agents_result = [
+            {'name': n, 'file': _agent_file(n), 'active': n in active_agents_set}
+            for n in all_catalog_agents
+        ]
+
+        # Full skill catalog: all discovered skills with active: bool
+        active_skills_set = set(t.skills or [])
+        skills_result = [
+            {'name': n, 'file': _skill_file(n), 'active': n in active_skills_set}
+            for n in (discovered_skills or [])
+        ]
 
         decider = next((h.name for h in t.humans if h.role == 'decider'), '')
         return {
@@ -1146,9 +1265,9 @@ class TeaPartyBridge:
             'description': t.description,
             'lead': t.lead,
             'decider': decider,
-            'agents': [{'name': n, 'file': _agent_file(n)} for n in t.members_agents],
+            'agents': agents_result,
             'humans': [{'name': h.name, 'role': h.role} for h in t.humans],
-            'skills': [{'name': n, 'file': _skill_file(n)} for n in (discovered_skills or [])],
+            'skills': skills_result,
             'hooks': [{**h, 'file': _hook_file(h)} for h in all_hooks],
             'scheduled': [
                 {'name': s.name, 'schedule': s.schedule, 'enabled': s.enabled,
@@ -1160,6 +1279,7 @@ class TeaPartyBridge:
     def _serialize_project_team(
         self, t,
         org_agents: list[str] | None = None,
+        org_catalog_agents: list[str] | None = None,
         local_skills: list[str] | None = None,
         registered_org_skills: list[str] | None = None,
         org_catalog_skills: list[str] | None = None,
@@ -1216,21 +1336,65 @@ class TeaPartyBridge:
             path = os.path.join(org_skills_dir, skill_name, 'SKILL.md')
             return path if os.path.isfile(path) else None
 
+        # Full agent catalog: all agents from org filesystem + active project agents.
+        # org_catalog_agents overrides org_agents as the authoritative full list.
+        active_project_agents_set = set(t.members_agents)
+        catalog_agent_names: list[str] = list(
+            org_catalog_agents if org_catalog_agents is not None else (org_agents or [])
+        )
+        # Include project-active agents not found in the org catalog (e.g. local project agents)
+        for name in t.members_agents:
+            if name not in catalog_agent_names:
+                catalog_agent_names = catalog_agent_names + [name]
+        agents_result = [
+            {
+                'name': n,
+                'source': _agent_source(n),
+                'file': _agent_file(n),
+                'active': n in active_project_agents_set,
+            }
+            for n in catalog_agent_names
+        ]
+
         # Build merged skill list: local first, then any explicitly passed org skills.
         # Project-level registered_org_skills no longer come from the YAML schema
         # (removed in issue #362) but the parameter is kept for backward compatibility.
+        registered_set = set(registered_org_skills or [])
         skills_result = []
+        seen_skills: set[str] = set()
         for name in sorted(local_skills or []):
             source = 'local'
-            skills_result.append({'name': name, 'source': source, 'file': _skill_file(name, source)})
-        for name in (registered_org_skills or []):
-            if name not in local_skills_set:
-                source = 'shared' if name in org_catalog_set else 'missing'
-                skills_result.append({'name': name, 'source': source, 'file': _skill_file(name, source)})
+            skills_result.append({
+                'name': name, 'source': source,
+                'file': _skill_file(name, source), 'active': name in registered_set,
+            })
+            seen_skills.add(name)
+        # All org catalog skills (registered active ones first, then inactive)
+        active_org_skills = [n for n in (registered_org_skills or []) if n not in seen_skills]
+        inactive_org_skills = [n for n in (org_catalog_skills or []) if n not in seen_skills and n not in registered_set]
+        for name in active_org_skills:
+            source = 'shared' if name in org_catalog_set else 'missing'
+            skills_result.append({
+                'name': name, 'source': source,
+                'file': _skill_file(name, source), 'active': True,
+            })
+            seen_skills.add(name)
+        for name in inactive_org_skills:
+            source = 'shared'
+            skills_result.append({
+                'name': name, 'source': source,
+                'file': _skill_file(name, source), 'active': False,
+            })
+            seen_skills.add(name)
 
         proj_settings = os.path.join(proj, '.claude', 'settings.json') if proj else ''
         settings_hooks = discover_hooks(proj_settings) if proj_settings else []
-        all_hooks = t.hooks + settings_hooks
+        yaml_hooks = [
+            {**h, 'active': h.get('active', True), 'source': 'yaml'}
+            for h in t.hooks
+        ]
+        sys_hooks = [{**h, 'active': True, 'source': 'settings'} for h in settings_hooks]
+        all_hooks = yaml_hooks + sys_hooks
 
         decider = next((h.name for h in t.humans if h.role == 'decider'), '')
         return {
@@ -1238,7 +1402,7 @@ class TeaPartyBridge:
             'description': t.description,
             'lead': t.lead,
             'decider': decider,
-            'agents': [],
+            'agents': agents_result,
             'humans': [{'name': h.name, 'role': h.role} for h in t.humans],
             'skills': skills_result,
             'hooks': [{**h, 'file': _hook_file(h)} for h in all_hooks],
@@ -1252,7 +1416,7 @@ class TeaPartyBridge:
     def _serialize_workgroup(
         self, w, source: str | None = None, overrides: list[str] | None = None,
         detail: bool = False,
-        org_agents: set[str] | None = None,
+        org_catalog_agents: list[str] | None = None,
         org_catalog_skills: list[str] | None = None,
     ) -> dict:
         result = {
@@ -1264,11 +1428,31 @@ class TeaPartyBridge:
             'overrides': overrides or [],
         }
         if detail:
-            org_agents_set = org_agents or set()
+            active_agent_names: set[str] = set(w.members_agents)
+            org_skills_set = set(org_catalog_skills or [])
+            active_skills_set = set(w.skills)
+            # Full agent catalog: all org filesystem agents, mark active if in workgroup
+            catalog = org_catalog_agents or []
+            for name in active_agent_names:
+                if name not in catalog:
+                    catalog = catalog + [name]
             result['agents'] = [
-                {'name': n, 'source': 'shared' if n in org_agents_set else 'local'}
-                for n in w.members_agents
+                {'name': n, 'source': 'shared', 'active': n in active_agent_names}
+                for n in catalog
             ]
+            # Full skills catalog: all org catalog skills, mark active if in workgroup
+            result['skills'] = []
+            seen: set[str] = set()
+            for s in (org_catalog_skills or []):
+                result['skills'].append({
+                    'name': s,
+                    'source': 'shared' if s in org_skills_set else 'local',
+                    'active': s in active_skills_set,
+                })
+                seen.add(s)
+            for s in w.skills:
+                if s not in seen:
+                    result['skills'].append({'name': s, 'source': 'local', 'active': True})
             result['norms'] = dict(w.norms)
             result['budget'] = dict(w.budget)
         return result

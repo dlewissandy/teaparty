@@ -295,6 +295,23 @@ def load_workgroup(path: str) -> Workgroup:
 
 # ── Discovery & resolution ──────────────────────────────────────────────────
 
+def discover_agents(agents_dir: str) -> list[str]:
+    """Scan a .claude/agents/ directory and return agent names (without .md extension).
+
+    Returns an empty list if the directory does not exist.
+
+    Args:
+        agents_dir: Absolute path to a .claude/agents/ directory.
+    """
+    if not os.path.isdir(agents_dir):
+        return []
+    names = []
+    for entry in sorted(os.scandir(agents_dir), key=lambda e: e.name):
+        if entry.is_file() and entry.name.endswith('.md'):
+            names.append(entry.name[:-3])
+    return names
+
+
 def discover_skills(skills_dir: str) -> list[str]:
     """Scan a .claude/skills/ directory and return skill names.
 
@@ -553,6 +570,136 @@ def _load_management_yaml(
         raise FileNotFoundError(f'Management team config not found: {path}')
     with open(path) as f:
         return yaml.safe_load(f)
+
+
+_MEMBERSHIP_KEYS = {'agent': 'agents', 'skill': 'skills', 'hook': 'hooks'}
+
+
+def _toggle_hook_active(hooks: list[dict], event: str, active: bool) -> list[dict]:
+    """Set the active flag on the hook entry with the given event name."""
+    result = []
+    found = False
+    for h in hooks:
+        if h.get('event') == event:
+            result.append({**h, 'active': active})
+            found = True
+        else:
+            result.append(h)
+    if not found:
+        raise ValueError(f'Hook with event {event!r} not found')
+    return result
+
+
+def toggle_management_membership(
+    teaparty_home: str,
+    kind: str,
+    name: str,
+    active: bool,
+) -> None:
+    """Add/remove an item from the management team's active list in teaparty.yaml.
+
+    For agents and skills: adds/removes the name from the list.
+    For hooks: sets the active flag on the hook entry identified by event name.
+
+    Args:
+        teaparty_home: Path to the .teaparty/ directory.
+        kind: 'agent', 'skill', or 'hook'.
+        name: Name/event of the item to toggle.
+        active: True to activate, False to deactivate.
+    """
+    if kind not in _MEMBERSHIP_KEYS:
+        raise ValueError(f'Invalid membership kind: {kind!r}')
+    data = _load_management_yaml(teaparty_home)
+    if kind == 'hook':
+        data['hooks'] = _toggle_hook_active(data.get('hooks') or [], name, active)
+    else:
+        key = _MEMBERSHIP_KEYS[kind]
+        current: list = data.get(key) or []
+        if active:
+            if name not in current:
+                current = current + [name]
+        else:
+            current = [x for x in current if x != name]
+        data[key] = current
+    _save_management_yaml(data, teaparty_home)
+
+
+def toggle_project_membership(
+    project_dir: str,
+    kind: str,
+    name: str,
+    active: bool,
+) -> None:
+    """Add/remove an item from a project team's active list in project.yaml.
+
+    For agents and skills: adds/removes the name from the list.
+    For hooks: sets the active flag on the hook entry identified by event name.
+
+    Args:
+        project_dir: Path to the project root directory.
+        kind: 'agent', 'skill', or 'hook'.
+        name: Name/event of the item to toggle.
+        active: True to activate, False to deactivate.
+    """
+    if kind not in _MEMBERSHIP_KEYS:
+        raise ValueError(f'Invalid membership kind: {kind!r}')
+    yaml_path = os.path.join(project_dir, '.teaparty.local', 'project.yaml')
+    if not os.path.exists(yaml_path):
+        raise FileNotFoundError(f'project.yaml not found: {yaml_path}')
+    with open(yaml_path) as f:
+        data = yaml.safe_load(f) or {}
+    if kind == 'hook':
+        data['hooks'] = _toggle_hook_active(data.get('hooks') or [], name, active)
+    else:
+        key = _MEMBERSHIP_KEYS[kind]
+        current: list = data.get(key) or []
+        if active:
+            if name not in current:
+                current = current + [name]
+        else:
+            current = [x for x in current if x != name]
+        data[key] = current
+    with open(yaml_path, 'w') as f:
+        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+
+
+def toggle_workgroup_membership(
+    workgroup_yaml_path: str,
+    kind: str,
+    name: str,
+    active: bool,
+) -> None:
+    """Add or remove an agent or skill from a workgroup YAML file.
+
+    Args:
+        workgroup_yaml_path: Absolute path to the workgroup's .yaml file.
+        kind: 'agent' or 'skill'.
+        name: Name of the item to toggle.
+        active: True to add, False to remove.
+    """
+    if kind not in _MEMBERSHIP_KEYS:
+        raise ValueError(f'Invalid membership kind: {kind!r}')
+    if not os.path.exists(workgroup_yaml_path):
+        raise FileNotFoundError(f'workgroup YAML not found: {workgroup_yaml_path}')
+    with open(workgroup_yaml_path) as f:
+        data = yaml.safe_load(f) or {}
+    if kind == 'agent':
+        agents = data.get('agents') or []
+        agent_names = {(a['name'] if isinstance(a, dict) else a) for a in agents}
+        if active and name not in agent_names:
+            agents = agents + [{'name': name}]
+        elif not active:
+            agents = [a for a in agents if (a.get('name') if isinstance(a, dict) else a) != name]
+        data['agents'] = agents
+    else:
+        skills = data.get('skills') or []
+        if active and name not in skills:
+            skills = skills + [name]
+        elif not active:
+            skills = [s for s in skills if s != name]
+        data['skills'] = skills
+    with open(workgroup_yaml_path, 'w') as f:
+        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 
 
 def _scaffold_project_yaml(

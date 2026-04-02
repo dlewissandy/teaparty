@@ -39,6 +39,31 @@ function configNav(level, nameOrSlug, extra) {
   }
 }
 
+async function toggleMembership(scope, type, name, active, projectSlug) {
+  var url;
+  if (scope === 'global') {
+    url = '/api/config/management/toggle';
+  } else if (scope.startsWith('wg:')) {
+    var wgName = scope.slice(3);
+    url = '/api/workgroups/' + encodeURIComponent(wgName) + '/toggle';
+    if (projectSlug) url += '?project=' + encodeURIComponent(projectSlug);
+  } else {
+    url = '/api/config/' + encodeURIComponent(scope) + '/toggle';
+  }
+  await fetch(url, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({type: type, name: name, active: active}),
+  });
+  if (scope === 'global') {
+    renderGlobal();
+  } else if (scope.startsWith('wg:')) {
+    renderWorkgroup(scope.slice(3), projectSlug || null);
+  } else {
+    renderProject(scope);
+  }
+}
+
 function sectionCard(title, items, opts) {
   var buttons = '';
   if (opts && opts.addProjectBtn) {
@@ -112,9 +137,12 @@ async function renderGlobal() {
 
   var agentItems = (m.agents || []).map(function(a) {
     var name = typeof a === 'object' ? a.name : a;
-    var file = typeof a === 'object' ? a.file : null;
-    var click = file ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + file + '\') + \'&project=org\',\'_blank\')" style="cursor:pointer"' : '';
-    return '<div class="item"' + click + '><div class="item-icon icon-member">&#9672;</div><div class="item-body"><div class="item-title">' + name + '</div></div></div>';
+    var isActive = typeof a === 'object' ? a.active !== false : true;
+    var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
+    var click = isActive
+      ? ' onclick="toggleMembership(\'global\', \'agent\', \'' + name + '\', false)"'
+      : ' onclick="toggleMembership(\'global\', \'agent\', \'' + name + '\', true)"';
+    return '<div class="item' + cls + '"' + click + '><div class="item-icon icon-member">&#9672;</div><div class="item-body"><div class="item-title">' + name + '</div></div></div>';
   });
 
   var participantItems = [];
@@ -131,18 +159,26 @@ async function renderGlobal() {
 
   var skillItems = (m.skills || []).map(function(s) {
     var name = typeof s === 'object' ? s.name : s;
-    var file = typeof s === 'object' ? s.file : null;
-    var click = file ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + file + '\') + \'&project=org\',\'_blank\')" style="cursor:pointer"' : '';
-    return '<div class="item"' + click + '><div class="item-icon icon-skill">&#9881;</div><div class="item-body"><div class="item-title">' + name + '</div></div></div>';
+    var isActive = typeof s === 'object' ? s.active !== false : true;
+    var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
+    var click = isActive
+      ? ' onclick="toggleMembership(\'global\', \'skill\', \'' + name + '\', false)"'
+      : ' onclick="toggleMembership(\'global\', \'skill\', \'' + name + '\', true)"';
+    return '<div class="item' + cls + '"' + click + '><div class="item-icon icon-skill">&#9881;</div><div class="item-body"><div class="item-title">' + name + '</div></div></div>';
   });
 
   var hookItems = (m.hooks || []).map(function(h) {
+    var isActive = h.active !== false;
+    var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
+    var toggleClick = (h.source === 'yaml')
+      ? ' onclick="toggleMembership(\'global\', \'hook\', \'' + (h.event || '') + '\', ' + !isActive + ')"'
+      : '';
     var meta = '&project=org' +
       (h.event ? '&hook_event=' + encodeURIComponent(h.event) : '') +
       (h.matcher ? '&hook_matcher=' + encodeURIComponent(h.matcher) : '') +
       (h.type ? '&hook_type=' + encodeURIComponent(h.type) : '');
-    var click = h.file ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + h.file + '\') + \'' + meta + '\',\'_blank\')" style="cursor:pointer"' : '';
-    return '<div class="item"' + click + '><div class="item-icon icon-hook">&#9889;</div><div class="item-body"><div class="item-title">' + (h.event || '') + (h.matcher ? ' [' + h.matcher + ']' : '') + '</div><div class="item-meta">' + (h.type || '') + '</div></div></div>';
+    var fileClick = (h.file && !toggleClick) ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + h.file + '\') + \'' + meta + '\',\'_blank\')" style="cursor:pointer"' : '';
+    return '<div class="item' + cls + '"' + toggleClick + fileClick + '><div class="item-icon icon-hook">&#9889;</div><div class="item-body"><div class="item-title">' + (h.event || '') + (h.matcher ? ' [' + h.matcher + ']' : '') + '</div><div class="item-meta">' + (h.type || '') + '</div></div></div>';
   });
 
   var cronItems = (m.scheduled || []).map(function(c) {
@@ -213,10 +249,13 @@ async function renderProject(slug) {
   var agentItems = (team.agents || []).map(function(a) {
     var name = typeof a === 'object' ? a.name : a;
     var source = typeof a === 'object' ? a.source : null;
-    var file = typeof a === 'object' ? a.file : null;
+    var isActive = typeof a === 'object' ? a.active !== false : true;
     var src = sourceBadge(source);
-    var click = file ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + file + '\') + \'&project=' + encodeURIComponent(slug) + '\',\'_blank\')" style="cursor:pointer"' : '';
-    return '<div class="item"' + click + '><div class="item-icon icon-member">&#9672;</div><div class="item-body"><div class="item-title">' + name + ' ' + src + '</div></div></div>';
+    var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
+    var click = isActive
+      ? ' onclick="toggleMembership(\'' + slug + '\', \'agent\', \'' + name + '\', false)"'
+      : ' onclick="toggleMembership(\'' + slug + '\', \'agent\', \'' + name + '\', true)"';
+    return '<div class="item' + cls + '"' + click + '><div class="item-icon icon-member">&#9672;</div><div class="item-body"><div class="item-title">' + name + ' ' + src + '</div></div></div>';
   });
 
   var participantItems = [];
@@ -235,19 +274,27 @@ async function renderProject(slug) {
   var skillItems = (team.skills || []).map(function(s) {
     var name = typeof s === 'object' ? s.name : s;
     var source = typeof s === 'object' ? s.source : null;
-    var file = typeof s === 'object' ? s.file : null;
+    var isActive = typeof s === 'object' ? s.active !== false : true;
     var src = sourceBadge(source);
-    var click = file ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + file + '\') + \'&project=' + encodeURIComponent(slug) + '\',\'_blank\')" style="cursor:pointer"' : '';
-    return '<div class="item"' + click + '><div class="item-icon icon-skill">&#9881;</div><div class="item-body"><div class="item-title">' + name + ' ' + src + '</div></div></div>';
+    var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
+    var click = isActive
+      ? ' onclick="toggleMembership(\'' + slug + '\', \'skill\', \'' + name + '\', false)"'
+      : ' onclick="toggleMembership(\'' + slug + '\', \'skill\', \'' + name + '\', true)"';
+    return '<div class="item' + cls + '"' + click + '><div class="item-icon icon-skill">&#9881;</div><div class="item-body"><div class="item-title">' + name + ' ' + src + '</div></div></div>';
   });
 
   var hookItems = (team.hooks || []).map(function(h) {
+    var isActive = h.active !== false;
+    var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
+    var toggleClick = (h.source === 'yaml')
+      ? ' onclick="toggleMembership(\'' + slug + '\', \'hook\', \'' + (h.event || '') + '\', ' + !isActive + ')"'
+      : '';
     var meta = '&project=' + encodeURIComponent(slug) +
       (h.event ? '&hook_event=' + encodeURIComponent(h.event) : '') +
       (h.matcher ? '&hook_matcher=' + encodeURIComponent(h.matcher) : '') +
       (h.type ? '&hook_type=' + encodeURIComponent(h.type) : '');
-    var click = h.file ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + h.file + '\') + \'' + meta + '\',\'_blank\')" style="cursor:pointer"' : '';
-    return '<div class="item"' + click + '><div class="item-icon icon-hook">&#9889;</div><div class="item-body"><div class="item-title">' + (h.event || '') + (h.matcher ? ' [' + h.matcher + ']' : '') + '</div><div class="item-meta">' + (h.type || '') + '</div></div></div>';
+    var fileClick = (h.file && !toggleClick) ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + h.file + '\') + \'' + meta + '\',\'_blank\')" style="cursor:pointer"' : '';
+    return '<div class="item' + cls + '"' + toggleClick + fileClick + '><div class="item-icon icon-hook">&#9889;</div><div class="item-body"><div class="item-title">' + (h.event || '') + (h.matcher ? ' [' + h.matcher + ']' : '') + '</div><div class="item-meta">' + (h.type || '') + '</div></div></div>';
   });
 
   var cronItems = (team.scheduled || []).map(function(c) {
@@ -299,14 +346,25 @@ async function renderWorkgroup(name, projectSlug) {
   document.title = 'TeaParty \u2014 ' + name + ' Workgroup';
 
   var agentItems = (wgData.agents || []).map(function(a) {
-    var src = sourceBadge(a.source);
-    return '<div class="item"><div class="item-icon icon-member">&#9672;</div><div class="item-body"><div class="item-title">' + (a.name || a) + ' ' + src + '</div><div class="item-meta">' + (a.role || '') + (a.model ? ' &middot; ' + a.model : '') + '</div></div></div>';
+    var aName = typeof a === 'object' ? a.name : a;
+    var isActive = typeof a === 'object' ? a.active !== false : true;
+    var src = sourceBadge(typeof a === 'object' ? a.source : null);
+    var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
+    var click = isActive
+      ? ' onclick="toggleMembership(\'wg:' + name + '\', \'agent\', \'' + aName + '\', false, \'' + (projectSlug || '') + '\')"'
+      : ' onclick="toggleMembership(\'wg:' + name + '\', \'agent\', \'' + aName + '\', true, \'' + (projectSlug || '') + '\')"';
+    return '<div class="item' + cls + '"' + click + '><div class="item-icon icon-member">&#9672;</div><div class="item-body"><div class="item-title">' + aName + ' ' + src + '</div><div class="item-meta">' + (a.role || '') + (a.model ? ' &middot; ' + a.model : '') + '</div></div></div>';
   });
 
   var skillItems = (wgData.skills || []).map(function(s) {
-    var name = typeof s === 'object' ? s.name : s;
+    var sName = typeof s === 'object' ? s.name : s;
+    var isActive = typeof s === 'object' ? s.active !== false : true;
     var src = typeof s === 'object' ? sourceBadge(s.source) : '';
-    return '<div class="item"><div class="item-icon icon-skill">&#9881;</div><div class="item-body"><div class="item-title">' + name + ' ' + src + '</div></div></div>';
+    var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
+    var click = isActive
+      ? ' onclick="toggleMembership(\'wg:' + name + '\', \'skill\', \'' + sName + '\', false, \'' + (projectSlug || '') + '\')"'
+      : ' onclick="toggleMembership(\'wg:' + name + '\', \'skill\', \'' + sName + '\', true, \'' + (projectSlug || '') + '\')"';
+    return '<div class="item' + cls + '"' + click + '><div class="item-icon icon-skill">&#9881;</div><div class="item-body"><div class="item-title">' + sName + ' ' + src + '</div></div></div>';
   });
 
   var normItems = [];
