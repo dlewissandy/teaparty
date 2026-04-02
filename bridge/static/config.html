@@ -8,10 +8,71 @@
 </head>
 <body>
 
-<div id="content" class="app-pane active" style="overflow-y:auto"></div>
+<div class="blade-layout">
+<div id="content" class="app-pane active" style="overflow-y:auto;flex:1;min-width:0"></div>
+<div class="blade" id="blade">
+  <div class="blade-tab" onclick="toggleBlade()">Config Lead</div>
+  <div class="blade-body">
+    <div class="blade-header"><span class="blade-title" id="blade-title">Config Lead</span><button class="blade-close" onclick="toggleBlade()">&#215;</button></div>
+    <div class="chat-messages" id="blade-messages"></div>
+    <div class="chat-input-area"><textarea id="blade-input" placeholder="Message config lead..." rows="2" style="resize:none" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendBladeMessage();}"></textarea><button onclick="sendBladeMessage()">Send</button></div>
+  </div>
+</div>
+</div>
 
 <script>
 var omConvId = 'om:unknown';
+var bladeConvId = '';
+var _bladeOpen = false;
+var _bladePollInterval = null;
+
+function toggleBlade() {
+  _bladeOpen = !_bladeOpen;
+  var el = document.getElementById('blade');
+  if (_bladeOpen) {
+    el.classList.add('open');
+    loadBladeMessages();
+    _bladePollInterval = setInterval(loadBladeMessages, 2000);
+  } else {
+    el.classList.remove('open');
+    if (_bladePollInterval) { clearInterval(_bladePollInterval); _bladePollInterval = null; }
+  }
+}
+
+function loadBladeMessages() {
+  if (!bladeConvId) return;
+  fetch('/api/conversations/' + encodeURIComponent(bladeConvId))
+    .then(function(r) { return r.ok ? r.json() : []; })
+    .then(function(msgs) {
+      var container = document.getElementById('blade-messages');
+      if (!container) return;
+      var html = (msgs || []).map(function(m) {
+        var cls = m.sender === 'human' ? 'msg-sender-human' : 'msg-sender-agent';
+        var label = m.sender === 'human' ? 'You' : 'Config Lead';
+        return '<div class="msg"><div class="msg-sender ' + cls + '">' + _esc(label) + '</div><div class="msg-text">' + _esc(m.content) + '</div></div>';
+      }).join('');
+      container.innerHTML = html || '<div style="padding:8px;color:var(--text-dim);font-size:10px">No messages yet</div>';
+      container.scrollTop = container.scrollHeight;
+    })
+    .catch(function() {});
+}
+
+function sendBladeMessage() {
+  var input = document.getElementById('blade-input');
+  var content = (input ? input.value : '').trim();
+  if (!content || !bladeConvId) return;
+  input.value = '';
+  fetch('/api/conversations/' + encodeURIComponent(bladeConvId), {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({content: content}),
+  }).then(function() { loadBladeMessages(); }).catch(function() {});
+  loadBladeMessages();
+}
+
+function _esc(s) {
+  return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
 
 function openChat(convId) {
   window.location.href = 'chat.html?conv=' + encodeURIComponent(convId);
@@ -136,10 +197,9 @@ function _renderAgentContent() {
     return '<div class="item' + cls + '" onclick="setAgentPermissionMode(\'' + mode + '\')" style="cursor:pointer"><div class="item-icon">&#9679;</div><div class="item-body"><div class="item-title">' + mode + '</div></div></div>';
   });
 
-  var agentConvId = 'agent:' + name;
-  var chatItems = [
-    '<div class="item" onclick="openChat(\'' + agentConvId + '\')" style="cursor:pointer"><div class="item-icon" style="background:rgba(78,204,163,0.15);color:var(--green)">&#9654;</div><div class="item-body"><div class="item-title">Chat with Config Lead</div><div class="item-meta">Edit prose body, discuss changes</div></div></div>',
-  ];
+  bladeConvId = 'config:agent:' + (projectSlug ? projectSlug + ':' : ':') + name;
+  document.getElementById('blade-title').textContent = name + ' \u2014 Config Lead';
+  if (_bladeOpen) loadBladeMessages();
 
   document.title = 'TeaParty \u2014 ' + name + ' Agent';
   document.getElementById('content').innerHTML =
@@ -152,7 +212,6 @@ function _renderAgentContent() {
       sectionCard('Skills', skillItems, {empty: 'No skills in catalog'}) +
       sectionCard('Tools', toolItems, {empty: 'No tools available'}) +
       sectionCard('Permissions', permItems, {}) +
-      sectionCard('Chat', chatItems, {}) +
     '</div>';
 }
 
@@ -309,6 +368,9 @@ async function renderGlobal() {
   omConvId = m.decider ? 'om:' + m.decider : 'om:unknown';
 
   document.title = 'TeaParty \u2014 Global Configuration';
+  bladeConvId = 'config:management';
+  document.getElementById('blade-title').textContent = 'Management \u2014 Config Lead';
+  if (_bladeOpen) loadBladeMessages();
 
   var projectItems = projects.map(function(p) {
     var isActive = p.active !== false;
@@ -522,6 +584,10 @@ async function renderProject(slug) {
     return '<div class="item item-catalog-active"' + click + '><div class="item-icon" style="background:rgba(78,204,163,0.15);color:var(--green)">' + icon + '</div><div class="item-body"><div class="item-title">' + p.label + '</div><div class="item-meta">' + displayPath + '</div></div>' + unpin + '</div>';
   });
 
+  bladeConvId = 'config:project:' + slug;
+  document.getElementById('blade-title').textContent = (team.name || slug) + ' \u2014 Config Lead';
+  if (_bladeOpen) loadBladeMessages();
+
   document.getElementById('content').innerHTML =
     '<div class="breadcrumb-bar"><a onclick="configNav(\'global\')" style="cursor:pointer">Global Config</a> <span>/</span> <a>' + (team.name || slug) + '</a></div>' +
     '<div class="pane-title">' + (team.name || slug) + '</div>' +
@@ -652,6 +718,10 @@ async function renderWorkgroup(name, projectSlug) {
     sectionCard('Artifacts', artifactItems, { addBtn: true, browseBtn: 'openFileBrowser(\'workgroup\',\'' + name + '\',\'' + (projectSlug || '') + '\')', empty: 'No artifacts' }) +
     contextSection +
   '</div>';
+
+  bladeConvId = 'config:wg:' + (projectSlug || '') + ':' + name;
+  document.getElementById('blade-title').textContent = name + ' \u2014 Config Lead';
+  if (_bladeOpen) loadBladeMessages();
 
   document.getElementById('content').innerHTML =
     breadcrumb +

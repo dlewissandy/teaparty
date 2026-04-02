@@ -45,6 +45,7 @@ class ConversationType(Enum):
     TASK = 'task'                        # One per project+job+task, lives with the task
     PROXY_REVIEW = 'proxy_review'        # One per decider, indefinite persistence
     LIAISON = 'liaison'                  # Session-scoped, requester+target
+    CONFIG_LEAD = 'config_lead'          # One per entity-scope, persistent config lead chat
 
 
 class ConversationState(Enum):
@@ -81,6 +82,7 @@ _PREFIXES = {
     ConversationType.TASK: 'task',
     ConversationType.PROXY_REVIEW: 'proxy',
     ConversationType.LIAISON: 'liaison',
+    ConversationType.CONFIG_LEAD: 'config',
 }
 
 
