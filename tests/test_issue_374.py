@@ -460,3 +460,44 @@ class TestMergeCatalogNonexistentProjectDir(unittest.TestCase):
         self.assertIn('commit', result.skills)
         self.assertEqual(result.project_agents, set())
         self.assertEqual(result.project_skills, set())
+
+
+# ── AC2/3: management hooks appear in project config screen (merged hooks) ────
+
+class TestMergeCatalogHooksIncludeManagementLevel(unittest.TestCase):
+    """Management-level hooks must appear in the merged catalog for the project config screen.
+
+    The design doc says the full inherited catalog includes management-level hooks.
+    _handle_config_project now passes merge_catalog().hooks to _serialize_project_team
+    via catalog_hooks, ensuring management settings.json hooks are visible.
+    """
+
+    def setUp(self):
+        self._tmpdir = tempfile.mkdtemp()
+        self._mgmt_claude = os.path.join(self._tmpdir, '.claude')
+        # Management has PostToolUse hook
+        _make_settings_json(self._mgmt_claude, [
+            {'event': 'PostToolUse', 'matcher': '', 'command': 'echo mgmt-post'},
+        ])
+
+        self._proj_claude = os.path.join(self._tmpdir, 'proj', '.claude')
+        # Project has PreToolUse hook only
+        _make_settings_json(self._proj_claude, [
+            {'event': 'PreToolUse', 'matcher': '', 'command': 'echo proj-pre'},
+        ])
+
+    def test_management_hooks_in_merged_catalog(self):
+        """Merged catalog includes management-level hooks for the project config screen."""
+        result = merge_catalog(self._mgmt_claude, self._proj_claude)
+        events = {h['event'] for h in result.hooks}
+        self.assertIn('PostToolUse', events)
+        self.assertIn('PreToolUse', events)
+
+    def test_project_hook_only_when_no_management_hooks(self):
+        """When management has no hooks, merged catalog contains only project hooks."""
+        mgmt_no_hooks = os.path.join(self._tmpdir, 'mgmt_nohooks', '.claude')
+        os.makedirs(mgmt_no_hooks, exist_ok=True)
+        result = merge_catalog(mgmt_no_hooks, self._proj_claude)
+        events = {h['event'] for h in result.hooks}
+        self.assertIn('PreToolUse', events)
+        self.assertNotIn('PostToolUse', events)

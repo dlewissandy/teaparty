@@ -439,6 +439,11 @@ class TeaPartyBridge:
             os.path.join(project_dir, '.claude', 'skills')
         )
 
+        project_catalog = merge_catalog(
+            os.path.join(claude_base, '.claude'),
+            os.path.join(project_dir, '.claude'),
+        )
+
         members_workgroups_lower = {m.lower() for m in team.members_workgroups}
         workgroups = []
         for entry in team.workgroups:
@@ -484,6 +489,7 @@ class TeaPartyBridge:
                 org_catalog_skills=org_catalog_skills,
                 teaparty_home=self.teaparty_home,
                 project_dir=project_dir,
+                catalog_hooks=project_catalog.hooks,
             ),
             'workgroups': workgroups,
         })
@@ -1310,6 +1316,7 @@ class TeaPartyBridge:
         org_catalog_skills: list[str] | None = None,
         teaparty_home: str | None = None,
         project_dir: str | None = None,
+        catalog_hooks: list[dict] | None = None,
     ) -> dict:
         org_agents_set = set(org_agents or [])
         local_skills_set = set(local_skills or [])
@@ -1395,8 +1402,11 @@ class TeaPartyBridge:
             })
             seen_skills.add(name)
 
-        proj_settings = os.path.join(proj, '.claude', 'settings.json') if proj else ''
-        settings_hooks = discover_hooks(proj_settings) if proj_settings else []
+        if catalog_hooks is not None:
+            settings_hooks = catalog_hooks
+        else:
+            proj_settings = os.path.join(proj, '.claude', 'settings.json') if proj else ''
+            settings_hooks = discover_hooks(proj_settings) if proj_settings else []
         yaml_hooks = [
             {**h, 'active': h.get('active', True), 'source': 'yaml'}
             for h in t.hooks
