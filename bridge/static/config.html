@@ -346,9 +346,9 @@ async function renderWorkgroup(name, projectSlug) {
   document.title = 'TeaParty \u2014 ' + name + ' Workgroup';
 
   var agentItems = (wgData.agents || []).map(function(a) {
-    var aName = typeof a === 'object' ? a.name : a;
-    var isActive = typeof a === 'object' ? a.active !== false : true;
-    var src = sourceBadge(typeof a === 'object' ? a.source : null);
+    var aName = a.name;
+    var isActive = a.active !== false;
+    var src = sourceBadge(a.source);
     var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
     var click = isActive
       ? ' onclick="toggleMembership(\'wg:' + name + '\', \'agent\', \'' + aName + '\', false, \'' + (projectSlug || '') + '\')"'

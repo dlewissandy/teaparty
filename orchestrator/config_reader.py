@@ -90,6 +90,7 @@ class ManagementTeam:
     projects: list[dict[str, str]] = field(default_factory=list)
     members_projects: list[str] = field(default_factory=list)
     members_agents: list[str] = field(default_factory=list)
+    members_skills: list[str] = field(default_factory=list)
     workgroups: list[WorkgroupEntry] = field(default_factory=list)
     norms: dict[str, list[str]] = field(default_factory=dict)
     scheduled: list[ScheduledTask] = field(default_factory=list)
@@ -219,6 +220,7 @@ def load_management_team(
         projects=_parse_projects(data.get('projects'), repo_root=repo_root),
         members_projects=members.get('projects') or [],
         members_agents=members.get('agents') or [],
+        members_skills=members.get('skills') or [],
         workgroups=_parse_management_workgroups(data.get('workgroups')),
         norms=data.get('norms', {}),
         scheduled=_parse_scheduled(data.get('scheduled')),
@@ -614,13 +616,14 @@ def toggle_management_membership(
         data['hooks'] = _toggle_hook_active(data.get('hooks') or [], name, active)
     else:
         key = _MEMBERSHIP_KEYS[kind]
-        current: list = data.get(key) or []
+        members = data.setdefault('members', {})
+        current: list = members.get(key) or []
         if active:
             if name not in current:
                 current = current + [name]
         else:
             current = [x for x in current if x != name]
-        data[key] = current
+        members[key] = current
     _save_management_yaml(data, teaparty_home)
 
 
@@ -652,13 +655,14 @@ def toggle_project_membership(
         data['hooks'] = _toggle_hook_active(data.get('hooks') or [], name, active)
     else:
         key = _MEMBERSHIP_KEYS[kind]
-        current: list = data.get(key) or []
+        members = data.setdefault('members', {})
+        current: list = members.get(key) or []
         if active:
             if name not in current:
                 current = current + [name]
         else:
             current = [x for x in current if x != name]
-        data[key] = current
+        members[key] = current
     with open(yaml_path, 'w') as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 
@@ -684,20 +688,21 @@ def toggle_workgroup_membership(
     with open(workgroup_yaml_path) as f:
         data = yaml.safe_load(f) or {}
     if kind == 'agent':
-        agents = data.get('agents') or []
-        agent_names = {(a['name'] if isinstance(a, dict) else a) for a in agents}
-        if active and name not in agent_names:
-            agents = agents + [{'name': name}]
+        members = data.setdefault('members', {})
+        agents = members.get('agents') or []
+        if active and name not in agents:
+            agents = agents + [name]
         elif not active:
-            agents = [a for a in agents if (a.get('name') if isinstance(a, dict) else a) != name]
-        data['agents'] = agents
+            agents = [a for a in agents if a != name]
+        members['agents'] = agents
     else:
-        skills = data.get('skills') or []
+        members = data.setdefault('members', {})
+        skills = members.get('skills') or []
         if active and name not in skills:
             skills = skills + [name]
         elif not active:
             skills = [s for s in skills if s != name]
-        data['skills'] = skills
+        members['skills'] = skills
     with open(workgroup_yaml_path, 'w') as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 

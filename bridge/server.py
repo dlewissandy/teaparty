@@ -23,6 +23,8 @@ import logging
 import os
 from typing import Set
 
+import yaml
+
 from aiohttp import web
 
 from orchestrator.messaging import ConversationType, SqliteMessageBus
@@ -1253,7 +1255,7 @@ class TeaPartyBridge:
         ]
 
         # Full skill catalog: all discovered skills with active: bool
-        active_skills_set = set(t.skills or [])
+        active_skills_set = set(t.members_skills or [])
         skills_result = [
             {'name': n, 'file': _skill_file(n), 'active': n in active_skills_set}
             for n in (discovered_skills or [])
@@ -1337,13 +1339,21 @@ class TeaPartyBridge:
             return path if os.path.isfile(path) else None
 
         # Full agent catalog: all agents from org filesystem + active project agents.
-        # org_catalog_agents overrides org_agents as the authoritative full list.
-        active_project_agents_set = set(t.members_agents)
-        catalog_agent_names: list[str] = list(
-            org_catalog_agents if org_catalog_agents is not None else (org_agents or [])
-        )
+        # ProjectTeam has no members_agents (issue #362); read active agents from project YAML.
+        _active_project_agents: list[str] = []
+        if proj:
+            _proj_yaml_path = os.path.join(proj, '.teaparty.local', 'project.yaml')
+            if os.path.exists(_proj_yaml_path):
+                with open(_proj_yaml_path) as _f:
+                    _proj_data = yaml.safe_load(_f) or {}
+                _active_project_agents = _proj_data.get('members', {}).get('agents') or []
+        active_project_agents_set = set(_active_project_agents)
+        # If org_catalog_agents not explicitly provided, discover from filesystem.
+        if org_catalog_agents is None:
+            org_catalog_agents = discover_agents(org_agents_dir)
+        catalog_agent_names: list[str] = list(org_catalog_agents)
         # Include project-active agents not found in the org catalog (e.g. local project agents)
-        for name in t.members_agents:
+        for name in _active_project_agents:
             if name not in catalog_agent_names:
                 catalog_agent_names = catalog_agent_names + [name]
         agents_result = [
@@ -1416,6 +1426,7 @@ class TeaPartyBridge:
     def _serialize_workgroup(
         self, w, source: str | None = None, overrides: list[str] | None = None,
         detail: bool = False,
+        org_agents: set | list | None = None,
         org_catalog_agents: list[str] | None = None,
         org_catalog_skills: list[str] | None = None,
     ) -> dict:
@@ -1429,30 +1440,21 @@ class TeaPartyBridge:
         }
         if detail:
             active_agent_names: set[str] = set(w.members_agents)
-            org_skills_set = set(org_catalog_skills or [])
-            active_skills_set = set(w.skills)
+            org_agents_set: set[str] = set(org_agents or [])
             # Full agent catalog: all org filesystem agents, mark active if in workgroup
-            catalog = org_catalog_agents or []
+            catalog = list(org_catalog_agents or [])
             for name in active_agent_names:
                 if name not in catalog:
                     catalog = catalog + [name]
             result['agents'] = [
-                {'name': n, 'source': 'shared', 'active': n in active_agent_names}
+                {
+                    'name': n,
+                    'source': 'shared' if n in org_agents_set else 'local',
+                    'active': n in active_agent_names,
+                }
                 for n in catalog
             ]
-            # Full skills catalog: all org catalog skills, mark active if in workgroup
-            result['skills'] = []
-            seen: set[str] = set()
-            for s in (org_catalog_skills or []):
-                result['skills'].append({
-                    'name': s,
-                    'source': 'shared' if s in org_skills_set else 'local',
-                    'active': s in active_skills_set,
-                })
-                seen.add(s)
-            for s in w.skills:
-                if s not in seen:
-                    result['skills'].append({'name': s, 'source': 'local', 'active': True})
+            # Workgroups have no skills (issue #362/#367); skills key is omitted.
             result['norms'] = dict(w.norms)
             result['budget'] = dict(w.budget)
         return result
