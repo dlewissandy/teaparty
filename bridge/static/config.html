@@ -170,7 +170,8 @@ async function renderGlobal() {
     var isActive = typeof s === 'object' ? s.active !== false : true;
     var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
     var cardClick = file ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + file + '\'),\'_blank\')" style="cursor:pointer"' : '';
-    return '<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-skill">&#9881;</div><div class="item-body"><div class="item-title">' + name + '</div></div></div>';
+    var toggle = '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleMembership(\'global\', \'skill\', \'' + name + '\', ' + !isActive + ')"></span>';
+    return '<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-skill">&#9881;</div><div class="item-body"><div class="item-title">' + name + '</div></div>' + toggle + '</div>';
   });
 
   var hookItems = (m.hooks || []).map(function(h) {
@@ -294,7 +295,8 @@ async function renderProject(slug) {
     var src = sourceBadge(source);
     var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
     var cardClick = file ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + file + '\'),\'_blank\')" style="cursor:pointer"' : '';
-    return '<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-skill">&#9881;</div><div class="item-body"><div class="item-title">' + name + ' ' + src + '</div></div></div>';
+    var toggle = '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleMembership(\'' + slug + '\', \'skill\', \'' + name + '\', ' + !isActive + ')"></span>';
+    return '<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-skill">&#9881;</div><div class="item-body"><div class="item-title">' + name + ' ' + src + '</div></div>' + toggle + '</div>';
   });
 
   var hookItems = (team.hooks || []).map(function(h) {
