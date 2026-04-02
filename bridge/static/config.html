@@ -554,6 +554,7 @@ async function renderWorkgroup(name, projectSlug) {
   _currentWgName = name;
   _currentWgProjectSlug = projectSlug || null;
   _currentWgArtifacts = (wgData.artifacts || []).slice();
+  omConvId = wgData.lead ? 'om:' + wgData.lead : (omConvId || 'om:unknown');
 
   document.title = 'TeaParty \u2014 ' + name + ' Workgroup';
 
