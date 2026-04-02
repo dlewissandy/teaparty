@@ -685,12 +685,12 @@ def toggle_management_membership(
 ) -> None:
     """Add/remove an item from the management team's active list in teaparty.yaml.
 
-    For agents and skills: adds/removes the name from the list.
+    For agents, projects, workgroups, and skills: adds/removes the name from the list.
     For hooks: sets the active flag on the hook entry identified by event name.
 
     Args:
         teaparty_home: Path to the .teaparty/ directory.
-        kind: 'agent', 'skill', or 'hook'.
+        kind: 'agent', 'project', 'workgroup', 'skill', or 'hook'.
         name: Name/event of the item to toggle.
         active: True to activate, False to deactivate.
     """
