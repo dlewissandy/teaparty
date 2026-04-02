@@ -259,6 +259,7 @@ class TeaPartyBridge:
         app.router.add_patch('/api/workgroups/{name}', self._handle_workgroup_patch)
         app.router.add_get('/api/agents/{name}', self._handle_agent_detail)
         app.router.add_patch('/api/agents/{name}', self._handle_agent_patch)
+        app.router.add_get('/api/catalog/org', self._handle_catalog_org)
         app.router.add_get('/api/catalog/{project}', self._handle_catalog)
 
         # ── Message endpoints ─────────────────────────────────────────────────
@@ -736,6 +737,10 @@ class TeaPartyBridge:
             if not isinstance(body['hooks'], list):
                 return web.json_response({'error': 'hooks must be a list'}, status=400)
             members['hooks'] = body['hooks']
+        if 'artifacts' in body:
+            if not isinstance(body['artifacts'], list):
+                return web.json_response({'error': 'artifacts must be a list'}, status=400)
+            data['artifacts'] = body['artifacts']
         with open(yaml_path, 'w') as f:
             yaml.dump(data, f, default_flow_style=False, sort_keys=False)
         wg = load_workgroup(yaml_path)
@@ -811,6 +816,15 @@ class TeaPartyBridge:
             os.path.join(claude_base, '.claude'),
             os.path.join(project_dir, '.claude'),
         )
+        return web.json_response({
+            'agents': catalog.agents,
+            'skills': catalog.skills,
+            'hooks': catalog.hooks,
+        })
+
+    async def _handle_catalog_org(self, request: web.Request) -> web.Response:
+        claude_base = os.path.dirname(self.teaparty_home)
+        catalog = merge_catalog(os.path.join(claude_base, '.claude'))
         return web.json_response({
             'agents': catalog.agents,
             'skills': catalog.skills,
