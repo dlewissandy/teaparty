@@ -506,7 +506,7 @@ function renderMainArea(navHtml, headerTitle, headerScope, headerActions) {
     '<div class="chat-header-scope">' + headerScope + '</div></div>' +
     '<div style="display:flex;gap:6px;align-items:center">' + copyBtn + headerActions + '</div>' +
     '</div>' +
-    '<div class="chat-filters">' + filterRow + '</div>' +
+    (minimal ? '' : '<div class="chat-filters">' + filterRow + '</div>') +
     '<div class="chat-messages"></div>' +
     '<div class="chat-input-area">' +
     '<textarea rows="1" placeholder="Type a message..." onkeydown="chatKeydown(event)" oninput="autoGrow(this)"></textarea>' +
