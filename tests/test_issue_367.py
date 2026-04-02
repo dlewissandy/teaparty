@@ -215,6 +215,32 @@ class TestToggleManagementMembership(unittest.TestCase):
         self.assertEqual(data['decider'], 'darrell')
         self.assertIn({'name': 'darrell', 'role': 'decider'}, data['humans'])
 
+    def test_deactivate_hook_sets_active_false(self):
+        """Deactivating a hook sets active=False on the hook entry in teaparty.yaml."""
+        from orchestrator.config_reader import toggle_management_membership
+        # Add a hook to the YAML first
+        data = _read_management_yaml(self.teaparty_home)
+        data['hooks'] = [{'event': 'PreToolUse', 'matcher': 'Bash', 'type': 'command', 'command': './hook.sh'}]
+        import yaml as _yaml
+        with open(os.path.join(self.teaparty_home, 'teaparty.yaml'), 'w') as f:
+            _yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+        toggle_management_membership(self.teaparty_home, 'hook', 'PreToolUse', False)
+        data = _read_management_yaml(self.teaparty_home)
+        hook = data['hooks'][0]
+        self.assertFalse(hook.get('active', True))
+
+    def test_reactivate_hook_sets_active_true(self):
+        """Reactivating a deactivated hook sets active=True on the entry."""
+        from orchestrator.config_reader import toggle_management_membership
+        data = _read_management_yaml(self.teaparty_home)
+        data['hooks'] = [{'event': 'PreToolUse', 'active': False, 'type': 'command', 'command': './hook.sh'}]
+        import yaml as _yaml
+        with open(os.path.join(self.teaparty_home, 'teaparty.yaml'), 'w') as f:
+            _yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+        toggle_management_membership(self.teaparty_home, 'hook', 'PreToolUse', True)
+        data = _read_management_yaml(self.teaparty_home)
+        self.assertTrue(data['hooks'][0].get('active', True))
+
 
 # ── toggle_project_membership ────────────────────────────────────────────────
 
@@ -979,6 +1005,22 @@ class TestHooksCatalogHighlighting(unittest.TestCase):
             "startsWith('wg:')",
             self.content,
             "toggleMembership must handle 'wg:' scope for workgroup toggle",
+        )
+
+    def test_hooks_rendered_with_active_flag(self):
+        """Hook items must use h.active to determine active/inactive state."""
+        self.assertIn(
+            'h.active',
+            self.content,
+            'Hook items must check h.active for active/inactive rendering',
+        )
+
+    def test_yaml_hooks_have_toggle_handler(self):
+        """YAML hooks (source === yaml) must have a toggle click handler."""
+        self.assertIn(
+            "h.source === 'yaml'",
+            self.content,
+            "YAML hooks must be identified by source === 'yaml' for toggle handler",
         )
 
 

@@ -168,12 +168,17 @@ async function renderGlobal() {
   });
 
   var hookItems = (m.hooks || []).map(function(h) {
+    var isActive = h.active !== false;
+    var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
+    var toggleClick = (h.source === 'yaml')
+      ? ' onclick="toggleMembership(\'global\', \'hook\', \'' + (h.event || '') + '\', ' + !isActive + ')"'
+      : '';
     var meta = '&project=org' +
       (h.event ? '&hook_event=' + encodeURIComponent(h.event) : '') +
       (h.matcher ? '&hook_matcher=' + encodeURIComponent(h.matcher) : '') +
       (h.type ? '&hook_type=' + encodeURIComponent(h.type) : '');
-    var click = h.file ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + h.file + '\') + \'' + meta + '\',\'_blank\')" style="cursor:pointer"' : '';
-    return '<div class="item item-catalog-active"' + click + '><div class="item-icon icon-hook">&#9889;</div><div class="item-body"><div class="item-title">' + (h.event || '') + (h.matcher ? ' [' + h.matcher + ']' : '') + '</div><div class="item-meta">' + (h.type || '') + '</div></div></div>';
+    var fileClick = (h.file && !toggleClick) ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + h.file + '\') + \'' + meta + '\',\'_blank\')" style="cursor:pointer"' : '';
+    return '<div class="item' + cls + '"' + toggleClick + fileClick + '><div class="item-icon icon-hook">&#9889;</div><div class="item-body"><div class="item-title">' + (h.event || '') + (h.matcher ? ' [' + h.matcher + ']' : '') + '</div><div class="item-meta">' + (h.type || '') + '</div></div></div>';
   });
 
   var cronItems = (m.scheduled || []).map(function(c) {
@@ -279,12 +284,17 @@ async function renderProject(slug) {
   });
 
   var hookItems = (team.hooks || []).map(function(h) {
+    var isActive = h.active !== false;
+    var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
+    var toggleClick = (h.source === 'yaml')
+      ? ' onclick="toggleMembership(\'' + slug + '\', \'hook\', \'' + (h.event || '') + '\', ' + !isActive + ')"'
+      : '';
     var meta = '&project=' + encodeURIComponent(slug) +
       (h.event ? '&hook_event=' + encodeURIComponent(h.event) : '') +
       (h.matcher ? '&hook_matcher=' + encodeURIComponent(h.matcher) : '') +
       (h.type ? '&hook_type=' + encodeURIComponent(h.type) : '');
-    var click = h.file ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + h.file + '\') + \'' + meta + '\',\'_blank\')" style="cursor:pointer"' : '';
-    return '<div class="item item-catalog-active"' + click + '><div class="item-icon icon-hook">&#9889;</div><div class="item-body"><div class="item-title">' + (h.event || '') + (h.matcher ? ' [' + h.matcher + ']' : '') + '</div><div class="item-meta">' + (h.type || '') + '</div></div></div>';
+    var fileClick = (h.file && !toggleClick) ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + h.file + '\') + \'' + meta + '\',\'_blank\')" style="cursor:pointer"' : '';
+    return '<div class="item' + cls + '"' + toggleClick + fileClick + '><div class="item-icon icon-hook">&#9889;</div><div class="item-body"><div class="item-title">' + (h.event || '') + (h.matcher ? ' [' + h.matcher + ']' : '') + '</div><div class="item-meta">' + (h.type || '') + '</div></div></div>';
   });
 
   var cronItems = (team.scheduled || []).map(function(c) {

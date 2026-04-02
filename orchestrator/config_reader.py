@@ -560,7 +560,22 @@ def _load_management_yaml(
         return yaml.safe_load(f)
 
 
-_MEMBERSHIP_KEYS = {'agent': 'agents', 'skill': 'skills'}
+_MEMBERSHIP_KEYS = {'agent': 'agents', 'skill': 'skills', 'hook': 'hooks'}
+
+
+def _toggle_hook_active(hooks: list[dict], event: str, active: bool) -> list[dict]:
+    """Set the active flag on the hook entry with the given event name."""
+    result = []
+    found = False
+    for h in hooks:
+        if h.get('event') == event:
+            result.append({**h, 'active': active})
+            found = True
+        else:
+            result.append(h)
+    if not found:
+        raise ValueError(f'Hook with event {event!r} not found')
+    return result
 
 
 def toggle_management_membership(
@@ -569,25 +584,31 @@ def toggle_management_membership(
     name: str,
     active: bool,
 ) -> None:
-    """Add or remove an item from the management team's active list in teaparty.yaml.
+    """Add/remove an item from the management team's active list in teaparty.yaml.
+
+    For agents and skills: adds/removes the name from the list.
+    For hooks: sets the active flag on the hook entry identified by event name.
 
     Args:
         teaparty_home: Path to the .teaparty/ directory.
-        kind: 'agent' or 'skill'.
-        name: Name of the item to toggle.
-        active: True to add, False to remove.
+        kind: 'agent', 'skill', or 'hook'.
+        name: Name/event of the item to toggle.
+        active: True to activate, False to deactivate.
     """
     if kind not in _MEMBERSHIP_KEYS:
         raise ValueError(f'Invalid membership kind: {kind!r}')
-    key = _MEMBERSHIP_KEYS[kind]
     data = _load_management_yaml(teaparty_home)
-    current: list = data.get(key) or []
-    if active:
-        if name not in current:
-            current = current + [name]
+    if kind == 'hook':
+        data['hooks'] = _toggle_hook_active(data.get('hooks') or [], name, active)
     else:
-        current = [x for x in current if x != name]
-    data[key] = current
+        key = _MEMBERSHIP_KEYS[kind]
+        current: list = data.get(key) or []
+        if active:
+            if name not in current:
+                current = current + [name]
+        else:
+            current = [x for x in current if x != name]
+        data[key] = current
     _save_management_yaml(data, teaparty_home)
 
 
@@ -597,29 +618,35 @@ def toggle_project_membership(
     name: str,
     active: bool,
 ) -> None:
-    """Add or remove an item from a project team's active list in project.yaml.
+    """Add/remove an item from a project team's active list in project.yaml.
+
+    For agents and skills: adds/removes the name from the list.
+    For hooks: sets the active flag on the hook entry identified by event name.
 
     Args:
         project_dir: Path to the project root directory.
-        kind: 'agent' or 'skill'.
-        name: Name of the item to toggle.
-        active: True to add, False to remove.
+        kind: 'agent', 'skill', or 'hook'.
+        name: Name/event of the item to toggle.
+        active: True to activate, False to deactivate.
     """
     if kind not in _MEMBERSHIP_KEYS:
         raise ValueError(f'Invalid membership kind: {kind!r}')
-    key = _MEMBERSHIP_KEYS[kind]
     yaml_path = os.path.join(project_dir, '.teaparty.local', 'project.yaml')
     if not os.path.exists(yaml_path):
         raise FileNotFoundError(f'project.yaml not found: {yaml_path}')
     with open(yaml_path) as f:
         data = yaml.safe_load(f) or {}
-    current: list = data.get(key) or []
-    if active:
-        if name not in current:
-            current = current + [name]
+    if kind == 'hook':
+        data['hooks'] = _toggle_hook_active(data.get('hooks') or [], name, active)
     else:
-        current = [x for x in current if x != name]
-    data[key] = current
+        key = _MEMBERSHIP_KEYS[kind]
+        current: list = data.get(key) or []
+        if active:
+            if name not in current:
+                current = current + [name]
+        else:
+            current = [x for x in current if x != name]
+        data[key] = current
     with open(yaml_path, 'w') as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 

@@ -488,9 +488,9 @@ class TeaPartyBridge:
         kind = body.get('type', '')
         name = body.get('name', '')
         active = body.get('active')
-        if kind not in ('agent', 'skill') or not name or not isinstance(active, bool):
+        if kind not in ('agent', 'skill', 'hook') or not name or not isinstance(active, bool):
             return web.json_response(
-                {'error': 'body must include type (agent|skill), name, and active (bool)'},
+                {'error': 'body must include type (agent|skill|hook), name, and active (bool)'},
                 status=400,
             )
         try:
@@ -511,9 +511,9 @@ class TeaPartyBridge:
         kind = body.get('type', '')
         name = body.get('name', '')
         active = body.get('active')
-        if kind not in ('agent', 'skill') or not name or not isinstance(active, bool):
+        if kind not in ('agent', 'skill', 'hook') or not name or not isinstance(active, bool):
             return web.json_response(
-                {'error': 'body must include type (agent|skill), name, and active (bool)'},
+                {'error': 'body must include type (agent|skill|hook), name, and active (bool)'},
                 status=400,
             )
         try:
@@ -1231,7 +1231,12 @@ class TeaPartyBridge:
             return path if os.path.isfile(path) else None
 
         settings_hooks = discover_hooks(os.path.join(claude_base, '.claude', 'settings.json'))
-        all_hooks = t.hooks + settings_hooks
+        yaml_hooks = [
+            {**h, 'active': h.get('active', True), 'source': 'yaml'}
+            for h in t.hooks
+        ]
+        sys_hooks = [{**h, 'active': True, 'source': 'settings'} for h in settings_hooks]
+        all_hooks = yaml_hooks + sys_hooks
 
         # Full agent catalog: all agents in .claude/agents/, with active: bool.
         # Auto-discover from filesystem when not given an explicit list.
@@ -1384,7 +1389,12 @@ class TeaPartyBridge:
 
         proj_settings = os.path.join(proj, '.claude', 'settings.json') if proj else ''
         settings_hooks = discover_hooks(proj_settings) if proj_settings else []
-        all_hooks = t.hooks + settings_hooks
+        yaml_hooks = [
+            {**h, 'active': h.get('active', True), 'source': 'yaml'}
+            for h in t.hooks
+        ]
+        sys_hooks = [{**h, 'active': True, 'source': 'settings'} for h in settings_hooks]
+        all_hooks = yaml_hooks + sys_hooks
 
         return {
             'name': t.name,
