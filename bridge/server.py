@@ -1337,11 +1337,15 @@ class TeaPartyBridge:
                 return 'generated'
             return 'shared' if name in org_agents_set else 'local'
 
-        def _agent_file(name: str) -> str:
+        def _agent_file(name: str) -> str | None:
             source = _agent_source(name)
             if source == 'shared':
-                return os.path.join(org_agents_dir, f'{name}.md')
-            return os.path.join(proj_agents_dir, f'{name}.md') if proj_agents_dir else ''
+                path = os.path.join(org_agents_dir, f'{name}.md')
+            elif proj_agents_dir:
+                path = os.path.join(proj_agents_dir, f'{name}.md')
+            else:
+                return None
+            return path if os.path.isfile(path) else None
 
         def _skill_file(name: str, source: str) -> str | None:
             if source == 'local':
