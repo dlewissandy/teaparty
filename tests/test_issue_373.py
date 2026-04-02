@@ -472,6 +472,52 @@ class TestLoadProjectTeamWithEmptyMembersBlock(unittest.TestCase):
         self.assertEqual(team.members_workgroups, [])
 
 
+class TestWorkgroupHasNoScheduledField(unittest.TestCase):
+    """Scheduled tasks are only at management and project level — not in workgroup YAML."""
+
+    def setUp(self):
+        self._tmpdir = tempfile.mkdtemp()
+
+    def test_workgroup_has_no_scheduled_attribute(self):
+        """Workgroup dataclass must not have a 'scheduled' attribute."""
+        data = _minimal_workgroup_data()
+        path = _make_workgroup_yaml(self._tmpdir, 'noscheduled', data)
+        wg = load_workgroup(path)
+        self.assertFalse(hasattr(wg, 'scheduled'),
+            'Workgroup must not have scheduled attribute — tasks are management/project only')
+
+    def test_workgroup_yaml_with_scheduled_key_does_not_expose_it(self):
+        """A workgroup YAML with a legacy scheduled: key must load without exposing it."""
+        data = _minimal_workgroup_data()
+        data['scheduled'] = [{'name': 'nightly', 'schedule': '0 0 * * *', 'skill': 'audit'}]
+        path = _make_workgroup_yaml(self._tmpdir, 'legacysched', data)
+        wg = load_workgroup(path)  # must not raise
+        self.assertFalse(hasattr(wg, 'scheduled'))
+
+    def test_management_team_has_scheduled_field(self):
+        """ManagementTeam must have a scheduled field for cron tasks."""
+        home = os.path.join(self._tmpdir, '.teaparty')
+        data = _minimal_management_data(
+            scheduled=[{'name': 'nightly', 'schedule': '0 0 * * *', 'skill': 'audit'}],
+        )
+        _make_teaparty_yaml(home, data)
+        team = load_management_team(teaparty_home=home)
+        self.assertTrue(hasattr(team, 'scheduled'))
+        self.assertEqual(len(team.scheduled), 1)
+        self.assertEqual(team.scheduled[0].name, 'nightly')
+
+    def test_project_team_has_scheduled_field(self):
+        """ProjectTeam must have a scheduled field for cron tasks."""
+        data = _minimal_project_data(
+            scheduled=[{'name': 'weekly', 'schedule': '0 0 * * 0', 'skill': 'digest'}],
+        )
+        _make_project_yaml(self._tmpdir, data)
+        team = load_project_team(self._tmpdir)
+        self.assertTrue(hasattr(team, 'scheduled'))
+        self.assertEqual(len(team.scheduled), 1)
+        self.assertEqual(team.scheduled[0].name, 'weekly')
+
+
 class TestLoadWorkgroupWithEmptyMembersBlock(unittest.TestCase):
     """Workgroup YAML with empty or absent members: block must not raise."""
 
