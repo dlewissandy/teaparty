@@ -396,3 +396,118 @@ class TestCatalogOrgRouteRegistered(unittest.TestCase):
         ]
         self.assertIn(('GET', '/api/catalog/org'), routes,
             "GET /api/catalog/org must be registered as an explicit route before /api/catalog/{project}")
+
+
+# ── Behavioral content tests ──────────────────────────────────────────────────
+
+class TestRenderAgentContentSections(unittest.TestCase):
+    """_renderAgentContent() must produce all required section panels."""
+
+    def _source(self) -> str:
+        return (_REPO_ROOT / 'bridge' / 'static' / 'config.html').read_text()
+
+    def test_renderAgentContent_produces_identity_section(self):
+        """_renderAgentContent must call sectionCard('Identity', ...) for name/description fields."""
+        source = self._source()
+        m = re.search(r'function _renderAgentContent\(\)(.*?)(?=\nasync function |\nfunction )', source, re.DOTALL)
+        self.assertIsNotNone(m, '_renderAgentContent not found in config.html')
+        body = m.group(1)
+        self.assertIn("sectionCard('Identity'", body,
+            "_renderAgentContent must render an Identity section with name/description inputs")
+
+    def test_renderAgentContent_produces_skills_section(self):
+        """_renderAgentContent must call sectionCard('Skills', ...) for the skill catalog panel."""
+        source = self._source()
+        m = re.search(r'function _renderAgentContent\(\)(.*?)(?=\nasync function |\nfunction )', source, re.DOTALL)
+        self.assertIsNotNone(m, '_renderAgentContent not found in config.html')
+        body = m.group(1)
+        self.assertIn("sectionCard('Skills'", body,
+            "_renderAgentContent must render a Skills section showing the full catalog")
+
+    def test_renderAgentContent_produces_tools_section(self):
+        """_renderAgentContent must call sectionCard('Tools', ...) for the tools panel."""
+        source = self._source()
+        m = re.search(r'function _renderAgentContent\(\)(.*?)(?=\nasync function |\nfunction )', source, re.DOTALL)
+        self.assertIsNotNone(m, '_renderAgentContent not found in config.html')
+        body = m.group(1)
+        self.assertIn("sectionCard('Tools'", body,
+            "_renderAgentContent must render a Tools section showing available tools")
+
+    def test_renderAgentContent_produces_permissions_section(self):
+        """_renderAgentContent must call sectionCard('Permissions', ...) for the permissions panel."""
+        source = self._source()
+        m = re.search(r'function _renderAgentContent\(\)(.*?)(?=\nasync function |\nfunction )', source, re.DOTALL)
+        self.assertIsNotNone(m, '_renderAgentContent not found in config.html')
+        body = m.group(1)
+        self.assertIn("sectionCard('Permissions'", body,
+            "_renderAgentContent must render a Permissions section")
+
+    def test_renderAgentContent_highlights_active_skills(self):
+        """_renderAgentContent must apply item-catalog-active class to whitelisted skills."""
+        source = self._source()
+        m = re.search(r'function _renderAgentContent\(\)(.*?)(?=\nasync function |\nfunction )', source, re.DOTALL)
+        self.assertIsNotNone(m, '_renderAgentContent not found in config.html')
+        body = m.group(1)
+        self.assertIn('item-catalog-active', body,
+            "_renderAgentContent must apply item-catalog-active to whitelisted skills/tools/permissions")
+
+    def test_renderAgentContent_renders_name_input_with_onblur_save(self):
+        """_renderAgentContent must render the name field as an input with onblur save."""
+        source = self._source()
+        m = re.search(r'function _renderAgentContent\(\)(.*?)(?=\nasync function |\nfunction )', source, re.DOTALL)
+        self.assertIsNotNone(m, '_renderAgentContent not found in config.html')
+        body = m.group(1)
+        self.assertIn('fm.name', body,
+            "_renderAgentContent must use fm.name for the name input value")
+        # In the HTML JS string, single quotes are escaped: saveAgentField(\'name\'
+        self.assertIn("saveAgentField(\\'name\\'", body,
+            "_renderAgentContent name input must call saveAgentField('name', ...) on blur")
+
+    def test_renderAgentContent_renders_description_input_with_onblur_save(self):
+        """_renderAgentContent must render the description as an input with onblur save."""
+        source = self._source()
+        m = re.search(r'function _renderAgentContent\(\)(.*?)(?=\nasync function |\nfunction )', source, re.DOTALL)
+        self.assertIsNotNone(m, '_renderAgentContent not found in config.html')
+        body = m.group(1)
+        self.assertIn('fm.description', body,
+            "_renderAgentContent must use fm.description for the description input value")
+        # In the HTML JS string, single quotes are escaped: saveAgentField(\'description\'
+        self.assertIn("saveAgentField(\\'description\\'", body,
+            "_renderAgentContent description input must call saveAgentField('description', ...) on blur")
+
+    def test_renderAgentContent_renders_model_dropdown_with_onchange_save(self):
+        """_renderAgentContent must render the model as a dropdown with onchange save."""
+        source = self._source()
+        m = re.search(r'function _renderAgentContent\(\)(.*?)(?=\nasync function |\nfunction )', source, re.DOTALL)
+        self.assertIsNotNone(m, '_renderAgentContent not found in config.html')
+        body = m.group(1)
+        # In the HTML JS string, single quotes are escaped: saveAgentField(\'model\'
+        self.assertIn("saveAgentField(\\'model\\'", body,
+            "_renderAgentContent model dropdown must call saveAgentField('model', ...) on change")
+
+
+class TestSaveAgentFieldCallsPatch(unittest.TestCase):
+    """saveAgentField() must call patchCurrentAgent to persist changes to the backend."""
+
+    def _source(self) -> str:
+        return (_REPO_ROOT / 'bridge' / 'static' / 'config.html').read_text()
+
+    def test_saveAgentField_calls_patchCurrentAgent(self):
+        """saveAgentField() must call patchCurrentAgent() to persist the field change."""
+        source = self._source()
+        m = re.search(r'function saveAgentField\(.*?\)\s*\{(.*?)(?=\n\})', source, re.DOTALL)
+        self.assertIsNotNone(m, 'saveAgentField function body not found in config.html')
+        body = m.group(1)
+        self.assertIn('patchCurrentAgent', body,
+            "saveAgentField must call patchCurrentAgent() to persist changes via PATCH")
+
+    def test_patchCurrentAgent_uses_patch_method(self):
+        """patchCurrentAgent() must use the PATCH HTTP method to save to /api/agents/{name}."""
+        source = self._source()
+        m = re.search(r"function patchCurrentAgent\(.*?\)\s*\{(.*?)(?=\n\})", source, re.DOTALL)
+        self.assertIsNotNone(m, 'patchCurrentAgent function body not found in config.html')
+        body = m.group(1)
+        self.assertIn("'PATCH'", body,
+            "patchCurrentAgent must use PATCH method to update agent frontmatter")
+        self.assertIn('/api/agents/', body,
+            "patchCurrentAgent must POST to /api/agents/{name} endpoint")
