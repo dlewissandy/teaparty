@@ -774,19 +774,26 @@ class TestToggleWorkgroupMembership(unittest.TestCase):
         agent_names = [a['name'] if isinstance(a, dict) else a for a in data['members'].get('agents', [])]
         self.assertNotIn('auditor', agent_names)
 
-    def test_activate_skill_adds_to_skills(self):
-        """toggle_workgroup_membership with active=True adds skill to workgroup YAML."""
+    def test_activate_hook_adds_to_hooks(self):
+        """toggle_workgroup_membership with active=True adds hook event to workgroup YAML."""
         from orchestrator.config_reader import toggle_workgroup_membership
-        toggle_workgroup_membership(self.yaml_path, 'skill', 'review-pr', True)
+        toggle_workgroup_membership(self.yaml_path, 'hook', 'PostToolUse', True)
         data = _read_workgroup_yaml(self.yaml_path)
-        self.assertIn('review-pr', data['members'].get('skills', []))
+        self.assertIn('PostToolUse', data['members'].get('hooks', []))
 
-    def test_deactivate_skill_removes_from_skills(self):
-        """toggle_workgroup_membership with active=False removes skill from workgroup YAML."""
+    def test_deactivate_hook_removes_from_hooks(self):
+        """toggle_workgroup_membership with active=False removes hook event from workgroup YAML."""
         from orchestrator.config_reader import toggle_workgroup_membership
-        toggle_workgroup_membership(self.yaml_path, 'skill', 'commit', False)
+        toggle_workgroup_membership(self.yaml_path, 'hook', 'PreToolUse', True)
+        toggle_workgroup_membership(self.yaml_path, 'hook', 'PreToolUse', False)
         data = _read_workgroup_yaml(self.yaml_path)
-        self.assertNotIn('commit', data['members'].get('skills', []))
+        self.assertNotIn('PreToolUse', data['members'].get('hooks', []))
+
+    def test_skill_toggle_raises_value_error(self):
+        """toggle_workgroup_membership must reject kind='skill' — skills are per-agent, not per-workgroup."""
+        from orchestrator.config_reader import toggle_workgroup_membership
+        with self.assertRaises(ValueError):
+            toggle_workgroup_membership(self.yaml_path, 'skill', 'commit', True)
 
 
 # ── _serialize_workgroup catalog expansion ────────────────────────────────────

@@ -477,11 +477,11 @@ class TestRenderWorkgroupRendersAgentsAndSkills(unittest.TestCase):
         self.assertIn('sourceBadge(a.source)', source,
             "renderWorkgroup must call sourceBadge(a.source) for agent source badge (SC#3)")
 
-    def test_renderWorkgroup_renders_skills_with_source_badge(self):
-        """renderWorkgroup must call sourceBadge for skill source."""
+    def test_renderWorkgroup_renders_hooks_panel(self):
+        """renderWorkgroup must render a Hooks section — workgroups have no skills (issue #367)."""
         source = self._get_renderWorkgroup_body()
-        self.assertIn('sourceBadge(s.source)', source,
-            "renderWorkgroup must call sourceBadge(s.source) for skill source badge (SC#3)")
+        self.assertIn("'Hooks'", source,
+            "renderWorkgroup must render a Hooks section card (workgroups have no skills per spec)")
 
 
 if __name__ == '__main__':

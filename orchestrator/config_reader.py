@@ -673,22 +673,24 @@ def toggle_workgroup_membership(
     name: str,
     active: bool,
 ) -> None:
-    """Add or remove an agent or skill from a workgroup YAML file.
+    """Add or remove an agent or hook from a workgroup YAML file.
+
+    Workgroups have no skill membership (skills are per-agent, not per-workgroup).
 
     Args:
         workgroup_yaml_path: Absolute path to the workgroup's .yaml file.
-        kind: 'agent' or 'skill'.
-        name: Name of the item to toggle.
+        kind: 'agent' or 'hook'.
+        name: Name of the agent or event name of the hook to toggle.
         active: True to add, False to remove.
     """
-    if kind not in _MEMBERSHIP_KEYS:
-        raise ValueError(f'Invalid membership kind: {kind!r}')
+    if kind not in ('agent', 'hook'):
+        raise ValueError(f'Invalid membership kind for workgroup: {kind!r}')
     if not os.path.exists(workgroup_yaml_path):
         raise FileNotFoundError(f'workgroup YAML not found: {workgroup_yaml_path}')
     with open(workgroup_yaml_path) as f:
         data = yaml.safe_load(f) or {}
+    members = data.setdefault('members', {})
     if kind == 'agent':
-        members = data.setdefault('members', {})
         agents = members.get('agents') or []
         if active and name not in agents:
             agents = agents + [name]
@@ -696,13 +698,12 @@ def toggle_workgroup_membership(
             agents = [a for a in agents if a != name]
         members['agents'] = agents
     else:
-        members = data.setdefault('members', {})
-        skills = members.get('skills') or []
-        if active and name not in skills:
-            skills = skills + [name]
+        hooks = members.get('hooks') or []
+        if active and name not in hooks:
+            hooks = hooks + [name]
         elif not active:
-            skills = [s for s in skills if s != name]
-        members['skills'] = skills
+            hooks = [h for h in hooks if h != name]
+        members['hooks'] = hooks
     with open(workgroup_yaml_path, 'w') as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 
