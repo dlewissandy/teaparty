@@ -220,6 +220,14 @@ class TestConfigHtmlScheduledTasksPanel(unittest.TestCase):
             'cronItems rendering must use c.enabled to determine active vs inactive state',
         )
 
+    def test_scheduled_task_item_renders_skill_name(self):
+        """cronItems rendering must include c.skill in the item meta so tasks are browsable."""
+        self.assertIn(
+            'c.skill',
+            self.content,
+            'cronItems rendering must include c.skill in item meta — skill name identifies what the task does',
+        )
+
     def test_workgroup_render_has_no_scheduled_tasks_section(self):
         """renderWorkgroup() must not include a Scheduled Tasks panel."""
         # Find renderWorkgroup function body — everything between renderWorkgroup and

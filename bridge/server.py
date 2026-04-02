@@ -1428,7 +1428,7 @@ class TeaPartyBridge:
             'skills': skills_result,
             'hooks': [{**h, 'file': _hook_file(h)} for h in all_hooks],
             'scheduled': [
-                {'name': s.name, 'schedule': s.schedule, 'enabled': s.enabled,
+                {'name': s.name, 'schedule': s.schedule, 'skill': s.skill, 'enabled': s.enabled,
                  'file': _task_file(s.skill)}
                 for s in t.scheduled
             ],
@@ -1552,7 +1552,7 @@ class TeaPartyBridge:
             'skills': skills_result,
             'hooks': [{**h, 'file': _hook_file(h)} for h in all_hooks],
             'scheduled': [
-                {'name': s.name, 'schedule': s.schedule, 'enabled': s.enabled,
+                {'name': s.name, 'schedule': s.schedule, 'skill': s.skill, 'enabled': s.enabled,
                  'file': _task_file(s.skill)}
                 for s in t.scheduled
             ],

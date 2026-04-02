@@ -196,7 +196,7 @@ async function renderGlobal() {
     var toggleClick = isActive
       ? ' onclick="toggleMembership(\'global\', \'scheduled_task\', \'' + c.name + '\', false)"'
       : ' onclick="toggleMembership(\'global\', \'scheduled_task\', \'' + c.name + '\', true)"';
-    return '<div class="item' + cls + '"' + toggleClick + '><div class="item-icon icon-cron">&#9200;</div><div class="item-body"><div class="item-title">' + c.name + '</div><div class="item-meta">' + c.schedule + '</div></div></div>';
+    return '<div class="item' + cls + '"' + toggleClick + '><div class="item-icon icon-cron">&#9200;</div><div class="item-body"><div class="item-title">' + c.name + '</div><div class="item-meta">' + c.schedule + (c.skill ? ' &middot; ' + c.skill : '') + '</div></div></div>';
   });
 
   var subtitle = projects.length + ' projects &middot; ' + (workgroupsData || []).length + ' workgroups &middot; ' + (m.agents || []).length + ' agents';
@@ -323,7 +323,7 @@ async function renderProject(slug) {
     var toggleClick = isActive
       ? ' onclick="toggleMembership(\'' + slug + '\', \'scheduled_task\', \'' + c.name + '\', false)"'
       : ' onclick="toggleMembership(\'' + slug + '\', \'scheduled_task\', \'' + c.name + '\', true)"';
-    return '<div class="item' + cls + '"' + toggleClick + '><div class="item-icon icon-cron">&#9200;</div><div class="item-body"><div class="item-title">' + c.name + '</div><div class="item-meta">' + c.schedule + '</div></div></div>';
+    return '<div class="item' + cls + '"' + toggleClick + '><div class="item-icon icon-cron">&#9200;</div><div class="item-body"><div class="item-title">' + c.name + '</div><div class="item-meta">' + c.schedule + (c.skill ? ' &middot; ' + c.skill : '') + '</div></div></div>';
   });
 
   var pinItems = (pinsData || []).map(function(p) {
