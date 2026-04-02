@@ -27,6 +27,7 @@ from orchestrator.config_reader import (
     load_project_team,
     load_workgroup,
     toggle_management_membership,
+    toggle_project_membership,
 )
 
 
@@ -281,10 +282,12 @@ class TestLoadWorkgroupParsesArtifactsAsDicts(unittest.TestCase):
         for artifact in self.wg.artifacts:
             self.assertIn('path', artifact)
 
-    def test_artifacts_contain_label_key(self):
-        """Each artifact entry must have a 'label' key."""
-        for artifact in self.wg.artifacts:
-            self.assertIn('label', artifact)
+    def test_artifacts_with_label_contain_label_key(self):
+        """Artifact entries that have a label in YAML expose it in the dict."""
+        labeled = [a for a in self.wg.artifacts if 'label' in a]
+        self.assertGreater(len(labeled), 0, 'Fixture must include at least one labeled artifact')
+        for artifact in labeled:
+            self.assertIsInstance(artifact['label'], str)
 
     def test_artifacts_path_and_label_values(self):
         """Artifact path and label values match the YAML."""
@@ -299,6 +302,30 @@ class TestLoadWorkgroupParsesArtifactsAsDicts(unittest.TestCase):
         path = _make_workgroup_yaml(self._tmpdir, 'empty', data)
         wg = load_workgroup(path)
         self.assertEqual(wg.artifacts, [])
+
+    def test_artifact_without_label_key_loads_correctly(self):
+        """An artifact entry with only path: and no label: must load without error.
+
+        The spec (proposal.md lines 167-169) shows label: is optional:
+          artifacts:
+            - path: NORMS.md        # no label
+            - path: docs/
+              label: Docs
+        """
+        data = _minimal_workgroup_data(
+            artifacts=[
+                {'path': 'NORMS.md'},  # label-less — spec-compliant
+                {'path': 'docs/', 'label': 'Docs'},
+            ],
+        )
+        path = _make_workgroup_yaml(self._tmpdir, 'nolabel', data)
+        wg = load_workgroup(path)
+        self.assertEqual(len(wg.artifacts), 2)
+        # First artifact has no label key
+        paths = [a['path'] for a in wg.artifacts]
+        self.assertIn('NORMS.md', paths)
+        label_less = next(a for a in wg.artifacts if a['path'] == 'NORMS.md')
+        self.assertNotIn('label', label_less)
 
 
 # ── AC4: no skills: expected in workgroup YAML; no error if absent ────────────
@@ -539,3 +566,103 @@ class TestLoadWorkgroupWithEmptyMembersBlock(unittest.TestCase):
         wg = load_workgroup(path)
         self.assertEqual(wg.members_agents, [])
         self.assertEqual(wg.members_hooks, [])
+
+
+# ── AC6: toggle_project_membership supports 'workgroup' kind ─────────────────
+
+class TestToggleProjectMembershipWorkgroup(unittest.TestCase):
+    """toggle_project_membership must support kind='workgroup' to toggle members.workgroups."""
+
+    def setUp(self):
+        self._tmpdir = tempfile.mkdtemp()
+        data = _minimal_project_data(
+            workgroups=[
+                {'name': 'Coding', 'config': '.teaparty/workgroups/coding.yaml'},
+                {'name': 'Research', 'config': '.teaparty/workgroups/research.yaml'},
+            ],
+            members={'workgroups': ['Coding']},
+        )
+        _make_project_yaml(self._tmpdir, data)
+
+    def test_activate_workgroup_adds_to_members_workgroups(self):
+        """Activating an inactive workgroup adds it to members.workgroups in YAML."""
+        toggle_project_membership(self._tmpdir, 'workgroup', 'Research', True)
+        team = load_project_team(self._tmpdir)
+        self.assertIn('Research', team.members_workgroups)
+
+    def test_deactivate_workgroup_removes_from_members_workgroups(self):
+        """Deactivating an active workgroup removes it from members.workgroups in YAML."""
+        toggle_project_membership(self._tmpdir, 'workgroup', 'Coding', False)
+        team = load_project_team(self._tmpdir)
+        self.assertNotIn('Coding', team.members_workgroups)
+
+    def test_activating_already_active_workgroup_is_idempotent(self):
+        """Activating an already-active workgroup does not duplicate it."""
+        toggle_project_membership(self._tmpdir, 'workgroup', 'Coding', True)
+        team = load_project_team(self._tmpdir)
+        self.assertEqual(team.members_workgroups.count('Coding'), 1)
+
+    def test_deactivating_inactive_workgroup_is_safe(self):
+        """Deactivating a workgroup not in members.workgroups does not raise."""
+        toggle_project_membership(self._tmpdir, 'workgroup', 'Research', False)
+        team = load_project_team(self._tmpdir)
+        self.assertNotIn('Research', team.members_workgroups)
+
+
+# ── AC6: bridge /api/config exposes project active status ────────────────────
+
+class TestBridgeConfigProjectsIncludeActiveFlag(unittest.TestCase):
+    """GET /api/config projects list must include active: bool from members_projects."""
+
+    def setUp(self):
+        self._tmpdir = tempfile.mkdtemp()
+        self._home = os.path.join(self._tmpdir, '.teaparty')
+        data = _minimal_management_data(
+            projects=[
+                {'name': 'Active', 'path': os.path.join(self._tmpdir, 'active'), 'config': '.teaparty/project.yaml'},
+                {'name': 'Inactive', 'path': os.path.join(self._tmpdir, 'inactive'), 'config': '.teaparty/project.yaml'},
+            ],
+            members={'projects': ['Active'], 'agents': []},
+        )
+        _make_teaparty_yaml(self._home, data)
+        # Create project directories so discover_projects can validate them
+        for sub in ('active', 'inactive'):
+            d = os.path.join(self._tmpdir, sub)
+            os.makedirs(os.path.join(d, '.git'), exist_ok=True)
+            os.makedirs(os.path.join(d, '.claude'), exist_ok=True)
+            os.makedirs(os.path.join(d, '.teaparty'), exist_ok=True)
+
+    def test_active_project_has_active_true(self):
+        """A project in members_projects must have active=True in the response."""
+        from orchestrator.config_reader import discover_projects
+        team = load_management_team(teaparty_home=self._home)
+        projects = discover_projects(team)
+        active_projects = set(team.members_projects)
+        for p in projects:
+            p['active'] = p['name'] in active_projects
+        active_entry = next(p for p in projects if p['name'] == 'Active')
+        self.assertTrue(active_entry['active'])
+
+    def test_inactive_project_has_active_false(self):
+        """A project NOT in members_projects must have active=False in the response."""
+        from orchestrator.config_reader import discover_projects
+        team = load_management_team(teaparty_home=self._home)
+        projects = discover_projects(team)
+        active_projects = set(team.members_projects)
+        for p in projects:
+            p['active'] = p['name'] in active_projects
+        inactive_entry = next(p for p in projects if p['name'] == 'Inactive')
+        self.assertFalse(inactive_entry['active'])
+
+    def test_active_flag_reflects_toggle(self):
+        """After toggling a project, the active flag changes correctly."""
+        from orchestrator.config_reader import discover_projects
+        # Deactivate 'Active'
+        toggle_management_membership(self._home, 'project', 'Active', False)
+        team = load_management_team(teaparty_home=self._home)
+        projects = discover_projects(team)
+        active_projects = set(team.members_projects)
+        for p in projects:
+            p['active'] = p['name'] in active_projects
+        active_entry = next(p for p in projects if p['name'] == 'Active')
+        self.assertFalse(active_entry['active'])

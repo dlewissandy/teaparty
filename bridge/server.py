@@ -389,8 +389,10 @@ class TeaPartyBridge:
         try:
             team = load_management_team(teaparty_home=self.teaparty_home)
             projects = discover_projects(team)
+            active_projects = set(team.members_projects)
             for p in projects:
                 p['slug'] = os.path.basename(p['path'])
+                p['active'] = p['name'] in active_projects
             claude_base = os.path.dirname(self.teaparty_home)
             org_agents_dir = os.path.join(claude_base, '.claude', 'agents')
             org_skills_dir = os.path.join(claude_base, '.claude', 'skills')
@@ -511,9 +513,9 @@ class TeaPartyBridge:
         kind = body.get('type', '')
         name = body.get('name', '')
         active = body.get('active')
-        if kind not in ('agent', 'skill', 'hook') or not name or not isinstance(active, bool):
+        if kind not in ('agent', 'workgroup', 'skill', 'hook') or not name or not isinstance(active, bool):
             return web.json_response(
-                {'error': 'body must include type (agent|skill|hook), name, and active (bool)'},
+                {'error': 'body must include type (agent|workgroup|skill|hook), name, and active (bool)'},
                 status=400,
             )
         try:
