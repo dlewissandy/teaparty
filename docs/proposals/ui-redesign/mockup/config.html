@@ -30,7 +30,60 @@ function configNav(level, nameOrSlug, extra) {
     if (projectSlug) url += '&project=' + encodeURIComponent(projectSlug);
     history.pushState({}, '', url);
     renderWorkgroup(nameOrSlug, projectSlug);
+  } else if (level === 'agent') {
+    var projectSlug = extra || null;
+    var url = 'config.html?agent=' + encodeURIComponent(nameOrSlug);
+    if (projectSlug) url += '&project=' + encodeURIComponent(projectSlug);
+    history.pushState({}, '', url);
+    renderAgent(nameOrSlug, projectSlug);
   }
+}
+
+async function renderAgent(name, projectSlug) {
+  showLoading();
+  var agentUrl = '/api/agents/' + encodeURIComponent(name);
+  if (projectSlug) agentUrl += '?project=' + encodeURIComponent(projectSlug);
+  var catalogUrl = '/api/catalog/' + (projectSlug ? encodeURIComponent(projectSlug) : 'org');
+  var fm, catalog;
+  try {
+    var [agentResp, catalogResp] = await Promise.all([
+      fetch(agentUrl),
+      fetch(catalogUrl),
+    ]);
+    if (!agentResp.ok) {
+      var err = await agentResp.json();
+      showError('Agent not found: ' + (err.error || name));
+      return;
+    }
+    fm = await agentResp.json();
+    catalog = catalogResp.ok ? await catalogResp.json() : {agents: [], skills: [], hooks: []};
+  } catch (e) {
+    showError('Failed to load agent: ' + e.message);
+    return;
+  }
+
+  var breadcrumb = '<div class="breadcrumb-bar"><a onclick="configNav(\'global\')" style="cursor:pointer">Global Config</a>';
+  if (projectSlug) {
+    breadcrumb += ' <span>/</span> <a onclick="configNav(\'project\',\'' + projectSlug + '\')" style="cursor:pointer">' + projectSlug + '</a>';
+  }
+  breadcrumb += ' <span>/</span> <a>' + name + '</a></div>';
+
+  var allSkills = (catalog.skills || []).map(function(s) {
+    var sName = typeof s === 'object' ? s.name : s;
+    var isActive = Array.isArray(fm.skills) && fm.skills.indexOf(sName) >= 0;
+    var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
+    return '<div class="item' + cls + '"><div class="item-icon icon-skill">&#9881;</div><div class="item-body"><div class="item-title">' + sName + '</div></div></div>';
+  });
+
+  document.title = 'TeaParty \u2014 ' + name + ' Agent';
+  document.getElementById('content').innerHTML =
+    breadcrumb +
+    '<div class="pane-title">' + name + '</div>' +
+    '<div class="pane-description">' + (fm.description || '') + '</div>' +
+    '<div class="pane-subtitle">Model: ' + (fm.model || '') + ' &middot; Max Turns: ' + (fm.maxTurns || '') + '</div>' +
+    '<div class="sections">' +
+      sectionCard('Skills', allSkills, {empty: 'No skills in catalog'}) +
+    '</div>';
 }
 
 function sectionCard(title, items, opts) {
@@ -99,7 +152,7 @@ async function renderGlobal() {
   });
 
   var agentItems = (m.agents || []).map(function(name) {
-    return '<div class="item"><div class="item-icon icon-member">&#9672;</div><div class="item-body"><div class="item-title">' + name + '</div></div></div>';
+    return '<div class="item" onclick="configNav(\'agent\',\'' + name + '\')" style="cursor:pointer"><div class="item-icon icon-member">&#9672;</div><div class="item-body"><div class="item-title">' + name + '</div></div></div>';
   });
 
   var participantItems = [];
@@ -185,7 +238,7 @@ async function renderProject(slug) {
     var name = typeof a === 'object' ? a.name : a;
     var source = typeof a === 'object' ? a.source : null;
     var src = sourceBadge(source);
-    return '<div class="item"><div class="item-icon icon-member">&#9672;</div><div class="item-body"><div class="item-title">' + name + ' ' + src + '</div></div></div>';
+    return '<div class="item" onclick="configNav(\'agent\',\'' + name + '\',\'' + slug + '\')" style="cursor:pointer"><div class="item-icon icon-member">&#9672;</div><div class="item-body"><div class="item-title">' + name + ' ' + src + '</div></div></div>';
   });
 
   var participantItems = [];
@@ -255,8 +308,9 @@ async function renderWorkgroup(name, projectSlug) {
   document.title = 'TeaParty \u2014 ' + name + ' Workgroup';
 
   var agentItems = (wgData.agents || []).map(function(a) {
+    var aName = a.name || a;
     var src = sourceBadge(a.source);
-    return '<div class="item"><div class="item-icon icon-member">&#9672;</div><div class="item-body"><div class="item-title">' + (a.name || a) + ' ' + src + '</div><div class="item-meta">' + (a.role || '') + (a.model ? ' &middot; ' + a.model : '') + '</div></div></div>';
+    return '<div class="item" onclick="configNav(\'agent\',\'' + aName + '\',\'' + (projectSlug || '') + '\')" style="cursor:pointer"><div class="item-icon icon-member">&#9672;</div><div class="item-body"><div class="item-title">' + aName + ' ' + src + '</div><div class="item-meta">' + (a.role || '') + (a.model ? ' &middot; ' + a.model : '') + '</div></div></div>';
   });
 
   var skillItems = (wgData.skills || []).map(function(s) {
@@ -302,9 +356,12 @@ async function renderWorkgroup(name, projectSlug) {
 }
 
 var urlParams = new URLSearchParams(window.location.search);
+var initAgent = urlParams.get('agent');
 var initWorkgroup = urlParams.get('workgroup');
 var initProject = urlParams.get('project');
-if (initWorkgroup) {
+if (initAgent) {
+  renderAgent(initAgent, initProject);
+} else if (initWorkgroup) {
   renderWorkgroup(initWorkgroup, initProject);
 } else if (initProject) {
   renderProject(initProject);

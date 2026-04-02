@@ -23,6 +23,165 @@ function openChatWithSeed(convId, seed) {
   window.location.href = url;
 }
 
+var AVAILABLE_TOOLS = ['Read', 'Glob', 'Grep', 'Bash', 'Write', 'Edit',
+  'WebSearch', 'WebFetch', 'Send', 'Reply', 'TodoRead', 'TodoWrite',
+  'NotebookRead', 'NotebookEdit'];
+var _agentCtx = null;
+
+function patchCurrentAgent(updates) {
+  if (!_agentCtx) return;
+  var url = '/api/agents/' + encodeURIComponent(_agentCtx.name);
+  if (_agentCtx.projectSlug) url += '?project=' + encodeURIComponent(_agentCtx.projectSlug);
+  fetch(url, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(updates),
+  });
+}
+
+function saveAgentField(field, value) {
+  if (!_agentCtx) return;
+  _agentCtx.fm[field] = value;
+  var update = {};
+  update[field] = value;
+  patchCurrentAgent(update);
+}
+
+function toggleAgentSkill(skill) {
+  if (!_agentCtx) return;
+  var skills = Array.isArray(_agentCtx.fm.skills) ? _agentCtx.fm.skills.slice() : [];
+  var idx = skills.indexOf(skill);
+  if (idx >= 0) skills.splice(idx, 1);
+  else skills.push(skill);
+  _agentCtx.fm.skills = skills;
+  patchCurrentAgent({skills: skills});
+  _renderAgentContent();
+}
+
+function toggleAgentTool(tool) {
+  if (!_agentCtx) return;
+  var tools = (_agentCtx.fm.tools || '').split(',').map(function(t){ return t.trim(); }).filter(Boolean);
+  var idx = tools.indexOf(tool);
+  if (idx >= 0) tools.splice(idx, 1);
+  else tools.push(tool);
+  _agentCtx.fm.tools = tools.join(', ');
+  patchCurrentAgent({tools: _agentCtx.fm.tools});
+  _renderAgentContent();
+}
+
+function setAgentPermissionMode(mode) {
+  if (!_agentCtx) return;
+  _agentCtx.fm.permissionMode = mode;
+  patchCurrentAgent({permissionMode: mode});
+  _renderAgentContent();
+}
+
+function _renderAgentContent() {
+  if (!_agentCtx) return;
+  var fm = _agentCtx.fm;
+  var catalog = _agentCtx.catalog;
+  var name = _agentCtx.name;
+  var projectSlug = _agentCtx.projectSlug;
+
+  function escAttr(s) {
+    return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  var breadcrumb = '<div class="breadcrumb-bar"><a onclick="configNav(\'global\')" style="cursor:pointer">Global Config</a>';
+  if (projectSlug) {
+    breadcrumb += ' <span>/</span> <a onclick="configNav(\'project\',\'' + projectSlug + '\')" style="cursor:pointer">' + projectSlug + '</a>';
+  }
+  breadcrumb += ' <span>/</span> <a>' + name + '</a></div>';
+
+  var identityItems = [
+    '<div class="item"><div class="item-icon icon-member">&#9672;</div><div class="item-body" style="width:100%;padding-right:8px"><input value="' + escAttr(fm.name) + '" placeholder="agent name" onblur="saveAgentField(\'name\', this.value)" style="width:100%;background:none;border:none;border-bottom:1px solid var(--border-color);color:var(--text);font-size:13px;padding:2px 0;outline:none"></div></div>',
+    '<div class="item"><div class="item-icon" style="background:transparent"></div><div class="item-body" style="width:100%;padding-right:8px"><input value="' + escAttr(fm.description) + '" placeholder="description \u2014 dispatch signal for leads" onblur="saveAgentField(\'description\', this.value)" style="width:100%;background:none;border:none;border-bottom:1px solid var(--border-color);color:var(--text-dim);font-size:11px;padding:2px 0;outline:none"></div></div>',
+  ];
+
+  var validModels = ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5',
+    'claude-opus-4-5', 'claude-sonnet-4-5', 'opus', 'sonnet', 'haiku'];
+  var modelOpts = validModels.map(function(m) {
+    return '<option value="' + m + '"' + (fm.model === m ? ' selected' : '') + '>' + m + '</option>';
+  }).join('');
+  var settingsItems = [
+    '<div class="item"><div class="item-icon icon-hook">&#9881;</div><div class="item-body"><div class="item-title">Model</div></div><select class="role-select" onchange="saveAgentField(\'model\', this.value)">' + modelOpts + '</select></div>',
+    '<div class="item"><div class="item-icon" style="background:transparent"></div><div class="item-body"><div class="item-title">Max Turns</div></div><input type="number" value="' + escAttr(fm.maxTurns) + '" min="1" max="100" onblur="var v=parseInt(this.value);if(v>0)saveAgentField(\'maxTurns\',v);" style="width:60px;background:none;border:1px solid var(--border-color);color:var(--text);font-size:11px;padding:2px 4px;border-radius:3px;text-align:right"></div>',
+  ];
+
+  var allSkills = catalog.skills || [];
+  var activeSkillSet = new Set(Array.isArray(fm.skills) ? fm.skills : []);
+  var skillItems = allSkills.map(function(s) {
+    var sName = typeof s === 'object' ? s.name : s;
+    var isActive = activeSkillSet.has(sName);
+    var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
+    var toggle = '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleAgentSkill(\'' + sName + '\')"></span>';
+    return '<div class="item' + cls + '"><div class="item-icon icon-skill">&#9881;</div><div class="item-body"><div class="item-title">' + sName + '</div></div>' + toggle + '</div>';
+  });
+
+  var activeToolsSet = new Set(
+    (fm.tools || '').split(',').map(function(t){ return t.trim(); }).filter(Boolean)
+  );
+  var toolItems = AVAILABLE_TOOLS.map(function(tool) {
+    var isActive = activeToolsSet.has(tool);
+    var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
+    var toggle = '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleAgentTool(\'' + tool + '\')"></span>';
+    return '<div class="item' + cls + '"><div class="item-icon icon-member">&#9679;</div><div class="item-body"><div class="item-title">' + tool + '</div></div>' + toggle + '</div>';
+  });
+
+  var validModes = ['default', 'acceptEdits', 'plan'];
+  var currentMode = fm.permissionMode || 'default';
+  var permItems = validModes.map(function(mode) {
+    var isActive = currentMode === mode;
+    var cls = isActive ? ' item-catalog-active' : '';
+    return '<div class="item' + cls + '" onclick="setAgentPermissionMode(\'' + mode + '\')" style="cursor:pointer"><div class="item-icon">&#9679;</div><div class="item-body"><div class="item-title">' + mode + '</div></div></div>';
+  });
+
+  var agentConvId = 'agent:' + name;
+  var chatItems = [
+    '<div class="item" onclick="openChat(\'' + agentConvId + '\')" style="cursor:pointer"><div class="item-icon" style="background:rgba(78,204,163,0.15);color:var(--green)">&#9654;</div><div class="item-body"><div class="item-title">Chat with Config Lead</div><div class="item-meta">Edit prose body, discuss changes</div></div></div>',
+  ];
+
+  document.title = 'TeaParty \u2014 ' + name + ' Agent';
+  document.getElementById('content').innerHTML =
+    breadcrumb +
+    '<div class="pane-title">' + name + '</div>' +
+    '<div class="pane-description">' + escAttr(fm.description || '') + '</div>' +
+    '<div class="sections">' +
+      sectionCard('Identity', identityItems, {}) +
+      sectionCard('Settings', settingsItems, {}) +
+      sectionCard('Skills', skillItems, {empty: 'No skills in catalog'}) +
+      sectionCard('Tools', toolItems, {empty: 'No tools available'}) +
+      sectionCard('Permissions', permItems, {}) +
+      sectionCard('Chat', chatItems, {}) +
+    '</div>';
+}
+
+async function renderAgent(name, projectSlug) {
+  showLoading();
+  var agentUrl = '/api/agents/' + encodeURIComponent(name);
+  if (projectSlug) agentUrl += '?project=' + encodeURIComponent(projectSlug);
+  var catalogUrl = '/api/catalog/' + (projectSlug ? encodeURIComponent(projectSlug) : 'org');
+  var fm, catalog;
+  try {
+    var [agentResp, catalogResp] = await Promise.all([
+      fetch(agentUrl),
+      fetch(catalogUrl),
+    ]);
+    if (!agentResp.ok) {
+      var err = await agentResp.json();
+      showError('Agent not found: ' + (err.error || name));
+      return;
+    }
+    fm = await agentResp.json();
+    catalog = catalogResp.ok ? await catalogResp.json() : {agents: [], skills: [], hooks: []};
+  } catch (e) {
+    showError('Failed to load agent: ' + e.message);
+    return;
+  }
+  _agentCtx = {name: fm.name || name, projectSlug: projectSlug || null, fm: fm, catalog: catalog};
+  _renderAgentContent();
+}
+
 function configNav(level, nameOrSlug, extra) {
   if (level === 'global') {
     history.pushState({}, '', 'config.html');
@@ -36,6 +195,12 @@ function configNav(level, nameOrSlug, extra) {
     if (projectSlug) url += '&project=' + encodeURIComponent(projectSlug);
     history.pushState({}, '', url);
     renderWorkgroup(nameOrSlug, projectSlug);
+  } else if (level === 'agent') {
+    var projectSlug = extra || null;
+    var url = 'config.html?agent=' + encodeURIComponent(nameOrSlug);
+    if (projectSlug) url += '&project=' + encodeURIComponent(projectSlug);
+    history.pushState({}, '', url);
+    renderAgent(nameOrSlug, projectSlug);
   }
 }
 
@@ -162,10 +327,9 @@ async function renderGlobal() {
 
   var agentItems = (m.agents || []).map(function(a) {
     var name = typeof a === 'object' ? a.name : a;
-    var file = typeof a === 'object' ? a.file : null;
     var isActive = typeof a === 'object' ? a.active !== false : true;
     var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
-    var cardClick = file ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + file + '\'),\'_blank\')" style="cursor:pointer"' : '';
+    var cardClick = ' onclick="configNav(\'agent\',\'' + name + '\')" style="cursor:pointer"';
     var toggle = '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleMembership(\'global\', \'agent\', \'' + name + '\', ' + !isActive + ')"></span>';
     return '<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-member">&#9672;</div><div class="item-body"><div class="item-title">' + name + '</div></div>' + toggle + '</div>';
   });
@@ -285,12 +449,11 @@ async function renderProject(slug) {
 
   var agentItems = (team.agents || []).map(function(a) {
     var name = typeof a === 'object' ? a.name : a;
-    var file = typeof a === 'object' ? a.file : null;
     var source = typeof a === 'object' ? a.source : null;
     var isActive = typeof a === 'object' ? a.active !== false : true;
     var src = sourceBadge(source);
     var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
-    var cardClick = file ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + file + '\'),\'_blank\')" style="cursor:pointer"' : '';
+    var cardClick = ' onclick="configNav(\'agent\',\'' + name + '\',\'' + slug + '\')" style="cursor:pointer"';
     var toggle = '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleMembership(\'' + slug + '\', \'agent\', \'' + name + '\', ' + !isActive + ')"></span>';
     return '<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-member">&#9672;</div><div class="item-body"><div class="item-title">' + name + ' ' + src + '</div></div>' + toggle + '</div>';
   });
@@ -388,11 +551,10 @@ async function renderWorkgroup(name, projectSlug) {
 
   var agentItems = (wgData.agents || []).map(function(a) {
     var aName = a.name;
-    var file = a.file || null;
     var isActive = a.active !== false;
     var src = sourceBadge(a.source);
     var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
-    var cardClick = file ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + file + '\'),\'_blank\')" style="cursor:pointer"' : '';
+    var cardClick = ' onclick="configNav(\'agent\',\'' + aName + '\',\'' + (projectSlug || '') + '\')" style="cursor:pointer"';
     var toggle = '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleMembership(\'wg:' + name + '\', \'agent\', \'' + aName + '\', ' + !isActive + ', \'' + (projectSlug || '') + '\')"></span>';
     return '<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-member">&#9672;</div><div class="item-body"><div class="item-title">' + aName + ' ' + src + '</div><div class="item-meta">' + (a.role || '') + (a.model ? ' &middot; ' + a.model : '') + '</div></div>' + toggle + '</div>';
   });
@@ -438,9 +600,12 @@ async function renderWorkgroup(name, projectSlug) {
 }
 
 var urlParams = new URLSearchParams(window.location.search);
+var initAgent = urlParams.get('agent');
 var initWorkgroup = urlParams.get('workgroup');
 var initProject = urlParams.get('project');
-if (initWorkgroup) {
+if (initAgent) {
+  renderAgent(initAgent, initProject);
+} else if (initWorkgroup) {
   renderWorkgroup(initWorkgroup, initProject);
 } else if (initProject) {
   renderProject(initProject);

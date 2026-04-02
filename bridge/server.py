@@ -259,6 +259,7 @@ class TeaPartyBridge:
         app.router.add_patch('/api/workgroups/{name}', self._handle_workgroup_patch)
         app.router.add_get('/api/agents/{name}', self._handle_agent_detail)
         app.router.add_patch('/api/agents/{name}', self._handle_agent_patch)
+        app.router.add_get('/api/catalog/org', self._handle_catalog_org)
         app.router.add_get('/api/catalog/{project}', self._handle_catalog)
 
         # ── Message endpoints ─────────────────────────────────────────────────
@@ -811,6 +812,15 @@ class TeaPartyBridge:
             os.path.join(claude_base, '.claude'),
             os.path.join(project_dir, '.claude'),
         )
+        return web.json_response({
+            'agents': catalog.agents,
+            'skills': catalog.skills,
+            'hooks': catalog.hooks,
+        })
+
+    async def _handle_catalog_org(self, request: web.Request) -> web.Response:
+        claude_base = os.path.dirname(self.teaparty_home)
+        catalog = merge_catalog(os.path.join(claude_base, '.claude'))
         return web.json_response({
             'agents': catalog.agents,
             'skills': catalog.skills,

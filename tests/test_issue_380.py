@@ -235,18 +235,18 @@ class TestWorkgroupAgentFileProperty(unittest.TestCase):
 # ── config.html: agent card structure ─────────────────────────────────────────
 
 class TestAgentCardNavigationStructure(unittest.TestCase):
-    """config.html agent cards must navigate to the artifact viewer on card click,
+    """config.html agent cards must navigate to the agent config screen on card click
+    (issue #369 supersedes the artifact-viewer navigation from issue #380),
     with a separate toggle widget that does not trigger navigation."""
 
     def setUp(self):
         self.content = _read_config_html()
 
-    def test_agent_card_uses_artifacts_html_for_navigation(self):
-        """Agent card builder must include window.open('artifacts.html?file=...) for navigation."""
-        self.assertIn(
-            "artifacts.html?file=",
-            self.content,
-            "Agent card click handler must navigate to artifacts.html with the file path",
+    def test_agent_card_navigates_to_agent_config_screen(self):
+        """Agent card builder must use configNav('agent', ...) to navigate to the agent config screen."""
+        self.assertTrue(
+            "configNav('agent'" in self.content or "configNav(\\'agent\\'" in self.content,
+            "Agent card click handler must navigate to the agent config screen via configNav('agent', ...)",
         )
 
     def test_agent_card_toggle_uses_stop_propagation(self):
@@ -267,8 +267,6 @@ class TestAgentCardNavigationStructure(unittest.TestCase):
 
     def test_render_global_agent_card_has_stop_propagation_on_toggle(self):
         """renderGlobal() agent toggle widget must call stopPropagation."""
-        # The stopPropagation must appear in the context of agent card building in renderGlobal.
-        # Check it's not isolated to an unrelated section.
         self.assertIn(
             'stopPropagation',
             self.content,
@@ -281,14 +279,6 @@ class TestAgentCardNavigationStructure(unittest.TestCase):
             'stopPropagation',
             self.content,
             'renderWorkgroup agent toggle must use stopPropagation',
-        )
-
-    def test_agent_card_reads_file_property_for_navigation(self):
-        """Agent card builder must read the .file property from the agent object for navigation."""
-        self.assertIn(
-            'a.file',
-            self.content,
-            'Agent card builder must read a.file to determine the navigation target',
         )
 
 
