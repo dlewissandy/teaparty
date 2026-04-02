@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from dataclasses import dataclass, field
 from typing import Any
@@ -949,3 +950,58 @@ def remove_project(
     _save_management_yaml(data, teaparty_home)
 
     return load_management_team(teaparty_home=teaparty_home)
+
+
+# ── Agent file helpers ────────────────────────────────────────────────────────
+
+_FRONTMATTER_RE = re.compile(r'^---\n(.*?\n)---\n(.*)', re.DOTALL)
+
+
+def read_agent_frontmatter(path: str) -> dict[str, Any]:
+    """Parse the YAML frontmatter from a .claude/agents/{name}.md file.
+
+    Returns the frontmatter as a dict. Returns an empty dict when the file
+    has no frontmatter block (i.e. does not start with ``---``).
+
+    Args:
+        path: Absolute path to the agent .md file.
+
+    Raises:
+        FileNotFoundError: If the file does not exist.
+    """
+    with open(path) as f:
+        content = f.read()
+    m = _FRONTMATTER_RE.match(content)
+    if not m:
+        return {}
+    return yaml.safe_load(m.group(1)) or {}
+
+
+def write_agent_frontmatter(path: str, updates: dict[str, Any]) -> None:
+    """Update frontmatter fields in a .claude/agents/{name}.md file.
+
+    Merges *updates* into the existing frontmatter. Fields not present in
+    *updates* are preserved. The prose body (everything after the closing
+    ``---``) is left unchanged.
+
+    Args:
+        path: Absolute path to the agent .md file.
+        updates: Frontmatter fields to set. Existing fields absent from
+            *updates* are preserved unchanged.
+
+    Raises:
+        FileNotFoundError: If the file does not exist.
+    """
+    with open(path) as f:
+        content = f.read()
+    m = _FRONTMATTER_RE.match(content)
+    if m:
+        fm: dict[str, Any] = yaml.safe_load(m.group(1)) or {}
+        body = m.group(2)
+    else:
+        fm = {}
+        body = content
+    fm.update(updates)
+    fm_str = yaml.dump(fm, default_flow_style=False, sort_keys=False).rstrip()
+    with open(path, 'w') as f:
+        f.write(f'---\n{fm_str}\n---\n{body}')
