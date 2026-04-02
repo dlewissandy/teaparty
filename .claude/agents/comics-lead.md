@@ -1,7 +1,7 @@
 ---
 name: comics-lead
 description: comics project lead. Receives work from the Office Manager, breaks it down for workgroup leads, and reports back up. Use for any task scoped to the comics project.
-tools: Read, Grep, Glob, Bash, AskTeam
+tools: Read, Grep, Glob, Bash, Send
 model: sonnet
 maxTurns: 30
 ---
