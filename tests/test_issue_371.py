@@ -445,29 +445,13 @@ class TestConfigLeadSessionExists(unittest.TestCase):
 class TestServerHandlesConfigConvPrefix(unittest.TestCase):
     """bridge/server.py must handle POST /api/conversations/config:{qualifier}."""
 
-    def _make_server(self, tmp: str):
-        """Create a minimal BridgeServer instance for testing."""
-        from bridge.server import BridgeServer
-        tp_home = _make_teaparty_home(tmp)
-        server = BridgeServer(
-            teaparty_home=tp_home,
-            host='127.0.0.1',
-            port=0,
-        )
-        return server
-
     def test_server_creates_config_lead_conversation_on_post(self):
-        """POSTing to config:management must create a CONFIG_LEAD conversation in the bus."""
+        """CONFIG_LEAD conversation creation must work via the bus."""
         from orchestrator.config_lead import config_lead_bus_path
         from orchestrator.messaging import ConversationType, SqliteMessageBus
 
         with tempfile.TemporaryDirectory() as tmp:
-            server = self._make_server(tmp)
-            tp_home = server.teaparty_home
-
-            # Directly test the conversation creation logic
-            # The server auto-creates CONFIG_LEAD on first POST, similar to how
-            # it creates OFFICE_MANAGER on first POST to 'om:' prefix.
+            tp_home = _make_teaparty_home(tmp)
             bus_path = config_lead_bus_path(tp_home)
             os.makedirs(os.path.dirname(bus_path), exist_ok=True)
             bus = SqliteMessageBus(bus_path)

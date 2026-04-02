@@ -77,10 +77,74 @@
 </head>
 <body>
 
-<div class="home" id="content"></div>
+<div class="blade-layout">
+<div class="home" id="content" style="flex:1;min-width:0"></div>
+<div class="blade" id="blade">
+  <div class="blade-tab" onclick="toggleBlade()">OM</div>
+  <div class="blade-body">
+    <div class="blade-header"><span class="blade-title" id="blade-title">Office Manager</span><button class="blade-close" onclick="toggleBlade()">&#215;</button></div>
+    <div class="chat-messages" id="blade-messages"></div>
+    <div class="chat-input-area"><textarea id="blade-input" placeholder="Message Office Manager..." rows="2" style="resize:none" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendBladeMessage();}"></textarea><button onclick="sendBladeMessage()">Send</button></div>
+  </div>
+</div>
+</div>
 
 <script>
 function openPage(url) { window.open(url, '_blank'); }
+
+var bladeConvId = '';
+var _bladeOpen = false;
+var _bladePollInterval = null;
+
+function toggleBlade() {
+  _bladeOpen = !_bladeOpen;
+  var el = document.getElementById('blade');
+  if (_bladeOpen) {
+    el.classList.add('open');
+    bladeConvId = pageState.omConvId;
+    loadBladeMessages();
+    _bladePollInterval = setInterval(loadBladeMessages, 2000);
+  } else {
+    el.classList.remove('open');
+    if (_bladePollInterval) { clearInterval(_bladePollInterval); _bladePollInterval = null; }
+  }
+}
+
+function loadBladeMessages() {
+  if (!bladeConvId) return;
+  fetch('/api/conversations/' + encodeURIComponent(bladeConvId))
+    .then(function(r) { return r.ok ? r.json() : []; })
+    .then(function(msgs) {
+      var container = document.getElementById('blade-messages');
+      if (!container) return;
+      var html = (msgs || []).map(function(m) {
+        var cls = m.sender === 'human' ? 'msg-sender-human' : 'msg-sender-agent';
+        var label = m.sender === 'human' ? 'You' : 'Office Manager';
+        return '<div class="msg"><div class="msg-sender ' + cls + '">' + _escBlade(label) + '</div><div class="msg-text">' + _escBlade(m.content) + '</div></div>';
+      }).join('');
+      container.innerHTML = html || '<div style="padding:8px;color:var(--text-dim);font-size:10px">No messages yet</div>';
+      container.scrollTop = container.scrollHeight;
+    })
+    .catch(function() {});
+}
+
+function sendBladeMessage() {
+  var input = document.getElementById('blade-input');
+  var content = (input ? input.value : '').trim();
+  if (!content) return;
+  if (!bladeConvId) bladeConvId = pageState.omConvId;
+  input.value = '';
+  fetch('/api/conversations/' + encodeURIComponent(bladeConvId), {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({content: content}),
+  }).then(function() { loadBladeMessages(); }).catch(function() {});
+  loadBladeMessages();
+}
+
+function _escBlade(s) {
+  return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
 
 // Show a modal dialog for project onboarding (add or create).
 // title: dialog heading; endpoint: '/api/projects/add' or '/api/projects/create'

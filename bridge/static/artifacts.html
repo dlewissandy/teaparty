@@ -108,7 +108,17 @@
 </head>
 <body>
 
-<div id="content" class="app-pane active"></div>
+<div class="blade-layout">
+<div id="content" class="app-pane active" style="flex:1;min-width:0"></div>
+<div class="blade" id="blade">
+  <div class="blade-tab" onclick="toggleBlade()">Config Lead</div>
+  <div class="blade-body">
+    <div class="blade-header"><span class="blade-title" id="blade-title">Config Lead</span><button class="blade-close" onclick="toggleBlade()">&#215;</button></div>
+    <div class="chat-messages" id="blade-messages"></div>
+    <div class="chat-input-area"><textarea id="blade-input" placeholder="Message config lead..." rows="2" style="resize:none" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendBladeMessage();}"></textarea><button onclick="sendBladeMessage()">Send</button></div>
+  </div>
+</div>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.9.0/highlight.min.js"></script>
@@ -127,6 +137,56 @@ var pinnedNodes = [];  // [{path, label, is_dir, expanded, children}] — config
 var selectedFile = null;
 var fileContent = null;
 var loadError = null;
+
+// ── Blade ─────────────────────────────────────────────────────────────────────
+
+var bladeConvId = 'config:artifact:' + (currentProject || 'org') + ':' + (requestedFile || '');
+var _bladeOpen = false;
+var _bladePollInterval = null;
+
+function toggleBlade() {
+  _bladeOpen = !_bladeOpen;
+  var el = document.getElementById('blade');
+  if (_bladeOpen) {
+    el.classList.add('open');
+    loadBladeMessages();
+    _bladePollInterval = setInterval(loadBladeMessages, 2000);
+  } else {
+    el.classList.remove('open');
+    if (_bladePollInterval) { clearInterval(_bladePollInterval); _bladePollInterval = null; }
+  }
+}
+
+function loadBladeMessages() {
+  if (!bladeConvId) return;
+  fetch('/api/conversations/' + encodeURIComponent(bladeConvId))
+    .then(function(r) { return r.ok ? r.json() : []; })
+    .then(function(msgs) {
+      var container = document.getElementById('blade-messages');
+      if (!container) return;
+      var html = (msgs || []).map(function(m) {
+        var cls = m.sender === 'human' ? 'msg-sender-human' : 'msg-sender-agent';
+        var label = m.sender === 'human' ? 'You' : 'Config Lead';
+        return '<div class="msg"><div class="msg-sender ' + cls + '">' + escHtml(label) + '</div><div class="msg-text">' + escHtml(m.content) + '</div></div>';
+      }).join('');
+      container.innerHTML = html || '<div style="padding:8px;color:var(--text-dim);font-size:10px">No messages yet</div>';
+      container.scrollTop = container.scrollHeight;
+    })
+    .catch(function() {});
+}
+
+function sendBladeMessage() {
+  var input = document.getElementById('blade-input');
+  var content = (input ? input.value : '').trim();
+  if (!content || !bladeConvId) return;
+  input.value = '';
+  fetch('/api/conversations/' + encodeURIComponent(bladeConvId), {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({content: content}),
+  }).then(function() { loadBladeMessages(); }).catch(function() {});
+  loadBladeMessages();
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

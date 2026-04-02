@@ -35,6 +35,7 @@ from orchestrator.proxy_review import (
     ProxyReviewSession,
     read_proxy_session_title,
 )
+from orchestrator.config_lead import config_lead_bus_path as _config_lead_bus_path, ConfigLeadSession
 from orchestrator.state_reader import StateReader
 from orchestrator.heartbeat import _heartbeat_three_state
 from orchestrator.config_reader import (
@@ -221,6 +222,12 @@ class TeaPartyBridge:
         self._proxy_locks: dict[str, asyncio.Lock] = {}
         # Per-qualifier proxy session cache: keeps ProxyReviewSession alive across invocations.
         self._proxy_sessions: dict[str, ProxyReviewSession] = {}
+        # Config lead bus (persistent, not session-scoped).
+        self._config_lead_bus: SqliteMessageBus | None = None
+        # Per-qualifier asyncio locks for config lead invocations.
+        self._config_lead_locks: dict[str, asyncio.Lock] = {}
+        # Per-qualifier config lead session cache.
+        self._config_lead_sessions: dict[str, ConfigLeadSession] = {}
         # StateReader uses registry-based project discovery.
         self._state_reader = StateReader(
             repo_root=self._repo_root,
@@ -962,6 +969,9 @@ class TeaPartyBridge:
         elif conv_id.startswith('proxy:'):
             qualifier = conv_id[len('proxy:'):]
             bus.create_conversation(ConversationType.PROXY_REVIEW, qualifier)
+        elif conv_id.startswith('config:'):
+            qualifier = conv_id[len('config:'):]
+            bus.create_conversation(ConversationType.CONFIG_LEAD, qualifier)
 
         try:
             msg_id = bus.send(conv_id, 'human', content)
@@ -976,6 +986,8 @@ class TeaPartyBridge:
             asyncio.create_task(self._invoke_pm(qualifier))
         elif conv_id.startswith('proxy:'):
             asyncio.create_task(self._invoke_proxy(qualifier))
+        elif conv_id.startswith('config:'):
+            asyncio.create_task(self._invoke_config_lead(qualifier))
 
         return web.json_response({'id': msg_id})
 
@@ -1150,6 +1162,64 @@ class TeaPartyBridge:
                     )
                 except Exception:
                     _log.exception('Failed to write error message to proxy bus for %r', qualifier)
+
+    async def _invoke_config_lead(self, qualifier: str) -> None:
+        """Invoke the configuration-lead agent for the given conversation qualifier.
+
+        Runs as a fire-and-forget asyncio task. The config lead agent reads the
+        conversation history and responds. MessageRelay picks up the reply and
+        broadcasts it to WebSocket clients.
+
+        Concurrent invocations for the same qualifier queue via an asyncio.Lock.
+
+        On runner failure, writes an error message to the bus so the human sees
+        feedback rather than silence.
+        """
+        if qualifier not in self._config_lead_locks:
+            self._config_lead_locks[qualifier] = asyncio.Lock()
+        lock = self._config_lead_locks[qualifier]
+
+        async with lock:
+            if qualifier not in self._config_lead_sessions:
+                self._config_lead_sessions[qualifier] = ConfigLeadSession(
+                    self.teaparty_home, qualifier,
+                )
+            session = self._config_lead_sessions[qualifier]
+            try:
+                # Determine cwd: project-scoped qualifiers run in the project directory.
+                cwd = self._cwd_for_config_qualifier(qualifier)
+                await session.invoke(cwd=cwd)
+            except Exception:
+                _log.exception('Config lead invocation failed for qualifier %r', qualifier)
+                try:
+                    session.send_agent_message(
+                        'Sorry, I encountered an error and could not respond. '
+                        'Please try again.'
+                    )
+                except Exception:
+                    _log.exception('Failed to write error message to config lead bus for %r', qualifier)
+
+    def _cwd_for_config_qualifier(self, qualifier: str) -> str:
+        """Resolve the working directory for a config lead invocation.
+
+        Qualifiers that encode a project slug (e.g. 'wg:{slug}:{name}',
+        'agent:{slug}:{name}', 'project:{slug}') run in the project's directory.
+        Management-level qualifiers run in the repo root.
+        """
+        # qualifier forms: 'management', 'project:{slug}', 'wg:{slug}:{name}',
+        # 'agent:{slug}:{name}', 'artifact:{slug}:{path}'
+        slug: str | None = None
+        parts = qualifier.split(':', 2)
+        kind = parts[0]
+        if kind == 'project' and len(parts) >= 2:
+            slug = parts[1]
+        elif kind in ('wg', 'agent', 'artifact') and len(parts) >= 2:
+            slug = parts[1] or None  # empty string means org-level
+        if slug:
+            project_path = self._lookup_project_path(slug)
+            if project_path:
+                return project_path
+        return self._repo_root
 
     # ── Artifact handlers ─────────────────────────────────────────────────────
 
@@ -1398,6 +1468,14 @@ class TeaPartyBridge:
             self._proxy_bus = SqliteMessageBus(proxy_path)
         return self._proxy_bus
 
+    def _get_config_lead_bus(self) -> SqliteMessageBus:
+        """Return the config lead bus, creating it if needed."""
+        if self._config_lead_bus is None:
+            config_path = _config_lead_bus_path(self.teaparty_home)
+            os.makedirs(os.path.dirname(config_path), exist_ok=True)
+            self._config_lead_bus = SqliteMessageBus(config_path)
+        return self._config_lead_bus
+
     def _bus_for_conversation(self, conv_id: str) -> SqliteMessageBus | None:
         """Find the bus that owns a conversation.
 
@@ -1411,6 +1489,8 @@ class TeaPartyBridge:
             return self._get_pm_bus()
         if conv_id.startswith('proxy:'):
             return self._get_proxy_bus()
+        if conv_id.startswith('config:'):
+            return self._get_config_lead_bus()
         for bus in self._buses.values():
             try:
                 if bus.get_conversation(conv_id) is not None:
