@@ -132,7 +132,7 @@ Process boundaries provide context isolation by design — each subteam runs in 
 
 Child CfA skips intent gathering (inherited from parent). This is a policy choice to avoid redundant dialogue, justified by the assumption that intent is monotonic — if task X is part of project P, and project P is part of intent I, then task X is part of intent I. Future work could consider intent re-validation at narrower scope for tasks that specialize the parent's intent.
 
-**Issue [#144](https://github.com/dlewissandy/teaparty/issues/144)** tracks replacing this subprocess-based dispatch with an `AskTeam` MCP tool — the same pattern as `AskQuestion`. Liaisons would call `AskTeam(team, task)` instead of invoking `dispatch_cli.py` via Bash. The orchestrator would manage the full subteam lifecycle (worktree, child CfA, merge, learning rollup) behind the tool call. The isolation benefit is real and will be preserved in the MCP version.
+**Issue [#144](https://github.com/dlewissandy/teaparty/issues/144)** tracked replacing this subprocess-based dispatch with bus-mediated MCP tools. Completed in issues #358 and #359: `Send` and `Reply` are the current dispatch tools; `AskTeam` and `DispatchListener` have been retired. Liaisons call `Send(member, message)` instead of invoking `dispatch_cli.py` via Bash.
 
 ---
 

@@ -2,7 +2,7 @@
 
 Acceptance criteria:
 1. .claude/agents/configuration-lead.md exists — model: sonnet, tools include
-   Read/Glob/Grep/Bash/AskTeam, role description explains routing and coordination
+   Read/Glob/Grep/Bash/Send, role description explains routing and coordination
 2. .claude/agents/project-specialist.md exists — model: sonnet, write-capable tools,
    skills: [create-project, edit-project, remove-project]
 3. .claude/agents/workgroup-specialist.md exists — model: sonnet, write-capable tools,

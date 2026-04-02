@@ -25,4 +25,4 @@ Management Team
     └── ...
 ```
 
-At each level, the structure is consistent: a team lead coordinates subteams using the same mechanisms (AskTeam, dispatches, shared memory). There is no architecturally special "top" — the hierarchy is extensible upward.
+At each level, the structure is consistent: a team lead coordinates subteams using the same mechanisms (Send/Reply, dispatches, shared memory). There is no architecturally special "top" — the hierarchy is extensible upward.

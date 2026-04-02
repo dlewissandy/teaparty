@@ -8,7 +8,7 @@ When the human wants to create a new agent, skill, hook, or workgroup, they desc
 
 ## Why a Team, Not a Skill
 
-The five specialists use different models and different tool sets. The Agent Specialist and Skills Specialist use opus for prompt engineering and have Write access. The Project Specialist, Workgroup Specialist, and Systems Engineer use sonnet and have Write access for configuration artifacts. The Configuration Lead uses sonnet and has AskTeam for routing but not Write. A single agent cannot simultaneously be an opus agent for prompt engineering and a sonnet agent with AskTeam for routing. The team structure maps to genuinely different capability profiles, not just sequential steps.
+The five specialists use different models and different tool sets. The Agent Specialist and Skills Specialist use opus for prompt engineering and have Write access. The Project Specialist, Workgroup Specialist, and Systems Engineer use sonnet and have Write access for configuration artifacts. The Configuration Lead uses sonnet and has Send for routing but not Write. A single agent cannot simultaneously be an opus agent for prompt engineering and a sonnet agent with Send for routing. The team structure maps to genuinely different capability profiles, not just sequential steps.
 
 Whether the coordination overhead is worth it at the current POC scale is a prioritization decision. The design is sound; the question is when to build it. For simple single-artifact requests, the office manager routes directly to the specialist — the team structure activates only when its coordination value justifies the overhead (see [Request Triage](#request-triage)).
 
@@ -39,7 +39,7 @@ Management Team
 Routes requests from the office manager to the right specialist. Understands the full configuration surface and can assess what artifacts are needed for a request. Coordinates multi-artifact requests (e.g., "create a new workgroup" requires agent definitions, skill assignments, possibly hooks and MCP configs).
 
 **Model:** sonnet
-**Tools:** Read, Glob, Grep, Bash, AskTeam
+**Tools:** Read, Glob, Grep, Bash, Send
 
 ### Project Specialist
 
@@ -344,4 +344,4 @@ Full semantic validation of LLM-facing artifacts is an open research problem. An
 
 - [chat-experience](../chat-experience/proposal.md) -- the "+ New" buttons on dashboard cards pre-seed office manager conversations that trigger this team
 - [dashboard-ui](../dashboard-ui/proposal.md) -- agent, skill, hook, and cron cards display what this team creates
-- [office-manager](../office-manager/proposal.md) -- the office manager dispatches to this team via AskTeam
+- [office-manager](../office-manager/proposal.md) -- the office manager dispatches to this team via Send

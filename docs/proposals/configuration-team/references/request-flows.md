@@ -10,7 +10,7 @@ Single artifact, clear type → office manager routes directly to Skills Special
 
 1. Human types in office manager chat (or clicks "+ New" on Skills card, which pre-seeds the message)
 2. Office manager recognizes this as a single-artifact configuration request for a skill
-3. Office manager routes directly to Skills Specialist via AskTeam
+3. Office manager routes directly to Skills Specialist via Send
 4. Skills Specialist asks clarifying questions back through the office manager if needed (what should the skill do? what tools does it need? is it user-invocable?)
 5. Skills Specialist designs the skill structure, writes files to `.claude/skills/{name}/`
 6. Office manager confirms to the human: "Created skill `deploy` with 4 files"

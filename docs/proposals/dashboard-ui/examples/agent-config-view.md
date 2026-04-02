@@ -31,7 +31,8 @@ Disallowed:
   ask-question
 
 MCP Tools:
-  mcp__ask-question__AskTeam
+  mcp__ask-question__Send
+  mcp__ask-question__Reply
   mcp__ask-question__AskQuestion
 
 ── Hooks ─────────────────────────

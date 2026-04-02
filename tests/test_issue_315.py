@@ -315,7 +315,7 @@ class TestExistingAgentDefinitionsAssessed(unittest.TestCase):
     """The issue requires updating any existing agent definitions that should have
     a skills allowlist. The management team agents (auditor, researcher, strategist,
     office-manager) do not auto-invoke skills — they are invoked BY skills, or they
-    dispatch via tools (AskTeam), not via the skills mechanism. Per the spec, omitting
+    dispatch via tools (Send), not via the skills mechanism. Per the spec, omitting
     skills: means no auto-invocable skills. These agents are correctly left without
     the field.
 
@@ -371,7 +371,7 @@ class TestExistingAgentDefinitionsAssessed(unittest.TestCase):
         """The office-manager agent must not have Configuration Team CRUD skills.
 
         The office manager dispatches configuration work to the Configuration Team via
-        the AskTeam tool, not via skills. It does not auto-invoke CRUD skills like
+        Send, not via skills. It does not auto-invoke CRUD skills like
         create-agent, edit-skill, create-hook, etc.
 
         It may have workflow dialog skills (add-project, create-project) for the
@@ -385,7 +385,7 @@ class TestExistingAgentDefinitionsAssessed(unittest.TestCase):
             self.assertNotIn(
                 crud, skills,
                 f'office-manager.md must not have Configuration Team CRUD skill {crud!r} — '
-                'configuration work routes to the Configuration Team via AskTeam, not via skills.',
+                'configuration work routes to the Configuration Team via Send, not via skills.',
             )
 
 

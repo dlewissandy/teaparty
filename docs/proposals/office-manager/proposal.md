@@ -14,7 +14,7 @@ A `claude -p` agent. Same runtime substrate as every other agent: invoked via th
 - **Liaisons for each project team** -- lightweight representatives that answer status queries and spawn instances when execution is needed
 - **The Configuration workgroup liaison** -- represents the team that creates and modifies agents, skills, hooks, and other Claude Code artifacts
 
-Multiagent plan-and-execute: the office manager plans and coordinates, liaisons dispatch work to their project teams, and the proxy filters escalations so only the ones it cannot handle reach the human. Communication between members happens via `AskTeam`.
+Multiagent plan-and-execute: the office manager plans and coordinates, liaisons dispatch work to their project teams, and the proxy filters escalations so only the ones it cannot handle reach the human. Communication between members happens via `Send` and `Reply`.
 
 ---
 

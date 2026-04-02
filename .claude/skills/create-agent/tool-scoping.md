@@ -25,7 +25,7 @@ tools: Read, Glob, Grep, WebSearch, WebFetch
 
 **Team coordinator** (leads that dispatch to subagents):
 ```
-tools: Read, Glob, Grep, Bash, AskTeam
+tools: Read, Glob, Grep, Bash, Send
 ```
 
 **Full-access developer**:
