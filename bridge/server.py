@@ -564,6 +564,7 @@ class TeaPartyBridge:
     async def _handle_workgroup_detail(self, request: web.Request) -> web.Response:
         name = request.match_info['name']
         project_slug = request.rel_url.query.get('project')
+        project_dir: str | None = None
         try:
             if project_slug:
                 project_dir = self._lookup_project_path(project_slug)
@@ -586,7 +587,18 @@ class TeaPartyBridge:
         org_hooks: list[dict] = discover_hooks(
             os.path.join(claude_base, '.claude', 'settings.json')
         )
+        # org_agents_set used for source tagging: org filesystem agents → 'shared', project-local → 'local'
         org_agents_set: set[str] = set(org_catalog_agents)
+        # If project-scoped, extend catalog with project-level agents and hooks (spec §"Catalog and Active Selection")
+        if project_dir:
+            proj_claude = os.path.join(project_dir, '.claude')
+            for a in discover_agents(os.path.join(proj_claude, 'agents')):
+                if a not in org_catalog_agents:
+                    org_catalog_agents = org_catalog_agents + [a]
+            existing_events = {h.get('event') for h in org_hooks}
+            for h in discover_hooks(os.path.join(proj_claude, 'settings.json')):
+                if h.get('event') not in existing_events:
+                    org_hooks = org_hooks + [h]
 
         for w in workgroups:
             if w.name == name:

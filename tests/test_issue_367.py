@@ -987,12 +987,16 @@ class TestHooksCatalogHighlighting(unittest.TestCase):
             'renderWorkgroup() must use a.active for catalog rendering',
         )
 
-    def test_render_workgroup_uses_active_flag_for_skills(self):
-        """renderWorkgroup() must check s.active to render active/inactive skills."""
-        self.assertIn(
-            's.active',
-            self.content,
-            'renderWorkgroup() must use s.active for catalog rendering',
+    def test_render_workgroup_has_no_skills_section(self):
+        """renderWorkgroup() must NOT render a skills section — skills are per-agent, not per-workgroup."""
+        source = self.content
+        start = source.find('async function renderWorkgroup(')
+        end = source.find('\nvar urlParams', start)
+        body = source[start:end] if end != -1 else source[start:]
+        self.assertNotIn(
+            'skillItems',
+            body,
+            'renderWorkgroup() must not contain skillItems — skills are per-agent per spec',
         )
 
     def test_toggle_membership_handles_workgroup_scope(self):
@@ -1041,6 +1045,99 @@ class TestStylesCssCatalogClasses(unittest.TestCase):
             self.content,
             'styles.css must define .item-catalog-inactive',
         )
+
+
+# ── Project-level catalog extension for workgroup detail ─────────────────────
+
+class TestWorkgroupDetailProjectCatalogExtension(unittest.TestCase):
+    """GET /api/workgroups/{name}?project=slug must extend catalog with project-level items."""
+
+    def setUp(self):
+        import json as _json
+        self.tmp = tempfile.mkdtemp()
+        self.teaparty_home = os.path.join(self.tmp, '.teaparty')
+        self.project_dir = os.path.join(self.tmp, 'myproject')
+        # Management team with workgroup
+        _make_management_yaml(self.teaparty_home, agents=[])
+        wg_dir = os.path.join(self.teaparty_home, 'workgroups')
+        os.makedirs(wg_dir, exist_ok=True)
+        self.wg_path = os.path.join(wg_dir, 'backlog.yaml')
+        _make_workgroup_yaml(self.wg_path, agents=[], skills=[])
+        # Register workgroup in teaparty.yaml
+        data = _read_management_yaml(self.teaparty_home)
+        data['workgroups'] = [{'name': 'backlog', 'config': 'workgroups/backlog.yaml'}]
+        data['projects'] = [{'name': 'myproject', 'path': self.project_dir}]
+        with open(os.path.join(self.teaparty_home, 'teaparty.yaml'), 'w') as f:
+            yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+        # Project directory
+        os.makedirs(self.project_dir)
+        proj_local = os.path.join(self.project_dir, '.teaparty.local')
+        os.makedirs(proj_local)
+        with open(os.path.join(proj_local, 'project.yaml'), 'w') as f:
+            yaml.dump({
+                'name': 'My Project', 'description': 'Test', 'lead': 'pm',
+                'workgroups': [{'ref': 'backlog'}],
+                'members': {'agents': [], 'skills': []},
+                'hooks': [], 'scheduled': [],
+            }, f)
+        # Project-level agent not in org catalog
+        proj_agents_dir = os.path.join(self.project_dir, '.claude', 'agents')
+        os.makedirs(proj_agents_dir)
+        with open(os.path.join(proj_agents_dir, 'proj-agent.md'), 'w') as f:
+            f.write('# proj-agent\n')
+        # Project-level hook not in org hooks
+        proj_claude_dir = os.path.join(self.project_dir, '.claude')
+        with open(os.path.join(proj_claude_dir, 'settings.json'), 'w') as f:
+            _json.dump({'hooks': {'ProjectHookEvent': [{'matcher': '', 'hooks': [{'type': 'command', 'command': 'echo hi'}]}]}}, f)
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _call(self) -> dict:
+        import asyncio
+        from unittest.mock import MagicMock
+        from bridge.server import TeaPartyBridge
+        bridge = TeaPartyBridge(
+            teaparty_home=self.teaparty_home,
+            static_dir=os.path.join(self.tmp, 'static'),
+        )
+        bridge._project_path_cache = {'myproject': self.project_dir}
+
+        async def _run():
+            request = MagicMock()
+            request.match_info = {'name': 'backlog'}
+            request.rel_url.query.get = MagicMock(return_value='myproject')
+            return await bridge._handle_workgroup_detail(request)
+
+        loop = asyncio.new_event_loop()
+        try:
+            resp = loop.run_until_complete(_run())
+            return json.loads(resp.body)
+        finally:
+            loop.close()
+
+    def test_project_local_agent_appears_in_catalog(self):
+        """Project-level agents must appear in workgroup catalog when accessed via ?project=slug."""
+        body = self._call()
+        agent_names = [a['name'] for a in body.get('agents', [])]
+        self.assertIn('proj-agent', agent_names,
+            'Project-level agent must appear in workgroup agent catalog (spec §Catalog and Active Selection)')
+
+    def test_project_local_agent_tagged_local(self):
+        """Project-level agents must be tagged source='local' in workgroup catalog."""
+        body = self._call()
+        agents = {a['name']: a for a in body.get('agents', [])}
+        self.assertIn('proj-agent', agents)
+        self.assertEqual(agents['proj-agent']['source'], 'local',
+            'Project-level agent must have source=local (not org filesystem)')
+
+    def test_project_level_hook_appears_in_catalog(self):
+        """Project-level hooks must appear in workgroup hooks catalog when accessed via ?project=slug."""
+        body = self._call()
+        hook_events = [h.get('event') for h in body.get('hooks', [])]
+        self.assertIn('ProjectHookEvent', hook_events,
+            'Project-level hook must appear in workgroup hooks catalog (spec §Catalog and Active Selection)')
 
 
 if __name__ == '__main__':
