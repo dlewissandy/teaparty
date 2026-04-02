@@ -39,6 +39,24 @@ function configNav(level, nameOrSlug, extra) {
   }
 }
 
+async function setParticipantRole(scope, name, role, projectSlug) {
+  var url;
+  if (scope === 'global') {
+    url = '/api/config/management/participant';
+  } else if (scope.startsWith('wg:')) {
+    var wgName = scope.slice(3);
+    url = '/api/workgroups/' + encodeURIComponent(wgName) + '/participant';
+    if (projectSlug) url += '?project=' + encodeURIComponent(projectSlug);
+  } else {
+    url = '/api/config/' + encodeURIComponent(scope) + '/participant';
+  }
+  await fetch(url, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name: name, role: role}),
+  });
+}
+
 async function toggleMembership(scope, type, name, active, projectSlug) {
   var url;
   if (scope === 'global') {
@@ -157,7 +175,10 @@ async function renderGlobal() {
     participantItems.push('<div class="item" onclick="openChat(\'' + omConvId + '\')"><div class="item-icon icon-member">&#9733;</div><div class="item-body"><div class="item-title">Office Manager</div><div class="item-meta">' + m.lead + ' &middot; org-level coordination</div></div></div>');
   }
   (m.humans || []).forEach(function(h) {
-    participantItems.push('<div class="item" onclick="openChat(\'proxy:' + h.name + '\')"><div class="item-icon icon-member">&#9786;</div><div class="item-body"><div class="item-title">' + h.name + '</div></div><span style="font-size:9px;color:var(--text-dim)">' + h.role + '</span></div>');
+    var sel = ['decider','advisor','inform','none'].map(function(r) {
+      return '<option value="' + r + '"' + (h.role === r ? ' selected' : '') + '>' + r + '</option>';
+    }).join('');
+    participantItems.push('<div class="item"><div class="item-icon icon-member">&#9786;</div><div class="item-body"><div class="item-title">' + h.name + '</div></div><select class="role-select" onchange="setParticipantRole(\'global\',\'' + h.name + '\',this.value)">' + sel + '</select></div>');
   });
 
   var orgArtifactItems = Object.keys(artifactsData).map(function(heading) {
@@ -280,7 +301,10 @@ async function renderProject(slug) {
     participantItems.push('<div class="item" onclick="openChat(\'' + managerConvId + '\')"><div class="item-icon icon-member">&#9733;</div><div class="item-body"><div class="item-title">Manager</div><div class="item-meta">' + team.lead + ' &middot; operational control</div></div></div>');
   }
   (team.humans || []).forEach(function(h) {
-    participantItems.push('<div class="item" onclick="openChat(\'proxy:' + h.name + '\')"><div class="item-icon icon-member">&#9786;</div><div class="item-body"><div class="item-title">' + h.name + '</div></div><span style="font-size:9px;color:var(--text-dim)">' + h.role + '</span></div>');
+    var sel = ['decider','advisor','inform','none'].map(function(r) {
+      return '<option value="' + r + '"' + (h.role === r ? ' selected' : '') + '>' + r + '</option>';
+    }).join('');
+    participantItems.push('<div class="item"><div class="item-icon icon-member">&#9786;</div><div class="item-body"><div class="item-title">' + h.name + '</div></div><select class="role-select" onchange="setParticipantRole(\'' + slug + '\',\'' + h.name + '\',this.value)">' + sel + '</select></div>');
   });
 
   var artifactItems = Object.keys(artifactsData).map(function(heading) {
@@ -374,7 +398,10 @@ async function renderWorkgroup(name, projectSlug) {
   });
 
   var participantItems = (wgData.humans || []).map(function(h) {
-    return '<div class="item" onclick="openChat(\'proxy:' + h.name + '\')"><div class="item-icon icon-member">&#9786;</div><div class="item-body"><div class="item-title">' + h.name + '</div></div><span style="font-size:9px;color:var(--text-dim)">' + h.role + '</span></div>';
+    var sel = ['decider','advisor','inform','none'].map(function(r) {
+      return '<option value="' + r + '"' + (h.role === r ? ' selected' : '') + '>' + r + '</option>';
+    }).join('');
+    return '<div class="item"><div class="item-icon icon-member">&#9786;</div><div class="item-body"><div class="item-title">' + h.name + '</div></div><select class="role-select" onchange="setParticipantRole(\'wg:' + name + '\',\'' + h.name + '\',this.value,\'' + (projectSlug || '') + '\')">' + sel + '</select></div>';
   });
 
   var artifactItems = [];

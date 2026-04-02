@@ -51,6 +51,9 @@ from orchestrator.config_reader import (
     toggle_management_membership,
     toggle_project_membership,
     toggle_workgroup_membership,
+    set_participant_role_management,
+    set_participant_role_project,
+    set_participant_role_workgroup,
     read_agent_frontmatter,
     write_agent_frontmatter,
     WorkgroupRef,
@@ -245,10 +248,13 @@ class TeaPartyBridge:
         # ── Config endpoints ──────────────────────────────────────────────────
         app.router.add_get('/api/config', self._handle_config)
         app.router.add_post('/api/config/management/toggle', self._handle_config_management_toggle)
+        app.router.add_post('/api/config/management/participant', self._handle_config_management_participant)
         app.router.add_get('/api/config/{project}', self._handle_config_project)
         app.router.add_post('/api/config/{project}/toggle', self._handle_config_project_toggle)
+        app.router.add_post('/api/config/{project}/participant', self._handle_config_project_participant)
         app.router.add_get('/api/workgroups', self._handle_workgroups)
         app.router.add_post('/api/workgroups/{name}/toggle', self._handle_workgroup_toggle)
+        app.router.add_post('/api/workgroups/{name}/participant', self._handle_workgroup_participant)
         app.router.add_get('/api/workgroups/{name}', self._handle_workgroup_detail)
         app.router.add_patch('/api/workgroups/{name}', self._handle_workgroup_patch)
         app.router.add_get('/api/agents/{name}', self._handle_agent_detail)
@@ -545,6 +551,67 @@ class TeaPartyBridge:
             toggle_project_membership(project_dir, kind, name, active)
         except (FileNotFoundError, ValueError) as exc:
             return web.json_response({'error': str(exc)}, status=404)
+        return web.json_response({'ok': True})
+
+    async def _handle_config_management_participant(self, request: web.Request) -> web.Response:
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({'error': 'invalid JSON body'}, status=400)
+        name = body.get('name', '')
+        role = body.get('role', '')
+        if not name or not role:
+            return web.json_response({'error': 'body must include name and role'}, status=400)
+        try:
+            set_participant_role_management(self.teaparty_home, name, role)
+        except (FileNotFoundError, ValueError) as exc:
+            return web.json_response({'error': str(exc)}, status=400)
+        return web.json_response({'ok': True})
+
+    async def _handle_config_project_participant(self, request: web.Request) -> web.Response:
+        slug = request.match_info['project']
+        project_dir = self._lookup_project_path(slug)
+        if project_dir is None:
+            return web.json_response({'error': f'project not found: {slug}'}, status=404)
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({'error': 'invalid JSON body'}, status=400)
+        name = body.get('name', '')
+        role = body.get('role', '')
+        if not name or not role:
+            return web.json_response({'error': 'body must include name and role'}, status=400)
+        try:
+            set_participant_role_project(project_dir, name, role)
+        except (FileNotFoundError, ValueError) as exc:
+            return web.json_response({'error': str(exc)}, status=400)
+        return web.json_response({'ok': True})
+
+    async def _handle_workgroup_participant(self, request: web.Request) -> web.Response:
+        wg_name = request.match_info['name']
+        project_slug = request.rel_url.query.get('project')
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({'error': 'invalid JSON body'}, status=400)
+        name = body.get('name', '')
+        role = body.get('role', '')
+        if not name or not role:
+            return web.json_response({'error': 'body must include name and role'}, status=400)
+        claude_base = os.path.dirname(self.teaparty_home)
+        if project_slug:
+            project_dir = self._lookup_project_path(project_slug)
+            if project_dir is None:
+                return web.json_response({'error': f'project not found: {project_slug}'}, status=404)
+            yaml_path = os.path.join(project_dir, '.teaparty.local', 'workgroups', f'{wg_name}.yaml')
+            if not os.path.exists(yaml_path):
+                yaml_path = os.path.join(self.teaparty_home, 'workgroups', f'{wg_name}.yaml')
+        else:
+            yaml_path = os.path.join(self.teaparty_home, 'workgroups', f'{wg_name}.yaml')
+        try:
+            set_participant_role_workgroup(yaml_path, name, role)
+        except (FileNotFoundError, ValueError) as exc:
+            return web.json_response({'error': str(exc)}, status=400)
         return web.json_response({'ok': True})
 
     async def _handle_workgroup_toggle(self, request: web.Request) -> web.Response:

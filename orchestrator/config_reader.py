@@ -815,6 +815,69 @@ def toggle_workgroup_membership(
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 
 
+_VALID_PARTICIPANT_ROLES = frozenset({'decider', 'advisor', 'inform', 'none'})
+
+
+def _set_humans_role(data: dict, name: str, role: str) -> None:
+    """Mutate data['humans'] to assign name to role, removing from any prior role.
+
+    Schema: {decider: str|None, advisors: [...], inform: [...]}
+    Role 'none' removes the person from all lists.
+    """
+    if role not in _VALID_PARTICIPANT_ROLES:
+        raise ValueError(f'Invalid role: {role!r}')
+    humans = data.get('humans') or {}
+    if isinstance(humans, list):
+        # Migrate legacy list format to dict on write
+        humans = {}
+    # Remove from all roles
+    if humans.get('decider') == name:
+        humans['decider'] = None
+    humans['advisors'] = [n for n in (humans.get('advisors') or []) if n != name]
+    humans['inform'] = [n for n in (humans.get('inform') or []) if n != name]
+    # Add to new role
+    if role == 'decider':
+        humans['decider'] = name
+    elif role == 'advisor':
+        humans['advisors'] = humans['advisors'] + [name]
+    elif role == 'inform':
+        humans['inform'] = humans['inform'] + [name]
+    # Clean up None decider
+    if humans.get('decider') is None:
+        humans.pop('decider', None)
+    data['humans'] = humans
+
+
+def set_participant_role_management(teaparty_home: str, name: str, role: str) -> None:
+    """Set a human participant's role in the management team config."""
+    data = _load_management_yaml(teaparty_home)
+    _set_humans_role(data, name, role)
+    _save_management_yaml(data, teaparty_home)
+
+
+def set_participant_role_project(project_dir: str, name: str, role: str) -> None:
+    """Set a human participant's role in a project config."""
+    yaml_path = os.path.join(project_dir, '.teaparty.local', 'project.yaml')
+    if not os.path.exists(yaml_path):
+        raise FileNotFoundError(f'project.yaml not found: {yaml_path}')
+    with open(yaml_path) as f:
+        data = yaml.safe_load(f) or {}
+    _set_humans_role(data, name, role)
+    with open(yaml_path, 'w') as f:
+        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+
+
+def set_participant_role_workgroup(yaml_path: str, name: str, role: str) -> None:
+    """Set a human participant's role in a workgroup config."""
+    if not os.path.exists(yaml_path):
+        raise FileNotFoundError(f'workgroup YAML not found: {yaml_path}')
+    with open(yaml_path) as f:
+        data = yaml.safe_load(f) or {}
+    _set_humans_role(data, name, role)
+    with open(yaml_path, 'w') as f:
+        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+
+
 def _scaffold_project_yaml(
     name: str,
     project_dir: str,
