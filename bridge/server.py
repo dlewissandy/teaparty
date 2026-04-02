@@ -51,6 +51,8 @@ from orchestrator.config_reader import (
     toggle_management_membership,
     toggle_project_membership,
     toggle_workgroup_membership,
+    read_agent_frontmatter,
+    write_agent_frontmatter,
     WorkgroupRef,
     WorkgroupEntry,
 )
@@ -248,6 +250,10 @@ class TeaPartyBridge:
         app.router.add_get('/api/workgroups', self._handle_workgroups)
         app.router.add_post('/api/workgroups/{name}/toggle', self._handle_workgroup_toggle)
         app.router.add_get('/api/workgroups/{name}', self._handle_workgroup_detail)
+        app.router.add_patch('/api/workgroups/{name}', self._handle_workgroup_patch)
+        app.router.add_get('/api/agents/{name}', self._handle_agent_detail)
+        app.router.add_patch('/api/agents/{name}', self._handle_agent_patch)
+        app.router.add_get('/api/catalog/{project}', self._handle_catalog)
 
         # ── Message endpoints ─────────────────────────────────────────────────
         app.router.add_get('/api/conversations', self._handle_conversations_list)
@@ -626,6 +632,118 @@ class TeaPartyBridge:
                     )
                 )
         return web.json_response({'error': f'workgroup not found: {name}'}, status=404)
+
+    async def _handle_workgroup_patch(self, request: web.Request) -> web.Response:
+        name = request.match_info['name']
+        project_slug = request.rel_url.query.get('project')
+        project_dir: str | None = None
+        claude_base = os.path.dirname(self.teaparty_home)
+        if project_slug:
+            project_dir = self._lookup_project_path(project_slug)
+            if project_dir is None:
+                return web.json_response({'error': f'project not found: {project_slug}'}, status=404)
+            yaml_path = os.path.join(project_dir, '.teaparty.local', 'workgroups', f'{name}.yaml')
+            if not os.path.exists(yaml_path):
+                yaml_path = os.path.join(self.teaparty_home, 'workgroups', f'{name}.yaml')
+        else:
+            yaml_path = os.path.join(self.teaparty_home, 'workgroups', f'{name}.yaml')
+        if not os.path.exists(yaml_path):
+            return web.json_response({'error': f'workgroup not found: {name}'}, status=404)
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({'error': 'invalid JSON body'}, status=400)
+        with open(yaml_path) as f:
+            data = yaml.safe_load(f) or {}
+        members = data.setdefault('members', {})
+        if 'agents' in body:
+            if not isinstance(body['agents'], list):
+                return web.json_response({'error': 'agents must be a list'}, status=400)
+            members['agents'] = body['agents']
+        if 'hooks' in body:
+            if not isinstance(body['hooks'], list):
+                return web.json_response({'error': 'hooks must be a list'}, status=400)
+            members['hooks'] = body['hooks']
+        with open(yaml_path, 'w') as f:
+            yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+        wg = load_workgroup(yaml_path)
+        catalog = merge_catalog(
+            os.path.join(claude_base, '.claude'),
+            os.path.join(project_dir, '.claude') if project_dir else None,
+        )
+        return web.json_response(
+            self._serialize_workgroup(
+                wg, detail=True,
+                org_agents=set(discover_agents(os.path.join(claude_base, '.claude', 'agents'))),
+                org_catalog_agents=catalog.agents,
+                org_hooks_catalog=catalog.hooks,
+            )
+        )
+
+    async def _handle_agent_detail(self, request: web.Request) -> web.Response:
+        name = request.match_info['name']
+        project_slug = request.rel_url.query.get('project')
+        claude_base = os.path.dirname(self.teaparty_home)
+        path: str | None = None
+        if project_slug:
+            project_dir = self._lookup_project_path(project_slug)
+            if project_dir is None:
+                return web.json_response({'error': f'project not found: {project_slug}'}, status=404)
+            proj_path = os.path.join(project_dir, '.claude', 'agents', f'{name}.md')
+            if os.path.exists(proj_path):
+                path = proj_path
+        if path is None:
+            org_path = os.path.join(claude_base, '.claude', 'agents', f'{name}.md')
+            if os.path.exists(org_path):
+                path = org_path
+        if path is None:
+            return web.json_response({'error': f'agent not found: {name}'}, status=404)
+        fm = read_agent_frontmatter(path)
+        return web.json_response(fm)
+
+    async def _handle_agent_patch(self, request: web.Request) -> web.Response:
+        name = request.match_info['name']
+        project_slug = request.rel_url.query.get('project')
+        claude_base = os.path.dirname(self.teaparty_home)
+        path: str | None = None
+        if project_slug:
+            project_dir = self._lookup_project_path(project_slug)
+            if project_dir is None:
+                return web.json_response({'error': f'project not found: {project_slug}'}, status=404)
+            proj_path = os.path.join(project_dir, '.claude', 'agents', f'{name}.md')
+            if os.path.exists(proj_path):
+                path = proj_path
+        if path is None:
+            org_path = os.path.join(claude_base, '.claude', 'agents', f'{name}.md')
+            if os.path.exists(org_path):
+                path = org_path
+        if path is None:
+            return web.json_response({'error': f'agent not found: {name}'}, status=404)
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({'error': 'invalid JSON body'}, status=400)
+        if not isinstance(body, dict):
+            return web.json_response({'error': 'body must be a JSON object'}, status=400)
+        write_agent_frontmatter(path, body)
+        fm = read_agent_frontmatter(path)
+        return web.json_response(fm)
+
+    async def _handle_catalog(self, request: web.Request) -> web.Response:
+        slug = request.match_info['project']
+        project_dir = self._lookup_project_path(slug)
+        if project_dir is None:
+            return web.json_response({'error': f'project not found: {slug}'}, status=404)
+        claude_base = os.path.dirname(self.teaparty_home)
+        catalog = merge_catalog(
+            os.path.join(claude_base, '.claude'),
+            os.path.join(project_dir, '.claude'),
+        )
+        return web.json_response({
+            'agents': catalog.agents,
+            'skills': catalog.skills,
+            'hooks': catalog.hooks,
+        })
 
     # ── Message handlers ──────────────────────────────────────────────────────
 
@@ -1479,4 +1597,8 @@ class TeaPartyBridge:
             ]
             result['norms'] = dict(w.norms)
             result['budget'] = dict(w.budget)
+            result['humans'] = [
+                {'name': h.name, 'role': h.role} for h in w.humans
+            ]
+            result['artifacts'] = list(w.artifacts)
         return result
