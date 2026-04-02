@@ -2,7 +2,7 @@
 
 Acceptance criteria:
 1. .claude/agents/configuration-lead.md exists — model: sonnet, tools include
-   Read/Glob/Grep/Bash/AskTeam, role description explains routing and coordination
+   Read/Glob/Grep/Bash/Send, role description explains routing and coordination
 2. .claude/agents/project-specialist.md exists — model: sonnet, write-capable tools,
    skills: [create-project, edit-project, remove-project]
 3. .claude/agents/workgroup-specialist.md exists — model: sonnet, write-capable tools,
@@ -296,7 +296,7 @@ class TestWriteCapableSpecialistTools(unittest.TestCase):
 
 
 class TestConfigurationLeadTools(unittest.TestCase):
-    """Configuration Lead must have AskTeam for routing (no Write — it doesn't create)."""
+    """Configuration Lead must have Send for routing (no Write — it doesn't create)."""
 
     def setUp(self):
         self.fm = _parse_frontmatter(_AGENTS_DIR / 'configuration-lead.md')
@@ -307,13 +307,13 @@ class TestConfigurationLeadTools(unittest.TestCase):
             return raw
         return [t.strip() for t in str(raw).split(',')]
 
-    def test_configuration_lead_has_ask_team(self):
-        """Configuration Lead must have AskTeam for dispatching to specialists."""
+    def test_configuration_lead_has_send(self):
+        """Configuration Lead must have Send for dispatching to specialists."""
         tools = self._tools_list()
         self.assertIn(
-            'AskTeam', tools,
-            'configuration-lead.md must include AskTeam in tools — '
-            'it routes requests to specialists via AskTeam',
+            'Send', tools,
+            'configuration-lead.md must include Send in tools — '
+            'it routes requests to specialists via Send (AskTeam was retired in #359)',
         )
 
     def test_configuration_lead_does_not_have_write(self):

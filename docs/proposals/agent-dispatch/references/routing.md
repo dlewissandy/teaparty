@@ -24,7 +24,7 @@ An `agent_id` is the stable, unique identifier for an agent within a session. Th
 - `project_name/lead` — the project lead's `agent_id`, assigned regardless of what agent definition name the `lead:` field in `project.yaml` points to
 - `om` — the office manager's `agent_id`, a hardcoded convention for the management team lead; it is registered unconditionally at session start regardless of what the `lead:` field in `teaparty.yaml` names
 
-`Send` takes a `member` string (the name key of a roster entry) and resolves it to a full `agent_id` by looking up TeaParty's roster map for the calling agent. `AskTeam`, the current implementation, takes a `role` string (scoped to the caller's workgroup) and resolves it to a full `agent_id` by prepending the caller's project and workgroup context. `AskTeam`'s role-resolution logic is the current path; `Send`'s name-based lookup is the target. Both resolve to the same `agent_id` type and perform the same routing check against the routing table.
+`Send` takes a `member` string (the name key of a roster entry) and resolves it to a full `agent_id` by looking up TeaParty's roster map for the calling agent. Both `member` name-based lookup and the underlying routing check operate against the same routing table derived from workgroup YAML at session start.
 
 ## Matrixed Workgroup Routing
 

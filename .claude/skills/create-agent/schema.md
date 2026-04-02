@@ -25,7 +25,7 @@ skills:                             # skills this agent may auto-invoke (allowli
 
 ## Valid tools
 
-Read, Glob, Grep, Bash, Write, Edit, WebSearch, WebFetch, AskTeam, TodoRead, TodoWrite, NotebookRead, NotebookEdit
+Read, Glob, Grep, Bash, Write, Edit, WebSearch, WebFetch, Send, Reply, TodoRead, TodoWrite, NotebookRead, NotebookEdit
 
 ## Permission modes
 

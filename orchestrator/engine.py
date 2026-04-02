@@ -182,9 +182,6 @@ class Orchestrator:
 
         # MCP escalation listener — bridges AskQuestion calls to proxy/human
         self._escalation_listener: EscalationListener | None = None
-        # MCP dispatch listener — bridges AskTeam calls to dispatch()
-        # Type annotation uses string to avoid circular import at module level
-        self._dispatch_listener: Any | None = None
         # MCP intervention listener — bridges office manager tools to
         # session/dispatch operations (Issue #249)
         self._intervention_listener: InterventionListener | None = None
@@ -250,23 +247,6 @@ class Orchestrator:
                 'ASK_QUESTION_SOCKET': ask_question_socket,
                 'PYTHONPATH': repo_root,
             }
-
-            # Subteams (never_escalate) don't get AskTeam — only the
-            # uber team dispatches.  Subteams get AskQuestion only.
-            if not self.never_escalate:
-                from orchestrator.dispatch_listener import DispatchListener  # noqa: PLC0415
-                self._dispatch_listener = DispatchListener(
-                    event_bus=self.event_bus,
-                    session_worktree=self.session_worktree,
-                    infra_dir=self.infra_dir,
-                    project_slug=self.project_slug,
-                    session_id=self.session_id,
-                    poc_root=self.poc_root,
-                    proxy_model_path=self.proxy_model_path,
-                    project_dir=self.project_dir,
-                )
-                ask_team_socket = await self._dispatch_listener.start()
-                mcp_env['ASK_TEAM_SOCKET'] = ask_team_socket
 
             # Start the intervention listener so office manager tools
             # (WithdrawSession, PauseDispatch, etc.) can execute.  The
@@ -335,8 +315,6 @@ class Orchestrator:
             self._scratch_writer.cleanup()
             if self._escalation_listener:
                 await self._escalation_listener.stop()
-            if self._dispatch_listener:
-                await self._dispatch_listener.stop()
             if self._intervention_listener:
                 await self._intervention_listener.stop()
             if self._bus_event_listener:

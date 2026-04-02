@@ -14,10 +14,6 @@ The agent calls Reply(message) to respond in the current thread and close
 it.  No context injection — the context is already established.
 REPLY_SOCKET is the transport env var.
 
-The agent calls AskTeam(team, task) to dispatch work to a specialist
-subteam.  The handler sends the request to the DispatchListener via
-a Unix domain socket (ASK_TEAM_SOCKET env var) and returns the result.
-
 The office manager calls WithdrawSession, PauseDispatch, ResumeDispatch,
 or ReprioritizeDispatch to exercise team-lead authority.  These route
 through the InterventionListener via INTERVENTION_SOCKET.
@@ -34,7 +30,7 @@ defaults to os.path.join(os.getcwd(), '.teaparty').
 
 The MCP server communicates with the orchestrator via Unix domain
 sockets whose paths are passed in the ASK_QUESTION_SOCKET,
-ASK_TEAM_SOCKET, SEND_SOCKET, REPLY_SOCKET, and INTERVENTION_SOCKET
+SEND_SOCKET, REPLY_SOCKET, and INTERVENTION_SOCKET
 env vars.  The worktree path for scratch file access is read from
 TEAPARTY_WORKTREE (defaults to os.getcwd() when unset).
 """
@@ -424,39 +420,6 @@ async def intervention_handler(request_type: str, **kwargs) -> str:
     reader, writer = await asyncio.open_unix_connection(socket_path)
     try:
         request = json.dumps({'type': request_type, **kwargs})
-        writer.write(request.encode() + b'\n')
-        await writer.drain()
-        response_line = await reader.readline()
-        response = json.loads(response_line.decode())
-        return json.dumps(response)
-    finally:
-        writer.close()
-        await writer.wait_closed()
-
-
-async def ask_team_handler(team: str, task: str) -> str:
-    """Core handler logic for AskTeam.
-
-    Sends the dispatch request to the DispatchListener via the Unix socket
-    at ASK_TEAM_SOCKET and returns the result JSON as a string.
-
-    Args:
-        team: The team to dispatch to (art, writing, editorial, research, coding).
-        task: The task description for the subteam.
-    """
-    if not team or not team.strip():
-        raise ValueError('AskTeam requires a non-empty team')
-    if not task or not task.strip():
-        raise ValueError('AskTeam requires a non-empty task')
-
-    socket_path = os.environ.get('ASK_TEAM_SOCKET', '')
-    if not socket_path:
-        raise RuntimeError(
-            'ASK_TEAM_SOCKET not set — cannot dispatch to team'
-        )
-    reader, writer = await asyncio.open_unix_connection(socket_path)
-    try:
-        request = json.dumps({'type': 'ask_team', 'team': team, 'task': task})
         writer.write(request.encode() + b'\n')
         await writer.drain()
         response_line = await reader.readline()
@@ -1283,23 +1246,6 @@ def create_server() -> FastMCP:
             message: Your reply — result, answer, or completion notice.
         """
         return await reply_handler(message=message)
-
-    @server.tool()
-    async def AskTeam(team: str, task: str) -> str:
-        """Dispatch work to a specialist subteam and return the result.
-
-        Use this tool to delegate a task to a subteam (art, writing,
-        editorial, research, or coding).  The subteam runs a full CfA
-        session and merges its deliverables into the shared worktree.
-
-        Args:
-            team: The team to dispatch to. One of: art, writing,
-                editorial, research, coding.
-            task: The specific task description for the subteam.
-                Include relevant context, constraints, and success
-                criteria so the team can work autonomously.
-        """
-        return await ask_team_handler(team=team, task=task)
 
     @server.tool()
     async def WithdrawSession(session_id: str) -> str:

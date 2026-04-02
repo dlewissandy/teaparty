@@ -5,7 +5,7 @@ ReprioritizeDispatch) to the office_manager_tools functions.  The MCP
 server sends requests over INTERVENTION_SOCKET; this listener resolves
 session/dispatch IDs to infra directory paths and calls the functions.
 
-Same pattern as EscalationListener and DispatchListener.
+Same pattern as EscalationListener.
 
 Protocol (newline-delimited JSON over Unix socket):
 

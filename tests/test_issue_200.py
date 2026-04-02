@@ -459,7 +459,7 @@ class TestSessionBusIntegration(unittest.TestCase):
 
 
 class TestSubteamConversation(unittest.TestCase):
-    """DispatchListener creates subteam conversations in the message bus."""
+    """Subteam conversations are created in the message bus during dispatch."""
 
     def setUp(self):
         self._tmp = tempfile.mkdtemp()
