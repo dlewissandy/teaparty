@@ -168,35 +168,34 @@ async function renderGlobal() {
 
   var skillItems = (m.skills || []).map(function(s) {
     var name = typeof s === 'object' ? s.name : s;
+    var file = typeof s === 'object' ? s.file : null;
     var isActive = typeof s === 'object' ? s.active !== false : true;
     var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
-    var click = isActive
-      ? ' onclick="toggleMembership(\'global\', \'skill\', \'' + name + '\', false)"'
-      : ' onclick="toggleMembership(\'global\', \'skill\', \'' + name + '\', true)"';
-    return '<div class="item' + cls + '"' + click + '><div class="item-icon icon-skill">&#9881;</div><div class="item-body"><div class="item-title">' + name + '</div></div></div>';
+    var cardClick = file ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + file + '\'),\'_blank\')" style="cursor:pointer"' : '';
+    var toggle = '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleMembership(\'global\', \'skill\', \'' + name + '\', ' + !isActive + ')"></span>';
+    return '<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-skill">&#9881;</div><div class="item-body"><div class="item-title">' + name + '</div></div>' + toggle + '</div>';
   });
 
   var hookItems = (m.hooks || []).map(function(h) {
     var isActive = h.active !== false;
     var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
-    var toggleClick = (h.source === 'yaml')
-      ? ' onclick="toggleMembership(\'global\', \'hook\', \'' + (h.event || '') + '\', ' + !isActive + ')"'
-      : '';
     var meta = '&project=org' +
       (h.event ? '&hook_event=' + encodeURIComponent(h.event) : '') +
       (h.matcher ? '&hook_matcher=' + encodeURIComponent(h.matcher) : '') +
       (h.type ? '&hook_type=' + encodeURIComponent(h.type) : '');
-    var fileClick = (h.file && !toggleClick) ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + h.file + '\') + \'' + meta + '\',\'_blank\')" style="cursor:pointer"' : '';
-    return '<div class="item' + cls + '"' + toggleClick + fileClick + '><div class="item-icon icon-hook">&#9889;</div><div class="item-body"><div class="item-title">' + (h.event || '') + (h.matcher ? ' [' + h.matcher + ']' : '') + '</div><div class="item-meta">' + (h.type || '') + '</div></div></div>';
+    var cardClick = h.file ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + h.file + '\') + \'' + meta + '\',\'_blank\')" style="cursor:pointer"' : '';
+    var toggle = (h.source === 'yaml')
+      ? '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleMembership(\'global\', \'hook\', \'' + (h.event || '') + '\', ' + !isActive + ')"></span>'
+      : '';
+    return '<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-hook">&#9889;</div><div class="item-body"><div class="item-title">' + (h.event || '') + (h.matcher ? ' [' + h.matcher + ']' : '') + '</div><div class="item-meta">' + (h.type || '') + '</div></div>' + toggle + '</div>';
   });
 
   var cronItems = (m.scheduled || []).map(function(c) {
     var isActive = c.enabled !== false;
     var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
-    var toggleClick = isActive
-      ? ' onclick="toggleMembership(\'global\', \'scheduled_task\', \'' + c.name + '\', false)"'
-      : ' onclick="toggleMembership(\'global\', \'scheduled_task\', \'' + c.name + '\', true)"';
-    return '<div class="item' + cls + '"' + toggleClick + '><div class="item-icon icon-cron">&#9200;</div><div class="item-body"><div class="item-title">' + c.name + '</div><div class="item-meta">' + c.schedule + (c.skill ? ' &middot; ' + c.skill : '') + '</div></div></div>';
+    var cardClick = c.file ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + c.file + '\') + \'&project=org\',\'_blank\')" style="cursor:pointer"' : '';
+    var toggle = '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleMembership(\'global\', \'scheduled_task\', \'' + c.name + '\', ' + !isActive + ')"></span>';
+    return '<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-cron">&#9200;</div><div class="item-body"><div class="item-title">' + c.name + '</div><div class="item-meta">' + c.schedule + (c.skill ? ' &middot; ' + c.skill : '') + '</div></div>' + toggle + '</div>';
   });
 
   var subtitle = projects.length + ' projects &middot; ' + (workgroupsData || []).length + ' workgroups &middot; ' + (m.agents || []).length + ' agents';
@@ -260,10 +259,9 @@ async function renderProject(slug) {
     }
     var isActive = w.active === true;
     var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
-    var click = isActive
-      ? ' onclick="toggleMembership(\'' + slug + '\', \'workgroup\', \'' + w.name + '\', false)"'
-      : ' onclick="toggleMembership(\'' + slug + '\', \'workgroup\', \'' + w.name + '\', true)"';
-    return '<div class="item' + cls + '"' + click + '><div class="item-icon icon-workgroup">&#9670;</div><div class="item-body"><div class="item-title">' + w.name + ' ' + src + ' ' + ovr + '</div><div class="item-meta">' + (w.lead || '') + (agentInfo ? ' &middot; ' + agentInfo : '') + '</div></div></div>';
+    var cardClick = ' onclick="configNav(\'workgroup\',\'' + w.name + '\',\'' + slug + '\')" style="cursor:pointer"';
+    var toggle = '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleMembership(\'' + slug + '\', \'workgroup\', \'' + w.name + '\', ' + !isActive + ')"></span>';
+    return '<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-workgroup">&#9670;</div><div class="item-body"><div class="item-title">' + w.name + ' ' + src + ' ' + ovr + '</div><div class="item-meta">' + (w.lead || '') + (agentInfo ? ' &middot; ' + agentInfo : '') + '</div></div>' + toggle + '</div>';
   });
 
   var agentItems = (team.agents || []).map(function(a) {
@@ -293,37 +291,36 @@ async function renderProject(slug) {
 
   var skillItems = (team.skills || []).map(function(s) {
     var name = typeof s === 'object' ? s.name : s;
+    var file = typeof s === 'object' ? s.file : null;
     var source = typeof s === 'object' ? s.source : null;
     var isActive = typeof s === 'object' ? s.active !== false : true;
     var src = sourceBadge(source);
     var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
-    var click = isActive
-      ? ' onclick="toggleMembership(\'' + slug + '\', \'skill\', \'' + name + '\', false)"'
-      : ' onclick="toggleMembership(\'' + slug + '\', \'skill\', \'' + name + '\', true)"';
-    return '<div class="item' + cls + '"' + click + '><div class="item-icon icon-skill">&#9881;</div><div class="item-body"><div class="item-title">' + name + ' ' + src + '</div></div></div>';
+    var cardClick = file ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + file + '\'),\'_blank\')" style="cursor:pointer"' : '';
+    var toggle = '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleMembership(\'' + slug + '\', \'skill\', \'' + name + '\', ' + !isActive + ')"></span>';
+    return '<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-skill">&#9881;</div><div class="item-body"><div class="item-title">' + name + ' ' + src + '</div></div>' + toggle + '</div>';
   });
 
   var hookItems = (team.hooks || []).map(function(h) {
     var isActive = h.active !== false;
     var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
-    var toggleClick = (h.source === 'yaml')
-      ? ' onclick="toggleMembership(\'' + slug + '\', \'hook\', \'' + (h.event || '') + '\', ' + !isActive + ')"'
-      : '';
     var meta = '&project=' + encodeURIComponent(slug) +
       (h.event ? '&hook_event=' + encodeURIComponent(h.event) : '') +
       (h.matcher ? '&hook_matcher=' + encodeURIComponent(h.matcher) : '') +
       (h.type ? '&hook_type=' + encodeURIComponent(h.type) : '');
-    var fileClick = (h.file && !toggleClick) ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + h.file + '\') + \'' + meta + '\',\'_blank\')" style="cursor:pointer"' : '';
-    return '<div class="item' + cls + '"' + toggleClick + fileClick + '><div class="item-icon icon-hook">&#9889;</div><div class="item-body"><div class="item-title">' + (h.event || '') + (h.matcher ? ' [' + h.matcher + ']' : '') + '</div><div class="item-meta">' + (h.type || '') + '</div></div></div>';
+    var cardClick = h.file ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + h.file + '\') + \'' + meta + '\',\'_blank\')" style="cursor:pointer"' : '';
+    var toggle = (h.source === 'yaml')
+      ? '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleMembership(\'' + slug + '\', \'hook\', \'' + (h.event || '') + '\', ' + !isActive + ')"></span>'
+      : '';
+    return '<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-hook">&#9889;</div><div class="item-body"><div class="item-title">' + (h.event || '') + (h.matcher ? ' [' + h.matcher + ']' : '') + '</div><div class="item-meta">' + (h.type || '') + '</div></div>' + toggle + '</div>';
   });
 
   var cronItems = (team.scheduled || []).map(function(c) {
     var isActive = c.enabled !== false;
     var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
-    var toggleClick = isActive
-      ? ' onclick="toggleMembership(\'' + slug + '\', \'scheduled_task\', \'' + c.name + '\', false)"'
-      : ' onclick="toggleMembership(\'' + slug + '\', \'scheduled_task\', \'' + c.name + '\', true)"';
-    return '<div class="item' + cls + '"' + toggleClick + '><div class="item-icon icon-cron">&#9200;</div><div class="item-body"><div class="item-title">' + c.name + '</div><div class="item-meta">' + c.schedule + (c.skill ? ' &middot; ' + c.skill : '') + '</div></div></div>';
+    var cardClick = c.file ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + c.file + '\') + \'&project=' + encodeURIComponent(slug) + '\',\'_blank\')" style="cursor:pointer"' : '';
+    var toggle = '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleMembership(\'' + slug + '\', \'scheduled_task\', \'' + c.name + '\', ' + !isActive + ')"></span>';
+    return '<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-cron">&#9200;</div><div class="item-body"><div class="item-title">' + c.name + '</div><div class="item-meta">' + c.schedule + (c.skill ? ' &middot; ' + c.skill : '') + '</div></div>' + toggle + '</div>';
   });
 
   var pinItems = (pinsData || []).map(function(p) {
@@ -383,10 +380,8 @@ async function renderWorkgroup(name, projectSlug) {
     var hEvent = h.event || '';
     var isActive = h.active !== false;
     var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
-    var click = isActive
-      ? ' onclick="toggleMembership(\'wg:' + name + '\', \'hook\', \'' + hEvent + '\', false, \'' + (projectSlug || '') + '\')"'
-      : ' onclick="toggleMembership(\'wg:' + name + '\', \'hook\', \'' + hEvent + '\', true, \'' + (projectSlug || '') + '\')"';
-    return '<div class="item' + cls + '"' + click + '><div class="item-icon icon-hook">&#9679;</div><div class="item-body"><div class="item-title">' + hEvent + '</div><div class="item-meta">' + (h.type || '') + (h.matcher ? ' &middot; ' + h.matcher : '') + '</div></div></div>';
+    var toggle = '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleMembership(\'wg:' + name + '\', \'hook\', \'' + hEvent + '\', ' + !isActive + ', \'' + (projectSlug || '') + '\')"></span>';
+    return '<div class="item' + cls + '"><div class="item-icon icon-hook">&#9679;</div><div class="item-body"><div class="item-title">' + hEvent + '</div><div class="item-meta">' + (h.type || '') + (h.matcher ? ' &middot; ' + h.matcher : '') + '</div></div>' + toggle + '</div>';
   });
 
   var normItems = [];

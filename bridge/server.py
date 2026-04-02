@@ -1369,8 +1369,9 @@ class TeaPartyBridge:
             path = os.path.join(agents_dir, f'{name}.md')
             return path if os.path.isfile(path) else None
 
-        def _skill_file(name: str) -> str:
-            return os.path.join(skills_dir, name, 'SKILL.md')
+        def _skill_file(name: str) -> str | None:
+            path = os.path.join(skills_dir, name, 'SKILL.md')
+            return path if os.path.isfile(path) else None
 
         def _hook_file(hook: dict) -> str:
             cmd = hook.get('command', '')
@@ -1476,10 +1477,12 @@ class TeaPartyBridge:
 
         def _skill_file(name: str, source: str) -> str | None:
             if source == 'local':
-                return os.path.join(proj_skills_dir, name, 'SKILL.md') if proj_skills_dir else None
-            if source == 'shared':
-                return os.path.join(org_skills_dir, name, 'SKILL.md')
-            return None  # missing
+                path = os.path.join(proj_skills_dir, name, 'SKILL.md') if proj_skills_dir else None
+            elif source == 'shared':
+                path = os.path.join(org_skills_dir, name, 'SKILL.md')
+            else:
+                return None  # missing
+            return path if path and os.path.isfile(path) else None
 
         def _hook_file(hook: dict) -> str:
             cmd = hook.get('command', '')
