@@ -450,6 +450,16 @@ class TestLoadProjectTeamRoundTrip(unittest.TestCase):
         self.assertFalse(hasattr(self.team, 'skills'),
             "ProjectTeam must not have 'skills' field — removed in schema migration")
 
+    def test_no_members_agents_field(self):
+        """ProjectTeam must not have members_agents — project teams dispatch to workgroups only."""
+        self.assertFalse(hasattr(self.team, 'members_agents'),
+            "ProjectTeam must not have 'members_agents' — project members are workgroups, not agents")
+
+    def test_no_members_skills_field(self):
+        """ProjectTeam must not have members_skills — skills are per-agent, not per-team."""
+        self.assertFalse(hasattr(self.team, 'members_skills'),
+            "ProjectTeam must not have 'members_skills' — skills are a per-agent concern")
+
     def test_decider_in_humans(self):
         """The decider is accessible via team.humans."""
         decider = next((h.name for h in self.team.humans if h.role == 'decider'), None)

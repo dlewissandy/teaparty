@@ -1113,7 +1113,11 @@ class TeaPartyBridge:
         """Return the project directory for a given slug, or None if not found.
 
         Matches by the basename of the project path in the registry.
+        A _project_path_cache dict attribute may be set to override lookup (used in tests).
         """
+        cache = getattr(self, '_project_path_cache', None)
+        if cache and slug in cache:
+            return cache[slug]
         try:
             team = load_management_team(teaparty_home=self.teaparty_home)
             for entry in discover_projects(team):
@@ -1253,7 +1257,7 @@ class TeaPartyBridge:
         ]
 
         # Full skill catalog: all discovered skills with active: bool
-        active_skills_set = set(t.skills or [])
+        active_skills_set = set(t.members_skills or [])
         skills_result = [
             {'name': n, 'file': _skill_file(n), 'active': n in active_skills_set}
             for n in (discovered_skills or [])
@@ -1336,25 +1340,8 @@ class TeaPartyBridge:
             path = os.path.join(org_skills_dir, skill_name, 'SKILL.md')
             return path if os.path.isfile(path) else None
 
-        # Full agent catalog: all agents from org filesystem + active project agents.
-        # org_catalog_agents overrides org_agents as the authoritative full list.
-        active_project_agents_set = set(t.members_agents)
-        catalog_agent_names: list[str] = list(
-            org_catalog_agents if org_catalog_agents is not None else (org_agents or [])
-        )
-        # Include project-active agents not found in the org catalog (e.g. local project agents)
-        for name in t.members_agents:
-            if name not in catalog_agent_names:
-                catalog_agent_names = catalog_agent_names + [name]
-        agents_result = [
-            {
-                'name': n,
-                'source': _agent_source(n),
-                'file': _agent_file(n),
-                'active': n in active_project_agents_set,
-            }
-            for n in catalog_agent_names
-        ]
+        # Project teams dispatch to workgroups, not individual agents.
+        agents_result = []
 
         # Build merged skill list: local first, then any explicitly passed org skills.
         # Project-level registered_org_skills no longer come from the YAML schema
@@ -1418,6 +1405,7 @@ class TeaPartyBridge:
         detail: bool = False,
         org_catalog_agents: list[str] | None = None,
         org_catalog_skills: list[str] | None = None,
+        org_agents: set | None = None,
     ) -> dict:
         result = {
             'name': w.name,
@@ -1429,30 +1417,22 @@ class TeaPartyBridge:
         }
         if detail:
             active_agent_names: set[str] = set(w.members_agents)
-            org_skills_set = set(org_catalog_skills or [])
-            active_skills_set = set(w.skills)
-            # Full agent catalog: all org filesystem agents, mark active if in workgroup
+            org_agents_set: set[str] = org_agents or set()
+            # Full agent catalog: all org filesystem agents + any local active ones.
+            # Source is 'shared' if in org agents set, 'local' otherwise.
             catalog = org_catalog_agents or []
             for name in active_agent_names:
                 if name not in catalog:
                     catalog = catalog + [name]
             result['agents'] = [
-                {'name': n, 'source': 'shared', 'active': n in active_agent_names}
+                {
+                    'name': n,
+                    'source': 'shared' if n in org_agents_set else 'local',
+                    'active': n in active_agent_names,
+                }
                 for n in catalog
             ]
-            # Full skills catalog: all org catalog skills, mark active if in workgroup
-            result['skills'] = []
-            seen: set[str] = set()
-            for s in (org_catalog_skills or []):
-                result['skills'].append({
-                    'name': s,
-                    'source': 'shared' if s in org_skills_set else 'local',
-                    'active': s in active_skills_set,
-                })
-                seen.add(s)
-            for s in w.skills:
-                if s not in seen:
-                    result['skills'].append({'name': s, 'source': 'local', 'active': True})
+            # Skills are a per-agent concern in the new schema; workgroups have no skills.
             result['norms'] = dict(w.norms)
             result['budget'] = dict(w.budget)
         return result

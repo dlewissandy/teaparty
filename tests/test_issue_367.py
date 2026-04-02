@@ -53,9 +53,8 @@ def _make_management_yaml(teaparty_home: str, agents: list, skills: list | None 
         'description': 'Test',
         'lead': 'office-manager',
         'decider': 'darrell',
-        'agents': agents,
         'humans': [{'name': 'darrell', 'role': 'decider'}],
-        'skills': skills or [],
+        'members': {'agents': agents, 'skills': skills or []},
         'hooks': [],
         'scheduled': [],
         'workgroups': [],
@@ -75,9 +74,8 @@ def _make_project_yaml(project_dir: str, agents: list, skills: list | None = Non
         'description': 'A test project',
         'lead': 'project-lead',
         'decider': 'darrell',
-        'agents': agents,
         'humans': [{'name': 'darrell', 'role': 'decider'}],
-        'skills': skills or [],
+        'members': {'agents': agents, 'skills': skills or []},
         'hooks': [],
         'scheduled': [],
         'workgroups': [],
@@ -176,35 +174,35 @@ class TestToggleManagementMembership(unittest.TestCase):
         from orchestrator.config_reader import toggle_management_membership
         toggle_management_membership(self.teaparty_home, 'agent', 'auditor', True)
         data = _read_management_yaml(self.teaparty_home)
-        self.assertIn('auditor', data['agents'])
+        self.assertIn('auditor', data['members']['agents'])
 
     def test_deactivate_agent_removes_from_yaml(self):
         """Deactivating an agent removes it from teaparty.yaml."""
         from orchestrator.config_reader import toggle_management_membership
         toggle_management_membership(self.teaparty_home, 'agent', 'office-manager', False)
         data = _read_management_yaml(self.teaparty_home)
-        self.assertNotIn('office-manager', data['agents'])
+        self.assertNotIn('office-manager', data['members']['agents'])
 
     def test_activate_already_active_agent_is_idempotent(self):
         """Activating an already-active agent does not duplicate it in the list."""
         from orchestrator.config_reader import toggle_management_membership
         toggle_management_membership(self.teaparty_home, 'agent', 'office-manager', True)
         data = _read_management_yaml(self.teaparty_home)
-        self.assertEqual(data['agents'].count('office-manager'), 1)
+        self.assertEqual(data['members']['agents'].count('office-manager'), 1)
 
     def test_activate_skill_adds_to_yaml(self):
         """Activating a skill adds it to the skills list in teaparty.yaml."""
         from orchestrator.config_reader import toggle_management_membership
         toggle_management_membership(self.teaparty_home, 'skill', 'sprint-plan', True)
         data = _read_management_yaml(self.teaparty_home)
-        self.assertIn('sprint-plan', data['skills'])
+        self.assertIn('sprint-plan', data['members']['skills'])
 
     def test_deactivate_skill_removes_from_yaml(self):
         """Deactivating a skill removes it from teaparty.yaml."""
         from orchestrator.config_reader import toggle_management_membership
         toggle_management_membership(self.teaparty_home, 'skill', 'audit', False)
         data = _read_management_yaml(self.teaparty_home)
-        self.assertNotIn('audit', data['skills'])
+        self.assertNotIn('audit', data['members']['skills'])
 
     def test_other_fields_preserved_after_toggle(self):
         """toggle_management_membership preserves all other YAML fields."""
@@ -262,28 +260,28 @@ class TestToggleProjectMembership(unittest.TestCase):
         from orchestrator.config_reader import toggle_project_membership
         toggle_project_membership(self.project_dir, 'agent', 'reviewer', True)
         data = _read_project_yaml(self.project_dir)
-        self.assertIn('reviewer', data['agents'])
+        self.assertIn('reviewer', data['members']['agents'])
 
     def test_deactivate_agent_removes_from_project_yaml(self):
         """Deactivating an agent removes it from project.yaml agents list."""
         from orchestrator.config_reader import toggle_project_membership
         toggle_project_membership(self.project_dir, 'agent', 'project-lead', False)
         data = _read_project_yaml(self.project_dir)
-        self.assertNotIn('project-lead', data['agents'])
+        self.assertNotIn('project-lead', data['members']['agents'])
 
     def test_activate_skill_adds_to_project_yaml(self):
         """Activating a skill adds it to project.yaml skills list."""
         from orchestrator.config_reader import toggle_project_membership
         toggle_project_membership(self.project_dir, 'skill', 'audit', True)
         data = _read_project_yaml(self.project_dir)
-        self.assertIn('audit', data['skills'])
+        self.assertIn('audit', data['members']['skills'])
 
     def test_deactivate_skill_removes_from_project_yaml(self):
         """Deactivating a skill removes it from project.yaml skills list."""
         from orchestrator.config_reader import toggle_project_membership
         toggle_project_membership(self.project_dir, 'skill', 'fix-issue', False)
         data = _read_project_yaml(self.project_dir)
-        self.assertNotIn('fix-issue', data['skills'])
+        self.assertNotIn('fix-issue', data['members']['skills'])
 
     def test_other_fields_preserved_after_toggle(self):
         """toggle_project_membership preserves all other project YAML fields."""
@@ -396,7 +394,7 @@ class TestManagementTeamSkillCatalogWithActiveFlag(unittest.TestCase):
 # ── _serialize_project_team: full catalog with active flag ───────────────────
 
 class TestProjectTeamFullAgentCatalog(unittest.TestCase):
-    """_serialize_project_team must return all catalog agents with active: bool."""
+    """_serialize_project_team agents must be empty — project teams dispatch to workgroups."""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
@@ -409,11 +407,11 @@ class TestProjectTeamFullAgentCatalog(unittest.TestCase):
         import shutil
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def test_active_org_agent_has_active_true(self):
-        """An org agent listed in project.yaml agents has active: True."""
+    def test_agents_always_empty(self):
+        """Project teams dispatch to workgroups — agents catalog must always be empty."""
         from orchestrator.config_reader import load_project_team
         _make_management_yaml(self.teaparty_home, agents=['office-manager', 'auditor'])
-        _make_project_yaml(self.project_dir, agents=['auditor'])
+        _make_project_yaml(self.project_dir, agents=[])
         _make_agent_file(self.org_agents_dir, 'office-manager')
         _make_agent_file(self.org_agents_dir, 'auditor')
         team = load_project_team(self.project_dir)
@@ -424,36 +422,14 @@ class TestProjectTeamFullAgentCatalog(unittest.TestCase):
             teaparty_home=self.teaparty_home,
             project_dir=self.project_dir,
         )
-        agent = next((a for a in result['agents'] if a['name'] == 'auditor'), None)
-        self.assertIsNotNone(agent, 'auditor must appear in agents catalog')
-        self.assertTrue(agent['active'], 'auditor is in project.yaml, so active must be True')
+        self.assertEqual(result['agents'], [],
+                         'project teams dispatch to workgroups — agents list must be empty')
 
-    def test_inactive_org_agent_has_active_false(self):
-        """An org agent NOT in project.yaml agents has active: False in the catalog."""
-        from orchestrator.config_reader import load_project_team
-        _make_management_yaml(self.teaparty_home, agents=['office-manager', 'auditor'])
-        _make_project_yaml(self.project_dir, agents=['auditor'])
-        _make_agent_file(self.org_agents_dir, 'office-manager')
-        _make_agent_file(self.org_agents_dir, 'auditor')
-        team = load_project_team(self.project_dir)
-        bridge = _make_bridge(self.tmp)
-        result = bridge._serialize_project_team(
-            team,
-            org_agents=['office-manager', 'auditor'],
-            teaparty_home=self.teaparty_home,
-            project_dir=self.project_dir,
-        )
-        agent = next((a for a in result['agents'] if a['name'] == 'office-manager'), None)
-        self.assertIsNotNone(agent,
-                             'office-manager is in .claude/agents/ — must appear in catalog')
-        self.assertFalse(agent['active'],
-                         'office-manager is not in project.yaml agents, so active must be False')
-
-    def test_all_org_catalog_agents_present_regardless_of_project_active_list(self):
-        """All org catalog agents appear in project team response, not just active ones."""
+    def test_agents_empty_even_with_org_agents_param(self):
+        """Passing org_agents to _serialize_project_team does not populate agents catalog."""
         from orchestrator.config_reader import load_project_team
         _make_management_yaml(self.teaparty_home, agents=['a', 'b', 'c'])
-        _make_project_yaml(self.project_dir, agents=['b'])
+        _make_project_yaml(self.project_dir, agents=[])
         for name in ['a', 'b', 'c']:
             _make_agent_file(self.org_agents_dir, name)
         team = load_project_team(self.project_dir)
@@ -464,10 +440,8 @@ class TestProjectTeamFullAgentCatalog(unittest.TestCase):
             teaparty_home=self.teaparty_home,
             project_dir=self.project_dir,
         )
-        names = {ag['name'] for ag in result['agents']}
-        self.assertIn('a', names)
-        self.assertIn('b', names)
-        self.assertIn('c', names)
+        self.assertEqual(result['agents'], [],
+                         'org_agents param is for workgroup context — project agents list must be empty')
 
 
 class TestProjectTeamSkillCatalogWithActiveFlag(unittest.TestCase):
@@ -577,13 +551,13 @@ class TestToggleManagementEndpoint(unittest.TestCase):
         """POST /api/config/management/toggle with active=True writes to teaparty.yaml."""
         self._run({'type': 'agent', 'name': 'auditor', 'active': True})
         data = _read_management_yaml(self.teaparty_home)
-        self.assertIn('auditor', data['agents'])
+        self.assertIn('auditor', data['members']['agents'])
 
     def test_deactivate_agent_writes_yaml(self):
         """POST /api/config/management/toggle with active=False removes from teaparty.yaml."""
         self._run({'type': 'agent', 'name': 'office-manager', 'active': False})
         data = _read_management_yaml(self.teaparty_home)
-        self.assertNotIn('office-manager', data['agents'])
+        self.assertNotIn('office-manager', data['members']['agents'])
 
 
 class TestToggleProjectEndpoint(unittest.TestCase):
@@ -642,13 +616,13 @@ class TestToggleProjectEndpoint(unittest.TestCase):
         """POST /api/config/{project}/toggle writes updated agents to project.yaml."""
         self._run('myproject', {'type': 'agent', 'name': 'office-manager', 'active': True})
         data = _read_project_yaml(self.project_dir)
-        self.assertIn('office-manager', data['agents'])
+        self.assertIn('office-manager', data['members']['agents'])
 
     def test_deactivate_agent_writes_project_yaml(self):
         """POST /api/config/{project}/toggle removes agent from project.yaml."""
         self._run('myproject', {'type': 'agent', 'name': 'auditor', 'active': False})
         data = _read_project_yaml(self.project_dir)
-        self.assertNotIn('auditor', data['agents'])
+        self.assertNotIn('auditor', data['members']['agents'])
 
 
 # ── Frontend: config.html toggleMembership and active/inactive rendering ─────
@@ -733,7 +707,7 @@ def _make_workgroup_yaml(workgroup_yaml_path: str, agents: list, skills: list | 
         'name': os.path.basename(workgroup_yaml_path).replace('.yaml', ''),
         'description': 'Test workgroup',
         'lead': 'auditor',
-        'agents': [{'name': a} for a in agents],
+        'members': {'agents': [{'name': a} for a in agents]},
         'skills': skills or [],
     }
     with open(workgroup_yaml_path, 'w') as f:
@@ -762,7 +736,8 @@ class TestToggleWorkgroupMembership(unittest.TestCase):
         from orchestrator.config_reader import toggle_workgroup_membership
         toggle_workgroup_membership(self.yaml_path, 'agent', 'researcher', True)
         data = _read_workgroup_yaml(self.yaml_path)
-        agent_names = [a['name'] if isinstance(a, dict) else a for a in data.get('agents', [])]
+        agent_names = [a['name'] if isinstance(a, dict) else a
+                       for a in data.get('members', {}).get('agents', [])]
         self.assertIn('researcher', agent_names)
 
     def test_deactivate_agent_removes_from_agents(self):
@@ -770,7 +745,8 @@ class TestToggleWorkgroupMembership(unittest.TestCase):
         from orchestrator.config_reader import toggle_workgroup_membership
         toggle_workgroup_membership(self.yaml_path, 'agent', 'auditor', False)
         data = _read_workgroup_yaml(self.yaml_path)
-        agent_names = [a['name'] if isinstance(a, dict) else a for a in data.get('agents', [])]
+        agent_names = [a['name'] if isinstance(a, dict) else a
+                       for a in data.get('members', {}).get('agents', [])]
         self.assertNotIn('auditor', agent_names)
 
     def test_activate_skill_adds_to_skills(self):
@@ -800,14 +776,13 @@ class TestWorkgroupCatalogSerialization(unittest.TestCase):
         import shutil
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def _make_workgroup(self, agents: list, skills: list | None = None):
+    def _make_workgroup(self, agents: list):
         from orchestrator.config_reader import Workgroup
         return Workgroup(
             name='backlog',
             description='Test',
             lead='auditor',
-            agents=[{'name': a} for a in agents],
-            skills=skills or [],
+            members_agents=agents,
         )
 
     def test_inactive_catalog_agents_appear_with_active_false(self):
@@ -817,7 +792,6 @@ class TestWorkgroupCatalogSerialization(unittest.TestCase):
         result = bridge._serialize_workgroup(
             w, detail=True,
             org_catalog_agents=['auditor', 'researcher'],
-            org_catalog_skills=[],
         )
         active_states = {a['name']: a['active'] for a in result['agents']}
         self.assertTrue(active_states['auditor'])
@@ -830,25 +804,11 @@ class TestWorkgroupCatalogSerialization(unittest.TestCase):
         result = bridge._serialize_workgroup(
             w, detail=True,
             org_catalog_agents=['auditor', 'researcher', 'strategist'],
-            org_catalog_skills=[],
         )
         active_states = {a['name']: a['active'] for a in result['agents']}
         self.assertTrue(active_states['auditor'])
         self.assertTrue(active_states['researcher'])
         self.assertFalse(active_states['strategist'])
-
-    def test_inactive_catalog_skills_appear_with_active_false(self):
-        """Skills in org catalog but not in workgroup must appear with active=False."""
-        bridge = _make_bridge(self.tmp)
-        w = self._make_workgroup(agents=[], skills=['commit'])
-        result = bridge._serialize_workgroup(
-            w, detail=True,
-            org_catalog_agents=[],
-            org_catalog_skills=['commit', 'review-pr'],
-        )
-        skill_states = {s['name']: s['active'] for s in result['skills']}
-        self.assertTrue(skill_states['commit'])
-        self.assertFalse(skill_states['review-pr'])
 
 
 # ── Workgroup toggle endpoint ─────────────────────────────────────────────────
@@ -900,14 +860,16 @@ class TestToggleWorkgroupEndpoint(unittest.TestCase):
         """POST /api/workgroups/{name}/toggle writes updated agents to workgroup YAML."""
         self._run('backlog', {'type': 'agent', 'name': 'researcher', 'active': True})
         data = _read_workgroup_yaml(self.wg_path)
-        agent_names = [a['name'] if isinstance(a, dict) else a for a in data.get('agents', [])]
+        agent_names = [a['name'] if isinstance(a, dict) else a
+                       for a in data.get('members', {}).get('agents', [])]
         self.assertIn('researcher', agent_names)
 
     def test_deactivate_agent_writes_workgroup_yaml(self):
         """POST /api/workgroups/{name}/toggle removes agent from workgroup YAML."""
         self._run('backlog', {'type': 'agent', 'name': 'auditor', 'active': False})
         data = _read_workgroup_yaml(self.wg_path)
-        agent_names = [a['name'] if isinstance(a, dict) else a for a in data.get('agents', [])]
+        agent_names = [a['name'] if isinstance(a, dict) else a
+                       for a in data.get('members', {}).get('agents', [])]
         self.assertNotIn('auditor', agent_names)
 
 
@@ -948,7 +910,7 @@ class TestLocalProjectSkillsActiveFlag(unittest.TestCase):
             org_agents=[],
             org_catalog_agents=[],
             local_skills=local_skills,
-            registered_org_skills=team.skills,
+            registered_org_skills=['commit'],
             org_catalog_skills=[],
             teaparty_home=self.teaparty_home,
             project_dir=self.project_dir,

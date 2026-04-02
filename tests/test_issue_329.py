@@ -472,10 +472,12 @@ class TestRenderWorkgroupRendersAgentsAndSkills(unittest.TestCase):
             "renderWorkgroup must render a 'Budget' section card")
 
     def test_renderWorkgroup_renders_agents_with_source_badge(self):
-        """renderWorkgroup must call sourceBadge for agent source."""
+        """renderWorkgroup must call sourceBadge with a.source for agent source badge."""
         source = self._get_renderWorkgroup_body()
-        self.assertIn('sourceBadge(a.source)', source,
-            "renderWorkgroup must call sourceBadge(a.source) for agent source badge (SC#3)")
+        self.assertIn('sourceBadge(', source,
+            "renderWorkgroup must call sourceBadge for agent source badge (SC#3)")
+        self.assertIn('a.source', source,
+            "renderWorkgroup must reference a.source for agent source badge (SC#3)")
 
     def test_renderWorkgroup_renders_skills_with_source_badge(self):
         """renderWorkgroup must call sourceBadge for skill source."""

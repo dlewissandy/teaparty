@@ -71,11 +71,10 @@ def _make_management_team(tmpdir, agents=None, humans=None, skills=None, hooks=N
     return load_management_team(teaparty_home=teaparty_home)
 
 
-def _make_project_team(project_dir, agents=None, humans=None, skills=None, hooks=None, scheduled=None, workgroups=None):
+def _make_project_team(project_dir, humans=None, hooks=None, scheduled=None, workgroups=None):
     """Write a project.yaml and return a loaded ProjectTeam.
 
-    agents and skills params are accepted for backward compatibility but are
-    not written to YAML (project teams dispatch to workgroups, not direct agents).
+    Project teams dispatch to workgroups only; no agents or skills at this level.
     """
     from orchestrator.config_reader import load_project_team
     tp_local = os.path.join(project_dir, '.teaparty.local')
@@ -608,7 +607,7 @@ class TestSkillSourceTags(unittest.TestCase):
     def test_org_skill_tagged_shared(self):
         """Skill in both registered_org_skills and org_catalog_skills must be tagged 'shared'."""
         # Issue #327: source is now filesystem-backed; pass explicit params.
-        team = _make_project_team(self.project_dir, agents=[], skills=['audit'])
+        team = _make_project_team(self.project_dir)
         result = self.bridge._serialize_project_team(
             team,
             local_skills=[],
@@ -621,7 +620,7 @@ class TestSkillSourceTags(unittest.TestCase):
     def test_project_only_skill_tagged_local(self):
         """Skill discovered from the project's .claude/skills/ must be tagged 'local'."""
         # Issue #327: local skills are filesystem-discovered; pass via local_skills param.
-        team = _make_project_team(self.project_dir, agents=[], skills=[])
+        team = _make_project_team(self.project_dir)
         result = self.bridge._serialize_project_team(
             team,
             local_skills=['project-skill'],
@@ -634,7 +633,7 @@ class TestSkillSourceTags(unittest.TestCase):
     def test_skills_returned_as_objects(self):
         """Each skill entry must be a dict with 'name' and 'source' keys."""
         # Issue #327: pass skill via local_skills so it appears in the output.
-        team = _make_project_team(self.project_dir, agents=[], skills=[])
+        team = _make_project_team(self.project_dir)
         result = self.bridge._serialize_project_team(
             team,
             local_skills=['fix-issue'],
@@ -649,7 +648,7 @@ class TestSkillSourceTags(unittest.TestCase):
     def test_no_org_skills_all_tagged_local(self):
         """When skills are only locally installed (no org catalog), all must be 'local'."""
         # Issue #327: local_skills are filesystem-discovered; pass them directly.
-        team = _make_project_team(self.project_dir, agents=[], skills=[])
+        team = _make_project_team(self.project_dir)
         result = self.bridge._serialize_project_team(
             team,
             local_skills=['skill-a', 'skill-b'],
@@ -713,11 +712,7 @@ class TestConfigProjectHandlerEndToEnd(unittest.IsolatedAsyncioTestCase):
         _make_management_team(self.tmpdir, agents=['Org Agent'], skills=['org-skill'])
         self.project_dir = os.path.join(self.tmpdir, 'poc')
         os.makedirs(self.project_dir)
-        _make_project_team(
-            self.project_dir,
-            agents=['Project Lead', 'Org Agent'],
-            skills=['org-skill', 'local-skill'],
-        )
+        _make_project_team(self.project_dir)
         # Issue #327: install org-skill in org catalog and local-skill in project.
         # The handler uses filesystem discovery to determine source tags.
         org_skill_dir = os.path.join(self.tmpdir, '.claude', 'skills', 'org-skill')
