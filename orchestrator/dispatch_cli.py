@@ -160,9 +160,14 @@ async def dispatch(
     # Resolve project_dir for project-scoped team config (issue #10)
     project_dir = os.environ.get('POC_PROJECT_DIR', '')
 
-    # Guard: reject dispatch to workgroups registered in catalog but not in members_workgroups.
+    # Guard: reject dispatch to workgroups registered in catalog but not in dispatch membership.
     # Configuration workgroups are accessible only via the config screen's chat blade — they
     # are never dispatched to via the normal chain of command (issue #364).
+    _guard_reason = (
+        f"Cannot dispatch to workgroup '{team}': "
+        f"registered in catalog but not an active dispatch member. "
+        f"Configuration workgroups are accessible only via the config screen's chat blade."
+    )
     if project_dir:
         try:
             proj = load_project_team(project_dir)
@@ -172,14 +177,18 @@ async def dispatch(
             }
             members = {m.lower() for m in proj.members_workgroups}
             if team.lower() in registered and team.lower() not in members:
-                return {
-                    'status': 'failed',
-                    'reason': (
-                        f"Cannot dispatch to workgroup '{team}': "
-                        f"registered in catalog but not an active dispatch member. "
-                        f"Configuration workgroups are accessible only via the config screen's chat blade."
-                    ),
-                }
+                return {'status': 'failed', 'reason': _guard_reason}
+        except (FileNotFoundError, OSError):
+            pass
+    else:
+        # At the management level (no project context), the OM dispatches to project leads only.
+        # Any workgroup registered in teaparty.yaml is off-limits for direct dispatch.
+        try:
+            teaparty_home = os.path.join(poc_root, '.teaparty')
+            mgmt = load_management_team(teaparty_home=teaparty_home)
+            mgmt_workgroups = {entry.name.lower() for entry in mgmt.workgroups}
+            if team.lower() in mgmt_workgroups:
+                return {'status': 'failed', 'reason': _guard_reason}
         except (FileNotFoundError, OSError):
             pass
 

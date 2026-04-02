@@ -159,8 +159,12 @@ class TestDispatchGuardRejectsConfigWorkgroup(unittest.TestCase):
         self.assertNotIn('registered in catalog but not an active dispatch member', reason,
             "Guard must not block dispatch to a team that is not a registered workgroup")
 
-    def test_guard_skipped_when_no_project_dir(self):
-        """Without POC_PROJECT_DIR, guard is skipped (no workgroup context to check)."""
+    def test_management_level_guard_fires_without_project_dir(self):
+        """Without POC_PROJECT_DIR, the management-level guard blocks config workgroups.
+
+        The OM never dispatches to workgroups — any workgroup registered in teaparty.yaml
+        is off-limits for direct dispatch, regardless of whether a project context exists.
+        """
         env = {
             'POC_SESSION_DIR': '',
             'POC_SESSION_WORKTREE': self.tmpdir,
@@ -172,9 +176,11 @@ class TestDispatchGuardRejectsConfigWorkgroup(unittest.TestCase):
         with patch.dict(os.environ, clean_env, clear=True):
             result = _run(dispatch('configuration', 'configure', infra_dir=''))
 
-        reason = result.get('reason', '')
-        self.assertNotIn('registered in catalog but not an active dispatch member', reason,
-            "Guard must be skipped when no project context is available")
+        self.assertEqual(result['status'], 'failed',
+            "Management-level guard must block dispatch to configuration workgroup")
+        self.assertIn('registered in catalog but not an active dispatch member',
+            result.get('reason', ''),
+            "Guard must fire at management level when no project dir is set")
 
     def test_guard_skipped_when_project_team_not_found(self):
         """If project.yaml doesn't exist, guard fails silently and dispatch proceeds."""

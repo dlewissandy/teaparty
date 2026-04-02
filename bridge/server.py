@@ -605,14 +605,19 @@ class TeaPartyBridge:
                 if h.get('event') not in existing_events:
                     org_hooks = org_hooks + [h]
 
+        members_lower: set[str] | None = (
+            {m.lower() for m in team.members_workgroups} if project_slug else None
+        )
         for w in workgroups:
             if w.name == name:
+                wg_active = (w.name.lower() in members_lower) if members_lower is not None else None
                 return web.json_response(
                     self._serialize_workgroup(
                         w, detail=True,
                         org_agents=org_agents_set,
                         org_catalog_agents=org_catalog_agents,
                         org_hooks_catalog=org_hooks,
+                        active=wg_active,
                     )
                 )
         return web.json_response({'error': f'workgroup not found: {name}'}, status=404)
