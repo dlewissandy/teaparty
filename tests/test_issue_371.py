@@ -335,6 +335,32 @@ class TestArtifactsHtmlHasBlade(unittest.TestCase):
         self.assertRegex(self.source, r"bladeConvId.*(?:file|artifact|path)",
             'artifacts.html bladeConvId must incorporate the file path for scoping')
 
+    def test_artifacts_browse_mode_conv_id_not_empty_suffix(self):
+        """artifacts.html blade conv ID must not have an empty path suffix in browse mode.
+
+        When no ?file= param is present, bladeConvId must not degrade to
+        'config:artifact:{project}:' (empty path). A named fallback like 'browse' is required.
+        """
+        # The fallback for missing file must not be empty string
+        self.assertNotIn("requestedFile || ''", self.source,
+            "artifacts.html must not use empty string as fallback for bladeConvId path; "
+            "use a named scope like 'browse'")
+        self.assertRegex(self.source, r"bladeConvId.*browse|browse.*bladeConvId",
+            "artifacts.html must use a named fallback (e.g. 'browse') for no-file blade conv ID")
+
+    def test_artifacts_load_file_updates_blade_conv_id(self):
+        """loadFile() must update bladeConvId to the newly selected file.
+
+        Entity scoping must hold for mid-session navigation: if the user starts
+        on file A then navigates to file B, the blade must switch to B's conv ID.
+        """
+        fn_body = _extract_fn(self.source, 'loadFile')
+        self.assertIsNotNone(fn_body, 'loadFile() must exist in artifacts.html')
+        self.assertIn('bladeConvId', fn_body,
+            "loadFile() must update bladeConvId when a new file is selected")
+        self.assertRegex(fn_body, r"bladeConvId\s*=.*artifact",
+            "loadFile() must assign a 'config:artifact:...' conv ID using the new path")
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # AC9: ConversationType.CONFIG_LEAD in messaging.py

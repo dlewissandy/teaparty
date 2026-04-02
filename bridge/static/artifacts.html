@@ -140,7 +140,7 @@ var loadError = null;
 
 // ── Blade ─────────────────────────────────────────────────────────────────────
 
-var bladeConvId = 'config:artifact:' + (currentProject || 'org') + ':' + (requestedFile || '');
+var bladeConvId = 'config:artifact:' + (currentProject || 'org') + ':' + (requestedFile || 'browse');
 var _bladeOpen = false;
 var _bladePollInterval = null;
 
@@ -540,6 +540,8 @@ async function loadFile(path) {
     return acc;
   }, []).join('/');
   selectedFile = path;
+  bladeConvId = 'config:artifact:' + (currentProject || 'org') + ':' + path;
+  if (_bladeOpen) { loadBladeMessages(); }
   fileContent = null;
   loadError = null;
 
