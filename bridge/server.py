@@ -1593,4 +1593,8 @@ class TeaPartyBridge:
             ]
             result['norms'] = dict(w.norms)
             result['budget'] = dict(w.budget)
+            result['humans'] = [
+                {'name': h.name, 'role': h.role} for h in w.humans
+            ]
+            result['artifacts'] = list(w.artifacts)
         return result

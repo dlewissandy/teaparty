@@ -20,7 +20,13 @@ import yaml
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _make_workgroup_yaml(path: str, agents: list, hooks: list | None = None) -> None:
+def _make_workgroup_yaml(
+    path: str,
+    agents: list,
+    hooks: list | None = None,
+    humans: dict | None = None,
+    artifacts: list | None = None,
+) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     name = os.path.basename(path).replace('.yaml', '')
     data = {
@@ -32,6 +38,10 @@ def _make_workgroup_yaml(path: str, agents: list, hooks: list | None = None) -> 
             'hooks': hooks or [],
         },
     }
+    if humans is not None:
+        data['humans'] = humans
+    if artifacts is not None:
+        data['artifacts'] = artifacts
     with open(path, 'w') as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 
@@ -415,6 +425,79 @@ class TestWorkgroupDetailReturnsFullData(unittest.TestCase):
         """GET /api/workgroups/{name} returns 404 for an unknown workgroup name."""
         status, body = self._run_detail('no-such-workgroup')
         self.assertEqual(status, 404)
+
+
+class TestWorkgroupDetailIncludesHumansAndArtifacts(unittest.TestCase):
+    """GET /api/workgroups/{name} must include humans and artifacts in detail response."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.teaparty_home = os.path.join(self.tmp, '.teaparty')
+        wg_dir = os.path.join(self.teaparty_home, 'workgroups')
+        os.makedirs(wg_dir, exist_ok=True)
+        self.wg_path = os.path.join(wg_dir, 'coding.yaml')
+        _make_workgroup_yaml(
+            self.wg_path,
+            agents=['auditor'],
+            humans={'decider': 'darrell', 'advisors': ['alice']},
+            artifacts=[{'path': 'NORMS.md'}, {'path': 'docs/', 'label': 'Docs'}],
+        )
+        org_agents_dir = os.path.join(self.tmp, '.claude', 'agents')
+        _make_agent_file(org_agents_dir, 'auditor')
+        mgmt_data = {
+            'name': 'Management',
+            'workgroups': [{'name': 'coding', 'config': 'workgroups/coding.yaml'}],
+            'members': {'agents': []},
+        }
+        with open(os.path.join(self.teaparty_home, 'teaparty.yaml'), 'w') as f:
+            yaml.dump(mgmt_data, f, default_flow_style=False, sort_keys=False)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _run_detail(self, wg_name: str) -> tuple[int, dict]:
+        from unittest.mock import MagicMock
+        bridge = _make_bridge(self.teaparty_home, self.tmp)
+
+        async def _call():
+            request = MagicMock()
+            request.match_info = {'name': wg_name}
+            request.rel_url.query.get = MagicMock(return_value=None)
+            response = await bridge._handle_workgroup_detail(request)
+            return response.status, json.loads(response.body)
+
+        return _run_async(_call())
+
+    def test_returns_humans_in_detail_response(self):
+        """GET /api/workgroups/{name} includes humans list in detail response."""
+        _, body = self._run_detail('coding')
+        self.assertIn('humans', body)
+
+    def test_humans_contains_decider_with_role(self):
+        """GET /api/workgroups/{name} humans list includes the decider with role."""
+        _, body = self._run_detail('coding')
+        deciders = [h for h in body['humans'] if h.get('role') == 'decider']
+        self.assertTrue(len(deciders) > 0)
+        self.assertEqual(deciders[0]['name'], 'darrell')
+
+    def test_humans_contains_advisor_with_role(self):
+        """GET /api/workgroups/{name} humans list includes advisors with role."""
+        _, body = self._run_detail('coding')
+        advisors = [h for h in body['humans'] if h.get('role') == 'advisor']
+        self.assertTrue(len(advisors) > 0)
+        self.assertEqual(advisors[0]['name'], 'alice')
+
+    def test_returns_artifacts_in_detail_response(self):
+        """GET /api/workgroups/{name} includes artifacts list in detail response."""
+        _, body = self._run_detail('coding')
+        self.assertIn('artifacts', body)
+
+    def test_artifacts_contains_pinned_paths(self):
+        """GET /api/workgroups/{name} artifacts list includes pinned file paths."""
+        _, body = self._run_detail('coding')
+        paths = [a.get('path') for a in body['artifacts']]
+        self.assertIn('NORMS.md', paths)
+        self.assertIn('docs/', paths)
 
 
 # ── AC2/6: PATCH /api/workgroups/{name} writes membership changes ─────────────
