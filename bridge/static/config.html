@@ -129,19 +129,17 @@ async function renderGlobal() {
   var projectItems = projects.map(function(p) {
     var isActive = p.active !== false;
     var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
-    var click = isActive
-      ? ' onclick="toggleMembership(\'global\', \'project\', \'' + p.name + '\', false)"'
-      : ' onclick="toggleMembership(\'global\', \'project\', \'' + p.name + '\', true)"';
-    return '<div class="item' + cls + '"' + click + '><div class="item-icon icon-project">&#9654;</div><div class="item-body"><div class="item-title">' + p.name + '</div><div class="item-meta">' + (p.path || '') + '</div></div></div>';
+    var cardClick = ' onclick="configNav(\'project\',\'' + p.name + '\')" style="cursor:pointer"';
+    var toggle = '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleMembership(\'global\', \'project\', \'' + p.name + '\', ' + !isActive + ')"></span>';
+    return '<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-project">&#9654;</div><div class="item-body"><div class="item-title">' + p.name + '</div><div class="item-meta">' + (p.path || '') + '</div></div>' + toggle + '</div>';
   });
 
   var wgItems = (workgroupsData || []).map(function(w) {
     var isActive = w.active !== false;
     var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
-    var click = isActive
-      ? ' onclick="toggleMembership(\'global\', \'workgroup\', \'' + w.name + '\', false)"'
-      : ' onclick="toggleMembership(\'global\', \'workgroup\', \'' + w.name + '\', true)"';
-    return '<div class="item' + cls + '"' + click + '><div class="item-icon icon-workgroup">&#9670;</div><div class="item-body"><div class="item-title">' + w.name + '</div><div class="item-meta">' + (w.description || '') + '</div><div class="item-meta">' + (w.lead || '') + (w.agents_count != null ? ' &middot; ' + w.agents_count + ' agents' : '') + '</div></div></div>';
+    var cardClick = ' onclick="configNav(\'workgroup\',\'' + w.name + '\')" style="cursor:pointer"';
+    var toggle = '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleMembership(\'global\', \'workgroup\', \'' + w.name + '\', ' + !isActive + ')"></span>';
+    return '<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-workgroup">&#9670;</div><div class="item-body"><div class="item-title">' + w.name + '</div><div class="item-meta">' + (w.description || '') + '</div><div class="item-meta">' + (w.lead || '') + (w.agents_count != null ? ' &middot; ' + w.agents_count + ' agents' : '') + '</div></div>' + toggle + '</div>';
   });
 
   var agentItems = (m.agents || []).map(function(a) {
@@ -172,8 +170,7 @@ async function renderGlobal() {
     var isActive = typeof s === 'object' ? s.active !== false : true;
     var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
     var cardClick = file ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + file + '\'),\'_blank\')" style="cursor:pointer"' : '';
-    var toggle = '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleMembership(\'global\', \'skill\', \'' + name + '\', ' + !isActive + ')"></span>';
-    return '<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-skill">&#9881;</div><div class="item-body"><div class="item-title">' + name + '</div></div>' + toggle + '</div>';
+    return '<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-skill">&#9881;</div><div class="item-body"><div class="item-title">' + name + '</div></div></div>';
   });
 
   var hookItems = (m.hooks || []).map(function(h) {
@@ -297,8 +294,7 @@ async function renderProject(slug) {
     var src = sourceBadge(source);
     var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
     var cardClick = file ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + file + '\'),\'_blank\')" style="cursor:pointer"' : '';
-    var toggle = '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleMembership(\'' + slug + '\', \'skill\', \'' + name + '\', ' + !isActive + ')"></span>';
-    return '<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-skill">&#9881;</div><div class="item-body"><div class="item-title">' + name + ' ' + src + '</div></div>' + toggle + '</div>';
+    return '<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-skill">&#9881;</div><div class="item-body"><div class="item-title">' + name + ' ' + src + '</div></div></div>';
   });
 
   var hookItems = (team.hooks || []).map(function(h) {
