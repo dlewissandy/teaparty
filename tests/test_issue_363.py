@@ -183,6 +183,8 @@ class TestOMDispatchRoutingToProjectLead(unittest.TestCase):
             project_path = project_entry['path']
             if config_rel:
                 config_abs = os.path.join(project_path, config_rel)
+                if not os.path.exists(config_abs):
+                    config_abs = os.path.join(project_path, '.teaparty.local', 'project.yaml')
             else:
                 config_abs = os.path.join(project_path, '.teaparty.local', 'project.yaml')
             if not os.path.exists(config_abs):
