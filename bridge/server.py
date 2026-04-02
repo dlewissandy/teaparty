@@ -586,12 +586,7 @@ class TeaPartyBridge:
         org_hooks: list[dict] = discover_hooks(
             os.path.join(claude_base, '.claude', 'settings.json')
         )
-        org_agents_set: set[str] = set()
-        try:
-            mgmt = load_management_team(teaparty_home=self.teaparty_home)
-            org_agents_set = set(mgmt.members_agents)
-        except FileNotFoundError:
-            pass
+        org_agents_set: set[str] = set(org_catalog_agents)
 
         for w in workgroups:
             if w.name == name:
