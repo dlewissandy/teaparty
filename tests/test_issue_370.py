@@ -202,13 +202,18 @@ class TestFileBrowserUsesApiEndpoint(unittest.TestCase):
             "to handle artifact browsing"
         )
 
-    def test_file_browser_calls_api_fs_list(self):
-        """File browser must use /api/fs/list to list directory contents."""
+    def test_file_browser_uses_native_file_picker(self):
+        """File browser must use the native File System Access API (showOpenFilePicker/showDirectoryPicker)."""
         source = _get_config_html()
         self.assertIn(
-            '/api/fs/list',
+            'showOpenFilePicker',
             source,
-            "config.html must call /api/fs/list to navigate the filesystem in the file browser"
+            "config.html must use window.showOpenFilePicker (File System Access API) for file selection"
+        )
+        self.assertIn(
+            'showDirectoryPicker',
+            source,
+            "config.html must use window.showDirectoryPicker (File System Access API) for folder selection"
         )
 
 
@@ -217,24 +222,23 @@ class TestFileBrowserUsesApiEndpoint(unittest.TestCase):
 class TestFileBrowserSelectsFilesAndDirs(unittest.TestCase):
     """File browser must allow selecting both files and directories."""
 
-    def test_file_browser_handles_is_dir_property(self):
-        """File browser must use is_dir in the browser function to distinguish files from dirs."""
+    def test_file_browser_supports_folder_selection(self):
+        """File browser must support selecting folders via showDirectoryPicker."""
         source = _get_config_html()
         m = re.search(
-            r'function (?:openFileBrowser|openArtifactBrowser|browseArtifacts|fileBrowser)'
-            r'.*?(?=\nfunction |\nasync function |\nvar urlParams)',
+            r'async function openFileBrowser'
+            r'.*?(?=\nvar urlParams)',
             source, re.DOTALL
         )
         if m is None:
             self.fail(
-                "File browser function not found in config.html — cannot verify is_dir handling"
+                "openFileBrowser function not found in config.html — cannot verify folder support"
             )
         browser_body = m.group(0)
         self.assertIn(
-            'is_dir',
+            'showDirectoryPicker',
             browser_body,
-            "File browser function must use is_dir from /api/fs/list entries "
-            "to handle both files and directories as selectable"
+            "openFileBrowser must call showDirectoryPicker to allow selecting folders"
         )
 
 
@@ -243,29 +247,23 @@ class TestFileBrowserSelectsFilesAndDirs(unittest.TestCase):
 class TestFileBrowserLabelEditable(unittest.TestCase):
     """File browser modal must include an editable label field."""
 
-    def test_file_browser_has_label_input(self):
-        """File browser modal must have a label input field for editing pin labels."""
+    def test_file_browser_prompts_for_label(self):
+        """File browser must prompt the user to edit the label via window.prompt."""
         source = _get_config_html()
-        # The label input must be present in the file browser section of config.html
-        # Look for a label input near the file browser function
         m = re.search(
-            r'function (?:openFileBrowser|openArtifactBrowser|browseArtifacts|fileBrowser)'
-            r'.*?(?=\nfunction |\nasync function |\nvar urlParams)',
+            r'async function openFileBrowser'
+            r'.*?(?=\nvar urlParams)',
             source, re.DOTALL
         )
         if m is None:
             self.fail(
-                "File browser function not found in config.html — cannot verify label input"
+                "openFileBrowser function not found in config.html — cannot verify label prompt"
             )
         browser_body = m.group(0)
-        has_label_input = (
-            'label' in browser_body.lower()
-            and ('input' in browser_body or 'contenteditable' in browser_body)
-        )
-        self.assertTrue(
-            has_label_input,
-            "File browser modal must include a label input field so users can edit the pin label "
-            "before confirming. Found function but no label input."
+        self.assertIn(
+            'window.prompt',
+            browser_body,
+            "openFileBrowser must use window.prompt to let users edit the pin label before confirming"
         )
 
 
