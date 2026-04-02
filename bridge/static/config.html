@@ -150,7 +150,7 @@ async function renderGlobal() {
     participantItems.push('<div class="item" onclick="openChat(\'' + omConvId + '\')"><div class="item-icon icon-member">&#9733;</div><div class="item-body"><div class="item-title">Office Manager</div><div class="item-meta">' + m.lead + ' &middot; org-level coordination</div></div></div>');
   }
   (m.humans || []).forEach(function(h) {
-    participantItems.push('<div class="item" onclick="openChat(omConvId)"><div class="item-icon icon-member">&#9786;</div><div class="item-body"><div class="item-title">' + h.name + '</div></div><span style="font-size:9px;color:var(--text-dim)">' + h.role + '</span></div>');
+    participantItems.push('<div class="item" onclick="openChat(\'proxy:' + h.name + '\')"><div class="item-icon icon-member">&#9786;</div><div class="item-body"><div class="item-title">' + h.name + '</div></div><span style="font-size:9px;color:var(--text-dim)">' + h.role + '</span></div>');
   });
 
   var orgArtifactItems = Object.keys(artifactsData).map(function(heading) {
@@ -264,7 +264,7 @@ async function renderProject(slug) {
     participantItems.push('<div class="item" onclick="openChat(\'' + managerConvId + '\')"><div class="item-icon icon-member">&#9733;</div><div class="item-body"><div class="item-title">Manager</div><div class="item-meta">' + team.lead + ' &middot; operational control</div></div></div>');
   }
   (team.humans || []).forEach(function(h) {
-    participantItems.push('<div class="item" onclick="openChat(omConvId)"><div class="item-icon icon-member">&#9786;</div><div class="item-body"><div class="item-title">' + h.name + '</div></div><span style="font-size:9px;color:var(--text-dim)">' + h.role + '</span></div>');
+    participantItems.push('<div class="item" onclick="openChat(\'proxy:' + h.name + '\')"><div class="item-icon icon-member">&#9786;</div><div class="item-body"><div class="item-title">' + h.name + '</div></div><span style="font-size:9px;color:var(--text-dim)">' + h.role + '</span></div>');
   });
 
   var artifactItems = Object.keys(artifactsData).map(function(heading) {
