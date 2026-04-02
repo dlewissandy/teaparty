@@ -9,7 +9,8 @@ AC1. AskTeam tool not registered in the MCP server
 AC2. DispatchListener not imported or referenced in engine.py
 AC3. phase-config.json does not list AskTeam in any phase's permissions.allow
 AC4. routing.md does not describe AskTeam as "the current implementation"
-AC5. configuration-lead.md lists Send, not AskTeam, in its tools
+AC5. All dispatching agent definitions (configuration-lead, teaparty-lead, pybayes-lead,
+     comics-lead, jainai-lead) list Send, not AskTeam, in their tools
 AC6. Send and Reply remain registered in the MCP server
 """
 from __future__ import annotations
@@ -177,28 +178,41 @@ class TestRoutingMdReflectsSendAsCurrent(unittest.TestCase):
         )
 
 
-# ── AC5: configuration-lead.md uses Send, not AskTeam ───────────────────────
+# ── AC5: All dispatching agent definitions use Send, not AskTeam ─────────────
 
-class TestConfigurationLeadToolsUpdated(unittest.TestCase):
-    """AC5: configuration-lead.md must list Send, not AskTeam, in its tools."""
+_DISPATCHING_AGENTS = [
+    'configuration-lead',
+    'teaparty-lead',
+    'pybayes-lead',
+    'comics-lead',
+    'jainai-lead',
+]
 
-    def test_configuration_lead_does_not_have_ask_team(self):
-        """configuration-lead.md must not list AskTeam — it has been retired."""
-        tools = _frontmatter_tools('configuration-lead')
-        self.assertNotIn(
-            'AskTeam', tools,
-            f'configuration-lead.md must not have AskTeam in tools — '
-            f'it routes via Send now. Got: {tools}',
-        )
 
-    def test_configuration_lead_has_send(self):
-        """configuration-lead.md must list Send for dispatching to specialists."""
-        tools = _frontmatter_tools('configuration-lead')
-        self.assertIn(
-            'Send', tools,
-            f'configuration-lead.md must have Send in tools — '
-            f'it is the replacement for AskTeam. Got: {tools}',
-        )
+class TestDispatchingAgentToolsUpdated(unittest.TestCase):
+    """AC5: Every dispatching agent definition must list Send, not AskTeam."""
+
+    def test_no_dispatching_agent_has_ask_team(self):
+        """No dispatching agent must list AskTeam — it has been retired."""
+        for agent in _DISPATCHING_AGENTS:
+            with self.subTest(agent=agent):
+                tools = _frontmatter_tools(agent)
+                self.assertNotIn(
+                    'AskTeam', tools,
+                    f'{agent}.md must not have AskTeam in tools — '
+                    f'AskTeam is retired. Got: {tools}',
+                )
+
+    def test_all_dispatching_agents_have_send(self):
+        """Every dispatching agent must list Send — it is the replacement for AskTeam."""
+        for agent in _DISPATCHING_AGENTS:
+            with self.subTest(agent=agent):
+                tools = _frontmatter_tools(agent)
+                self.assertIn(
+                    'Send', tools,
+                    f'{agent}.md must have Send in tools — '
+                    f'it is the replacement for AskTeam. Got: {tools}',
+                )
 
 
 # ── AC6: Send and Reply still registered ─────────────────────────────────────
