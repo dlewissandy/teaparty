@@ -257,6 +257,7 @@ function sectionCard(title, items, opts) {
   }
   if (opts && opts.catalogBtn) buttons += '<button class="action-btn" style="background:rgba(78,204,163,0.15);color:var(--green)" onclick="openChat(\'' + omConvId + '\')">+ Catalog</button>';
   if (opts && opts.pinBtn) buttons += '<button class="action-btn" onclick="openChatWithSeed(\'' + omConvId + '\', \'Please pin a path to the artifact viewer for this project.\')">+ Pin</button>';
+  if (opts && opts.browseBtn) buttons += '<button class="action-btn" onclick="' + opts.browseBtn + '">Browse</button>';
   var body = items.length === 0 ? '<div class="empty">' + (opts && opts.empty || 'None') + '</div>' : items.join('');
   return '<div class="section"><div class="section-header">' + title + '<span style="flex:1"></span>' + buttons + '</div><div class="section-scroll">' + body + '</div></div>';
 }
@@ -426,6 +427,11 @@ async function renderProject(slug) {
     pinsData = [];
   }
 
+  _currentProjectSlug = slug;
+  _currentProjectPins = (pinsData || []).map(function(p) {
+    return {path: p.rel_path || p.path, label: p.label};
+  });
+
   var team = projectData.team || {};
   var workgroups = projectData.workgroups || [];
 
@@ -523,7 +529,7 @@ async function renderProject(slug) {
       sectionCard('Workgroups', wgItems, { addBtn: true, catalogBtn: true, empty: 'No workgroups' }) +
       sectionCard('Agents', agentItems, { addBtn: true, catalogBtn: true, empty: 'No agents' }) +
       sectionCard('Participants', participantItems) +
-      sectionCard('Artifacts', artifactItems.concat(pinItems), { pinBtn: true, slug: slug, empty: 'No artifacts' }) +
+      sectionCard('Artifacts', artifactItems.concat(pinItems), { addBtn: true, browseBtn: 'openFileBrowser(\'project\',\'' + slug + '\',null)', slug: slug, empty: 'No artifacts' }) +
       sectionCard('Skills', skillItems, { addBtn: true, catalogBtn: true, empty: 'No skills' }) +
       sectionCard('Hooks', hookItems, { addBtn: true, empty: 'No project-scoped hooks' }) +
       sectionCard('Scheduled Tasks', cronItems, { addBtn: true, empty: 'No project-scoped tasks' }) +
@@ -533,6 +539,9 @@ async function renderProject(slug) {
 var _currentWgName = null;
 var _currentWgProjectSlug = null;
 var _currentWgArtifacts = [];
+
+var _currentProjectSlug = null;
+var _currentProjectPins = [];
 
 async function renderWorkgroup(name, projectSlug) {
   showLoading();
@@ -638,7 +647,7 @@ async function renderWorkgroup(name, projectSlug) {
     sectionCard('Members', memberItems, { addBtn: true, catalogBtn: true, empty: 'No members' }) +
     sectionCard('Hooks', hookItems, { addBtn: true, empty: 'No hooks' }) +
     sectionCard('Humans', humanItems, { empty: 'No humans' }) +
-    sectionCard('Artifacts', artifactItems, { addBtn: true, empty: 'No artifacts' }) +
+    sectionCard('Artifacts', artifactItems, { addBtn: true, browseBtn: 'openFileBrowser(\'workgroup\',\'' + name + '\',\'' + (projectSlug || '') + '\')', empty: 'No artifacts' }) +
     contextSection +
   '</div>';
 
@@ -663,6 +672,176 @@ async function unpinWorkgroupArtifact(path) {
     body: JSON.stringify({artifacts: updated}),
   });
   renderWorkgroup(_currentWgName, _currentWgProjectSlug);
+}
+
+async function openFileBrowser(type, name, projectSlug) {
+  var slugForFs = type === 'project' ? name : (projectSlug || '');
+  if (!slugForFs) return;
+
+  var initResp = await fetch('/api/fs/list?project=' + encodeURIComponent(slugForFs));
+  if (!initResp.ok) return;
+  var initData = await initResp.json();
+  var rootPath = initData.path;
+  var selectedEntry = null;
+
+  var overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:1000;display:flex;align-items:center;justify-content:center';
+
+  var modal = document.createElement('div');
+  modal.style.cssText = 'background:var(--surface);border:1px solid var(--border);border-radius:4px;width:480px;max-height:70vh;display:flex;flex-direction:column;font-size:12px;overflow:hidden';
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+
+  function closeModal() { overlay.remove(); }
+
+  function renderConfirmRow() {
+    var cr = document.getElementById('fb-confirm-row');
+    if (!cr) return;
+    if (selectedEntry) {
+      cr.style.display = 'flex';
+      var lbl = document.getElementById('fb-label');
+      if (lbl && !lbl._userEdited) {
+        lbl.value = selectedEntry.name || selectedEntry.path.split('/').filter(Boolean).pop() || selectedEntry.path;
+      }
+    } else {
+      cr.style.display = 'none';
+    }
+  }
+
+  async function navigate(path) {
+    selectedEntry = null;
+    var resp = await fetch('/api/fs/list?path=' + encodeURIComponent(path));
+    if (!resp.ok) return;
+    var data = await resp.json();
+    renderBrowser(path, data.entries || []);
+  }
+
+  async function confirmPin() {
+    if (!selectedEntry) return;
+    var labelEl = document.getElementById('fb-label');
+    var label = labelEl ? labelEl.value.trim() : '';
+    var rel = (rootPath && selectedEntry.path.startsWith(rootPath + '/'))
+      ? selectedEntry.path.slice(rootPath.length + 1)
+      : selectedEntry.path;
+    if (!label) label = rel.split('/').filter(Boolean).pop() || rel;
+    var newPin = {path: rel, label: label};
+    if (type === 'workgroup') {
+      var url = '/api/workgroups/' + encodeURIComponent(name);
+      if (projectSlug) url += '?project=' + encodeURIComponent(projectSlug);
+      var arts = (_currentWgArtifacts || []).slice();
+      arts.push(newPin);
+      await fetch(url, {method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({artifacts: arts})});
+      closeModal();
+      renderWorkgroup(name, projectSlug || null);
+    } else {
+      var pinsUrl = '/api/artifacts/' + encodeURIComponent(name) + '/pins';
+      var pins = (_currentProjectPins || []).slice();
+      pins.push(newPin);
+      await fetch(pinsUrl, {method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({artifact_pins: pins})});
+      closeModal();
+      renderProject(name);
+    }
+  }
+
+  function renderBrowser(currentPath, entries) {
+    while (modal.firstChild) modal.removeChild(modal.firstChild);
+
+    var hdr = document.createElement('div');
+    hdr.style.cssText = 'padding:8px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-shrink:0';
+    var pathLabel = document.createElement('span');
+    pathLabel.style.cssText = 'color:var(--text-dim);font-size:10px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+    pathLabel.textContent = currentPath.startsWith(rootPath) ? ('/' + currentPath.slice(rootPath.length)) || '/' : currentPath;
+    hdr.appendChild(pathLabel);
+    var pinFolderBtn = document.createElement('button');
+    pinFolderBtn.className = 'action-btn';
+    pinFolderBtn.style.cssText = 'font-size:10px;padding:2px 6px;flex-shrink:0';
+    pinFolderBtn.textContent = '+ Pin Folder';
+    pinFolderBtn.onclick = function() {
+      var folderName = currentPath.split('/').filter(Boolean).pop() || currentPath;
+      selectedEntry = {path: currentPath, is_dir: true, name: folderName};
+      var lbl = document.getElementById('fb-label');
+      if (lbl) { lbl.value = folderName; lbl._userEdited = false; }
+      renderConfirmRow();
+    };
+    hdr.appendChild(pinFolderBtn);
+    modal.appendChild(hdr);
+
+    if (currentPath !== rootPath) {
+      var parentPath = currentPath.replace(/\/[^/]+\/?$/, '') || rootPath;
+      var upRow = document.createElement('div');
+      upRow.style.cssText = 'padding:5px 12px;cursor:pointer;color:var(--text-dim);font-size:11px;border-bottom:1px solid var(--border);flex-shrink:0';
+      upRow.textContent = '\u2191 ..';
+      upRow.onmouseover = function() { upRow.style.background = 'rgba(255,255,255,0.04)'; };
+      upRow.onmouseout = function() { upRow.style.background = ''; };
+      upRow.onclick = function() { navigate(parentPath); };
+      modal.appendChild(upRow);
+    }
+
+    var list = document.createElement('div');
+    list.style.cssText = 'overflow-y:auto;flex:1';
+
+    entries.forEach(function(e) {
+      var row = document.createElement('div');
+      row.style.cssText = 'padding:5px 12px;cursor:pointer;display:flex;align-items:center;gap:6px;font-size:11px';
+      var icon = document.createElement('span');
+      icon.style.cssText = 'color:var(--green);font-size:9px;flex-shrink:0';
+      icon.textContent = e.is_dir ? '\u25b6' : '\u25cf';
+      row.appendChild(icon);
+      var nm = document.createElement('span');
+      nm.textContent = e.name;
+      row.appendChild(nm);
+      row.onmouseover = function() { row.style.background = 'rgba(255,255,255,0.04)'; };
+      row.onmouseout = function() { row.style.background = ''; };
+      if (e.is_dir) {
+        row.onclick = function() { navigate(e.path); };
+      } else {
+        row.onclick = function() {
+          selectedEntry = {path: e.path, is_dir: false, name: e.name};
+          var lbl = document.getElementById('fb-label');
+          if (lbl) { lbl.value = e.name; lbl._userEdited = false; }
+          renderConfirmRow();
+        };
+      }
+      list.appendChild(row);
+    });
+
+    if (entries.length === 0) {
+      var empty = document.createElement('div');
+      empty.style.cssText = 'padding:16px;color:var(--text-dim);font-size:11px;text-align:center';
+      empty.textContent = 'Empty directory';
+      list.appendChild(empty);
+    }
+
+    modal.appendChild(list);
+
+    var confirmRow = document.createElement('div');
+    confirmRow.id = 'fb-confirm-row';
+    confirmRow.style.cssText = 'padding:8px 12px;border-top:1px solid var(--border);display:none;align-items:center;gap:6px;flex-shrink:0';
+    var lbl = document.createElement('input');
+    lbl.id = 'fb-label';
+    lbl.placeholder = 'label';
+    lbl.style.cssText = 'flex:1;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:3px 6px;font-size:11px;font-family:inherit;outline:none';
+    lbl.oninput = function() { lbl._userEdited = true; };
+    confirmRow.appendChild(lbl);
+    var pinBtn = document.createElement('button');
+    pinBtn.className = 'action-btn';
+    pinBtn.textContent = 'Pin';
+    pinBtn.style.cssText = 'background:rgba(78,204,163,0.2);color:var(--green)';
+    pinBtn.onclick = confirmPin;
+    confirmRow.appendChild(pinBtn);
+    modal.appendChild(confirmRow);
+
+    var footer = document.createElement('div');
+    footer.style.cssText = 'padding:6px 12px;display:flex;justify-content:flex-end;border-top:1px solid var(--border);flex-shrink:0';
+    var cancelBtn = document.createElement('button');
+    cancelBtn.className = 'action-btn';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.onclick = closeModal;
+    footer.appendChild(cancelBtn);
+    modal.appendChild(footer);
+  }
+
+  renderBrowser(initData.path, initData.entries || []);
 }
 
 var urlParams = new URLSearchParams(window.location.search);
