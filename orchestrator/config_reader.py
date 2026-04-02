@@ -91,6 +91,7 @@ class ManagementTeam:
     members_projects: list[str] = field(default_factory=list)
     members_agents: list[str] = field(default_factory=list)
     members_skills: list[str] = field(default_factory=list)
+    members_workgroups: list[str] = field(default_factory=list)
     workgroups: list[WorkgroupEntry] = field(default_factory=list)
     norms: dict[str, list[str]] = field(default_factory=dict)
     scheduled: list[ScheduledTask] = field(default_factory=list)
@@ -221,6 +222,7 @@ def load_management_team(
         members_projects=members.get('projects') or [],
         members_agents=members.get('agents') or [],
         members_skills=members.get('skills') or [],
+        members_workgroups=members.get('workgroups') or [],
         workgroups=_parse_management_workgroups(data.get('workgroups')),
         norms=data.get('norms', {}),
         scheduled=_parse_scheduled(data.get('scheduled')),
@@ -698,13 +700,13 @@ def toggle_management_membership(
 ) -> None:
     """Add/remove an item from the management team's active list in teaparty.yaml.
 
-    For agents and skills: adds/removes the name from the list.
+    For agents, projects, workgroups, and skills: adds/removes the name from the list.
     For hooks: sets the active flag on the hook entry identified by event name.
     For scheduled_task: sets the enabled flag on the scheduled task entry identified by name.
 
     Args:
         teaparty_home: Path to the .teaparty/ directory.
-        kind: 'agent', 'skill', 'hook', or 'scheduled_task'.
+        kind: 'agent', 'project', 'workgroup', 'skill', 'hook', or 'scheduled_task'.
         name: Name/event of the item to toggle.
         active: True to activate, False to deactivate.
     """

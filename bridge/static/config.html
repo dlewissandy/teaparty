@@ -127,12 +127,21 @@ async function renderGlobal() {
   document.title = 'TeaParty \u2014 Global Configuration';
 
   var projectItems = projects.map(function(p) {
-    var slug = p.slug || p.name.toLowerCase().replace(/\s+/g, '-');
-    return '<div class="item" onclick="configNav(\'project\',\'' + slug + '\')"><div class="item-icon icon-project">&#9654;</div><div class="item-body"><div class="item-title">' + p.name + '</div><div class="item-meta">' + (p.path || '') + '</div></div></div>';
+    var isActive = p.active !== false;
+    var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
+    var click = isActive
+      ? ' onclick="toggleMembership(\'global\', \'project\', \'' + p.name + '\', false)"'
+      : ' onclick="toggleMembership(\'global\', \'project\', \'' + p.name + '\', true)"';
+    return '<div class="item' + cls + '"' + click + '><div class="item-icon icon-project">&#9654;</div><div class="item-body"><div class="item-title">' + p.name + '</div><div class="item-meta">' + (p.path || '') + '</div></div></div>';
   });
 
   var wgItems = (workgroupsData || []).map(function(w) {
-    return '<div class="item" onclick="configNav(\'workgroup\',\'' + w.name + '\')"><div class="item-icon icon-workgroup">&#9670;</div><div class="item-body"><div class="item-title">' + w.name + '</div><div class="item-meta">' + (w.description || '') + '</div><div class="item-meta">' + (w.lead || '') + (w.agents_count != null ? ' &middot; ' + w.agents_count + ' agents' : '') + '</div></div></div>';
+    var isActive = w.active !== false;
+    var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
+    var click = isActive
+      ? ' onclick="toggleMembership(\'global\', \'workgroup\', \'' + w.name + '\', false)"'
+      : ' onclick="toggleMembership(\'global\', \'workgroup\', \'' + w.name + '\', true)"';
+    return '<div class="item' + cls + '"' + click + '><div class="item-icon icon-workgroup">&#9670;</div><div class="item-body"><div class="item-title">' + w.name + '</div><div class="item-meta">' + (w.description || '') + '</div><div class="item-meta">' + (w.lead || '') + (w.agents_count != null ? ' &middot; ' + w.agents_count + ' agents' : '') + '</div></div></div>';
   });
 
   var agentItems = (m.agents || []).map(function(a) {
