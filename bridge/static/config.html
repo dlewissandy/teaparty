@@ -204,11 +204,11 @@ async function renderGlobal() {
     '<div class="pane-subtitle">' + subtitle + '</div>' +
     '<div class="sections">' +
       sectionCard('Projects', projectItems, { addProjectBtn: true }) +
-      sectionCard('Workgroup Catalog', wgItems, { addBtn: true, empty: 'No org-level workgroups' }) +
-      sectionCard('Agent Catalog', agentItems, { addBtn: true }) +
+      sectionCard('Workgroups', wgItems, { addBtn: true, empty: 'No org-level workgroups' }) +
+      sectionCard('Agents', agentItems, { addBtn: true }) +
       sectionCard('Participants', participantItems) +
       sectionCard('Artifacts', orgArtifactItems, { empty: 'No organizational artifacts' }) +
-      sectionCard('Skill Catalog', skillItems, { addBtn: true }) +
+      sectionCard('Skills', skillItems, { addBtn: true }) +
       sectionCard('Hooks', hookItems, { addBtn: true }) +
       sectionCard('Scheduled Tasks', cronItems, { addBtn: true }) +
     '</div>';
@@ -336,8 +336,7 @@ async function renderProject(slug) {
       sectionCard('Workgroups', wgItems, { addBtn: true, catalogBtn: true, empty: 'No workgroups' }) +
       sectionCard('Agents', agentItems, { addBtn: true, catalogBtn: true, empty: 'No agents' }) +
       sectionCard('Participants', participantItems) +
-      sectionCard('Sessions', artifactItems, { empty: 'No project artifacts' }) +
-      sectionCard('Artifacts', pinItems, { addBtn: false, pinBtn: true, slug: slug, empty: 'No artifact pins' }) +
+      sectionCard('Artifacts', artifactItems.concat(pinItems), { pinBtn: true, slug: slug, empty: 'No artifacts' }) +
       sectionCard('Skills', skillItems, { addBtn: true, catalogBtn: true, empty: 'No skills' }) +
       sectionCard('Hooks', hookItems, { addBtn: true, empty: 'No project-scoped hooks' }) +
       sectionCard('Scheduled Tasks', cronItems, { addBtn: true, empty: 'No project-scoped tasks' }) +
@@ -374,27 +373,21 @@ async function renderWorkgroup(name, projectSlug) {
     return '<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-member">&#9672;</div><div class="item-body"><div class="item-title">' + aName + ' ' + src + '</div><div class="item-meta">' + (a.role || '') + (a.model ? ' &middot; ' + a.model : '') + '</div></div>' + toggle + '</div>';
   });
 
-  var hookItems = (wgData.hooks || []).map(function(h) {
-    var hEvent = h.event || '';
-    var isActive = h.active !== false;
-    var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
-    var toggle = '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleMembership(\'wg:' + name + '\', \'hook\', \'' + hEvent + '\', ' + !isActive + ', \'' + (projectSlug || '') + '\')"></span>';
-    return '<div class="item' + cls + '"><div class="item-icon icon-hook">&#9679;</div><div class="item-body"><div class="item-title">' + hEvent + '</div><div class="item-meta">' + (h.type || '') + (h.matcher ? ' &middot; ' + h.matcher : '') + '</div></div>' + toggle + '</div>';
+  var participantItems = (wgData.humans || []).map(function(h) {
+    return '<div class="item" onclick="openChat(\'proxy:' + h.name + '\')"><div class="item-icon icon-member">&#9786;</div><div class="item-body"><div class="item-title">' + h.name + '</div></div><span style="font-size:9px;color:var(--text-dim)">' + h.role + '</span></div>';
   });
 
-  var normItems = [];
+  var artifactItems = [];
   var norms = wgData.norms || {};
   Object.keys(norms).forEach(function(category) {
-    normItems.push('<div class="item-group-heading">' + category + '</div>');
+    artifactItems.push('<div class="item-group-heading">' + category + '</div>');
     (norms[category] || []).forEach(function(rule) {
-      normItems.push('<div class="item"><div class="item-icon icon-hook">&#9679;</div><div class="item-body"><div class="item-title">' + rule + '</div></div></div>');
+      artifactItems.push('<div class="item"><div class="item-icon icon-hook">&#9679;</div><div class="item-body"><div class="item-title">' + rule + '</div></div></div>');
     });
   });
-
-  var budgetItems = [];
-  var budget = wgData.budget || {};
-  Object.keys(budget).forEach(function(key) {
-    budgetItems.push('<div class="item"><div class="item-icon icon-cron">&#9654;</div><div class="item-body"><div class="item-title">' + key + '</div><div class="item-meta">' + budget[key] + '</div></div></div>');
+  (wgData.artifacts || []).forEach(function(a) {
+    var label = typeof a === 'object' ? (a.label || a.path || a) : a;
+    artifactItems.push('<div class="item"><div class="item-icon" style="background:rgba(78,204,163,0.15);color:var(--green)">&#9654;</div><div class="item-body"><div class="item-title">' + label + '</div></div></div>');
   });
 
   var breadcrumb = '<div class="breadcrumb-bar"><a onclick="configNav(\'global\')" style="cursor:pointer">Global Config</a>';
@@ -405,9 +398,8 @@ async function renderWorkgroup(name, projectSlug) {
 
   var sections = '<div class="sections">' +
     sectionCard('Agents', agentItems, { addBtn: true, catalogBtn: true, empty: 'No agents' }) +
-    sectionCard('Hooks', hookItems, { empty: 'No hooks' }) +
-    sectionCard('Norms', normItems, { empty: 'No norms defined' }) +
-    (Object.keys(budget).length > 0 ? sectionCard('Budget', budgetItems) : '') +
+    sectionCard('Participants', participantItems) +
+    sectionCard('Artifacts', artifactItems, { empty: 'No artifacts' }) +
   '</div>';
 
   document.getElementById('content').innerHTML =
