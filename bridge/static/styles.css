@@ -115,6 +115,11 @@ body {
 }
 .catalog-toggle.toggle-on { background: rgba(78,204,163,0.35); }
 .catalog-toggle.toggle-on::after { transform: translateX(14px); background: var(--green); }
+.role-select {
+  background: var(--surface); color: var(--text-dim); border: 1px solid var(--border);
+  border-radius: 4px; font-size: 10px; padding: 2px 4px; cursor: pointer; flex-shrink: 0;
+}
+.role-select:focus { outline: none; border-color: var(--green); color: var(--text); }
 .badge-done { background: rgba(78,204,163,0.15); color: var(--green); }
 .badge-working { background: rgba(78,204,163,0.15); color: var(--green); }
 .badge-reviewing { background: rgba(240,192,64,0.15); color: var(--yellow); }
