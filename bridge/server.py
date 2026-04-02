@@ -270,6 +270,7 @@ class TeaPartyBridge:
         # ── Artifact endpoints ────────────────────────────────────────────────
         app.router.add_get('/api/artifacts/{project}', self._handle_artifacts)
         app.router.add_get('/api/artifacts/{project}/pins', self._handle_artifact_pins)
+        app.router.add_patch('/api/artifacts/{project}/pins', self._handle_artifact_pins_patch)
         app.router.add_get('/api/file', self._handle_file)
 
         # ── Action endpoints ──────────────────────────────────────────────────
@@ -1193,10 +1194,34 @@ class TeaPartyBridge:
             abs_path = os.path.normpath(os.path.join(proj_path, rel))
             result.append({
                 'path': abs_path,
+                'rel_path': rel,
                 'label': label,
                 'is_dir': os.path.isdir(abs_path),
             })
         return web.json_response(result)
+
+    async def _handle_artifact_pins_patch(self, request: web.Request) -> web.Response:
+        """PATCH /api/artifacts/{project}/pins — replace artifact_pins in project YAML."""
+        project = request.match_info['project']
+        proj_path = self._lookup_project_path(project)
+        if proj_path is None:
+            return web.json_response({'error': f'project not found: {project}'}, status=404)
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({'error': 'invalid JSON body'}, status=400)
+        pins = body.get('artifact_pins')
+        if not isinstance(pins, list):
+            return web.json_response({'error': 'artifact_pins must be a list'}, status=400)
+        yaml_path = os.path.join(proj_path, '.teaparty.local', 'project.yaml')
+        if not os.path.exists(yaml_path):
+            return web.json_response({'error': f'project config not found: {project}'}, status=404)
+        with open(yaml_path) as f:
+            data = yaml.safe_load(f) or {}
+        data['artifact_pins'] = pins
+        with open(yaml_path, 'w') as f:
+            yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+        return web.json_response({'ok': True, 'artifact_pins': pins})
 
     _BINARY_CONTENT_TYPES = {
         '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
@@ -1229,15 +1254,26 @@ class TeaPartyBridge:
     # ── Filesystem navigation handler ─────────────────────────────────────────
 
     async def _handle_fs_list(self, request: web.Request) -> web.Response:
-        """GET /api/fs/list?path=<p> — list directory contents for OM filesystem navigation."""
+        """GET /api/fs/list?path=<p> or ?project=<slug> — list directory contents.
+
+        Accepts either an explicit ``path`` query parameter (absolute directory path)
+        or a ``project`` slug that is resolved to the project directory.  Returns
+        ``{path, entries}`` where *path* is the resolved absolute directory path.
+        """
         path = request.rel_url.query.get('path', '')
+        project = request.rel_url.query.get('project', '')
+        if not path and project:
+            proj_path = self._lookup_project_path(project)
+            if proj_path is None:
+                return web.json_response({'error': f'project not found: {project}'}, status=404)
+            path = proj_path
         if not path:
-            return web.json_response({'error': 'path parameter required'}, status=400)
+            return web.json_response({'error': 'path or project parameter required'}, status=400)
         try:
             entries = _list_directory(path)
         except FileNotFoundError as exc:
             return web.json_response({'error': str(exc)}, status=404)
-        return web.json_response({'entries': entries})
+        return web.json_response({'path': path, 'entries': entries})
 
     # ── Project management handlers ───────────────────────────────────────────
 
