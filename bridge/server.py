@@ -502,9 +502,9 @@ class TeaPartyBridge:
         kind = body.get('type', '')
         name = body.get('name', '')
         active = body.get('active')
-        if kind not in ('agent', 'project', 'skill', 'hook') or not name or not isinstance(active, bool):
+        if kind not in ('agent', 'project', 'workgroup', 'skill', 'hook') or not name or not isinstance(active, bool):
             return web.json_response(
-                {'error': 'body must include type (agent|project|skill|hook), name, and active (bool)'},
+                {'error': 'body must include type (agent|project|workgroup|skill|hook), name, and active (bool)'},
                 status=400,
             )
         try:
@@ -571,7 +571,11 @@ class TeaPartyBridge:
         try:
             team = load_management_team(teaparty_home=self.teaparty_home)
             workgroups = load_management_workgroups(team, teaparty_home=self.teaparty_home)
-            return web.json_response([self._serialize_workgroup(w) for w in workgroups])
+            members_lower = {m.lower() for m in team.members_workgroups}
+            return web.json_response([
+                self._serialize_workgroup(w, active=w.name.lower() in members_lower)
+                for w in workgroups
+            ])
         except Exception:
             return web.json_response([])
 

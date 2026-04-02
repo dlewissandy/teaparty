@@ -91,6 +91,7 @@ class ManagementTeam:
     members_projects: list[str] = field(default_factory=list)
     members_agents: list[str] = field(default_factory=list)
     members_skills: list[str] = field(default_factory=list)
+    members_workgroups: list[str] = field(default_factory=list)
     workgroups: list[WorkgroupEntry] = field(default_factory=list)
     norms: dict[str, list[str]] = field(default_factory=dict)
     scheduled: list[ScheduledTask] = field(default_factory=list)
@@ -221,6 +222,7 @@ def load_management_team(
         members_projects=members.get('projects') or [],
         members_agents=members.get('agents') or [],
         members_skills=members.get('skills') or [],
+        members_workgroups=members.get('workgroups') or [],
         workgroups=_parse_management_workgroups(data.get('workgroups')),
         norms=data.get('norms', {}),
         scheduled=_parse_scheduled(data.get('scheduled')),
