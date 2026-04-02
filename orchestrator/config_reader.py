@@ -657,7 +657,7 @@ def _load_management_yaml(
         return yaml.safe_load(f)
 
 
-_MEMBERSHIP_KEYS = {'agent': 'agents', 'project': 'projects', 'workgroup': 'workgroups', 'skill': 'skills', 'hook': 'hooks'}
+_MEMBERSHIP_KEYS = {'agent': 'agents', 'project': 'projects', 'workgroup': 'workgroups', 'skill': 'skills', 'hook': 'hooks', 'scheduled_task': 'scheduled'}
 
 
 def _toggle_hook_active(hooks: list[dict], event: str, active: bool) -> list[dict]:
@@ -675,6 +675,21 @@ def _toggle_hook_active(hooks: list[dict], event: str, active: bool) -> list[dic
     return result
 
 
+def _toggle_scheduled_active(scheduled: list[dict], name: str, active: bool) -> list[dict]:
+    """Set the enabled flag on the scheduled task entry with the given name."""
+    result = []
+    found = False
+    for t in scheduled:
+        if t.get('name') == name:
+            result.append({**t, 'enabled': active})
+            found = True
+        else:
+            result.append(t)
+    if not found:
+        raise ValueError(f'Scheduled task {name!r} not found')
+    return result
+
+
 def toggle_management_membership(
     teaparty_home: str,
     kind: str,
@@ -685,10 +700,11 @@ def toggle_management_membership(
 
     For agents and skills: adds/removes the name from the list.
     For hooks: sets the active flag on the hook entry identified by event name.
+    For scheduled_task: sets the enabled flag on the scheduled task entry identified by name.
 
     Args:
         teaparty_home: Path to the .teaparty/ directory.
-        kind: 'agent', 'skill', or 'hook'.
+        kind: 'agent', 'skill', 'hook', or 'scheduled_task'.
         name: Name/event of the item to toggle.
         active: True to activate, False to deactivate.
     """
@@ -697,6 +713,8 @@ def toggle_management_membership(
     data = _load_management_yaml(teaparty_home)
     if kind == 'hook':
         data['hooks'] = _toggle_hook_active(data.get('hooks') or [], name, active)
+    elif kind == 'scheduled_task':
+        data['scheduled'] = _toggle_scheduled_active(data.get('scheduled') or [], name, active)
     else:
         key = _MEMBERSHIP_KEYS[kind]
         members = data.setdefault('members', {})
@@ -720,10 +738,11 @@ def toggle_project_membership(
 
     For agents and skills: adds/removes the name from the list.
     For hooks: sets the active flag on the hook entry identified by event name.
+    For scheduled_task: sets the enabled flag on the scheduled task entry identified by name.
 
     Args:
         project_dir: Path to the project root directory.
-        kind: 'agent', 'skill', or 'hook'.
+        kind: 'agent', 'skill', 'hook', or 'scheduled_task'.
         name: Name/event of the item to toggle.
         active: True to activate, False to deactivate.
     """
@@ -736,6 +755,8 @@ def toggle_project_membership(
         data = yaml.safe_load(f) or {}
     if kind == 'hook':
         data['hooks'] = _toggle_hook_active(data.get('hooks') or [], name, active)
+    elif kind == 'scheduled_task':
+        data['scheduled'] = _toggle_scheduled_active(data.get('scheduled') or [], name, active)
     else:
         key = _MEMBERSHIP_KEYS[kind]
         members = data.setdefault('members', {})

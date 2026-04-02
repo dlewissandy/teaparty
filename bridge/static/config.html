@@ -182,9 +182,12 @@ async function renderGlobal() {
   });
 
   var cronItems = (m.scheduled || []).map(function(c) {
-    var badge = c.enabled ? 'active' : 'idle';
-    var click = c.file ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + c.file + '\') + \'&project=org\',\'_blank\')" style="cursor:pointer"' : '';
-    return '<div class="item"' + click + '><div class="item-icon icon-cron">&#9200;</div><div class="item-body"><div class="item-title">' + c.name + '</div><div class="item-meta">' + c.schedule + '</div></div><span class="item-badge badge-' + badge + '">' + badge + '</span></div>';
+    var isActive = c.enabled !== false;
+    var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
+    var toggleClick = isActive
+      ? ' onclick="toggleMembership(\'global\', \'scheduled_task\', \'' + c.name + '\', false)"'
+      : ' onclick="toggleMembership(\'global\', \'scheduled_task\', \'' + c.name + '\', true)"';
+    return '<div class="item' + cls + '"' + toggleClick + '><div class="item-icon icon-cron">&#9200;</div><div class="item-body"><div class="item-title">' + c.name + '</div><div class="item-meta">' + c.schedule + '</div></div></div>';
   });
 
   var subtitle = projects.length + ' projects &middot; ' + (workgroupsData || []).length + ' workgroups &middot; ' + (m.agents || []).length + ' agents';
@@ -298,9 +301,12 @@ async function renderProject(slug) {
   });
 
   var cronItems = (team.scheduled || []).map(function(c) {
-    var badge = c.enabled ? 'active' : 'idle';
-    var click = c.file ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + c.file + '\') + \'&project=' + encodeURIComponent(slug) + '\',\'_blank\')" style="cursor:pointer"' : '';
-    return '<div class="item"' + click + '><div class="item-icon icon-cron">&#9200;</div><div class="item-body"><div class="item-title">' + c.name + '</div><div class="item-meta">' + c.schedule + '</div></div><span class="item-badge badge-' + badge + '">' + badge + '</span></div>';
+    var isActive = c.enabled !== false;
+    var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
+    var toggleClick = isActive
+      ? ' onclick="toggleMembership(\'' + slug + '\', \'scheduled_task\', \'' + c.name + '\', false)"'
+      : ' onclick="toggleMembership(\'' + slug + '\', \'scheduled_task\', \'' + c.name + '\', true)"';
+    return '<div class="item' + cls + '"' + toggleClick + '><div class="item-icon icon-cron">&#9200;</div><div class="item-body"><div class="item-title">' + c.name + '</div><div class="item-meta">' + c.schedule + '</div></div></div>';
   });
 
   var pinItems = (pinsData || []).map(function(p) {
