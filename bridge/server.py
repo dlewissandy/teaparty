@@ -436,6 +436,7 @@ class TeaPartyBridge:
             os.path.join(project_dir, '.claude', 'skills')
         )
 
+        members_workgroups_lower = {m.lower() for m in team.members_workgroups}
         workgroups = []
         for entry in team.workgroups:
             source = 'shared' if isinstance(entry, WorkgroupRef) else 'local'
@@ -459,8 +460,12 @@ class TeaPartyBridge:
                                 overrides = _detect_workgroup_overrides(org_wg, w)
                             except Exception:
                                 pass
+                    workgroup_active = w.name.lower() in members_workgroups_lower
                     workgroups.append(
-                        self._serialize_workgroup(w, source=source, overrides=overrides)
+                        self._serialize_workgroup(
+                            w, source=source, overrides=overrides,
+                            active=workgroup_active,
+                        )
                     )
             except FileNotFoundError:
                 _log.warning('Workgroup not found, skipping: %s', entry)
@@ -1423,6 +1428,7 @@ class TeaPartyBridge:
         org_catalog_agents: list[str] | None = None,
         org_catalog_skills: list[str] | None = None,
         org_hooks_catalog: list[dict] | None = None,
+        active: bool | None = None,
     ) -> dict:
         result = {
             'name': w.name,
@@ -1432,6 +1438,8 @@ class TeaPartyBridge:
             'source': source,
             'overrides': overrides or [],
         }
+        if active is not None:
+            result['active'] = active
         if detail:
             active_agent_names: set[str] = set(w.members_agents)
             org_agents_set: set[str] = set(org_agents or [])

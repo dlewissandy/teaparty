@@ -22,6 +22,7 @@ from orchestrator.merge import git_output, squash_merge
 from scripts.generate_commit_message import generate_async, build_fallback
 from orchestrator.config_reader import (
     load_project_team, load_management_team, resolve_budget, resolve_workgroups,
+    WorkgroupRef,
 )
 from orchestrator.cost_tracker import CostTracker
 from orchestrator.phase_config import PhaseConfig
@@ -158,6 +159,30 @@ async def dispatch(
 
     # Resolve project_dir for project-scoped team config (issue #10)
     project_dir = os.environ.get('POC_PROJECT_DIR', '')
+
+    # Guard: reject dispatch to workgroups registered in catalog but not in members_workgroups.
+    # Configuration workgroups are accessible only via the config screen's chat blade — they
+    # are never dispatched to via the normal chain of command (issue #364).
+    if project_dir:
+        try:
+            proj = load_project_team(project_dir)
+            registered = {
+                (entry.ref if isinstance(entry, WorkgroupRef) else entry.name).lower()
+                for entry in proj.workgroups
+            }
+            members = {m.lower() for m in proj.members_workgroups}
+            if team.lower() in registered and team.lower() not in members:
+                return {
+                    'status': 'failed',
+                    'reason': (
+                        f"Cannot dispatch to workgroup '{team}': "
+                        f"registered in catalog but not an active dispatch member. "
+                        f"Configuration workgroups are accessible only via the config screen's chat blade."
+                    ),
+                }
+        except (FileNotFoundError, OSError):
+            pass
+
     config = PhaseConfig(poc_root, project_dir=project_dir or None)
 
     if not infra_dir and not resume_infra:
