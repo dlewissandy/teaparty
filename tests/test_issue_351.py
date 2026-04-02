@@ -528,7 +528,7 @@ class TestBusEventListenerLifecycle(unittest.TestCase):
 
         async def run():
             listener = BusEventListener(bus_db_path=bus_db)
-            send_path, reply_path = await listener.start()
+            send_path, reply_path, *_ = await listener.start()
             try:
                 return os.path.exists(send_path), os.path.exists(reply_path)
             finally:
@@ -546,7 +546,7 @@ class TestBusEventListenerLifecycle(unittest.TestCase):
 
         async def run():
             listener = BusEventListener(bus_db_path=bus_db)
-            send_path, reply_path = await listener.start()
+            send_path, reply_path, *_ = await listener.start()
             await listener.stop()
             return os.path.exists(send_path), os.path.exists(reply_path)
 
@@ -564,11 +564,11 @@ class TestBusEventListenerLifecycle(unittest.TestCase):
 
         async def mock_spawn_fn(member, composite, context_id):
             spawned['member'] = member
-            return 'mock-session-id'
+            return ('mock-session-id', '')
 
         async def run():
             listener = BusEventListener(bus_db_path=bus_db, spawn_fn=mock_spawn_fn)
-            send_path, _reply_path = await listener.start()
+            send_path, _reply_path, *_ = await listener.start()
             try:
                 reader, writer = await asyncio.open_unix_connection(send_path)
                 try:
@@ -620,7 +620,7 @@ class TestBusEventListenerLifecycle(unittest.TestCase):
                 reinvoke_fn=mock_reinvoke_fn,
                 current_context_id='ctx-reply-test',
             )
-            _send_path, reply_path = await listener.start()
+            _send_path, reply_path, *_ = await listener.start()
             try:
                 reader, writer = await asyncio.open_unix_connection(reply_path)
                 try:
@@ -649,13 +649,13 @@ class TestBusEventListenerLifecycle(unittest.TestCase):
 
         async def mock_spawn_fn(member, composite, context_id):
             spawned['composite'] = composite
-            return 'sess-id'
+            return ('sess-id', '')
 
         composite_sent = '## Task\nwrite tests\n\n## Context\ncurrent state'
 
         async def run():
             listener = BusEventListener(bus_db_path=bus_db, spawn_fn=mock_spawn_fn)
-            send_path, _ = await listener.start()
+            send_path, *_ = await listener.start()
             try:
                 reader, writer = await asyncio.open_unix_connection(send_path)
                 try:
@@ -706,13 +706,13 @@ class TestNonBlockingDispatch(unittest.TestCase):
             # Simulate slow agent — 50ms delay
             await asyncio.sleep(0.05)
             spawn_completed.append(True)
-            return 'sess-slow'
+            return ('sess-slow', '')
 
         result = {}
 
         async def run():
             listener = BusEventListener(bus_db_path=bus_db, spawn_fn=slow_spawn_fn)
-            send_path, _ = await listener.start()
+            send_path, *_ = await listener.start()
             try:
                 reader, writer = await asyncio.open_unix_connection(send_path)
                 try:
@@ -891,7 +891,7 @@ class TestEngineMcpEnvWiring(unittest.TestCase):
                 dispatcher=dispatcher,
                 initiator_agent_id='proj/lead',
             )
-            send_path, _ = await listener.start()
+            send_path, *_ = await listener.start()
             try:
                 reader, writer = await asyncio.open_unix_connection(send_path)
                 try:

@@ -180,9 +180,18 @@ class SqliteMessageBus:
                 session_id TEXT NOT NULL DEFAULT '',
                 status TEXT NOT NULL DEFAULT 'open',
                 pending_count INTEGER NOT NULL DEFAULT 0,
-                created_at REAL NOT NULL
+                created_at REAL NOT NULL,
+                conversation_status TEXT NOT NULL DEFAULT 'open'
             )
         ''')
+        # Migrate existing DBs that predate the conversation_status column (issue #383)
+        try:
+            self._conn.execute(
+                "ALTER TABLE agent_contexts "
+                "ADD COLUMN conversation_status TEXT NOT NULL DEFAULT 'open'"
+            )
+        except sqlite3.OperationalError:
+            pass  # Column already exists
         self._conn.commit()
         self.role_enforcer = None
 
@@ -412,7 +421,8 @@ class SqliteMessageBus:
         """Return the agent context record as a dict, or None if not found."""
         row = self._conn.execute(
             'SELECT context_id, initiator_agent_id, recipient_agent_id, '
-            'parent_context_id, session_id, status, pending_count, created_at '
+            'parent_context_id, session_id, status, pending_count, created_at, '
+            'conversation_status '
             'FROM agent_contexts WHERE context_id = ?',
             (context_id,),
         ).fetchone()
@@ -427,7 +437,21 @@ class SqliteMessageBus:
             'status': row[5],
             'pending_count': row[6],
             'created_at': row[7],
+            'conversation_status': row[8],
         }
+
+    def close_agent_conversation(self, context_id: str) -> None:
+        """Transition the conversation to conversation_status='closed'.
+
+        Only the originator should call this.  Subsequent follow-up Sends
+        to a closed conversation are rejected at the routing layer (issue #383).
+        """
+        self._conn.execute(
+            "UPDATE agent_contexts SET conversation_status = 'closed' "
+            'WHERE context_id = ?',
+            (context_id,),
+        )
+        self._conn.commit()
 
     def set_agent_context_session_id(self, context_id: str, session_id: str) -> None:
         """Record the Claude session ID captured from the first invocation."""
@@ -476,7 +500,8 @@ class SqliteMessageBus:
         """Return all agent context records with status='open'."""
         cursor = self._conn.execute(
             'SELECT context_id, initiator_agent_id, recipient_agent_id, '
-            'parent_context_id, session_id, status, pending_count, created_at '
+            'parent_context_id, session_id, status, pending_count, created_at, '
+            'conversation_status '
             "FROM agent_contexts WHERE status = 'open' ORDER BY created_at"
         )
         return [
@@ -489,6 +514,7 @@ class SqliteMessageBus:
                 'status': row[5],
                 'pending_count': row[6],
                 'created_at': row[7],
+                'conversation_status': row[8],
             }
             for row in cursor.fetchall()
         ]

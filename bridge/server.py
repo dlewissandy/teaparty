@@ -927,6 +927,12 @@ class TeaPartyBridge:
         if not content:
             return web.json_response({'error': 'content is required'}, status=400)
 
+        # Human interjection into an agent-to-agent conversation (issue #383).
+        # The bridge finds the interjection socket for the active session and
+        # forwards the message so the agent is --resumed with the human's input.
+        if conv_id.startswith('agent:'):
+            return await self._handle_agent_conversation_post(conv_id, content)
+
         bus = self._bus_for_conversation(conv_id)
         if bus is None:
             return web.json_response({'error': f'conversation not found: {conv_id}'}, status=404)
@@ -958,6 +964,75 @@ class TeaPartyBridge:
             asyncio.create_task(self._invoke_proxy(qualifier))
 
         return web.json_response({'id': msg_id})
+
+    async def _handle_agent_conversation_post(
+        self, conv_id: str, content: str,
+    ) -> web.Response:
+        """Handle a human message posted to an agent-to-agent conversation.
+
+        Finds the interjection socket for the session that owns this conversation
+        and posts {context_id, message} to trigger --resume on the active session.
+        """
+        import asyncio
+        import json
+
+        socket_path = self._find_interjection_socket(conv_id)
+        if not socket_path:
+            return web.json_response(
+                {'error': f'No active session found for conversation: {conv_id}'},
+                status=404,
+            )
+
+        try:
+            reader, writer = await asyncio.open_unix_connection(socket_path)
+            try:
+                request_payload = json.dumps({
+                    'type': 'interject',
+                    'context_id': conv_id,
+                    'message': content,
+                })
+                writer.write(request_payload.encode() + b'\n')
+                await writer.drain()
+                response_line = await reader.readline()
+                response = json.loads(response_line.decode())
+            finally:
+                writer.close()
+                try:
+                    await writer.wait_closed()
+                except Exception:
+                    pass
+        except Exception as exc:
+            return web.json_response(
+                {'error': f'Failed to reach interjection socket: {exc}'},
+                status=502,
+            )
+
+        if response.get('status') == 'error':
+            return web.json_response({'error': response.get('reason', 'unknown error')}, status=409)
+        return web.json_response({'status': 'ok'})
+
+    def _find_interjection_socket(self, conv_id: str) -> str:
+        """Find the interjection socket path for the session that owns conv_id.
+
+        Searches active session buses for one that has an agent_contexts record
+        matching conv_id, then resolves the session's infra_dir and reads the
+        interjection_socket file written by the engine at startup.
+        """
+        for session_id, bus in self._buses.items():
+            try:
+                ctx = bus.get_agent_context(conv_id)
+                if ctx is None:
+                    continue
+                infra_dir = self._resolve_session_infra(session_id)
+                if infra_dir is None:
+                    continue
+                socket_file = os.path.join(infra_dir, 'interjection_socket')
+                if os.path.exists(socket_file):
+                    with open(socket_file) as f:
+                        return f.read().strip()
+            except Exception:
+                pass
+        return ''
 
     async def _invoke_om(self, qualifier: str) -> None:
         """Invoke the office manager agent for the given conversation qualifier.

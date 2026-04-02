@@ -289,13 +289,22 @@ class Orchestrator:
                 initiator_agent_id=lead_agent_id,
                 current_context_id=self._bus_lead_context_id,
                 spawn_fn=self._bus_spawn_agent,
+                resume_fn=self._bus_resume_agent,
                 reply_fn=self._bus_inject_reply,
                 reinvoke_fn=self._bus_reinvoke_agent,
+                cleanup_fn=self._cleanup_bus_agent_worktree,
                 dispatcher=self._build_bus_dispatcher(),
             )
-            send_socket, reply_socket = await self._bus_event_listener.start()
+            send_socket, reply_socket, close_socket = await self._bus_event_listener.start()
             mcp_env['SEND_SOCKET'] = send_socket
             mcp_env['REPLY_SOCKET'] = reply_socket
+            mcp_env['CLOSE_CONV_SOCKET'] = close_socket
+            mcp_env['AGENT_ID'] = lead_agent_id
+            # Write interjection socket path for bridge to use when human
+            # posts to an agent-to-agent conversation (issue #383)
+            _interjection_path_file = os.path.join(self.infra_dir, 'interjection_socket')
+            with open(_interjection_path_file, 'w') as _f:
+                _f.write(self._bus_event_listener.interjection_socket_path)
 
             self._mcp_config = {
                 'ask-question': {
@@ -357,16 +366,18 @@ class Orchestrator:
         routing_table = RoutingTable.from_workgroups(wg_dicts, project_name=project_name)
         return BusDispatcher(routing_table)
 
-    async def _bus_spawn_agent(self, member: str, composite: str, context_id: str) -> str:
+    async def _bus_spawn_agent(self, member: str, composite: str, context_id: str) -> tuple[str, str]:
         """Spawn a recipient agent for bus-mediated dispatch (Issue #351).
 
         Creates a git worktree for the agent, composes its skill set, launches it
         as an independent claude -p process.  Runs the blocking subprocess call in
-        an executor so the event loop is not blocked.  Cleans up the worktree after
-        the agent exits.
+        an executor so the event loop is not blocked.  The worktree is NOT cleaned
+        up after spawn — it is retained so follow-up sends can resume the agent in
+        the same worktree (Issue #383).
 
-        Returns the session_id captured from claude's --output-format json output,
-        or an empty string if capture fails (non-fatal; context record is still created).
+        Returns (session_id, agent_dir).  session_id may be empty string if capture
+        fails (non-fatal; context record is still created).  agent_dir is the
+        worktree path that must be preserved for multi-turn use.
         """
         import subprocess
         from orchestrator.agent_spawner import AgentSpawner
@@ -374,8 +385,10 @@ class Orchestrator:
         safe_id = context_id.replace(':', '_').replace('/', '_')
         agent_dir = os.path.join(self.infra_dir, 'agents', safe_id)
 
-        def spawn_in_worktree() -> str:
-            # Create a git worktree so the agent has access to project files
+        def spawn_in_worktree() -> tuple[str, str]:
+            # Create a git worktree so the agent has access to project files.
+            # The worktree persists after spawn so follow-up --resume calls
+            # can reuse the same directory (Issue #383).
             wt_result = subprocess.run(
                 ['git', 'worktree', 'add', agent_dir, 'HEAD'],
                 cwd=self.project_workdir,
@@ -388,27 +401,99 @@ class Orchestrator:
                     agent_dir, wt_result.stderr.strip(),
                 )
                 os.makedirs(agent_dir, exist_ok=True)
-            try:
-                return spawner.spawn(
-                    composite,
-                    worktree=agent_dir,
-                    role=member,
-                    project_dir=self.project_workdir,
-                    # CONTEXT_ID lets the worker include its context_id in the
-                    # Reply socket message so BusEventListener can identify
-                    # which context to close (Issue #358).
-                    extra_env={'CONTEXT_ID': context_id},
-                )
-            finally:
-                # Clean up the worktree after the agent process exits
-                subprocess.run(
-                    ['git', 'worktree', 'remove', agent_dir, '--force'],
-                    cwd=self.project_workdir,
-                    capture_output=True,
-                )
+            session_id = spawner.spawn(
+                composite,
+                worktree=agent_dir,
+                role=member,
+                project_dir=self.project_workdir,
+                # CONTEXT_ID lets the worker include its context_id in the
+                # Reply socket message so BusEventListener can identify
+                # which context to close (Issue #358).
+                # AGENT_ID lets the worker pass its identity in CloseConversation
+                # requests so the originator-only invariant is enforced (#383).
+                extra_env={'CONTEXT_ID': context_id, 'AGENT_ID': member},
+            )
+            return (session_id, agent_dir)
 
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, spawn_in_worktree)
+
+    async def _bus_resume_agent(
+        self, member: str, composite: str, session_id: str, context_id: str,
+    ) -> str:
+        """Resume a recipient agent for a follow-up to an open conversation (Issue #383).
+
+        Injects the composite into the recipient's existing session file and
+        re-invokes via --resume session_id in the agent's original spawn worktree.
+        The agent receives the follow-up message in its conversation history without
+        starting a fresh session.
+
+        Returns the session_id (unchanged — --resume reuses the existing session).
+        """
+        from orchestrator.agent_spawner import AgentSpawner
+        from orchestrator.messaging import SqliteMessageBus
+
+        if not session_id:
+            # No prior session captured — cannot resume.
+            _log.warning(
+                '_bus_resume_agent called without session_id for member %s; '
+                'cannot resume — no-op',
+                member,
+            )
+            return ''
+
+        # Look up the agent's original spawn worktree from the context record so
+        # that multi-turn resumes run in the same directory as the first spawn.
+        agent_dir: str = ''
+        bus_db_path = os.path.join(self.infra_dir, 'messages.db')
+        if os.path.exists(bus_db_path) and context_id:
+            bus = SqliteMessageBus(bus_db_path)
+            try:
+                ctx = bus.get_agent_context(context_id)
+                if ctx:
+                    agent_dir = ctx.get('agent_worktree_path', '')
+            finally:
+                bus.close()
+
+        if not agent_dir:
+            _log.warning(
+                '_bus_resume_agent: no stored worktree for context %s; '
+                'falling back to session worktree',
+                context_id,
+            )
+            agent_dir = self.session_worktree or self.project_workdir
+
+        spawner = AgentSpawner(teaparty_home=self.poc_root)
+
+        def resume_in_worktree() -> str:
+            return spawner.spawn(
+                composite,
+                worktree=agent_dir,
+                role=member,
+                project_dir=self.project_workdir,
+                resume_session=session_id,
+            )
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, resume_in_worktree)
+
+    async def _cleanup_bus_agent_worktree(self, worktree_path: str) -> None:
+        """Remove a bus-spawned agent worktree after its conversation closes (#383).
+
+        Called by BusEventListener via cleanup_fn when CloseConversation fires.
+        Runs git worktree remove in an executor to avoid blocking the event loop.
+        """
+        import subprocess
+
+        def do_cleanup() -> None:
+            subprocess.run(
+                ['git', 'worktree', 'remove', '--force', worktree_path],
+                cwd=self.project_workdir,
+                capture_output=True,
+            )
+
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, do_cleanup)
 
     async def _bus_inject_reply(
         self, context_id: str, session_id: str, message: str,

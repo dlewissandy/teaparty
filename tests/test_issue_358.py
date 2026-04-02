@@ -202,7 +202,7 @@ class TestBusEventListenerReinvokeTrigger(unittest.TestCase):
 
         # Simulate a Reply from the worker
         async def run():
-            send_path, reply_path = await listener.start()
+            send_path, reply_path, *_ = await listener.start()
             try:
                 reader, writer = await asyncio.open_unix_connection(reply_path)
                 import json
@@ -247,7 +247,7 @@ class TestBusEventListenerReinvokeTrigger(unittest.TestCase):
         )
 
         async def run():
-            send_path, reply_path = await listener.start()
+            send_path, reply_path, *_ = await listener.start()
             try:
                 reader, writer = await asyncio.open_unix_connection(reply_path)
                 import json
@@ -291,7 +291,7 @@ class TestBusEventListenerReinvokeTrigger(unittest.TestCase):
         )
 
         async def run():
-            send_path, reply_path = await listener.start()
+            send_path, reply_path, *_ = await listener.start()
             try:
                 reader, writer = await asyncio.open_unix_connection(reply_path)
                 import json
@@ -337,7 +337,7 @@ class TestBusEventListenerReinvokeTrigger(unittest.TestCase):
         )
 
         async def run():
-            send_path, reply_path = await listener.start()
+            send_path, reply_path, *_ = await listener.start()
             try:
                 reader, writer = await asyncio.open_unix_connection(reply_path)
                 import json
@@ -532,7 +532,7 @@ class TestEngineReinvokeAgent(unittest.TestCase):
             )
 
             async def run():
-                send_path, reply_path = await listener.start()
+                send_path, reply_path, *_ = await listener.start()
                 try:
                     import json
                     for ctx, msg in [(WORKER_CTX_A, 'reply-A'), (WORKER_CTX_B, 'reply-B')]:
