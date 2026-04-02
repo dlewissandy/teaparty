@@ -45,6 +45,8 @@ SpawnFn = Callable[[str, str, str], Awaitable[tuple[str, str]]]
 ResumeFn = Callable[[str, str, str, str], Awaitable[str]]
 # reinvoke_fn(context_id, session_id, message) -> None
 ReinvokeFn = Callable[[str, str, str], Awaitable[None]]
+# cleanup_fn(worktree_path) -> None
+CleanupFn = Callable[[str], Awaitable[None]]
 
 
 def make_agent_context_id(initiator_agent_id: str, recipient_agent_id: str) -> str:
@@ -94,6 +96,7 @@ class BusEventListener:
         resume_fn: ResumeFn | None = None,
         reply_fn: ReinvokeFn | None = None,
         reinvoke_fn: ReinvokeFn | None = None,
+        cleanup_fn: CleanupFn | None = None,
         current_context_id: str = '',
         initiator_agent_id: str = '',
         dispatcher: object | None = None,
@@ -103,6 +106,7 @@ class BusEventListener:
         self.resume_fn = resume_fn
         self.reply_fn = reply_fn
         self.reinvoke_fn = reinvoke_fn
+        self.cleanup_fn = cleanup_fn
         self.current_context_id = current_context_id
         self.initiator_agent_id = initiator_agent_id
         self.dispatcher = dispatcher  # BusDispatcher | None
@@ -409,12 +413,14 @@ class BusEventListener:
         """Handle a CloseConversation MCP tool call.
 
         Protocol:
-          MCP → listener: {type: "close_conversation", context_id: str}
+          MCP → listener: {type: "close_conversation", context_id: str,
+                           caller_agent_id: str}
           listener → MCP: {status: "ok"} | {status: "error", reason: str}
 
         Sets conversation_status='closed' so subsequent follow-up Sends are
-        rejected.  Only the originator should send this (enforced by trust boundary
-        — any holder of CLOSE_CONV_SOCKET can call this).
+        rejected.  When caller_agent_id is provided, only the context's
+        initiator may close it; a non-initiator caller receives an error.
+        Triggers worktree cleanup via cleanup_fn after the response is sent.
         """
         try:
             line = await reader.readline()
@@ -422,18 +428,38 @@ class BusEventListener:
                 return
             request = json.loads(line.decode())
             context_id = request.get('context_id', '')
+            caller_agent_id = request.get('caller_agent_id', '')
             if not context_id:
                 err = {'status': 'error', 'reason': 'context_id is required'}
                 writer.write(json.dumps(err).encode() + b'\n')
                 await writer.drain()
                 return
 
+            worktree_path = ''
             if self.bus_db_path:
+                # Enforce originator-only close when the caller identifies itself.
+                if caller_agent_id:
+                    initiator = self._get_initiator_agent_id(context_id)
+                    if initiator and initiator != caller_agent_id:
+                        err = {
+                            'status': 'error',
+                            'reason': (
+                                f'Only the originator ({initiator!r}) may close '
+                                f'this conversation'
+                            ),
+                        }
+                        writer.write(json.dumps(err).encode() + b'\n')
+                        await writer.drain()
+                        return
+                worktree_path = self._get_worktree_path(context_id)
                 self._close_conversation(context_id)
 
             response = {'status': 'ok'}
             writer.write(json.dumps(response).encode() + b'\n')
             await writer.drain()
+
+            if worktree_path and self.cleanup_fn is not None:
+                asyncio.create_task(self.cleanup_fn(worktree_path))
 
         except Exception:
             _log.exception('Error handling CloseConversation connection')
@@ -608,6 +634,18 @@ class BusEventListener:
             if ctx is None:
                 return ''
             return ctx.get('agent_worktree_path', '')
+        finally:
+            bus.close()
+
+    def _get_initiator_agent_id(self, context_id: str) -> str:
+        """Return initiator_agent_id for context_id, or '' if not found."""
+        from orchestrator.messaging import SqliteMessageBus
+        bus = SqliteMessageBus(self.bus_db_path)
+        try:
+            ctx = bus.get_agent_context(context_id)
+            if ctx is None:
+                return ''
+            return ctx.get('initiator_agent_id', '')
         finally:
             bus.close()
 

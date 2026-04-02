@@ -496,6 +496,7 @@ class TestCloseConversationSocket(unittest.TestCase):
                     json.dumps({
                         'type': 'close_conversation',
                         'context_id': CTX_ID,
+                        'caller_agent_id': 'proj/lead',
                     }).encode() + b'\n'
                 )
                 await writer.drain()
@@ -883,6 +884,340 @@ class TestBridgeInterjectionRouting(unittest.TestCase):
         status, data = _run(run())
         self.assertEqual(status, 404)
         self.assertIn('error', data)
+
+
+# ── SC2: Worktree cleanup and originator identity (findings 1 & 2) ────────────
+
+
+class TestWorktreeCleanupOnClose(unittest.TestCase):
+    """Finding 1: CloseConversation must trigger worktree cleanup via cleanup_fn.
+    The agent_worktree_path stored at spawn time must be passed to cleanup_fn
+    when the conversation closes."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_close_conversation_triggers_cleanup_fn_with_worktree_path(self):
+        """cleanup_fn must be called with the stored agent_worktree_path on close."""
+        from orchestrator.bus_event_listener import BusEventListener
+
+        CTX_ID = 'agent:proj/lead:proj/worker:cleanup-test-1'
+        WORKTREE_PATH = os.path.join(self.tmpdir, 'agents', 'fake-worktree')
+        cleanup_calls = []
+
+        async def mock_cleanup(worktree_path: str) -> None:
+            cleanup_calls.append(worktree_path)
+
+        bus = _make_bus(self.tmpdir)
+        bus.create_agent_context(CTX_ID, 'proj/lead', 'proj/worker')
+        bus.set_agent_context_worktree_path(CTX_ID, WORKTREE_PATH)
+        bus.close()
+
+        listener = BusEventListener(
+            bus_db_path=os.path.join(self.tmpdir, 'bus.db'),
+            cleanup_fn=mock_cleanup,
+            initiator_agent_id='proj/lead',
+        )
+
+        async def run():
+            _, _, close_path = await listener.start()
+            try:
+                reader, writer = await asyncio.open_unix_connection(close_path)
+                writer.write(
+                    json.dumps({
+                        'type': 'close_conversation',
+                        'context_id': CTX_ID,
+                        'caller_agent_id': 'proj/lead',
+                    }).encode() + b'\n'
+                )
+                await writer.drain()
+                line = await reader.readline()
+                response = json.loads(line.decode())
+                writer.close()
+                await asyncio.sleep(0.1)
+                return response
+            finally:
+                await listener.stop()
+
+        response = _run(run())
+        self.assertEqual(response['status'], 'ok')
+        self.assertEqual(
+            cleanup_calls,
+            [WORKTREE_PATH],
+            'cleanup_fn must be called with the stored worktree path on close',
+        )
+
+    def test_close_with_no_worktree_path_does_not_call_cleanup_fn(self):
+        """cleanup_fn must not be called when no worktree path was stored."""
+        from orchestrator.bus_event_listener import BusEventListener
+
+        CTX_ID = 'agent:proj/lead:proj/worker:cleanup-no-path'
+        cleanup_calls = []
+
+        async def mock_cleanup(worktree_path: str) -> None:
+            cleanup_calls.append(worktree_path)
+
+        bus = _make_bus(self.tmpdir)
+        bus.create_agent_context(CTX_ID, 'proj/lead', 'proj/worker')
+        # No worktree path set
+        bus.close()
+
+        listener = BusEventListener(
+            bus_db_path=os.path.join(self.tmpdir, 'bus.db'),
+            cleanup_fn=mock_cleanup,
+        )
+
+        async def run():
+            _, _, close_path = await listener.start()
+            try:
+                reader, writer = await asyncio.open_unix_connection(close_path)
+                writer.write(
+                    json.dumps({'type': 'close_conversation', 'context_id': CTX_ID}).encode() + b'\n'
+                )
+                await writer.drain()
+                line = await reader.readline()
+                response = json.loads(line.decode())
+                writer.close()
+                await asyncio.sleep(0.05)
+                return response
+            finally:
+                await listener.stop()
+
+        response = _run(run())
+        self.assertEqual(response['status'], 'ok')
+        self.assertEqual(
+            cleanup_calls, [],
+            'cleanup_fn must not be called when no worktree path is stored',
+        )
+
+
+class TestOriginatorOnlyClose(unittest.TestCase):
+    """Finding 2: CloseConversation must enforce that only the initiator may
+    close a conversation when caller_agent_id is provided."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_originator_can_close_own_conversation(self):
+        """Originator posting caller_agent_id matching initiator_agent_id must succeed."""
+        from orchestrator.bus_event_listener import BusEventListener
+
+        CTX_ID = 'agent:proj/lead:proj/worker:originator-close-ok'
+        bus = _make_bus(self.tmpdir)
+        bus.create_agent_context(CTX_ID, 'proj/lead', 'proj/worker')
+        bus.close()
+
+        listener = BusEventListener(bus_db_path=os.path.join(self.tmpdir, 'bus.db'))
+
+        async def run():
+            _, _, close_path = await listener.start()
+            try:
+                reader, writer = await asyncio.open_unix_connection(close_path)
+                writer.write(
+                    json.dumps({
+                        'type': 'close_conversation',
+                        'context_id': CTX_ID,
+                        'caller_agent_id': 'proj/lead',
+                    }).encode() + b'\n'
+                )
+                await writer.drain()
+                return json.loads((await reader.readline()).decode())
+            finally:
+                await listener.stop()
+
+        response = _run(run())
+        self.assertEqual(response['status'], 'ok')
+
+        bus = _make_bus(self.tmpdir)
+        try:
+            ctx = bus.get_agent_context(CTX_ID)
+            self.assertEqual(ctx['conversation_status'], 'closed')
+        finally:
+            bus.close()
+
+    def test_non_originator_close_is_rejected(self):
+        """Non-originator posting caller_agent_id that differs from initiator must get error."""
+        from orchestrator.bus_event_listener import BusEventListener
+
+        CTX_ID = 'agent:proj/lead:proj/worker:non-originator-close'
+        bus = _make_bus(self.tmpdir)
+        bus.create_agent_context(CTX_ID, 'proj/lead', 'proj/worker')
+        bus.close()
+
+        listener = BusEventListener(bus_db_path=os.path.join(self.tmpdir, 'bus.db'))
+
+        async def run():
+            _, _, close_path = await listener.start()
+            try:
+                reader, writer = await asyncio.open_unix_connection(close_path)
+                writer.write(
+                    json.dumps({
+                        'type': 'close_conversation',
+                        'context_id': CTX_ID,
+                        'caller_agent_id': 'proj/worker',  # wrong — worker is not the initiator
+                    }).encode() + b'\n'
+                )
+                await writer.drain()
+                return json.loads((await reader.readline()).decode())
+            finally:
+                await listener.stop()
+
+        response = _run(run())
+        self.assertEqual(
+            response['status'],
+            'error',
+            'non-originator must be rejected',
+        )
+        self.assertIn('originator', response.get('reason', '').lower())
+
+        bus = _make_bus(self.tmpdir)
+        try:
+            ctx = bus.get_agent_context(CTX_ID)
+            self.assertEqual(
+                ctx['conversation_status'],
+                'open',
+                'conversation must remain open after rejected close attempt',
+            )
+        finally:
+            bus.close()
+
+    def test_close_without_caller_agent_id_is_allowed(self):
+        """Close request without caller_agent_id bypasses identity check (backward compat)."""
+        from orchestrator.bus_event_listener import BusEventListener
+
+        CTX_ID = 'agent:proj/lead:proj/worker:no-agent-id-close'
+        bus = _make_bus(self.tmpdir)
+        bus.create_agent_context(CTX_ID, 'proj/lead', 'proj/worker')
+        bus.close()
+
+        listener = BusEventListener(bus_db_path=os.path.join(self.tmpdir, 'bus.db'))
+
+        async def run():
+            _, _, close_path = await listener.start()
+            try:
+                reader, writer = await asyncio.open_unix_connection(close_path)
+                writer.write(
+                    json.dumps({'type': 'close_conversation', 'context_id': CTX_ID}).encode() + b'\n'
+                )
+                await writer.drain()
+                return json.loads((await reader.readline()).decode())
+            finally:
+                await listener.stop()
+
+        response = _run(run())
+        self.assertEqual(response['status'], 'ok')
+
+
+# ── SC8: Bridge interjection socket discovery ─────────────────────────────────
+
+
+class TestFindInterjectionSocket(unittest.TestCase):
+    """SC8: _find_interjection_socket must locate the interjection socket by
+    scanning active session buses for the matching agent context, resolving
+    the session's infra_dir, and reading the interjection_socket file.
+
+    This tests the discovery logic that was previously mocked in
+    TestBridgeInterjectionRouting — the materialization of SC4's claim that
+    'the chat dialog already carries the conversation_id.'
+    """
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_find_interjection_socket_returns_path_for_matching_context(self):
+        """_find_interjection_socket must return the socket path when the conv_id
+        exists in an active bus and the infra_dir has an interjection_socket file."""
+        from bridge.server import TeaPartyBridge
+        from orchestrator.messaging import SqliteMessageBus
+
+        conv_id = 'agent:proj-lead:proj-worker:find-sock-1'
+        session_id = 'test-session-findme'
+        expected_socket = os.path.join(self.tmpdir, 'real-interject.sock')
+
+        # Create a real bus with the context record
+        bus_db = os.path.join(self.tmpdir, 'bus.db')
+        bus = SqliteMessageBus(bus_db)
+        bus.create_agent_context(conv_id, 'proj/lead', 'proj/worker')
+
+        # Create an infra_dir with the interjection_socket file
+        infra_dir = os.path.join(self.tmpdir, 'infra', session_id)
+        os.makedirs(infra_dir)
+        with open(os.path.join(infra_dir, 'interjection_socket'), 'w') as f:
+            f.write(expected_socket + '\n')  # trailing newline — strip() must handle it
+
+        try:
+            bridge = TeaPartyBridge(teaparty_home=self.tmpdir, static_dir=self.tmpdir)
+            bridge._buses[session_id] = bus
+            bridge._resolve_session_infra = lambda sid: infra_dir if sid == session_id else None
+
+            result = bridge._find_interjection_socket(conv_id)
+        finally:
+            bus.close()
+
+        self.assertEqual(
+            result,
+            expected_socket,
+            '_find_interjection_socket must return the socket path from the infra file',
+        )
+
+    def test_find_interjection_socket_returns_empty_when_no_matching_bus(self):
+        """_find_interjection_socket must return '' when no active bus has the context."""
+        from bridge.server import TeaPartyBridge
+        from orchestrator.messaging import SqliteMessageBus
+
+        conv_id = 'agent:proj-lead:proj-worker:find-sock-notfound'
+
+        # Bus has no record for this conv_id
+        bus_db = os.path.join(self.tmpdir, 'bus.db')
+        bus = SqliteMessageBus(bus_db)
+        bus.create_agent_context('agent:other:context:xyz', 'proj/lead', 'proj/worker')
+
+        try:
+            bridge = TeaPartyBridge(teaparty_home=self.tmpdir, static_dir=self.tmpdir)
+            bridge._buses['session-other'] = bus
+            bridge._resolve_session_infra = lambda sid: self.tmpdir
+
+            result = bridge._find_interjection_socket(conv_id)
+        finally:
+            bus.close()
+
+        self.assertEqual(result, '', '_find_interjection_socket must return empty string when no match')
+
+    def test_find_interjection_socket_returns_empty_when_socket_file_missing(self):
+        """_find_interjection_socket must return '' when infra_dir has no socket file."""
+        from bridge.server import TeaPartyBridge
+        from orchestrator.messaging import SqliteMessageBus
+
+        conv_id = 'agent:proj-lead:proj-worker:find-sock-nofile'
+        session_id = 'test-session-nofile'
+
+        bus_db = os.path.join(self.tmpdir, 'bus.db')
+        bus = SqliteMessageBus(bus_db)
+        bus.create_agent_context(conv_id, 'proj/lead', 'proj/worker')
+
+        # infra_dir exists but has no interjection_socket file
+        infra_dir = os.path.join(self.tmpdir, 'infra-nofile')
+        os.makedirs(infra_dir)
+
+        try:
+            bridge = TeaPartyBridge(teaparty_home=self.tmpdir, static_dir=self.tmpdir)
+            bridge._buses[session_id] = bus
+            bridge._resolve_session_infra = lambda sid: infra_dir
+
+            result = bridge._find_interjection_socket(conv_id)
+        finally:
+            bus.close()
+
+        self.assertEqual(result, '', '_find_interjection_socket must return empty string when socket file missing')
 
 
 if __name__ == '__main__':

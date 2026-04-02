@@ -312,12 +312,14 @@ class Orchestrator:
                 resume_fn=self._bus_resume_agent,
                 reply_fn=self._bus_inject_reply,
                 reinvoke_fn=self._bus_reinvoke_agent,
+                cleanup_fn=self._cleanup_bus_agent_worktree,
                 dispatcher=self._build_bus_dispatcher(),
             )
             send_socket, reply_socket, close_socket = await self._bus_event_listener.start()
             mcp_env['SEND_SOCKET'] = send_socket
             mcp_env['REPLY_SOCKET'] = reply_socket
             mcp_env['CLOSE_CONV_SOCKET'] = close_socket
+            mcp_env['AGENT_ID'] = lead_agent_id
             # Write interjection socket path for bridge to use when human
             # posts to an agent-to-agent conversation (issue #383)
             _interjection_path_file = os.path.join(self.infra_dir, 'interjection_socket')
@@ -429,7 +431,9 @@ class Orchestrator:
                 # CONTEXT_ID lets the worker include its context_id in the
                 # Reply socket message so BusEventListener can identify
                 # which context to close (Issue #358).
-                extra_env={'CONTEXT_ID': context_id},
+                # AGENT_ID lets the worker pass its identity in CloseConversation
+                # requests so the originator-only invariant is enforced (#383).
+                extra_env={'CONTEXT_ID': context_id, 'AGENT_ID': member},
             )
             return (session_id, agent_dir)
 
@@ -494,6 +498,24 @@ class Orchestrator:
 
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, resume_in_worktree)
+
+    async def _cleanup_bus_agent_worktree(self, worktree_path: str) -> None:
+        """Remove a bus-spawned agent worktree after its conversation closes (#383).
+
+        Called by BusEventListener via cleanup_fn when CloseConversation fires.
+        Runs git worktree remove in an executor to avoid blocking the event loop.
+        """
+        import subprocess
+
+        def do_cleanup() -> None:
+            subprocess.run(
+                ['git', 'worktree', 'remove', '--force', worktree_path],
+                cwd=self.project_workdir,
+                capture_output=True,
+            )
+
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, do_cleanup)
 
     async def _bus_inject_reply(
         self, context_id: str, session_id: str, message: str,

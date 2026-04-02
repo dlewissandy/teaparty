@@ -438,7 +438,11 @@ async def _default_close_conv_post(context_id: str) -> str:
         raise RuntimeError('CLOSE_CONV_SOCKET not set — cannot close conversation')
     reader, writer = await asyncio.open_unix_connection(socket_path)
     try:
-        request = json.dumps({'type': 'close_conversation', 'context_id': context_id})
+        request = json.dumps({
+            'type': 'close_conversation',
+            'context_id': context_id,
+            'caller_agent_id': os.environ.get('AGENT_ID', ''),
+        })
         writer.write(request.encode() + b'\n')
         await writer.drain()
         response_line = await reader.readline()
