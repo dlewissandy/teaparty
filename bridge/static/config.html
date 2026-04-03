@@ -9,7 +9,10 @@
 <body>
 
 <div class="blade-layout">
+<div class="content-wrap">
 <div id="content" class="app-pane active" style="overflow-y:auto;flex:1;min-width:0"></div>
+<button id="edit-toggle" class="edit-toggle-btn" onclick="toggleEditMode()">Edit</button>
+</div>
 <div class="blade" id="blade">
   <div class="blade-tab" onclick="toggleBlade()">Config Lead</div>
   <div class="blade-body">
@@ -23,6 +26,13 @@
 var omConvId = 'om:unknown';
 var bladeConvId = '';
 var _bladeOpen = false;
+var _editMode = false;
+
+function toggleEditMode() {
+  _editMode = !_editMode;
+  document.getElementById('content').classList.toggle('edit-mode', _editMode);
+  document.getElementById('edit-toggle').classList.toggle('active', _editMode);
+}
 
 function toggleBlade() {
   _bladeOpen = !_bladeOpen;
@@ -276,14 +286,14 @@ async function toggleMembership(scope, type, name, active, projectSlug) {
 function sectionCard(title, items, opts) {
   var buttons = '';
   if (opts && opts.addProjectBtn) {
-    buttons += '<button class="action-btn" onclick="openChatWithSeed(\'om:add-project\', \'Please run the /add-project skill.\')">+ Add</button>';
-    buttons += '<button class="action-btn" onclick="openChatWithSeed(\'om:new-project\', \'Please run the /create-project skill.\')">+ New</button>';
+    buttons += '<button class="action-btn config-edit-btn" onclick="openChatWithSeed(\'om:add-project\', \'Please run the /add-project skill.\')">+ Add</button>';
+    buttons += '<button class="action-btn config-edit-btn" onclick="openChatWithSeed(\'om:new-project\', \'Please run the /create-project skill.\')">+ New</button>';
   } else {
-    if (opts && opts.addBtn) buttons += '<button class="action-btn" onclick="openChat(\'' + omConvId + '\')">+ New</button>';
+    if (opts && opts.addBtn) buttons += '<button class="action-btn config-edit-btn" onclick="openChat(\'' + omConvId + '\')">+ New</button>';
   }
-  if (opts && opts.catalogBtn) buttons += '<button class="action-btn" style="background:rgba(78,204,163,0.15);color:var(--green)" onclick="openChat(\'' + omConvId + '\')">+ Catalog</button>';
-  if (opts && opts.pinBtn) buttons += '<button class="action-btn" onclick="openChatWithSeed(\'' + omConvId + '\', \'Please pin a path to the artifact viewer for this project.\')">+ Pin</button>';
-  if (opts && opts.browseBtn) buttons += '<button class="action-btn" onclick="' + opts.browseBtn + '">Browse</button>';
+  if (opts && opts.catalogBtn) buttons += '<button class="action-btn config-edit-btn" style="background:rgba(78,204,163,0.15);color:var(--green)" onclick="openChat(\'' + omConvId + '\')">+ Catalog</button>';
+  if (opts && opts.pinBtn) buttons += '<button class="action-btn config-edit-btn" onclick="openChatWithSeed(\'' + omConvId + '\', \'Please pin a path to the artifact viewer for this project.\')">+ Pin</button>';
+  if (opts && opts.browseBtn) buttons += '<button class="action-btn config-edit-btn" onclick="' + opts.browseBtn + '">Browse</button>';
   var body = items.length === 0 ? '<div class="empty">' + (opts && opts.empty || 'None') + '</div>' : items.join('');
   return '<div class="section"><div class="section-header">' + title + '<span style="flex:1"></span>' + buttons + '</div><div class="section-scroll">' + body + '</div></div>';
 }

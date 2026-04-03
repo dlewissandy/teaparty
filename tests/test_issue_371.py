@@ -305,10 +305,9 @@ class TestIndexHtmlHasOmBlade(unittest.TestCase):
             'index.html must define/use toggleBlade for the blade')
 
     def test_index_blade_uses_om_conv_id(self):
-        """index.html blade must set bladeConvId to the OM conversation ID."""
-        # The blade on index.html routes to the OM — bladeConvId must be set to omConvId
-        self.assertIn('bladeConvId', self.source,
-            'index.html must set bladeConvId for the blade conversation')
+        """index.html blade must load the OM conversation ID into the blade iframe."""
+        self.assertIn('omConvId', self.source,
+            'index.html must use omConvId to set the blade iframe conversation')
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
