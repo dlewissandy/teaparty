@@ -29,6 +29,12 @@ teaparty.db-wal
 # TeaParty — machine-specific external project registry
 .teaparty/management/external-projects.yaml
 
+# TeaParty — agent runtime state (session files, message databases, proxy memory)
+.teaparty/om/
+.teaparty/pm/
+.teaparty/proxy/
+.teaparty/config/
+
 # TeaParty — agent runtime state (message databases, session files, memory)
 .teaparty/management/agents/*/om-messages.db
 .teaparty/management/agents/*/pm-messages.db
