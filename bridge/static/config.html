@@ -398,6 +398,16 @@ async function renderGlobal() {
     participantItems.push('<div class="item"><div class="item-icon icon-member">&#9786;</div><div class="item-body"><div class="item-title">' + h.name + '</div></div><select class="role-select" onchange="setParticipantRole(\'global\',\'' + h.name + '\',this.value)">' + sel + '</select></div>');
   });
 
+  var rosterItems = (m.roster || []).map(function(r) {
+    var icon = r.role === 'project-lead' ? '&#9654;' : '&#9672;';
+    var iconCls = r.role === 'project-lead' ? 'icon-project' : 'icon-member';
+    var roleBadge = '<span class="source-badge">' + (r.role === 'project-lead' ? 'project lead' : 'management') + '</span>';
+    var cardClick = r.project
+      ? ' onclick="configNav(\'project\',\'' + r.project + '\')" style="cursor:pointer"'
+      : ' onclick="configNav(\'agent\',\'' + r.name + '\')" style="cursor:pointer"';
+    return '<div class="item item-catalog-active"' + cardClick + '><div class="item-icon ' + iconCls + '">' + icon + '</div><div class="item-body"><div class="item-title">' + r.name + ' ' + roleBadge + '</div><div class="item-meta">' + (r.description || '') + '</div></div></div>';
+  });
+
   var orgArtifactItems = Object.keys(artifactsData).map(function(heading) {
     return '<div class="item" onclick="window.open(\'artifacts.html?project=org\',\'_blank\')" style="background:rgba(78,204,163,0.03)"><div class="item-icon" style="background:rgba(78,204,163,0.15);color:var(--green)">&#9654;</div><div class="item-body"><div class="item-title">' + heading + '</div></div></div>';
   });
@@ -446,6 +456,7 @@ async function renderGlobal() {
       sectionCard('Workgroups', wgItems, { addBtn: true, empty: 'No org-level workgroups' }) +
       sectionCard('Agents', agentItems, { addBtn: true }) +
       sectionCard('Participants', participantItems) +
+      sectionCard('Roster', rosterItems, { empty: 'No dispatch targets configured (add members.projects to teaparty.yaml)' }) +
       sectionCard('Artifacts', orgArtifactItems, { empty: 'No organizational artifacts' }) +
       sectionCard('Skills', skillItems, { addBtn: true }) +
       sectionCard('Hooks', hookItems, { addBtn: true }) +

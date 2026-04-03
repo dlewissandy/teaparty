@@ -1698,12 +1698,53 @@ class TeaPartyBridge:
             for n in (discovered_skills or [])
         ]
 
+        # Build the OM's roster — the implicit dispatch targets
+        roster_items: list[dict] = []
+        for project_name in (t.members_projects or []):
+            project_entry = next((p for p in t.projects if p.get('name') == project_name), None)
+            if not project_entry:
+                continue
+            p_path = project_entry.get('path', '')
+            if not os.path.isabs(p_path):
+                p_path = os.path.join(repo_root, p_path)
+            p_config = project_entry.get('config', '')
+            full_config = os.path.join(p_path, p_config) if p_config else None
+            try:
+                pt = load_project_team(p_path, config_path=full_config)
+                roster_items.append({
+                    'name': pt.lead or project_name,
+                    'role': 'project-lead',
+                    'description': pt.description or project_name,
+                    'project': project_name,
+                })
+            except FileNotFoundError:
+                roster_items.append({
+                    'name': project_name,
+                    'role': 'project-lead',
+                    'description': project_name,
+                    'project': project_name,
+                })
+        for agent_name in (t.members_agents or []):
+            desc = ''
+            agent_path = os.path.join(agents_dir, agent_name, 'agent.md')
+            if not os.path.isfile(agent_path):
+                agent_path = os.path.join(agents_dir, f'{agent_name}.md')
+            if os.path.isfile(agent_path):
+                fm = read_agent_frontmatter(agent_path)
+                desc = fm.get('description', '')
+            roster_items.append({
+                'name': agent_name,
+                'role': 'management-agent',
+                'description': desc or agent_name,
+            })
+
         decider = next((h.name for h in t.humans if h.role == 'decider'), '')
         return {
             'name': t.name,
             'description': t.description,
             'lead': t.lead,
             'decider': decider,
+            'roster': roster_items,
             'agents': agents_result,
             'humans': [{'name': h.name, 'role': h.role} for h in t.humans],
             'skills': skills_result,
