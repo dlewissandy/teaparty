@@ -48,7 +48,8 @@ body {
 .pane-subtitle { font-size: 10px; color: var(--text-dim); margin-bottom: 12px; }
 .breadcrumb-bar {
   display: flex; gap: 6px; align-items: center; font-size: 11px;
-  margin-bottom: 10px;
+  margin-bottom: 10px; position: sticky; top: 0; z-index: 4;
+  background: var(--bg); padding: 8px 12px; margin: -12px -12px 10px -12px;
 }
 .breadcrumb-bar a { color: var(--green); text-decoration: none; cursor: pointer; }
 .breadcrumb-bar a:hover { text-decoration: underline; }
