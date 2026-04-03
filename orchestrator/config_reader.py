@@ -151,6 +151,7 @@ class ManagementTeam:
     humans: list[Human] = field(default_factory=list)
     projects: list[dict[str, str]] = field(default_factory=list)
     members_agents: list[str] = field(default_factory=list)
+    members_projects: list[str] = field(default_factory=list)
     members_skills: list[str] = field(default_factory=list)
     members_workgroups: list[str] = field(default_factory=list)
     workgroups: list[WorkgroupEntry] = field(default_factory=list)
@@ -290,6 +291,7 @@ def load_management_team(
         humans=_parse_humans(data.get('humans')),
         projects=_parse_projects(projects, repo_root=repo_root),
         members_agents=members.get('agents') or [],
+        members_projects=members.get('projects') or [],
         members_skills=members.get('skills') or [],
         members_workgroups=members.get('workgroups') or [],
         workgroups=_parse_management_workgroups(data.get('workgroups')),
@@ -748,7 +750,7 @@ def _load_management_yaml(
         return yaml.safe_load(f)
 
 
-_MEMBERSHIP_KEYS = {'agent': 'agents', 'workgroup': 'workgroups', 'skill': 'skills', 'hook': 'hooks', 'scheduled_task': 'scheduled'}
+_MEMBERSHIP_KEYS = {'agent': 'agents', 'project': 'projects', 'workgroup': 'workgroups', 'skill': 'skills', 'hook': 'hooks', 'scheduled_task': 'scheduled'}
 
 
 def _toggle_hook_active(hooks: list[dict], event: str, active: bool) -> list[dict]:

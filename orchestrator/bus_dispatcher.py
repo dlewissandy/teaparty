@@ -101,6 +101,31 @@ class RoutingTable:
         return table
 
     @classmethod
+    def from_management_roster(
+        cls,
+        roster: dict[str, dict],
+        agent_id_map: dict[str, str],
+        *,
+        om_agent_id: str = 'om',
+    ) -> 'RoutingTable':
+        """Derive the routing table for the OM from its roster.
+
+        Args:
+            roster: The OM's roster dict (keys are agent names).
+            agent_id_map: Mapping from agent names to scoped agent IDs.
+            om_agent_id: Agent ID for the office manager.
+
+        Returns:
+            A RoutingTable with OM ↔ each roster member.
+        """
+        table = cls()
+        for agent_name in roster:
+            agent_id = agent_id_map.get(agent_name, agent_name)
+            table.add_pair(om_agent_id, agent_id)
+            table.add_pair(agent_id, om_agent_id)
+        return table
+
+    @classmethod
     def merge(cls, tables: list['RoutingTable']) -> 'RoutingTable':
         """Merge multiple routing tables into one (e.g. for multi-project sessions)."""
         merged = cls()

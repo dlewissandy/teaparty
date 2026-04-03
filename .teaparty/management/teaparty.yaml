@@ -9,6 +9,8 @@ projects:
   path: .
   config: .teaparty/project.yaml
 members:
+  projects:
+  - TeaParty
   workgroups:
   - Configuration
 workgroups:

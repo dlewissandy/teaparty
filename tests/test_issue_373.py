@@ -210,9 +210,9 @@ class TestManagementTeamRegisteredProjects(unittest.TestCase):
         self.assertIn('Alpha', names)
         self.assertIn('Beta', names)
 
-    def test_no_members_projects_attribute(self):
-        """ManagementTeam must not have members_projects — all registered projects are active."""
-        self.assertFalse(hasattr(self.team, 'members_projects'))
+    def test_members_projects_attribute(self):
+        """ManagementTeam.members_projects scopes OM dispatch targets."""
+        self.assertIsInstance(self.team.members_projects, list)
 
 
 class TestProjectTeamRegisteredVsActiveMembership(unittest.TestCase):

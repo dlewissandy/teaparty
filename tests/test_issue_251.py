@@ -198,13 +198,13 @@ class TestLoadManagementTeam(unittest.TestCase):
         self.assertEqual(team.projects[0]['name'], 'My Backend')
         self.assertEqual(team.projects[0]['path'], proj)
 
-    def test_no_members_projects(self):
-        """ManagementTeam must not have members_projects — all registered projects are active."""
+    def test_members_projects(self):
+        """ManagementTeam.members_projects scopes which registered projects the OM dispatches to."""
         proj = _make_project_dir("name: Dummy\ndescription: d\nlead: x\n")
         yaml_text = MINIMAL_TEAPARTY_YAML.format(project_path=proj)
         home = _make_teaparty_home(yaml_text)
         team = load_management_team(teaparty_home=os.path.join(home, '.teaparty'))
-        self.assertFalse(hasattr(team, 'members_projects'))
+        self.assertEqual(team.members_projects, ['My Backend'])
 
     def test_scheduled_tasks(self):
         proj = _make_project_dir("name: Dummy\ndescription: d\nlead: x\n")

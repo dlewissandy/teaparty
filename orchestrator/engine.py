@@ -375,6 +375,11 @@ class Orchestrator:
         up after spawn — it is retained so follow-up sends can resume the agent in
         the same worktree (Issue #383).
 
+        If the recipient has a sub-roster (it's a lead with agents under it),
+        a child BusEventListener is created for it so it can dispatch to its own
+        agents via Send. This is the recursive spawn path described in the
+        recursive-dispatch proposal.
+
         Returns (session_id, agent_dir).  session_id may be empty string if capture
         fails (non-fatal; context record is still created).  agent_dir is the
         worktree path that must be preserved for multi-turn use.
@@ -384,6 +389,21 @@ class Orchestrator:
         spawner = AgentSpawner(teaparty_home=self.poc_root)
         safe_id = context_id.replace(':', '_').replace('/', '_')
         agent_dir = os.path.join(self.infra_dir, 'agents', safe_id)
+
+        # Check if the recipient has a sub-roster and needs its own listener
+        child_listener = None
+        child_mcp_config = None
+        try:
+            from orchestrator.roster import has_sub_roster, derive_project_roster, derive_workgroup_roster
+            if has_sub_roster(member, self.poc_root, project_dir=self.project_workdir):
+                child_listener, child_mcp_config = await self._make_child_listener(
+                    member, context_id, agent_dir,
+                )
+        except Exception:
+            _log.debug(
+                'Sub-roster check failed for %s — spawning as leaf worker',
+                member, exc_info=True,
+            )
 
         def spawn_in_worktree() -> tuple[str, str]:
             # Create a git worktree so the agent has access to project files.
@@ -406,6 +426,7 @@ class Orchestrator:
                 worktree=agent_dir,
                 role=member,
                 project_dir=self.project_workdir,
+                mcp_config=child_mcp_config,
                 # CONTEXT_ID lets the worker include its context_id in the
                 # Reply socket message so BusEventListener can identify
                 # which context to close (Issue #358).
@@ -416,7 +437,165 @@ class Orchestrator:
             return (session_id, agent_dir)
 
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, spawn_in_worktree)
+        try:
+            result = await loop.run_in_executor(None, spawn_in_worktree)
+        except Exception:
+            # If spawn fails, stop child listener and synthesize error Reply
+            if child_listener:
+                await child_listener.stop()
+            raise
+        finally:
+            # Stop child listener after the spawned process exits
+            if child_listener:
+                await child_listener.stop()
+
+        return result
+
+    async def _make_child_listener(
+        self,
+        member: str,
+        context_id: str,
+        agent_dir: str,
+    ) -> tuple[Any, dict]:
+        """Create a child BusEventListener for an agent with a sub-roster.
+
+        Returns (listener, mcp_config) where mcp_config contains the child
+        listener's socket paths for the spawned agent's MCP server.
+        """
+        import sys
+        from orchestrator.bus_event_listener import BusEventListener
+        from orchestrator.agent_spawner import AgentSpawner
+        from orchestrator.roster import (
+            derive_project_roster,
+            derive_workgroup_roster,
+            agent_id_map as build_agent_id_map,
+        )
+        from orchestrator.bus_dispatcher import BusDispatcher, RoutingTable
+
+        bus_db_path = os.path.join(self.infra_dir, 'messages.db')
+        spawner = AgentSpawner(teaparty_home=self.poc_root)
+
+        # Determine the child's agent_id
+        project_name = self.project_slug or os.path.basename(self.project_workdir)
+        if member.endswith('-lead'):
+            child_agent_id = f'{member[:-5]}/lead'
+        else:
+            child_agent_id = f'{project_name}/{member}'
+
+        child_context_id = f'agent:{child_agent_id}:{context_id}'
+
+        # Build child's routing table from its roster
+        # For now, derive roster based on the member's level
+        child_roster: dict = {}
+        child_id_map: dict[str, str] = {}
+        try:
+            child_roster = derive_project_roster(
+                self.project_workdir, self.poc_root,
+            )
+            child_id_map = build_agent_id_map(
+                child_roster, 'project', project_name=project_name,
+            )
+        except Exception:
+            _log.debug('Project roster derivation failed for %s', member, exc_info=True)
+
+        if child_roster and child_id_map:
+            routing_table = RoutingTable()
+            for name in child_roster:
+                agent_id = child_id_map.get(name, name)
+                routing_table.add_pair(child_agent_id, agent_id)
+                routing_table.add_pair(agent_id, child_agent_id)
+            dispatcher = BusDispatcher(routing_table)
+        else:
+            dispatcher = None
+
+        # Build child spawn/resume/reinvoke closures
+        async def child_spawn_fn(
+            child_member: str, composite: str, child_ctx_id: str,
+        ) -> tuple[str, str]:
+            import subprocess as _sp
+            child_safe_id = child_ctx_id.replace(':', '_').replace('/', '_')
+            child_agent_dir = os.path.join(self.infra_dir, 'agents', child_safe_id)
+            wt_result = _sp.run(
+                ['git', 'worktree', 'add', child_agent_dir, 'HEAD'],
+                cwd=self.project_workdir,
+                capture_output=True, text=True,
+            )
+            if wt_result.returncode != 0:
+                os.makedirs(child_agent_dir, exist_ok=True)
+            session_id = spawner.spawn(
+                composite,
+                worktree=child_agent_dir,
+                role=child_member,
+                project_dir=self.project_workdir,
+                extra_env={'CONTEXT_ID': child_ctx_id, 'AGENT_ID': child_member},
+            )
+            return (session_id, child_agent_dir)
+
+        async def child_resume_fn(
+            child_member: str, composite: str, session_id: str, child_ctx_id: str,
+        ) -> str:
+            from orchestrator.messaging import SqliteMessageBus
+            child_agent_dir = ''
+            if os.path.exists(bus_db_path) and child_ctx_id:
+                bus = SqliteMessageBus(bus_db_path)
+                try:
+                    ctx = bus.get_agent_context(child_ctx_id)
+                    if ctx:
+                        child_agent_dir = ctx.get('agent_worktree_path', '')
+                finally:
+                    bus.close()
+            if not child_agent_dir:
+                child_agent_dir = self.project_workdir
+            return spawner.spawn(
+                composite,
+                worktree=child_agent_dir,
+                role=child_member,
+                project_dir=self.project_workdir,
+                resume_session=session_id,
+            )
+
+        async def child_reinvoke_fn(
+            child_ctx_id: str, session_id: str, message: str,
+        ) -> None:
+            _log.debug(
+                'Child reinvoke for context %s — fan-in complete',
+                child_ctx_id,
+            )
+
+        async def child_cleanup_fn(worktree_path: str) -> None:
+            await self._cleanup_bus_agent_worktree(worktree_path)
+
+        listener = BusEventListener(
+            bus_db_path=bus_db_path,
+            initiator_agent_id=child_agent_id,
+            current_context_id=child_context_id,
+            spawn_fn=child_spawn_fn,
+            resume_fn=child_resume_fn,
+            reinvoke_fn=child_reinvoke_fn,
+            cleanup_fn=child_cleanup_fn,
+            dispatcher=dispatcher,
+        )
+
+        send_socket, reply_socket, close_socket = await listener.start()
+
+        # Build MCP config pointing to child listener sockets
+        venv_python = sys.executable
+        mcp_config = {
+            'ask-question': {
+                'command': venv_python,
+                'args': ['-m', 'orchestrator.mcp_server'],
+                'env': {
+                    'SEND_SOCKET': send_socket,
+                    'REPLY_SOCKET': reply_socket,
+                    'CLOSE_CONV_SOCKET': close_socket,
+                    'AGENT_ID': child_agent_id,
+                    'CONTEXT_ID': child_context_id,
+                    'BUS_DB_PATH': bus_db_path,
+                },
+            },
+        }
+
+        return (listener, mcp_config)
 
     async def _bus_resume_agent(
         self, member: str, composite: str, session_id: str, context_id: str,

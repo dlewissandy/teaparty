@@ -62,10 +62,11 @@ class TestTeapartyYamlHasProjectsRegistrationBlock(unittest.TestCase):
             self.assertIn('config', p, f"Project '{p.get('name')}' must have a 'config' field")
 
 
-class TestTeapartyYamlMembersBlockNoProjects(unittest.TestCase):
-    """teaparty.yaml members: block must not have a projects: key.
+class TestTeapartyYamlMembersBlockProjects(unittest.TestCase):
+    """teaparty.yaml members: block scopes which projects the OM dispatches to.
 
-    All registered projects are active (#379) — members.projects was dead weight.
+    Recursive dispatch requires members.projects to distinguish staffed projects
+    from the full registry. Reintroduced after #379 removal.
     """
 
     def setUp(self):
@@ -74,10 +75,10 @@ class TestTeapartyYamlMembersBlockNoProjects(unittest.TestCase):
     def test_has_members_block(self):
         self.assertIn('members', self.data, "teaparty.yaml must have a 'members:' block")
 
-    def test_members_has_no_projects_key(self):
+    def test_members_has_projects_key(self):
         members = self.data.get('members', {})
-        self.assertNotIn('projects', members,
-            "members: must not have 'projects:' — all registered projects are active")
+        self.assertIn('projects', members,
+            "members: must have 'projects:' — scopes OM dispatch targets")
 
 
 class TestTeapartyYamlNoSkillsAtManagementLevel(unittest.TestCase):
@@ -372,10 +373,9 @@ class TestLoadManagementTeamRoundTrip(unittest.TestCase):
             self.assertIn('path', p)
             self.assertIn('config', p)
 
-    def test_no_members_projects_field(self):
-        """ManagementTeam must not have members_projects — all registered projects are active."""
-        self.assertFalse(hasattr(self.team, 'members_projects'),
-            "ManagementTeam must not have 'members_projects' — removed in #379")
+    def test_members_projects_field(self):
+        """ManagementTeam.members_projects scopes OM dispatch targets."""
+        self.assertIsInstance(self.team.members_projects, list)
 
     def test_members_agents_loaded(self):
         """team.members_agents contains any directly dispatched agents."""
