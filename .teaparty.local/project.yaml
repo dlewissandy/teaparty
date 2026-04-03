@@ -4,10 +4,16 @@ lead: teaparty-lead
 humans:
   decider: darrell
 workgroups:
-  - name: Coding
-    config: .teaparty/workgroups/coding.yaml
-  - name: Configuration
-    config: .teaparty/workgroups/configuration.yaml
+- name: Coding
+  config: .teaparty/workgroups/coding.yaml
+- name: Configuration
+  config: .teaparty/workgroups/configuration.yaml
 members:
   workgroups:
-    - Coding
+  - Coding
+  skills: []
+artifact_pins:
+- path: docs/
+  label: docs
+- path: triage/
+  label: triage

@@ -5,26 +5,27 @@ lead: office-manager
 humans:
   decider: darrell
 projects:
-  - name: TeaParty
-    path: .
-    config: .teaparty/project.yaml
-  - name: pybayes
-    path: /Users/darrell/git/pybayes
-    config: .teaparty/project.yaml
-  - name: Jainai
-    path: /Users/darrell/git/jainai
-    config: .teaparty/project.yaml
+- name: TeaParty
+  path: .
+  config: .teaparty/project.yaml
+- name: pybayes
+  path: /Users/darrell/git/pybayes
+  config: .teaparty/project.yaml
+- name: Jainai
+  path: /Users/darrell/git/jainai
+  config: .teaparty/project.yaml
+- name: comics
+  path: /Users/darrell/git/comics
+  config: .teaparty/project.yaml
 members:
   projects:
-    - TeaParty
-    - pybayes
-    - Jainai
-  agents:
-    - auditor
-    - researcher
-    - strategist
+  - TeaParty
+  agents: []
+  skills: []
+  workgroups:
+  - Configuration
 workgroups:
-  - name: Configuration
-    config: workgroups/configuration.yaml
+- name: Configuration
+  config: workgroups/configuration.yaml
 stats:
   storage: .teaparty/stats/management.json

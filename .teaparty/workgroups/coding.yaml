@@ -1,21 +1,17 @@
-# Workgroup — Coding
-#
-# Implementation, testing, and code review. Handles all coding tasks including
-# bug fixes, new features, refactoring, and test coverage.
-
 name: Coding
-description: Implementation, testing, and code review. Handles all coding tasks including bug fixes, new features, refactoring, and test coverage.
+description: Implementation, testing, and code review. Handles all coding tasks including
+  bug fixes, new features, refactoring, and test coverage.
 lead: coding-lead
 humans:
   decider: darrell
 members:
   agents:
-    - architect
-    - developer
-    - reviewer
+  - architect
+  - developer
+  - reviewer
   hooks: []
 artifacts:
-  - path: .teaparty/workgroups/NORMS-coding.md
-    label: Norms
+- path: .teaparty/workgroups/NORMS-coding.md
+  label: Norms
 stats:
   storage: .teaparty/stats/coding.json
