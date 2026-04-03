@@ -100,6 +100,9 @@ body {
 }
 .badge-active { background: rgba(78,204,163,0.15); color: var(--green); }
 .badge-idle { background: rgba(136,136,136,0.15); color: var(--text-dim); }
+.badge-lead { background: rgba(240,192,64,0.15); color: var(--yellow); }
+.badge-project { background: rgba(83,52,131,0.15); color: var(--purple); }
+.badge-workgroup { background: rgba(78,204,163,0.15); color: var(--green); }
 .item-catalog-active { background: rgba(78,204,163,0.06); border-left: 2px solid var(--green); padding-left: 8px; }
 .item-catalog-inactive { opacity: 0.45; }
 .item-catalog-inactive:hover { opacity: 0.8; }

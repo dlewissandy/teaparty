@@ -4,8 +4,8 @@ Acceptance criteria:
 1. proposal.md Supersedes section must not claim liaison agents are "not implemented"
 2. proposal.md Supersedes section must reference orchestrator/office_manager.py when discussing #332
 3. references/routing.md Disposition of Liaison Agents must name the actual implementation
-   functions: _make_project_liaison_def, _make_configuration_liaison_def, _build_liaison_agents_json
-4. Those functions must actually exist in orchestrator/office_manager.py (cross-reference)
+   function: _build_roster_agents_json (supersedes old liaison builders)
+4. That function must actually exist in orchestrator/office_manager.py and be called from invoke()
 """
 import re
 import unittest
@@ -102,31 +102,21 @@ class TestRoutingMdDispositionNamesLiaisonFunctions(unittest.TestCase):
     def setUp(self):
         self.disposition = _disposition_section(_read(_ROUTING_PATH))
 
-    def test_disposition_names_make_project_liaison_def(self):
-        """Disposition must name _make_project_liaison_def()."""
+    def test_disposition_names_build_roster_agents_json(self):
+        """Disposition must name _build_roster_agents_json()."""
+        self.assertIn(
+            '_build_roster_agents_json',
+            self.disposition,
+            "Disposition of Liaison Agents must name _build_roster_agents_json() "
+            "to accurately describe the current implementation",
+        )
+
+    def test_disposition_names_old_liaison_defs_as_superseded(self):
+        """Disposition must reference old liaison defs as superseded."""
         self.assertIn(
             '_make_project_liaison_def',
             self.disposition,
-            "Disposition of Liaison Agents must name _make_project_liaison_def() "
-            "to accurately describe the current implementation",
-        )
-
-    def test_disposition_names_make_configuration_liaison_def(self):
-        """Disposition must name _make_configuration_liaison_def()."""
-        self.assertIn(
-            '_make_configuration_liaison_def',
-            self.disposition,
-            "Disposition of Liaison Agents must name _make_configuration_liaison_def() "
-            "to accurately describe the current implementation",
-        )
-
-    def test_disposition_names_build_liaison_agents_json(self):
-        """Disposition must name _build_liaison_agents_json()."""
-        self.assertIn(
-            '_build_liaison_agents_json',
-            self.disposition,
-            "Disposition of Liaison Agents must name _build_liaison_agents_json() "
-            "to accurately describe the current implementation",
+            "Disposition must reference _make_project_liaison_def() as superseded",
         )
 
     def test_disposition_references_office_manager_module(self):
@@ -146,33 +136,16 @@ class TestLiaisonFunctionsExistInCode(unittest.TestCase):
     def setUp(self):
         self.source = _read(_OFFICE_MANAGER_PATH)
 
-    def test_make_project_liaison_def_exists(self):
-        """_make_project_liaison_def must be defined in orchestrator/office_manager.py."""
+    def test_build_roster_agents_json_exists(self):
+        """_build_roster_agents_json must be defined in orchestrator/office_manager.py."""
         self.assertIn(
-            'def _make_project_liaison_def(',
+            'def _build_roster_agents_json(',
             self.source,
-            "_make_project_liaison_def must be defined in orchestrator/office_manager.py",
+            "_build_roster_agents_json must be defined in orchestrator/office_manager.py",
         )
 
-    def test_make_configuration_liaison_def_exists(self):
-        """_make_configuration_liaison_def must be defined in orchestrator/office_manager.py."""
-        self.assertIn(
-            'def _make_configuration_liaison_def(',
-            self.source,
-            "_make_configuration_liaison_def must be defined in orchestrator/office_manager.py",
-        )
-
-    def test_build_liaison_agents_json_exists(self):
-        """_build_liaison_agents_json must be defined in orchestrator/office_manager.py."""
-        self.assertIn(
-            'def _build_liaison_agents_json(',
-            self.source,
-            "_build_liaison_agents_json must be defined in orchestrator/office_manager.py",
-        )
-
-    def test_build_liaison_agents_json_called_from_invoke(self):
-        """_build_liaison_agents_json must be called in OfficeManagerSession.invoke()."""
-        # The function must be wired in — not just defined
+    def test_build_roster_agents_json_called_from_invoke(self):
+        """_build_roster_agents_json must be called in OfficeManagerSession.invoke()."""
         invoke_match = re.search(
             r'async def invoke\(.*?\)\s*->[^:]+:(.*?)(?=\n    async def |\n    def |\Z)',
             self.source,
@@ -181,10 +154,10 @@ class TestLiaisonFunctionsExistInCode(unittest.TestCase):
         self.assertIsNotNone(invoke_match, "OfficeManagerSession must have an invoke() method")
         invoke_body = invoke_match.group(1)
         self.assertIn(
-            '_build_liaison_agents_json',
+            '_build_roster_agents_json',
             invoke_body,
-            "_build_liaison_agents_json must be called from invoke() — "
-            "liaison agents must actually run, not just be defined",
+            "_build_roster_agents_json must be called from invoke() — "
+            "roster agents must actually run, not just be defined",
         )
 
 

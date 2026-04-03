@@ -1,13 +1,13 @@
 """Tests for Issue #332: OM chat — invoke the office manager with its full team.
 
 Acceptance criteria:
-1. OM invocation builds a liaison agent for each valid project in teaparty.yaml
-2. OM invocation includes a Configuration workgroup liaison
-3. Liaison names follow {slug}-liaison convention (slug = lowercased, hyphenated project name)
-4. office-manager.md updated to reflect liaison naming convention
+1. OM invocation builds a roster entry for each valid project lead in teaparty.yaml
+2. OM invocation includes management workgroup leads when configured
+3. Lead names follow {slug}-lead convention (slug = lowercased, hyphenated project name)
+4. office-manager.md reflects lead naming convention
 5. New project in teaparty.yaml is automatically included without manual configuration
-6. Missing/malformed registry → graceful degradation; OM continues; human sees warning
-7. Spec tests: correct liaison count, project path in liaison prompt, configuration liaison present,
+6. Missing/malformed registry → graceful degradation; OM continues with empty roster
+7. Spec tests: correct lead count, descriptions populated, workgroup leads included,
    graceful degradation on missing registry
 8. session-lifecycle.md updated to describe dynamic team construction
 """
@@ -46,19 +46,32 @@ def _write_teaparty_yaml(home: str, teams: list[dict], workgroups: list[dict] | 
         'name': 'Management Team',
         'lead': 'office-manager',
         'members': {'agents': ['office-manager'], 'projects': [t['name'] for t in teams]},
-        'projects': [{'name': t['name'], 'path': t['path'], 'config': ''} for t in teams],
+        'projects': [{'name': t['name'], 'path': t['path'], 'config': '.teaparty/project/project.yaml'} for t in teams],
         'workgroups': workgroups or [],
     }
     with open(os.path.join(mgmt_dir, 'teaparty.yaml'), 'w') as f:
         yaml.dump(data, f, default_flow_style=False)
 
 
-def _make_valid_project(tmpdir: str, name: str) -> str:
-    """Create a valid TeaParty project directory (with .git, .teaparty)."""
-    project_dir = os.path.join(tmpdir, name.lower().replace(' ', '-'))
+def _make_valid_project(tmpdir: str, name: str, lead: str = '') -> str:
+    """Create a valid TeaParty project directory (with .git, .teaparty, project.yaml)."""
+    slug = name.lower().replace(' ', '-')
+    if not lead:
+        lead = f'{slug}-lead'
+    project_dir = os.path.join(tmpdir, slug)
     os.makedirs(project_dir)
     for marker in ['.git', '.teaparty']:
         os.makedirs(os.path.join(project_dir, marker))
+    # Write project.yaml so roster derivation can find the lead
+    tp_project = os.path.join(project_dir, '.teaparty', 'project')
+    os.makedirs(tp_project, exist_ok=True)
+    with open(os.path.join(tp_project, 'project.yaml'), 'w') as f:
+        yaml.dump({
+            'name': name,
+            'description': f'{name} project.',
+            'lead': lead,
+            'workgroups': [],
+        }, f)
     return project_dir
 
 
@@ -76,7 +89,7 @@ def _make_workgroup_yaml(home: str, name: str = 'Configuration') -> str:
     }
     with open(path, 'w') as f:
         yaml.dump(data, f)
-    return f'management/workgroups/{filename}'
+    return f'workgroups/{filename}'
 
 
 def _make_stream_jsonl(text: str, session_id: str = 'sid-test') -> str:
@@ -92,10 +105,10 @@ def _make_stream_jsonl(text: str, session_id: str = 'sid-test') -> str:
     return path
 
 
-# ── AC1/AC2/AC3: _build_liaison_agents_json ──────────────────────────────────
+# ── AC1/AC2/AC3: _build_roster_agents_json ──────────────────────────────────
 
 class TestBuildLiaisonAgentsJson(unittest.TestCase):
-    """_build_liaison_agents_json must build named liaison agents from the registry."""
+    """_build_roster_agents_json must build named liaison agents from the registry."""
 
     def setUp(self):
         self.tmpdir = _make_tmpdir()
@@ -105,19 +118,19 @@ class TestBuildLiaisonAgentsJson(unittest.TestCase):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def test_build_liaison_agents_is_importable(self):
-        """_build_liaison_agents_json must be importable from orchestrator.office_manager."""
-        from orchestrator.office_manager import _build_liaison_agents_json
-        self.assertTrue(callable(_build_liaison_agents_json))
+        """_build_roster_agents_json must be importable from orchestrator.office_manager."""
+        from orchestrator.office_manager import _build_roster_agents_json
+        self.assertTrue(callable(_build_roster_agents_json))
 
     def test_single_project_produces_one_project_liaison(self):
         """One valid project in teaparty.yaml → one project liaison in the output."""
         project_dir = _make_valid_project(self.tmpdir, 'TeaParty')
         _write_teaparty_yaml(self.home, teams=[{'name': 'TeaParty', 'path': project_dir}])
 
-        from orchestrator.office_manager import _build_liaison_agents_json
-        agents, warnings = _build_liaison_agents_json(self.home)
+        from orchestrator.office_manager import _build_roster_agents_json
+        agents, warnings = _build_roster_agents_json(self.home)
 
-        project_liaisons = [k for k in agents if k.endswith('-liaison') and k != 'configuration-liaison']
+        project_liaisons = [k for k in agents if k.endswith('-lead') and k != 'configuration-lead']
         self.assertEqual(
             len(project_liaisons), 1,
             f'One valid project must produce exactly one project liaison; '
@@ -133,10 +146,10 @@ class TestBuildLiaisonAgentsJson(unittest.TestCase):
             {'name': 'ProjectB', 'path': p2},
         ])
 
-        from orchestrator.office_manager import _build_liaison_agents_json
-        agents, warnings = _build_liaison_agents_json(self.home)
+        from orchestrator.office_manager import _build_roster_agents_json
+        agents, warnings = _build_roster_agents_json(self.home)
 
-        project_liaisons = [k for k in agents if k.endswith('-liaison') and k != 'configuration-liaison']
+        project_liaisons = [k for k in agents if k.endswith('-lead') and k != 'configuration-lead']
         self.assertEqual(
             len(project_liaisons), 2,
             f'Two valid projects must produce exactly two project liaisons; '
@@ -144,38 +157,38 @@ class TestBuildLiaisonAgentsJson(unittest.TestCase):
         )
 
     def test_liaison_name_is_slug_hyphenated_lowercase(self):
-        """Project named 'TeaParty' must produce agent key 'teaparty-liaison'."""
+        """Project named 'TeaParty' must produce agent key 'teaparty-lead'."""
         project_dir = _make_valid_project(self.tmpdir, 'TeaParty')
         _write_teaparty_yaml(self.home, teams=[{'name': 'TeaParty', 'path': project_dir}])
 
-        from orchestrator.office_manager import _build_liaison_agents_json
-        agents, warnings = _build_liaison_agents_json(self.home)
+        from orchestrator.office_manager import _build_roster_agents_json
+        agents, warnings = _build_roster_agents_json(self.home)
 
         self.assertIn(
-            'teaparty-liaison', agents,
-            f'Project "TeaParty" must produce liaison key "teaparty-liaison"; '
+            'teaparty-lead', agents,
+            f'Project "TeaParty" must produce liaison key "teaparty-lead"; '
             f'got keys: {list(agents.keys())}',
         )
 
     def test_liaison_name_spaces_become_hyphens(self):
-        """Project named 'My Project' must produce agent key 'my-project-liaison'."""
+        """Project named 'My Project' must produce agent key 'my-project-lead'."""
         project_dir = _make_valid_project(self.tmpdir, 'my-project')
         _write_teaparty_yaml(self.home, teams=[{'name': 'My Project', 'path': project_dir}])
 
-        from orchestrator.office_manager import _build_liaison_agents_json
-        agents, warnings = _build_liaison_agents_json(self.home)
+        from orchestrator.office_manager import _build_roster_agents_json
+        agents, warnings = _build_roster_agents_json(self.home)
 
         self.assertIn(
-            'my-project-liaison', agents,
-            f'Project "My Project" must produce liaison key "my-project-liaison"; '
+            'my-project-lead', agents,
+            f'Project "My Project" must produce liaison key "my-project-lead"; '
             f'got keys: {list(agents.keys())}',
         )
 
 
 # ── AC2: Configuration liaison always present ─────────────────────────────────
 
-class TestConfigurationLiaisonAlwaysPresent(unittest.TestCase):
-    """_build_liaison_agents_json must always include a configuration-liaison."""
+class TestWorkgroupLeadIncluded(unittest.TestCase):
+    """_build_roster_agents_json must include management workgroup leads."""
 
     def setUp(self):
         self.tmpdir = _make_tmpdir()
@@ -184,20 +197,26 @@ class TestConfigurationLiaisonAlwaysPresent(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
-    def test_configuration_liaison_present_with_no_projects(self):
-        """configuration-liaison must be present even when there are no valid projects."""
-        _write_teaparty_yaml(self.home, teams=[], workgroups=[])
-
-        from orchestrator.office_manager import _build_liaison_agents_json
-        agents, warnings = _build_liaison_agents_json(self.home)
-
-        self.assertIn(
-            'configuration-liaison', agents,
-            f'configuration-liaison must always be included; got keys: {list(agents.keys())}',
+    def test_workgroup_lead_present_when_workgroup_configured(self):
+        """configuration-lead must be present when Configuration workgroup is registered."""
+        config_path = _make_workgroup_yaml(self.home, 'Configuration')
+        _write_teaparty_yaml(
+            self.home,
+            teams=[],
+            workgroups=[{'name': 'Configuration', 'config': config_path}],
         )
 
-    def test_configuration_liaison_present_with_projects(self):
-        """configuration-liaison must be present alongside project liaisons."""
+        from orchestrator.office_manager import _build_roster_agents_json
+        agents, warnings = _build_roster_agents_json(self.home)
+
+        self.assertIn(
+            'configuration-lead', agents,
+            f'configuration-lead must be present when workgroup is registered; '
+            f'got keys: {list(agents.keys())}',
+        )
+
+    def test_workgroup_lead_present_alongside_project_leads(self):
+        """Workgroup leads and project leads coexist in the roster."""
         project_dir = _make_valid_project(self.tmpdir, 'teaparty')
         config_path = _make_workgroup_yaml(self.home, 'Configuration')
         _write_teaparty_yaml(
@@ -206,60 +225,28 @@ class TestConfigurationLiaisonAlwaysPresent(unittest.TestCase):
             workgroups=[{'name': 'Configuration', 'config': config_path}],
         )
 
-        from orchestrator.office_manager import _build_liaison_agents_json
-        agents, warnings = _build_liaison_agents_json(self.home)
+        from orchestrator.office_manager import _build_roster_agents_json
+        agents, warnings = _build_roster_agents_json(self.home)
 
-        self.assertIn(
-            'configuration-liaison', agents,
-            f'configuration-liaison must be present alongside project liaisons; '
-            f'got keys: {list(agents.keys())}',
-        )
+        self.assertIn('teaparty-lead', agents)
+        self.assertIn('configuration-lead', agents)
 
-    def test_configuration_liaison_has_haiku_model(self):
-        """configuration-liaison must use the haiku model (relay role, not decision-making)."""
-        _write_teaparty_yaml(self.home, teams=[])
-
-        from orchestrator.office_manager import _build_liaison_agents_json
-        agents, _warnings = _build_liaison_agents_json(self.home)
-
-        liaison = agents.get('configuration-liaison', {})
-        self.assertEqual(
-            liaison.get('model'), 'haiku',
-            f'configuration-liaison must use model=haiku; got {liaison.get("model")!r}',
-        )
-
-    def test_project_liaison_has_haiku_model(self):
-        """Project liaisons must use the haiku model (relay role, not decision-making)."""
+    def test_roster_entry_has_description(self):
+        """Each roster entry must have a description field."""
         project_dir = _make_valid_project(self.tmpdir, 'teaparty')
         _write_teaparty_yaml(self.home, teams=[{'name': 'TeaParty', 'path': project_dir}])
 
-        from orchestrator.office_manager import _build_liaison_agents_json
-        agents, _warnings = _build_liaison_agents_json(self.home)
+        from orchestrator.office_manager import _build_roster_agents_json
+        agents, _warnings = _build_roster_agents_json(self.home)
 
-        liaison = agents.get('teaparty-liaison', {})
-        self.assertEqual(
-            liaison.get('model'), 'haiku',
-            f'teaparty-liaison must use model=haiku; got {liaison.get("model")!r}',
-        )
-
-    def test_liaison_max_turns_is_10(self):
-        """Liaisons must have maxTurns=10 (status synthesis requires multiple file reads)."""
-        _write_teaparty_yaml(self.home, teams=[])
-
-        from orchestrator.office_manager import _build_liaison_agents_json
-        agents, _warnings = _build_liaison_agents_json(self.home)
-
-        liaison = agents['configuration-liaison']
-        self.assertEqual(
-            liaison.get('maxTurns'), 10,
-            f'configuration-liaison must have maxTurns=10; got {liaison.get("maxTurns")!r}',
-        )
+        lead = agents.get('teaparty-lead', {})
+        self.assertIn('description', lead)
 
 
-# ── AC1: Project path baked into liaison prompt ───────────────────────────────
+# ── AC1: Project lead has description ──────────────────────────────────────────
 
-class TestLiaisonPromptContainsProjectPath(unittest.TestCase):
-    """Each project liaison prompt must include the project path so it knows where to read."""
+class TestProjectLeadHasDescription(unittest.TestCase):
+    """Each project lead roster entry must have a description."""
 
     def setUp(self):
         self.tmpdir = _make_tmpdir()
@@ -268,20 +255,18 @@ class TestLiaisonPromptContainsProjectPath(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
-    def test_project_liaison_prompt_contains_project_path(self):
-        """teaparty-liaison prompt must contain the absolute path to the project."""
+    def test_project_lead_description_populated(self):
+        """teaparty-lead roster entry must have a non-empty description."""
         project_dir = _make_valid_project(self.tmpdir, 'teaparty')
         _write_teaparty_yaml(self.home, teams=[{'name': 'TeaParty', 'path': project_dir}])
 
-        from orchestrator.office_manager import _build_liaison_agents_json
-        agents, _warnings = _build_liaison_agents_json(self.home)
+        from orchestrator.office_manager import _build_roster_agents_json
+        agents, _warnings = _build_roster_agents_json(self.home)
 
-        liaison = agents.get('teaparty-liaison', {})
-        prompt = liaison.get('prompt', '')
-        self.assertIn(
-            project_dir, prompt,
-            f'teaparty-liaison prompt must contain the project path {project_dir!r}; '
-            f'got prompt: {prompt[:200]!r}',
+        lead = agents.get('teaparty-lead', {})
+        self.assertTrue(
+            lead.get('description'),
+            f'teaparty-lead must have a non-empty description; got: {lead}',
         )
 
     def test_invalid_project_path_not_included(self):
@@ -289,11 +274,11 @@ class TestLiaisonPromptContainsProjectPath(unittest.TestCase):
         bad_dir = os.path.join(self.tmpdir, 'nonexistent-project')
         _write_teaparty_yaml(self.home, teams=[{'name': 'BadProject', 'path': bad_dir}])
 
-        from orchestrator.office_manager import _build_liaison_agents_json
-        agents, warnings = _build_liaison_agents_json(self.home)
+        from orchestrator.office_manager import _build_roster_agents_json
+        agents, warnings = _build_roster_agents_json(self.home)
 
         self.assertNotIn(
-            'badproject-liaison', agents,
+            'badproject-lead', agents,
             'An invalid project path must not produce a liaison agent',
         )
 
@@ -321,10 +306,10 @@ class TestNewProjectAutoIncluded(unittest.TestCase):
             {'name': 'ProjC', 'path': p3},
         ])
 
-        from orchestrator.office_manager import _build_liaison_agents_json
-        agents, _warnings = _build_liaison_agents_json(self.home)
+        from orchestrator.office_manager import _build_roster_agents_json
+        agents, _warnings = _build_roster_agents_json(self.home)
 
-        project_liaisons = [k for k in agents if k.endswith('-liaison') and k != 'configuration-liaison']
+        project_liaisons = [k for k in agents if k.endswith('-lead') and k != 'configuration-lead']
         self.assertEqual(
             len(project_liaisons), 3,
             f'Three valid projects must produce three project liaisons; '
@@ -344,27 +329,27 @@ class TestGracefulDegradationOnMissingRegistry(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
-    def test_missing_registry_returns_config_liaison_without_warning(self):
-        """Missing teaparty.yaml must return the configuration-liaison without any warnings.
+    def test_missing_registry_returns_empty_roster_without_warning(self):
+        """Missing teaparty.yaml must return an empty roster without warnings.
 
         A missing registry means an unconfigured deployment — not an error.
-        The OM proceeds silently with just the configuration liaison.
+        The OM proceeds silently with an empty roster.
         """
         # No teaparty.yaml written — home exists but has no config
-        from orchestrator.office_manager import _build_liaison_agents_json
-        agents, warnings = _build_liaison_agents_json(self.home)
+        from orchestrator.office_manager import _build_roster_agents_json
+        agents, warnings = _build_roster_agents_json(self.home)
 
         self.assertIsInstance(
             agents, dict,
-            '_build_liaison_agents_json must return a dict even when registry is missing',
+            '_build_roster_agents_json must return a dict even when registry is missing',
         )
-        self.assertIn(
-            'configuration-liaison', agents,
-            'configuration-liaison must always be present even without a registry',
+        self.assertEqual(
+            len(agents), 0,
+            '_build_roster_agents_json must return an empty dict when registry is missing',
         )
         self.assertEqual(
             len(warnings), 0,
-            '_build_liaison_agents_json must not warn when the registry file is simply absent '
+            '_build_roster_agents_json must not warn when the registry file is simply absent '
             '(that is a normal unconfigured state, not an error)',
         )
 
@@ -390,7 +375,7 @@ class TestGracefulDegradationOnMissingRegistry(unittest.TestCase):
         )
 
     def test_invoke_with_missing_registry_still_calls_claude_runner(self):
-        """When registry is missing, invoke() must still call ClaudeRunner (with config liaison)."""
+        """When registry is missing, invoke() must still call ClaudeRunner."""
         from orchestrator.office_manager import OfficeManagerSession
 
         session = OfficeManagerSession(self.tmpdir, 'darrell')
@@ -410,13 +395,6 @@ class TestGracefulDegradationOnMissingRegistry(unittest.TestCase):
         self.assertTrue(
             len(runner_calls) > 0,
             'When registry is missing, invoke() must still call ClaudeRunner',
-        )
-        # agents_file must be set (configuration-liaison is always included)
-        agents_file = runner_calls[0].get('agents_file')
-        self.assertIsNotNone(
-            agents_file,
-            'agents_file must be set even when project registry is missing '
-            '(configuration-liaison is always included)',
         )
 
 
@@ -470,10 +448,15 @@ class TestInvokePassesAgentsFileToClaude(unittest.TestCase):
             'currently no agents_file is passed (the core bug this issue fixes)',
         )
 
-    def test_agents_file_content_includes_configuration_liaison(self):
-        """The agents JSON written by invoke() must include configuration-liaison."""
+    def test_agents_file_content_includes_configuration_lead(self):
+        """The agents JSON written by invoke() must include configuration-lead when configured."""
         project_dir = _make_valid_project(self.tmpdir, 'teaparty')
-        _write_teaparty_yaml(self.tmpdir, teams=[{'name': 'TeaParty', 'path': project_dir}])
+        config_path = _make_workgroup_yaml(self.tmpdir, 'Configuration')
+        _write_teaparty_yaml(
+            self.tmpdir,
+            teams=[{'name': 'TeaParty', 'path': project_dir}],
+            workgroups=[{'name': 'Configuration', 'config': config_path}],
+        )
 
         from orchestrator.office_manager import OfficeManagerSession
 
@@ -499,8 +482,8 @@ class TestInvokePassesAgentsFileToClaude(unittest.TestCase):
             'ClaudeRunner must be called with a readable agents_file',
         )
         self.assertIn(
-            'configuration-liaison', agents_content[0],
-            f'agents JSON must include configuration-liaison; '
+            'configuration-lead', agents_content[0],
+            f'agents JSON must include configuration-lead; '
             f'got keys: {list(agents_content[0].keys())}',
         )
 
@@ -539,14 +522,14 @@ class TestOfficeManagerMdLiaisonNaming(unittest.TestCase):
         # Accept either explicit slug mention or a concrete example name pattern.
         slug_naming_mentioned = (
             'slug' in doc.lower()
-            or 'teaparty-liaison' in doc
-            or '-liaison' in doc
+            or 'teaparty-lead' in doc
+            or '-lead' in doc
             or 'liaison name' in doc.lower()
         )
         self.assertTrue(
             slug_naming_mentioned,
             'office-manager.md must explain how liaison names are derived from project slugs '
-            '(e.g., "teaparty-liaison") so the OM knows who to address; '
+            '(e.g., "teaparty-lead") so the OM knows who to address; '
             f'the current text does not mention slug naming or example liaison names',
         )
 

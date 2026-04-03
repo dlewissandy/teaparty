@@ -1338,23 +1338,6 @@ def create_server() -> FastMCP:
         return await close_conversation_handler(context_id=context_id)
 
     @server.tool()
-    async def AskTeam(team: str, task: str) -> str:
-        """Dispatch work to a specialist subteam and return the result.
-
-        Use this tool to delegate a task to a subteam (art, writing,
-        editorial, research, or coding).  The subteam runs a full CfA
-        session and merges its deliverables into the shared worktree.
-
-        Args:
-            team: The team to dispatch to. One of: art, writing,
-                editorial, research, coding.
-            task: The specific task description for the subteam.
-                Include relevant context, constraints, and success
-                criteria so the team can work autonomously.
-        """
-        return await ask_team_handler(team=team, task=task)
-
-    @server.tool()
     async def WithdrawSession(session_id: str) -> str:
         """Withdraw a session, setting its CfA state to WITHDRAWN.
 

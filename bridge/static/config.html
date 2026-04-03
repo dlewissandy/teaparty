@@ -150,9 +150,15 @@ function _renderAgentContent() {
   var modelOpts = validModels.map(function(m) {
     return '<option value="' + m + '"' + (fm.model === m ? ' selected' : '') + '>' + m + '</option>';
   }).join('');
+  var validModes = ['default', 'acceptEdits', 'plan'];
+  var currentMode = fm.permissionMode || 'default';
+  var permOpts = validModes.map(function(mode) {
+    return '<option value="' + mode + '"' + (currentMode === mode ? ' selected' : '') + '>' + mode + '</option>';
+  }).join('');
   var settingsItems = [
     '<div class="item"><div class="item-icon icon-hook">&#9881;</div><div class="item-body"><div class="item-title">Model</div></div><select class="role-select" onchange="saveAgentField(\'model\', this.value)">' + modelOpts + '</select></div>',
     '<div class="item"><div class="item-icon" style="background:transparent"></div><div class="item-body"><div class="item-title">Max Turns</div></div><input type="number" value="' + escAttr(fm.maxTurns) + '" min="1" max="100" onblur="var v=parseInt(this.value);if(v>0)saveAgentField(\'maxTurns\',v);" style="width:60px;background:none;border:1px solid var(--border-color);color:var(--text);font-size:11px;padding:2px 4px;border-radius:3px;text-align:right"></div>',
+    '<div class="item"><div class="item-icon" style="background:transparent"></div><div class="item-body"><div class="item-title">Permissions</div></div><select class="role-select" onchange="setAgentPermissionMode(this.value)">' + permOpts + '</select></div>',
   ];
 
   var allSkills = catalog.skills || [];
@@ -175,14 +181,6 @@ function _renderAgentContent() {
     return '<div class="item' + cls + '"><div class="item-icon icon-member">&#9679;</div><div class="item-body"><div class="item-title">' + tool + '</div></div>' + toggle + '</div>';
   });
 
-  var validModes = ['default', 'acceptEdits', 'plan'];
-  var currentMode = fm.permissionMode || 'default';
-  var permItems = validModes.map(function(mode) {
-    var isActive = currentMode === mode;
-    var cls = isActive ? ' item-catalog-active' : '';
-    return '<div class="item' + cls + '" onclick="setAgentPermissionMode(\'' + mode + '\')" style="cursor:pointer"><div class="item-icon">&#9679;</div><div class="item-body"><div class="item-title">' + mode + '</div></div></div>';
-  });
-
   bladeConvId = 'config:agent:' + (projectSlug ? projectSlug + ':' : ':') + name;
   document.getElementById('blade-title').textContent = name + ' \u2014 Config Lead';
   _updateBladeIframe();
@@ -197,7 +195,6 @@ function _renderAgentContent() {
       sectionCard('Settings', settingsItems, {}) +
       sectionCard('Skills', skillItems, {empty: 'No skills in catalog'}) +
       sectionCard('Tools', toolItems, {empty: 'No tools available'}) +
-      sectionCard('Permissions', permItems, {}) +
     '</div>';
 }
 
@@ -380,7 +377,7 @@ async function renderGlobal() {
     var leadName = r ? r.name : '';
     var desc = r ? r.description : '';
     var cardClick = ' onclick="configNav(\'project\',\'' + p.name + '\')" style="cursor:pointer"';
-    subteamItems.push('<div class="item item-catalog-active"' + cardClick + '><div class="item-icon icon-project">&#9654;</div><div class="item-body"><div class="item-title">' + p.name + ' <span class="source-badge">project</span></div><div class="item-meta">' + (desc || '') + '</div>' + (leadName ? '<div class="item-meta">' + leadName + '</div>' : '') + '</div></div>');
+    subteamItems.push('<div class="item item-catalog-active"' + cardClick + '><div class="item-icon icon-project">&#9654;</div><div class="item-body"><div class="item-title">' + p.name + '</div><div class="item-meta">' + (desc || '') + '</div>' + (leadName ? '<div class="item-meta">' + leadName + '</div>' : '') + '</div><span class="item-badge badge-project">project</span></div>');
   });
 
   // Workgroups as subteams
@@ -389,22 +386,25 @@ async function renderGlobal() {
     var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
     var cardClick = ' onclick="configNav(\'workgroup\',\'' + w.name + '\')" style="cursor:pointer"';
     var toggle = '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleMembership(\'global\', \'workgroup\', \'' + w.name + '\', ' + !isActive + ')"></span>';
-    subteamItems.push('<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-workgroup">&#9670;</div><div class="item-body"><div class="item-title">' + w.name + ' <span class="source-badge">workgroup</span></div><div class="item-meta">' + (w.description || '') + '</div><div class="item-meta">' + (w.lead || '') + (w.agents_count != null ? ' &middot; ' + w.agents_count + ' agents' : '') + '</div></div>' + toggle + '</div>');
+    subteamItems.push('<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-workgroup">&#9670;</div><div class="item-body"><div class="item-title">' + w.name + '</div><div class="item-meta">' + (w.description || '') + '</div><div class="item-meta">' + (w.lead || '') + (w.agents_count != null ? ' &middot; ' + w.agents_count + ' agents' : '') + '</div></div>' + toggle + '<span class="item-badge badge-workgroup">workgroup</span></div>');
   });
 
-  var agentItems = (m.agents || []).map(function(a) {
+  var agentItems = [];
+  if (m.lead) {
+    agentItems.push('<div class="item item-catalog-active" onclick="configNav(\'agent\',\'' + m.lead + '\')" style="cursor:pointer"><div class="item-icon icon-member">&#9672;</div><div class="item-body"><div class="item-title">' + m.lead + '</div></div><span class="item-badge badge-lead">lead</span></div>');
+  }
+  (m.agents || []).forEach(function(a) {
     var name = typeof a === 'object' ? a.name : a;
     var isActive = typeof a === 'object' ? a.active !== false : true;
     var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
     var cardClick = ' onclick="configNav(\'agent\',\'' + name + '\')" style="cursor:pointer"';
     var toggle = '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleMembership(\'global\', \'agent\', \'' + name + '\', ' + !isActive + ')"></span>';
-    return '<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-member">&#9672;</div><div class="item-body"><div class="item-title">' + name + '</div></div>' + toggle + '</div>';
+    if (name !== m.lead) {
+      agentItems.push('<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-member">&#9672;</div><div class="item-body"><div class="item-title">' + name + '</div></div>' + toggle + '</div>');
+    }
   });
 
   var participantItems = [];
-  if (m.lead) {
-    participantItems.push('<div class="item" onclick="openChat(\'' + omConvId + '\')"><div class="item-icon icon-member">&#9733;</div><div class="item-body"><div class="item-title">Office Manager</div><div class="item-meta">' + m.lead + ' &middot; org-level coordination</div></div></div>');
-  }
   (m.humans || []).forEach(function(h) {
     var sel = ['decider','advisor','inform','none'].map(function(r) {
       return '<option value="' + r + '"' + (h.role === r ? ' selected' : '') + '>' + r + '</option>';
@@ -519,7 +519,11 @@ async function renderProject(slug) {
     return '<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-workgroup">&#9670;</div><div class="item-body"><div class="item-title">' + w.name + ' ' + src + ' ' + ovr + '</div><div class="item-meta">' + (w.lead || '') + (agentInfo ? ' &middot; ' + agentInfo : '') + '</div></div>' + toggle + '</div>';
   });
 
-  var agentItems = (team.agents || []).map(function(a) {
+  var agentItems = [];
+  if (team.lead) {
+    agentItems.push('<div class="item item-catalog-active" onclick="configNav(\'agent\',\'' + team.lead + '\',\'' + slug + '\')" style="cursor:pointer"><div class="item-icon icon-member">&#9672;</div><div class="item-body"><div class="item-title">' + team.lead + '</div></div><span class="item-badge badge-lead">lead</span></div>');
+  }
+  (team.agents || []).forEach(function(a) {
     var name = typeof a === 'object' ? a.name : a;
     var source = typeof a === 'object' ? a.source : null;
     var isActive = typeof a === 'object' ? a.active !== false : true;
@@ -527,14 +531,13 @@ async function renderProject(slug) {
     var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
     var cardClick = ' onclick="configNav(\'agent\',\'' + name + '\',\'' + slug + '\')" style="cursor:pointer"';
     var toggle = '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleMembership(\'' + slug + '\', \'agent\', \'' + name + '\', ' + !isActive + ')"></span>';
-    return '<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-member">&#9672;</div><div class="item-body"><div class="item-title">' + name + ' ' + src + '</div></div>' + toggle + '</div>';
+    if (name !== team.lead) {
+      agentItems.push('<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-member">&#9672;</div><div class="item-body"><div class="item-title">' + name + ' ' + src + '</div></div>' + toggle + '</div>');
+    }
   });
 
   var participantItems = [];
   var managerConvId = team.decider ? 'manager:' + team.decider : 'manager:unknown';
-  if (team.lead) {
-    participantItems.push('<div class="item" onclick="openChat(\'' + managerConvId + '\')"><div class="item-icon icon-member">&#9733;</div><div class="item-body"><div class="item-title">Manager</div><div class="item-meta">' + team.lead + ' &middot; operational control</div></div></div>');
-  }
   (team.humans || []).forEach(function(h) {
     var sel = ['decider','advisor','inform','none'].map(function(r) {
       return '<option value="' + r + '"' + (h.role === r ? ' selected' : '') + '>' + r + '</option>';
