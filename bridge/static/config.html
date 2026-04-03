@@ -36,6 +36,7 @@ function toggleEditMode() {
 
 function toggleBlade() {
   _bladeOpen = !_bladeOpen;
+  localStorage.setItem('bladeOpen', _bladeOpen ? '1' : '0');
   var el = document.getElementById('blade');
   if (_bladeOpen) {
     el.classList.add('open');
@@ -49,6 +50,11 @@ function _updateBladeIframe() {
   if (!bladeConvId || !_bladeOpen) return;
   var iframe = document.getElementById('blade-iframe');
   if (iframe) iframe.src = 'chat.html?conv=' + encodeURIComponent(bladeConvId) + '&minimal=1';
+}
+
+if (localStorage.getItem('bladeOpen') === '1') {
+  _bladeOpen = true;
+  document.getElementById('blade').classList.add('open');
 }
 
 function openChat(convId) {
