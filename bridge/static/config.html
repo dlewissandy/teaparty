@@ -140,9 +140,11 @@ function _renderAgentContent() {
   }
   breadcrumb += ' <span>/</span> <a>' + name + '</a></div>';
 
-  var identityItems = [
-    '<div class="item"><div class="item-icon icon-member">&#9672;</div><div class="item-body" style="width:100%;padding-right:8px"><input value="' + escAttr(fm.name) + '" placeholder="agent name" onblur="saveAgentField(\'name\', this.value)" style="width:100%;background:none;border:none;border-bottom:1px solid var(--border-color);color:var(--text);font-size:13px;padding:2px 0;outline:none"></div></div>',
-    '<div class="item"><div class="item-icon" style="background:transparent"></div><div class="item-body" style="width:100%;padding-right:8px"><input value="' + escAttr(fm.description) + '" placeholder="description \u2014 dispatch signal for leads" onblur="saveAgentField(\'description\', this.value)" style="width:100%;background:none;border:none;border-bottom:1px solid var(--border-color);color:var(--text-dim);font-size:11px;padding:2px 0;outline:none"></div></div>',
+  var artifactBrowseUrl = 'artifacts.html?scope=agent&name=' + encodeURIComponent(name) +
+    '&title=' + encodeURIComponent(name) +
+    (projectSlug ? '&project=' + encodeURIComponent(projectSlug) : '');
+  var artifactItems = [
+    '<div class="item item-catalog-active" onclick="window.open(\'' + artifactBrowseUrl + '\',\'_blank\')" style="cursor:pointer"><div class="item-icon" style="background:rgba(78,204,163,0.15);color:var(--green)">&#9654;</div><div class="item-body"><div class="item-title">Browse artifacts</div><div class="item-meta">prompt, settings, and pinned files</div></div></div>',
   ];
 
   var validModels = ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5',
@@ -191,7 +193,7 @@ function _renderAgentContent() {
     '<div class="pane-title">' + name + '</div>' +
     '<div class="pane-description">' + escAttr(fm.description || '') + '</div>' +
     '<div class="sections">' +
-      sectionCard('Identity', identityItems, {}) +
+      sectionCard('Artifacts', artifactItems, {}) +
       sectionCard('Settings', settingsItems, {}) +
       sectionCard('Skills', skillItems, {empty: 'No skills in catalog'}) +
       sectionCard('Tools', toolItems, {empty: 'No tools available'}) +
@@ -413,7 +415,7 @@ async function renderGlobal() {
   });
 
   var orgArtifactItems = Object.keys(artifactsData).map(function(heading) {
-    return '<div class="item" onclick="window.open(\'artifacts.html?project=org\',\'_blank\')" style="background:rgba(78,204,163,0.03)"><div class="item-icon" style="background:rgba(78,204,163,0.15);color:var(--green)">&#9654;</div><div class="item-body"><div class="item-title">' + heading + '</div></div></div>';
+    return '<div class="item" onclick="window.open(\'artifacts.html?scope=system&title=Management\',\'_blank\')" style="background:rgba(78,204,163,0.03)"><div class="item-icon" style="background:rgba(78,204,163,0.15);color:var(--green)">&#9654;</div><div class="item-body"><div class="item-title">' + heading + '</div></div></div>';
   });
 
   var skillItems = (m.skills || []).map(function(s) {
@@ -546,7 +548,7 @@ async function renderProject(slug) {
   });
 
   var artifactItems = Object.keys(artifactsData).map(function(heading) {
-    return '<div class="item" onclick="window.open(\'artifacts.html?project=' + encodeURIComponent(slug) + '\',\'_blank\')" style="background:rgba(78,204,163,0.03)"><div class="item-icon" style="background:rgba(78,204,163,0.15);color:var(--green)">&#9654;</div><div class="item-body"><div class="item-title">' + heading + '</div></div></div>';
+    return '<div class="item" onclick="window.open(\'artifacts.html?scope=project&project=' + encodeURIComponent(slug) + '&title=' + encodeURIComponent(team.name || slug) + '\',\'_blank\')" style="background:rgba(78,204,163,0.03)"><div class="item-icon" style="background:rgba(78,204,163,0.15);color:var(--green)">&#9654;</div><div class="item-body"><div class="item-title">' + heading + '</div></div></div>';
   });
 
   var skillItems = (team.skills || []).map(function(s) {

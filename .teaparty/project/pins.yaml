@@ -1,0 +1,4 @@
+- path: docs/
+  label: docs
+- path: triage/
+  label: triage

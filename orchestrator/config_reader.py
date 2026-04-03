@@ -93,6 +93,67 @@ def project_workgroups_dir(project_dir: str) -> str:
     return os.path.join(project_dir, '.teaparty', 'project', 'workgroups')
 
 
+def project_sessions_dir(project_dir: str) -> str:
+    return os.path.join(project_dir, '.sessions')
+
+
+# ── Pins ──────────────────────────────────────────────────────────────────────
+
+def read_pins(scope_dir: str) -> list[dict[str, str]]:
+    """Read pins.yaml from a scope directory.
+
+    Returns a list of {path, label} dicts. Returns [] if the file
+    does not exist. Paths are stored relative to a scope-specific root
+    (determined by the caller, not by this function).
+    """
+    path = os.path.join(scope_dir, 'pins.yaml')
+    if not os.path.isfile(path):
+        return []
+    with open(path) as f:
+        data = yaml.safe_load(f)
+    if not isinstance(data, list):
+        return []
+    return [entry for entry in data if isinstance(entry, dict) and 'path' in entry]
+
+
+def write_pins(scope_dir: str, pins: list[dict[str, str]]) -> None:
+    """Write pins.yaml to a scope directory.
+
+    Creates the directory and file if they don't exist.
+    """
+    os.makedirs(scope_dir, exist_ok=True)
+    path = os.path.join(scope_dir, 'pins.yaml')
+    with open(path, 'w') as f:
+        yaml.dump(pins, f, default_flow_style=False, sort_keys=False)
+
+
+def resolve_pins(
+    scope_dir: str,
+    path_root: str,
+) -> list[dict]:
+    """Read pins.yaml and resolve paths to absolute, adding is_dir flag.
+
+    Args:
+        scope_dir: Directory containing pins.yaml.
+        path_root: Root directory for resolving relative paths.
+
+    Returns list of {path, rel_path, label, is_dir} dicts.
+    """
+    raw = read_pins(scope_dir)
+    result = []
+    for pin in raw:
+        rel = pin.get('path', '')
+        label = pin.get('label') or os.path.basename(rel.rstrip('/\\')) or rel
+        abs_path = os.path.normpath(os.path.join(path_root, rel))
+        result.append({
+            'path': abs_path,
+            'rel_path': rel,
+            'label': label,
+            'is_dir': os.path.isdir(abs_path),
+        })
+    return result
+
+
 # ── Data classes ─────────────────────────────────────────────────────────────
 
 @dataclass

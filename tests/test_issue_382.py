@@ -155,9 +155,9 @@ class TestManagerCardUnaffected(unittest.TestCase):
             "The office manager card in renderGlobal must still reference omConvId",
         )
         self.assertIn(
-            "Office Manager",
+            "m.lead",
             render_global,
-            "The office manager card must still be present in renderGlobal",
+            "The office manager (lead) card must still be present in renderGlobal",
         )
 
     def test_project_manager_card_still_uses_manager_conv_id(self):

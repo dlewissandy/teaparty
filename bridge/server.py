@@ -285,6 +285,7 @@ class TeaPartyBridge:
         app.router.add_post('/api/conversations/{id}', self._handle_conversation_post)
 
         # ── Artifact endpoints ────────────────────────────────────────────────
+        app.router.add_get('/api/pins', self._handle_pins)
         app.router.add_get('/api/artifacts/{project}', self._handle_artifacts)
         app.router.add_get('/api/artifacts/{project}/pins', self._handle_artifact_pins)
         app.router.add_patch('/api/artifacts/{project}/pins', self._handle_artifact_pins_patch)
@@ -788,6 +789,8 @@ class TeaPartyBridge:
         if path is None:
             return web.json_response({'error': f'agent not found: {name}'}, status=404)
         fm = read_agent_frontmatter(path)
+        fm['_path'] = path
+        fm['_dir'] = os.path.dirname(path)
         return web.json_response(fm)
 
     async def _handle_agent_patch(self, request: web.Request) -> web.Response:
@@ -1245,14 +1248,117 @@ class TeaPartyBridge:
         sections = _parse_artifacts(content)
         return web.json_response(sections)
 
+    async def _handle_pins(self, request: web.Request) -> web.Response:
+        """GET /api/pins?scope={scope}&name={name}&project={slug}
+
+        Unified pin endpoint. Returns pins from pins.yaml for any scope.
+
+        Scopes:
+          system  — .teaparty/management/pins.yaml (paths relative to repo root)
+          project — {project}/.teaparty/project/pins.yaml (paths relative to project root)
+          agent   — {agents_dir}/{name}/pins.yaml (paths relative to agent dir)
+          workgroup — {workgroups_dir}/{name}/pins.yaml (paths relative to workgroup dir)
+          job     — {project}/.sessions/{name}/pins.yaml (paths relative to session dir)
+        """
+        from orchestrator.config_reader import (
+            management_agents_dir,
+            management_dir,
+            management_workgroups_dir,
+            project_agents_dir,
+            project_sessions_dir,
+            project_workgroups_dir,
+            resolve_pins,
+        )
+
+        scope = request.rel_url.query.get('scope', '')
+        name = request.rel_url.query.get('name', '')
+        project_slug = request.rel_url.query.get('project', '')
+
+        if scope == 'system':
+            scope_dir = management_dir(self.teaparty_home)
+            path_root = os.path.dirname(self.teaparty_home)  # repo root
+
+        elif scope == 'project':
+            proj_path = self._lookup_project_path(project_slug)
+            if proj_path is None:
+                return web.json_response({'error': f'project not found: {project_slug}'}, status=404)
+            scope_dir = os.path.join(proj_path, '.teaparty', 'project')
+            path_root = proj_path
+
+        elif scope == 'agent':
+            if not name:
+                return web.json_response({'error': 'agent scope requires name'}, status=400)
+            # Try project-level first, then management-level
+            scope_dir = None
+            path_root = None
+            if project_slug:
+                proj_path = self._lookup_project_path(project_slug)
+                if proj_path:
+                    candidate = os.path.join(project_agents_dir(proj_path), name)
+                    if os.path.isdir(candidate):
+                        scope_dir = candidate
+                        path_root = candidate
+            if scope_dir is None:
+                candidate = os.path.join(management_agents_dir(self.teaparty_home), name)
+                if os.path.isdir(candidate):
+                    scope_dir = candidate
+                    path_root = candidate
+            if scope_dir is None:
+                return web.json_response({'error': f'agent not found: {name}'}, status=404)
+
+        elif scope == 'workgroup':
+            if not name:
+                return web.json_response({'error': 'workgroup scope requires name'}, status=400)
+            scope_dir = None
+            path_root = None
+            if project_slug:
+                proj_path = self._lookup_project_path(project_slug)
+                if proj_path:
+                    candidate = os.path.join(project_workgroups_dir(proj_path), name)
+                    if os.path.isdir(candidate):
+                        scope_dir = candidate
+                        path_root = candidate
+            if scope_dir is None:
+                candidate = os.path.join(management_workgroups_dir(self.teaparty_home), name)
+                if os.path.isdir(candidate):
+                    scope_dir = candidate
+                    path_root = candidate
+            if scope_dir is None:
+                return web.json_response({'error': f'workgroup not found: {name}'}, status=404)
+
+        elif scope == 'job':
+            if not name or not project_slug:
+                return web.json_response({'error': 'job scope requires name and project'}, status=400)
+            proj_path = self._lookup_project_path(project_slug)
+            if proj_path is None:
+                return web.json_response({'error': f'project not found: {project_slug}'}, status=404)
+            scope_dir = os.path.join(project_sessions_dir(proj_path), name)
+            path_root = scope_dir
+
+        else:
+            return web.json_response({'error': f'unknown scope: {scope}'}, status=400)
+
+        return web.json_response(resolve_pins(scope_dir, path_root))
+
     async def _handle_artifact_pins(self, request: web.Request) -> web.Response:
-        """GET /api/artifacts/{project}/pins — return artifact_pins with absolute paths and is_dir."""
-        from orchestrator.config_reader import load_project_team
+        """GET /api/artifacts/{project}/pins — return pins with absolute paths and is_dir.
+
+        Reads from pins.yaml first; falls back to artifact_pins in project.yaml
+        for backward compatibility.
+        """
+        from orchestrator.config_reader import load_project_team, resolve_pins
         project = request.match_info['project']
         proj_path = self._lookup_project_path(project)
         if proj_path is None:
             return web.json_response({'error': f'project not found: {project}'}, status=404)
 
+        # Try pins.yaml first
+        scope_dir = os.path.join(proj_path, '.teaparty', 'project')
+        result = resolve_pins(scope_dir, proj_path)
+        if result:
+            return web.json_response(result)
+
+        # Fall back to artifact_pins in project.yaml
         try:
             team = load_project_team(project_dir=proj_path)
         except FileNotFoundError:

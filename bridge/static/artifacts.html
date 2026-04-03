@@ -126,6 +126,9 @@
 var params = new URLSearchParams(window.location.search);
 var currentProject = params.get('project') || 'poc';
 var requestedFile = params.get('file') || null;
+var customTitle = params.get('title') || null;
+var scopeType = params.get('scope') || null;
+var scopeName = params.get('name') || null;
 var hookMeta = params.get('hook_event') ? {
   event: params.get('hook_event') || '',
   matcher: params.get('hook_matcher') || '',
@@ -268,7 +271,15 @@ function renderCode(content, ext) {
 
 async function fetchPins() {
   try {
-    var resp = await fetch('/api/artifacts/' + encodeURIComponent(currentProject) + '/pins');
+    var url;
+    if (scopeType) {
+      url = '/api/pins?scope=' + encodeURIComponent(scopeType);
+      if (scopeName) url += '&name=' + encodeURIComponent(scopeName);
+      if (currentProject) url += '&project=' + encodeURIComponent(currentProject);
+    } else {
+      url = '/api/artifacts/' + encodeURIComponent(currentProject) + '/pins';
+    }
+    var resp = await fetch(url);
     if (!resp.ok) { pinnedNodes = []; return; }
     var data = await resp.json();
     pinnedNodes = data.map(function(p) {
@@ -378,7 +389,7 @@ function renderPinnedNodes(nodes, depth) {
 // ── Rendering ─────────────────────────────────────────────────────────────────
 
 function render() {
-  var displayName = currentProject.charAt(0).toUpperCase() + currentProject.slice(1);
+  var displayName = customTitle || (currentProject.charAt(0).toUpperCase() + currentProject.slice(1));
   document.title = 'TeaParty \u2014 ' + displayName + ' Artifacts';
 
   var showCopy = selectedFile !== null && fileContent !== null && fileContent !== '';
@@ -449,7 +460,7 @@ function render() {
 }
 
 function renderOverview() {
-  var displayName = currentProject.charAt(0).toUpperCase() + currentProject.slice(1);
+  var displayName = customTitle || (currentProject.charAt(0).toUpperCase() + currentProject.slice(1));
   var html = '<div class="artifact-title">' + escHtml(displayName) + '</div>';
   html += '<div class="artifact-content">';
   if (sections.length === 0) {

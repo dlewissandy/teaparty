@@ -408,14 +408,14 @@ class TestRenderAgentContentSections(unittest.TestCase):
     def _source(self) -> str:
         return (_REPO_ROOT / 'bridge' / 'static' / 'config.html').read_text()
 
-    def test_renderAgentContent_produces_identity_section(self):
-        """_renderAgentContent must call sectionCard('Identity', ...) for name/description fields."""
+    def test_renderAgentContent_produces_artifacts_section(self):
+        """_renderAgentContent must call sectionCard('Artifacts', ...) for browsing agent files."""
         source = self._source()
         m = re.search(r'function _renderAgentContent\(\)(.*?)(?=\nasync function |\nfunction )', source, re.DOTALL)
         self.assertIsNotNone(m, '_renderAgentContent not found in config.html')
         body = m.group(1)
-        self.assertIn("sectionCard('Identity'", body,
-            "_renderAgentContent must render an Identity section with name/description inputs")
+        self.assertIn("sectionCard('Artifacts'", body,
+            "_renderAgentContent must render an Artifacts section for browsing agent files")
 
     def test_renderAgentContent_produces_skills_section(self):
         """_renderAgentContent must call sectionCard('Skills', ...) for the skill catalog panel."""
@@ -435,14 +435,14 @@ class TestRenderAgentContentSections(unittest.TestCase):
         self.assertIn("sectionCard('Tools'", body,
             "_renderAgentContent must render a Tools section showing available tools")
 
-    def test_renderAgentContent_produces_permissions_section(self):
-        """_renderAgentContent must call sectionCard('Permissions', ...) for the permissions panel."""
+    def test_renderAgentContent_has_permissions_in_settings(self):
+        """_renderAgentContent must include a Permissions dropdown in Settings."""
         source = self._source()
         m = re.search(r'function _renderAgentContent\(\)(.*?)(?=\nasync function |\nfunction )', source, re.DOTALL)
         self.assertIsNotNone(m, '_renderAgentContent not found in config.html')
         body = m.group(1)
-        self.assertIn("sectionCard('Permissions'", body,
-            "_renderAgentContent must render a Permissions section")
+        self.assertIn("Permissions", body,
+            "_renderAgentContent must include Permissions as a setting")
 
     def test_renderAgentContent_highlights_active_skills(self):
         """_renderAgentContent must apply item-catalog-active class to whitelisted skills."""
@@ -453,29 +453,23 @@ class TestRenderAgentContentSections(unittest.TestCase):
         self.assertIn('item-catalog-active', body,
             "_renderAgentContent must apply item-catalog-active to whitelisted skills/tools/permissions")
 
-    def test_renderAgentContent_renders_name_input_with_onblur_save(self):
-        """_renderAgentContent must render the name field as an input with onblur save."""
+    def test_renderAgentContent_shows_agent_name_in_title(self):
+        """_renderAgentContent must display the agent name in the page title."""
         source = self._source()
         m = re.search(r'function _renderAgentContent\(\)(.*?)(?=\nasync function |\nfunction )', source, re.DOTALL)
         self.assertIsNotNone(m, '_renderAgentContent not found in config.html')
         body = m.group(1)
-        self.assertIn('fm.name', body,
-            "_renderAgentContent must use fm.name for the name input value")
-        # In the HTML JS string, single quotes are escaped: saveAgentField(\'name\'
-        self.assertIn("saveAgentField(\\'name\\'", body,
-            "_renderAgentContent name input must call saveAgentField('name', ...) on blur")
+        self.assertIn('pane-title', body,
+            "_renderAgentContent must render the agent name as page title")
 
-    def test_renderAgentContent_renders_description_input_with_onblur_save(self):
-        """_renderAgentContent must render the description as an input with onblur save."""
+    def test_renderAgentContent_shows_description(self):
+        """_renderAgentContent must display the agent description."""
         source = self._source()
         m = re.search(r'function _renderAgentContent\(\)(.*?)(?=\nasync function |\nfunction )', source, re.DOTALL)
         self.assertIsNotNone(m, '_renderAgentContent not found in config.html')
         body = m.group(1)
-        self.assertIn('fm.description', body,
-            "_renderAgentContent must use fm.description for the description input value")
-        # In the HTML JS string, single quotes are escaped: saveAgentField(\'description\'
-        self.assertIn("saveAgentField(\\'description\\'", body,
-            "_renderAgentContent description input must call saveAgentField('description', ...) on blur")
+        self.assertIn('pane-description', body,
+            "_renderAgentContent must render the agent description")
 
     def test_renderAgentContent_renders_model_dropdown_with_onchange_save(self):
         """_renderAgentContent must render the model as a dropdown with onchange save."""
