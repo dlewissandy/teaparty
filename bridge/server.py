@@ -1698,12 +1698,10 @@ class TeaPartyBridge:
             for n in (discovered_skills or [])
         ]
 
-        # Build the OM's roster — the implicit dispatch targets
+        # Build the OM's roster — project leads and management agents
         roster_items: list[dict] = []
-        for project_name in (t.members_projects or []):
-            project_entry = next((p for p in t.projects if p.get('name') == project_name), None)
-            if not project_entry:
-                continue
+        for project_entry in (t.projects or []):
+            project_name = project_entry.get('name', '')
             p_path = project_entry.get('path', '')
             if not os.path.isabs(p_path):
                 p_path = os.path.join(repo_root, p_path)

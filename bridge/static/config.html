@@ -365,17 +365,31 @@ async function renderGlobal() {
   document.getElementById('blade-title').textContent = 'Management \u2014 Config Lead';
   _updateBladeIframe();
 
-  var projectItems = projects.map(function(p) {
-    var cardClick = ' onclick="configNav(\'project\',\'' + p.name + '\')" style="cursor:pointer"';
-    return '<div class="item item-catalog-active"' + cardClick + '><div class="item-icon icon-project">&#9654;</div><div class="item-body"><div class="item-title">' + p.name + '</div><div class="item-meta">' + (p.path || '') + '</div></div></div>';
+  // Build roster lookup for project lead info
+  var rosterByProject = {};
+  (m.roster || []).forEach(function(r) {
+    if (r.project) rosterByProject[r.project] = r;
   });
 
-  var wgItems = (workgroupsData || []).map(function(w) {
+  // Subteams: projects + workgroups unified
+  var subteamItems = [];
+
+  // Projects as subteams
+  projects.forEach(function(p) {
+    var r = rosterByProject[p.name];
+    var leadName = r ? r.name : '';
+    var desc = r ? r.description : '';
+    var cardClick = ' onclick="configNav(\'project\',\'' + p.name + '\')" style="cursor:pointer"';
+    subteamItems.push('<div class="item item-catalog-active"' + cardClick + '><div class="item-icon icon-project">&#9654;</div><div class="item-body"><div class="item-title">' + p.name + ' <span class="source-badge">project</span></div><div class="item-meta">' + (desc || '') + '</div>' + (leadName ? '<div class="item-meta">' + leadName + '</div>' : '') + '</div></div>');
+  });
+
+  // Workgroups as subteams
+  (workgroupsData || []).forEach(function(w) {
     var isActive = w.active !== false;
     var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
     var cardClick = ' onclick="configNav(\'workgroup\',\'' + w.name + '\')" style="cursor:pointer"';
     var toggle = '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleMembership(\'global\', \'workgroup\', \'' + w.name + '\', ' + !isActive + ')"></span>';
-    return '<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-workgroup">&#9670;</div><div class="item-body"><div class="item-title">' + w.name + '</div><div class="item-meta">' + (w.description || '') + '</div><div class="item-meta">' + (w.lead || '') + (w.agents_count != null ? ' &middot; ' + w.agents_count + ' agents' : '') + '</div></div>' + toggle + '</div>';
+    subteamItems.push('<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-workgroup">&#9670;</div><div class="item-body"><div class="item-title">' + w.name + ' <span class="source-badge">workgroup</span></div><div class="item-meta">' + (w.description || '') + '</div><div class="item-meta">' + (w.lead || '') + (w.agents_count != null ? ' &middot; ' + w.agents_count + ' agents' : '') + '</div></div>' + toggle + '</div>');
   });
 
   var agentItems = (m.agents || []).map(function(a) {
@@ -396,16 +410,6 @@ async function renderGlobal() {
       return '<option value="' + r + '"' + (h.role === r ? ' selected' : '') + '>' + r + '</option>';
     }).join('');
     participantItems.push('<div class="item"><div class="item-icon icon-member">&#9786;</div><div class="item-body"><div class="item-title">' + h.name + '</div></div><select class="role-select" onchange="setParticipantRole(\'global\',\'' + h.name + '\',this.value)">' + sel + '</select></div>');
-  });
-
-  var rosterItems = (m.roster || []).map(function(r) {
-    var icon = r.role === 'project-lead' ? '&#9654;' : '&#9672;';
-    var iconCls = r.role === 'project-lead' ? 'icon-project' : 'icon-member';
-    var roleBadge = '<span class="source-badge">' + (r.role === 'project-lead' ? 'project lead' : 'management') + '</span>';
-    var cardClick = r.project
-      ? ' onclick="configNav(\'project\',\'' + r.project + '\')" style="cursor:pointer"'
-      : ' onclick="configNav(\'agent\',\'' + r.name + '\')" style="cursor:pointer"';
-    return '<div class="item item-catalog-active"' + cardClick + '><div class="item-icon ' + iconCls + '">' + icon + '</div><div class="item-body"><div class="item-title">' + r.name + ' ' + roleBadge + '</div><div class="item-meta">' + (r.description || '') + '</div></div></div>';
   });
 
   var orgArtifactItems = Object.keys(artifactsData).map(function(heading) {
@@ -448,15 +452,13 @@ async function renderGlobal() {
 
   setBreadcrumb('');
   document.getElementById('content').innerHTML =
-    '<div class="pane-title">Global Configuration</div>' +
-    '<div class="pane-description">' + (m.description || 'Organization catalog. Workgroups, agents, and skills defined here can be assembled into projects.') + '</div>' +
+    '<div class="pane-title">Management Team</div>' +
+    '<div class="pane-description">' + (m.description || 'Cross-project coordination, human interaction, organizational strategy, and configuration management.') + '</div>' +
     '<div class="pane-subtitle">' + subtitle + '</div>' +
     '<div class="sections">' +
-      sectionCard('Projects', projectItems, { addProjectBtn: true }) +
-      sectionCard('Workgroups', wgItems, { addBtn: true, empty: 'No org-level workgroups' }) +
+      sectionCard('Subteams', subteamItems, { addProjectBtn: true, addBtn: true, empty: 'No projects or workgroups' }) +
       sectionCard('Agents', agentItems, { addBtn: true }) +
       sectionCard('Participants', participantItems) +
-      sectionCard('Roster', rosterItems, { empty: 'No dispatch targets configured (add members.projects to teaparty.yaml)' }) +
       sectionCard('Artifacts', orgArtifactItems, { empty: 'No organizational artifacts' }) +
       sectionCard('Skills', skillItems, { addBtn: true }) +
       sectionCard('Hooks', hookItems, { addBtn: true }) +
