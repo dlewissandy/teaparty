@@ -10,8 +10,11 @@
 
 <div class="blade-layout">
 <div class="content-wrap">
+<div class="page-header">
+  <div id="breadcrumb-slot" style="flex:1;min-width:0"></div>
+  <button id="edit-toggle" class="edit-toggle-btn" onclick="toggleEditMode()">Edit</button>
+</div>
 <div id="content" class="app-pane active" style="overflow-y:auto;flex:1;min-width:0"></div>
-<button id="edit-toggle" class="edit-toggle-btn" onclick="toggleEditMode()">Edit</button>
 </div>
 <div class="blade" id="blade">
   <div class="blade-tab" onclick="toggleBlade()">Config Lead</div>
@@ -185,8 +188,8 @@ function _renderAgentContent() {
   _updateBladeIframe();
 
   document.title = 'TeaParty \u2014 ' + name + ' Agent';
+  setBreadcrumb(breadcrumb);
   document.getElementById('content').innerHTML =
-    breadcrumb +
     '<div class="pane-title">' + name + '</div>' +
     '<div class="pane-description">' + escAttr(fm.description || '') + '</div>' +
     '<div class="sections">' +
@@ -314,12 +317,19 @@ function overrideBadge(overrides) {
   return '<span class="override-indicator">' + overrides.join(', ') + ' overridden</span>';
 }
 
+function setBreadcrumb(html) {
+  var el = document.getElementById('breadcrumb-slot');
+  if (el) el.innerHTML = html || '';
+}
+
 function showError(msg) {
+  setBreadcrumb('');
   document.getElementById('content').innerHTML =
     '<div style="padding:24px;color:var(--text-dim);font-size:11px">' + msg + '</div>';
 }
 
 function showLoading() {
+  setBreadcrumb('');
   document.getElementById('content').innerHTML =
     '<div style="padding:24px;color:var(--text-dim);font-size:11px">Loading...</div>';
 }
@@ -429,6 +439,7 @@ async function renderGlobal() {
 
   var subtitle = projects.length + ' projects &middot; ' + (workgroupsData || []).length + ' workgroups &middot; ' + (m.agents || []).length + ' agents';
 
+  setBreadcrumb('');
   document.getElementById('content').innerHTML =
     '<div class="pane-title">Global Configuration</div>' +
     '<div class="pane-description">' + (m.description || 'Organization catalog. Workgroups, agents, and skills defined here can be assembled into projects.') + '</div>' +
@@ -571,8 +582,8 @@ async function renderProject(slug) {
   document.getElementById('blade-title').textContent = (team.name || slug) + ' \u2014 Config Lead';
   _updateBladeIframe();
 
+  setBreadcrumb('<div class="breadcrumb-bar"><a onclick="configNav(\'global\')" style="cursor:pointer">Global Config</a> <span>/</span> <a>' + (team.name || slug) + '</a></div>');
   document.getElementById('content').innerHTML =
-    '<div class="breadcrumb-bar"><a onclick="configNav(\'global\')" style="cursor:pointer">Global Config</a> <span>/</span> <a>' + (team.name || slug) + '</a></div>' +
     '<div class="pane-title">' + (team.name || slug) + '</div>' +
     '<div class="pane-description">' + (team.description || '') + '</div>' +
     '<div class="pane-subtitle">Decider: ' + (team.decider || '') + ' &middot; Lead: ' + (team.lead || '') + '</div>' +
@@ -706,8 +717,8 @@ async function renderWorkgroup(name, projectSlug) {
   document.getElementById('blade-title').textContent = name + ' \u2014 Config Lead';
   _updateBladeIframe();
 
+  setBreadcrumb(breadcrumb);
   document.getElementById('content').innerHTML =
-    breadcrumb +
     '<div class="pane-title">' + name + '</div>' +
     '<div class="pane-description">' + (wgData.description || '') + '</div>' +
     '<div class="pane-subtitle">Lead: ' + (wgData.lead || '') + ' &middot; ' + (wgData.agents_count || 0) + ' members</div>' +
