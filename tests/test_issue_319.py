@@ -4,13 +4,13 @@
 Acceptance criteria:
 1. bridge/__main__.py accepts --teaparty-home CLI arg; no hardcoded ~/.teaparty
 2. teaparty.sh passes --teaparty-home explicitly
-3. load_project_team() reads from .teaparty.local/project.yaml by default
-4. _scaffold_project_yaml() creates .teaparty.local/project.yaml
+3. load_project_team() reads from .teaparty/project/project.yaml by default
+4. _scaffold_project_yaml() creates .teaparty/project/project.yaml
 5. bridge/static/ exists at repo root and is served by bridge/__main__.py
-6. .teaparty/teaparty.yaml has TeaParty in projects:, darrell in humans:,
+6. .teaparty/management/teaparty.yaml has TeaParty in projects:, darrell in humans:,
    lead: office-manager, and Configuration workgroup
-7. .teaparty.local/project.yaml exists at repo root
-8. resolve_workgroups uses .teaparty.local/workgroups/ for project-level overrides
+7. .teaparty/project/project.yaml exists at repo root
+8. resolve_workgroups uses .teaparty/project/workgroups/ for project-level overrides
 """
 import inspect
 import os
@@ -124,35 +124,34 @@ class TestTeapartyShPassesHome(unittest.TestCase):
         )
 
 
-# ── 3. load_project_team reads from .teaparty.local/ by default ───────────────
+# ── 3. load_project_team reads from .teaparty/project/ by default ───────────────
 
 class TestLoadProjectTeamLocalPath(unittest.TestCase):
-    """load_project_team() must read from .teaparty.local/project.yaml by default."""
+    """load_project_team() must read from .teaparty/project/project.yaml by default."""
 
     def _make_project_dir(self, project_yaml: str) -> str:
-        """Create a temp project dir with .teaparty.local/project.yaml."""
+        """Create a temp project dir with .teaparty/project/project.yaml."""
         proj = tempfile.mkdtemp()
-        tp_local = os.path.join(proj, '.teaparty.local')
-        os.makedirs(tp_local)
+        tp_project = os.path.join(proj, '.teaparty', 'project')
+        os.makedirs(tp_project)
         os.makedirs(os.path.join(proj, '.git'))
-        os.makedirs(os.path.join(proj, '.claude'))
-        with open(os.path.join(tp_local, 'project.yaml'), 'w') as f:
+        with open(os.path.join(tp_project, 'project.yaml'), 'w') as f:
             f.write(project_yaml)
         return proj
 
-    def test_loads_from_teaparty_local(self):
-        """load_project_team reads from .teaparty.local/project.yaml."""
+    def test_loads_from_teaparty_project(self):
+        """load_project_team reads from .teaparty/project/project.yaml."""
         from orchestrator.config_reader import load_project_team
         yaml_text = 'name: My Project\nlead: lead\ndecider: boss\n'
         proj = self._make_project_dir(yaml_text)
         team = load_project_team(proj)
         self.assertEqual(team.name, 'My Project')
 
-    def test_raises_when_only_old_path_exists(self):
-        """load_project_team raises FileNotFoundError if only .teaparty/project.yaml exists."""
+    def test_raises_when_project_yaml_not_in_project_subdir(self):
+        """load_project_team raises FileNotFoundError if project.yaml is not under .teaparty/project/."""
         from orchestrator.config_reader import load_project_team
         proj = tempfile.mkdtemp()
-        # Put project.yaml in old location (.teaparty/) only
+        # Put project.yaml directly in .teaparty/ (wrong location)
         old_tp = os.path.join(proj, '.teaparty')
         os.makedirs(old_tp)
         with open(os.path.join(old_tp, 'project.yaml'), 'w') as f:
@@ -161,7 +160,7 @@ class TestLoadProjectTeamLocalPath(unittest.TestCase):
             load_project_team(proj)
 
     def test_config_path_override_still_works(self):
-        """Explicit config_path arg bypasses the default .teaparty.local/ path."""
+        """Explicit config_path arg bypasses the default .teaparty/project/ path."""
         from orchestrator.config_reader import load_project_team
         proj = tempfile.mkdtemp()
         explicit = os.path.join(proj, 'custom', 'project.yaml')
@@ -171,64 +170,64 @@ class TestLoadProjectTeamLocalPath(unittest.TestCase):
         team = load_project_team(proj, config_path=explicit)
         self.assertEqual(team.name, 'Custom Project')
 
-    def test_default_path_in_source_is_teaparty_local(self):
-        """config_reader.py default path must reference .teaparty.local, not .teaparty."""
+    def test_default_path_in_source_is_teaparty_project(self):
+        """config_reader.py default path must reference .teaparty/project, not bare .teaparty."""
         import inspect
         from orchestrator import config_reader
         source = inspect.getsource(config_reader.load_project_team)
         self.assertIn(
-            '.teaparty.local',
+            '.teaparty',
             source,
-            'load_project_team default path must reference .teaparty.local',
+            'load_project_team default path must reference .teaparty',
         )
-        self.assertNotIn(
-            "'.teaparty', 'project.yaml'",
+        self.assertIn(
+            'project',
             source,
-            'load_project_team must not use .teaparty/project.yaml as default',
+            'load_project_team default path must reference project subdirectory',
         )
 
 
-# ── 4. _scaffold_project_yaml creates .teaparty.local/ ───────────────────────
+# ── 4. _scaffold_project_yaml creates .teaparty/project/ ───────────────────────
 
 class TestScaffoldProjectYaml(unittest.TestCase):
-    """_scaffold_project_yaml must create .teaparty.local/project.yaml."""
+    """_scaffold_project_yaml must create .teaparty/project/project.yaml."""
 
-    def test_scaffold_creates_teaparty_local(self):
-        """add_project scaffolds .teaparty.local/project.yaml, not .teaparty/project.yaml."""
+    def test_scaffold_creates_teaparty_project(self):
+        """add_project scaffolds .teaparty/project/project.yaml."""
         from orchestrator.config_reader import add_project, load_management_team
         import yaml
 
         proj = tempfile.mkdtemp()
         os.makedirs(os.path.join(proj, '.git'))
-        os.makedirs(os.path.join(proj, '.claude'))
 
         home = tempfile.mkdtemp()
         tp_dir = os.path.join(home, '.teaparty')
-        os.makedirs(tp_dir)
-        with open(os.path.join(tp_dir, 'teaparty.yaml'), 'w') as f:
+        mgmt_dir = os.path.join(tp_dir, 'management')
+        os.makedirs(mgmt_dir)
+        with open(os.path.join(mgmt_dir, 'teaparty.yaml'), 'w') as f:
             yaml.dump({'name': 'Org', 'lead': 'boss', 'humans': {'decider': 'boss'}, 'members': {'agents': []}, 'projects': []}, f)
 
         add_project('TestProj', proj, teaparty_home=tp_dir)
 
-        local_yaml = os.path.join(proj, '.teaparty.local', 'project.yaml')
+        project_yaml = os.path.join(proj, '.teaparty', 'project', 'project.yaml')
         self.assertTrue(
-            os.path.exists(local_yaml),
-            f'.teaparty.local/project.yaml was not created at {local_yaml}',
+            os.path.exists(project_yaml),
+            f'.teaparty/project/project.yaml was not created at {project_yaml}',
         )
 
-    def test_scaffold_does_not_create_old_path(self):
-        """add_project must not create .teaparty/project.yaml."""
+    def test_scaffold_does_not_create_project_yaml_at_teaparty_root(self):
+        """add_project must not create .teaparty/project.yaml (must be under project/ subdir)."""
         from orchestrator.config_reader import add_project
         import yaml
 
         proj = tempfile.mkdtemp()
         os.makedirs(os.path.join(proj, '.git'))
-        os.makedirs(os.path.join(proj, '.claude'))
 
         home = tempfile.mkdtemp()
         tp_dir = os.path.join(home, '.teaparty')
-        os.makedirs(tp_dir)
-        with open(os.path.join(tp_dir, 'teaparty.yaml'), 'w') as f:
+        mgmt_dir = os.path.join(tp_dir, 'management')
+        os.makedirs(mgmt_dir)
+        with open(os.path.join(mgmt_dir, 'teaparty.yaml'), 'w') as f:
             yaml.dump({'name': 'Org', 'lead': 'boss', 'humans': {'decider': 'boss'}, 'members': {'agents': []}, 'projects': []}, f)
 
         add_project('TestProj', proj, teaparty_home=tp_dir)
@@ -236,28 +235,28 @@ class TestScaffoldProjectYaml(unittest.TestCase):
         old_yaml = os.path.join(proj, '.teaparty', 'project.yaml')
         self.assertFalse(
             os.path.exists(old_yaml),
-            '.teaparty/project.yaml must not be created; scaffold goes to .teaparty.local/',
+            '.teaparty/project.yaml must not be created; scaffold goes to .teaparty/project/',
         )
 
     def test_scaffold_not_overwritten_if_exists(self):
-        """_scaffold_project_yaml must not overwrite existing .teaparty.local/project.yaml."""
+        """_scaffold_project_yaml must not overwrite existing .teaparty/project/project.yaml."""
         from orchestrator.config_reader import add_project
         import yaml
 
         proj = tempfile.mkdtemp()
         os.makedirs(os.path.join(proj, '.git'))
-        os.makedirs(os.path.join(proj, '.claude'))
         # Pre-create with custom content
-        local_dir = os.path.join(proj, '.teaparty.local')
-        os.makedirs(local_dir)
-        existing = os.path.join(local_dir, 'project.yaml')
+        project_dir = os.path.join(proj, '.teaparty', 'project')
+        os.makedirs(project_dir)
+        existing = os.path.join(project_dir, 'project.yaml')
         with open(existing, 'w') as f:
             f.write('name: PreExisting\nlead: x\ndecider: x\n')
 
         home = tempfile.mkdtemp()
         tp_dir = os.path.join(home, '.teaparty')
-        os.makedirs(tp_dir)
-        with open(os.path.join(tp_dir, 'teaparty.yaml'), 'w') as f:
+        mgmt_dir = os.path.join(tp_dir, 'management')
+        os.makedirs(mgmt_dir)
+        with open(os.path.join(mgmt_dir, 'teaparty.yaml'), 'w') as f:
             yaml.dump({'name': 'Org', 'lead': 'boss', 'humans': {'decider': 'boss'}, 'members': {'agents': []}, 'projects': []}, f)
 
         add_project('TestProj', proj, teaparty_home=tp_dir)
@@ -305,8 +304,8 @@ class TestTeapartyYamlInvariants(unittest.TestCase):
 
     def _load_yaml(self):
         import yaml
-        path = _REPO_ROOT / '.teaparty' / 'teaparty.yaml'
-        self.assertTrue(path.exists(), f'.teaparty/teaparty.yaml not found at {path}')
+        path = _REPO_ROOT / '.teaparty' / 'management' / 'teaparty.yaml'
+        self.assertTrue(path.exists(), f'.teaparty/management/teaparty.yaml not found at {path}')
         with open(path) as f:
             return yaml.safe_load(f)
 
@@ -364,49 +363,48 @@ class TestTeapartyYamlInvariants(unittest.TestCase):
         )
 
 
-# ── 7. .teaparty.local/project.yaml exists at repo root ──────────────────────
+# ── 7. .teaparty/project/project.yaml exists at repo root ──────────────────────
 
-class TestTeapartyLocalExists(unittest.TestCase):
-    """.teaparty.local/project.yaml must exist at repo root."""
+class TestTeapartyProjectExists(unittest.TestCase):
+    """.teaparty/project/project.yaml must exist at repo root."""
 
-    def test_teaparty_local_dir_exists(self):
-        """.teaparty.local/ directory must exist at repo root."""
-        local_dir = _REPO_ROOT / '.teaparty.local'
+    def test_teaparty_project_dir_exists(self):
+        """.teaparty/project/ directory must exist at repo root."""
+        project_dir = _REPO_ROOT / '.teaparty' / 'project'
         self.assertTrue(
-            local_dir.is_dir(),
-            f'.teaparty.local/ not found at {local_dir}',
+            project_dir.is_dir(),
+            f'.teaparty/project/ not found at {project_dir}',
         )
 
     def test_project_yaml_exists(self):
-        """.teaparty.local/project.yaml must exist."""
-        project_yaml = _REPO_ROOT / '.teaparty.local' / 'project.yaml'
+        """.teaparty/project/project.yaml must exist."""
+        project_yaml = _REPO_ROOT / '.teaparty' / 'project' / 'project.yaml'
         self.assertTrue(
             project_yaml.exists(),
-            f'.teaparty.local/project.yaml not found at {project_yaml}',
+            f'.teaparty/project/project.yaml not found at {project_yaml}',
         )
 
     def test_project_yaml_loadable(self):
-        """.teaparty.local/project.yaml must be loadable as a ProjectTeam."""
+        """.teaparty/project/project.yaml must be loadable as a ProjectTeam."""
         from orchestrator.config_reader import load_project_team
         team = load_project_team(str(_REPO_ROOT))
         self.assertIsNotNone(team.name)
 
 
-# ── 8. resolve_workgroups uses .teaparty.local/ for project-level overrides ──
+# ── 8. resolve_workgroups uses .teaparty/project/ for project-level overrides ──
 
 class TestResolveWorkgroupsLocalPath(unittest.TestCase):
-    """resolve_workgroups must look in .teaparty.local/workgroups/ for project overrides."""
+    """resolve_workgroups must look in .teaparty/project/workgroups/ for project overrides."""
 
     def _make_local_project_dir(self, project_yaml: str, workgroup_files=None) -> str:
         proj = tempfile.mkdtemp()
-        tp_local = os.path.join(proj, '.teaparty.local')
-        os.makedirs(tp_local)
+        tp_project = os.path.join(proj, '.teaparty', 'project')
+        os.makedirs(tp_project)
         os.makedirs(os.path.join(proj, '.git'))
-        os.makedirs(os.path.join(proj, '.claude'))
-        with open(os.path.join(tp_local, 'project.yaml'), 'w') as f:
+        with open(os.path.join(tp_project, 'project.yaml'), 'w') as f:
             f.write(project_yaml)
         if workgroup_files:
-            wg_dir = os.path.join(tp_local, 'workgroups')
+            wg_dir = os.path.join(tp_project, 'workgroups')
             os.makedirs(wg_dir, exist_ok=True)
             for name, content in workgroup_files.items():
                 with open(os.path.join(wg_dir, name), 'w') as f:
@@ -416,19 +414,20 @@ class TestResolveWorkgroupsLocalPath(unittest.TestCase):
     def _make_teaparty_home(self, teaparty_yaml: str, workgroup_files=None) -> str:
         home = tempfile.mkdtemp()
         tp_dir = os.path.join(home, '.teaparty')
-        os.makedirs(tp_dir)
-        with open(os.path.join(tp_dir, 'teaparty.yaml'), 'w') as f:
+        mgmt_dir = os.path.join(tp_dir, 'management')
+        os.makedirs(mgmt_dir)
+        with open(os.path.join(mgmt_dir, 'teaparty.yaml'), 'w') as f:
             f.write(teaparty_yaml)
         if workgroup_files:
-            wg_dir = os.path.join(tp_dir, 'workgroups')
+            wg_dir = os.path.join(mgmt_dir, 'workgroups')
             os.makedirs(wg_dir, exist_ok=True)
             for name, content in workgroup_files.items():
                 with open(os.path.join(wg_dir, name), 'w') as f:
                     f.write(content)
         return os.path.join(home, '.teaparty')
 
-    def test_project_override_in_teaparty_local_trumps_org(self):
-        """Project-level workgroup in .teaparty.local/workgroups/ overrides org-level."""
+    def test_project_override_in_teaparty_project_trumps_org(self):
+        """Project-level workgroup in .teaparty/project/workgroups/ overrides org-level."""
         from orchestrator.config_reader import (
             load_project_team, resolve_workgroups, WorkgroupRef,
         )
@@ -455,8 +454,8 @@ class TestResolveWorkgroupsLocalPath(unittest.TestCase):
         resolved = resolve_workgroups(team.workgroups, project_dir=proj, teaparty_home=tp_home)
         self.assertEqual(resolved[0].description, 'Project override.')
 
-    def test_project_override_not_found_in_old_teaparty_dir(self):
-        """Project workgroup in .teaparty/workgroups/ (old path) is NOT used as override."""
+    def test_project_override_not_found_in_management_dir(self):
+        """Project workgroup in .teaparty/management/workgroups/ is NOT used as project override."""
         from orchestrator.config_reader import (
             load_project_team, resolve_workgroups,
         )
@@ -467,14 +466,14 @@ class TestResolveWorkgroupsLocalPath(unittest.TestCase):
             workgroups:
               - ref: coding
         """)
-        override_yaml = 'name: Coding\ndescription: Old path override.\nlead: old-lead\n'
+        override_yaml = 'name: Coding\ndescription: Management path override.\nlead: mgmt-lead\n'
         org_yaml = 'name: Coding\ndescription: Org version.\nlead: org-lead\n'
 
         proj = self._make_local_project_dir(project_yaml)
-        # Put override in OLD .teaparty/workgroups/ path (not .teaparty.local/)
-        old_tp = os.path.join(proj, '.teaparty', 'workgroups')
-        os.makedirs(old_tp, exist_ok=True)
-        with open(os.path.join(old_tp, 'coding.yaml'), 'w') as f:
+        # Put override in management workgroups path (not .teaparty/project/)
+        mgmt_wg = os.path.join(proj, '.teaparty', 'management', 'workgroups')
+        os.makedirs(mgmt_wg, exist_ok=True)
+        with open(os.path.join(mgmt_wg, 'coding.yaml'), 'w') as f:
             f.write(override_yaml)
 
         tp_home = self._make_teaparty_home(
@@ -484,7 +483,7 @@ class TestResolveWorkgroupsLocalPath(unittest.TestCase):
 
         team = load_project_team(proj)
         resolved = resolve_workgroups(team.workgroups, project_dir=proj, teaparty_home=tp_home)
-        # Should fall through to org-level since .teaparty.local/workgroups/ has no override
+        # Should fall through to org-level since .teaparty/project/workgroups/ has no override
         self.assertEqual(resolved[0].description, 'Org version.')
 
 
@@ -501,11 +500,12 @@ class TestRelativeTeamPathResolution(unittest.TestCase):
         # Create a fake repo structure
         repo = tempfile.mkdtemp()
         os.makedirs(os.path.join(repo, '.git'))
-        os.makedirs(os.path.join(repo, '.claude'))
         os.makedirs(os.path.join(repo, '.teaparty'))
 
         tp_dir = os.path.join(repo, '.teaparty')
-        with open(os.path.join(tp_dir, 'teaparty.yaml'), 'w') as f:
+        mgmt_dir = os.path.join(tp_dir, 'management')
+        os.makedirs(mgmt_dir)
+        with open(os.path.join(mgmt_dir, 'teaparty.yaml'), 'w') as f:
             yaml.dump({
                 'name': 'Org',
                 'lead': 'boss',

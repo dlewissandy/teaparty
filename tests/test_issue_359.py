@@ -22,7 +22,7 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).parent.parent
 _PHASE_CONFIG = _REPO_ROOT / 'orchestrator' / 'phase-config.json'
 _ROUTING_MD = _REPO_ROOT / 'docs' / 'proposals' / 'agent-dispatch' / 'references' / 'routing.md'
-_AGENTS_DIR = _REPO_ROOT / '.claude' / 'agents'
+_AGENTS_DIR = _REPO_ROOT / '.teaparty' / 'management' / 'agents'
 _DISPATCH_LISTENER = _REPO_ROOT / 'orchestrator' / 'dispatch_listener.py'
 _ENGINE_PY = _REPO_ROOT / 'orchestrator' / 'engine.py'
 _MCP_SERVER_PY = _REPO_ROOT / 'orchestrator' / 'mcp_server.py'
@@ -34,7 +34,7 @@ def _load_phase_config() -> dict:
 
 
 def _frontmatter_tools(agent_name: str) -> list[str]:
-    path = _AGENTS_DIR / f'{agent_name}.md'
+    path = _AGENTS_DIR / agent_name / 'agent.md'
     content = path.read_text()
     for line in content.splitlines():
         line = line.strip()
@@ -199,7 +199,7 @@ class TestDispatchingAgentToolsUpdated(unittest.TestCase):
                 tools = _frontmatter_tools(agent)
                 self.assertNotIn(
                     'AskTeam', tools,
-                    f'{agent}.md must not have AskTeam in tools — '
+                    f'{agent}/agent.md must not have AskTeam in tools — '
                     f'AskTeam is retired. Got: {tools}',
                 )
 
@@ -210,7 +210,7 @@ class TestDispatchingAgentToolsUpdated(unittest.TestCase):
                 tools = _frontmatter_tools(agent)
                 self.assertIn(
                     'Send', tools,
-                    f'{agent}.md must have Send in tools — '
+                    f'{agent}/agent.md must have Send in tools — '
                     f'it is the replacement for AskTeam. Got: {tools}',
                 )
 

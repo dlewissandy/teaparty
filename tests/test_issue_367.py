@@ -61,14 +61,15 @@ def _make_management_yaml(teaparty_home: str, agents: list, skills: list | None 
         'scheduled': [],
         'workgroups': [],
     }
-    os.makedirs(teaparty_home, exist_ok=True)
-    with open(os.path.join(teaparty_home, 'teaparty.yaml'), 'w') as f:
+    mgmt_dir = os.path.join(teaparty_home, 'management')
+    os.makedirs(mgmt_dir, exist_ok=True)
+    with open(os.path.join(mgmt_dir, 'teaparty.yaml'), 'w') as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 
 
 def _make_project_yaml(project_dir: str, agents: list, skills: list | None = None):
     """Write project.yaml with given active agents/skills list."""
-    tp_local = os.path.join(project_dir, '.teaparty.local')
+    tp_local = os.path.join(project_dir, '.teaparty', 'project')
     os.makedirs(tp_local, exist_ok=True)
     data = {
         'name': 'Test Project',
@@ -88,8 +89,9 @@ def _make_project_yaml(project_dir: str, agents: list, skills: list | None = Non
 
 
 def _make_agent_file(agents_dir: str, name: str):
-    os.makedirs(agents_dir, exist_ok=True)
-    with open(os.path.join(agents_dir, f'{name}.md'), 'w') as f:
+    agent_dir = os.path.join(agents_dir, name)
+    os.makedirs(agent_dir, exist_ok=True)
+    with open(os.path.join(agent_dir, 'agent.md'), 'w') as f:
         f.write(f'# {name}\n')
 
 
@@ -101,13 +103,13 @@ def _make_skill(skills_dir: str, name: str):
 
 
 def _read_project_yaml(project_dir: str) -> dict:
-    path = os.path.join(project_dir, '.teaparty.local', 'project.yaml')
+    path = os.path.join(project_dir, '.teaparty', 'project', 'project.yaml')
     with open(path) as f:
         return yaml.safe_load(f)
 
 
 def _read_management_yaml(teaparty_home: str) -> dict:
-    path = os.path.join(teaparty_home, 'teaparty.yaml')
+    path = os.path.join(teaparty_home, 'management', 'teaparty.yaml')
     with open(path) as f:
         return yaml.safe_load(f)
 
@@ -117,11 +119,11 @@ def _read_management_yaml(teaparty_home: str) -> dict:
 class TestDiscoverAgents(unittest.TestCase):
     """discover_agents must return all .md filenames (without extension) from agents_dir."""
 
-    def test_returns_agent_names_from_md_files(self):
-        """discover_agents returns names derived from .md files in the directory."""
+    def test_returns_agent_names_from_agent_dirs(self):
+        """discover_agents returns names derived from agent directories."""
         from orchestrator.config_reader import discover_agents
         with tempfile.TemporaryDirectory() as tmp:
-            agents_dir = os.path.join(tmp, '.claude', 'agents')
+            agents_dir = os.path.join(tmp, '.teaparty', 'management', 'agents')
             _make_agent_file(agents_dir, 'office-manager')
             _make_agent_file(agents_dir, 'auditor')
             result = discover_agents(agents_dir)
@@ -131,14 +133,14 @@ class TestDiscoverAgents(unittest.TestCase):
     def test_returns_empty_list_for_missing_dir(self):
         """discover_agents returns [] when the agents directory does not exist."""
         from orchestrator.config_reader import discover_agents
-        result = discover_agents('/nonexistent/path/.claude/agents')
+        result = discover_agents('/nonexistent/path/.teaparty/management/agents')
         self.assertEqual(result, [])
 
-    def test_ignores_non_md_files(self):
-        """discover_agents ignores non-.md files in the directory."""
+    def test_ignores_non_agent_entries(self):
+        """discover_agents ignores entries without agent.md in the directory."""
         from orchestrator.config_reader import discover_agents
         with tempfile.TemporaryDirectory() as tmp:
-            agents_dir = os.path.join(tmp, '.claude', 'agents')
+            agents_dir = os.path.join(tmp, '.teaparty', 'management', 'agents')
             os.makedirs(agents_dir, exist_ok=True)
             _make_agent_file(agents_dir, 'office-manager')
             with open(os.path.join(agents_dir, 'README.txt'), 'w') as f:
@@ -150,7 +152,7 @@ class TestDiscoverAgents(unittest.TestCase):
         """discover_agents returns names in sorted order."""
         from orchestrator.config_reader import discover_agents
         with tempfile.TemporaryDirectory() as tmp:
-            agents_dir = os.path.join(tmp, '.claude', 'agents')
+            agents_dir = os.path.join(tmp, '.teaparty', 'management', 'agents')
             _make_agent_file(agents_dir, 'zebra')
             _make_agent_file(agents_dir, 'alpha')
             _make_agent_file(agents_dir, 'mango')
@@ -222,7 +224,7 @@ class TestToggleManagementMembership(unittest.TestCase):
         data = _read_management_yaml(self.teaparty_home)
         data['hooks'] = [{'event': 'PreToolUse', 'matcher': 'Bash', 'type': 'command', 'command': './hook.sh'}]
         import yaml as _yaml
-        with open(os.path.join(self.teaparty_home, 'teaparty.yaml'), 'w') as f:
+        with open(os.path.join(self.teaparty_home, 'management', 'teaparty.yaml'), 'w') as f:
             _yaml.dump(data, f, default_flow_style=False, sort_keys=False)
         toggle_management_membership(self.teaparty_home, 'hook', 'PreToolUse', False)
         data = _read_management_yaml(self.teaparty_home)
@@ -235,7 +237,7 @@ class TestToggleManagementMembership(unittest.TestCase):
         data = _read_management_yaml(self.teaparty_home)
         data['hooks'] = [{'event': 'PreToolUse', 'active': False, 'type': 'command', 'command': './hook.sh'}]
         import yaml as _yaml
-        with open(os.path.join(self.teaparty_home, 'teaparty.yaml'), 'w') as f:
+        with open(os.path.join(self.teaparty_home, 'management', 'teaparty.yaml'), 'w') as f:
             _yaml.dump(data, f, default_flow_style=False, sort_keys=False)
         toggle_management_membership(self.teaparty_home, 'hook', 'PreToolUse', True)
         data = _read_management_yaml(self.teaparty_home)
@@ -302,7 +304,7 @@ class TestManagementTeamFullAgentCatalog(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
         self.teaparty_home = os.path.join(self.tmp, '.teaparty')
-        self.agents_dir = os.path.join(self.tmp, '.claude', 'agents')
+        self.agents_dir = os.path.join(self.tmp, '.teaparty', 'management', 'agents')
 
     def tearDown(self):
         import shutil
@@ -332,12 +334,12 @@ class TestManagementTeamFullAgentCatalog(unittest.TestCase):
         result = bridge._serialize_management_team(team)
         inactive_agent = next((a for a in result['agents'] if a['name'] == 'auditor'), None)
         self.assertIsNotNone(inactive_agent,
-                             'auditor exists in .claude/agents/ — must appear in catalog')
+                             'auditor exists in agents dir — must appear in catalog')
         self.assertFalse(inactive_agent['active'],
                          'auditor is not in teaparty.yaml, so active must be False')
 
     def test_all_filesystem_agents_appear_in_catalog(self):
-        """All agents found in .claude/agents/ appear in the response, not just active ones."""
+        """All agents found in agents dir appear in the response, not just active ones."""
         from orchestrator.config_reader import load_management_team
         _make_management_yaml(self.teaparty_home, agents=['office-manager'])
         _make_agent_file(self.agents_dir, 'office-manager')
@@ -358,7 +360,7 @@ class TestManagementTeamSkillCatalogWithActiveFlag(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
         self.teaparty_home = os.path.join(self.tmp, '.teaparty')
-        self.skills_dir = os.path.join(self.tmp, '.claude', 'skills')
+        self.skills_dir = os.path.join(self.tmp, '.teaparty', 'management', 'skills')
 
     def tearDown(self):
         import shutil
@@ -403,7 +405,7 @@ class TestProjectTeamFullAgentCatalog(unittest.TestCase):
         self.teaparty_home = os.path.join(self.tmp, '.teaparty')
         self.project_dir = os.path.join(self.tmp, 'myproject')
         os.makedirs(self.project_dir)
-        self.org_agents_dir = os.path.join(self.tmp, '.claude', 'agents')
+        self.org_agents_dir = os.path.join(self.tmp, '.teaparty', 'management', 'agents')
 
     def tearDown(self):
         import shutil
@@ -454,7 +456,7 @@ class TestProjectTeamSkillCatalogWithActiveFlag(unittest.TestCase):
         self.teaparty_home = os.path.join(self.tmp, '.teaparty')
         self.project_dir = os.path.join(self.tmp, 'myproject')
         os.makedirs(self.project_dir)
-        self.org_skills_dir = os.path.join(self.tmp, '.claude', 'skills')
+        self.org_skills_dir = os.path.join(self.tmp, '.teaparty', 'management', 'skills')
 
     def tearDown(self):
         import shutil
@@ -514,7 +516,7 @@ class TestToggleManagementEndpoint(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
         self.teaparty_home = os.path.join(self.tmp, '.teaparty')
-        self.agents_dir = os.path.join(self.tmp, '.claude', 'agents')
+        self.agents_dir = os.path.join(self.tmp, '.teaparty', 'management', 'agents')
         _make_management_yaml(self.teaparty_home, agents=['office-manager'])
         _make_agent_file(self.agents_dir, 'office-manager')
         _make_agent_file(self.agents_dir, 'auditor')
@@ -575,9 +577,9 @@ class TestToggleProjectEndpoint(unittest.TestCase):
         # Register project in management YAML
         data = _read_management_yaml(self.teaparty_home)
         data['projects'] = [{'name': 'myproject', 'path': self.project_dir}]
-        with open(os.path.join(self.teaparty_home, 'teaparty.yaml'), 'w') as f:
+        with open(os.path.join(self.teaparty_home, 'management', 'teaparty.yaml'), 'w') as f:
             yaml.dump(data, f, default_flow_style=False, sort_keys=False)
-        org_agents_dir = os.path.join(self.tmp, '.claude', 'agents')
+        org_agents_dir = os.path.join(self.tmp, '.teaparty', 'management', 'agents')
         _make_agent_file(org_agents_dir, 'office-manager')
         _make_agent_file(org_agents_dir, 'auditor')
 
@@ -827,7 +829,7 @@ class TestToggleWorkgroupEndpoint(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
         self.teaparty_home = os.path.join(self.tmp, '.teaparty')
-        wg_dir = os.path.join(self.teaparty_home, 'workgroups')
+        wg_dir = os.path.join(self.teaparty_home, 'management', 'workgroups')
         os.makedirs(wg_dir, exist_ok=True)
         self.wg_path = os.path.join(wg_dir, 'backlog.yaml')
         _make_workgroup_yaml(self.wg_path, agents=['auditor'], skills=['commit'])
@@ -894,7 +896,7 @@ class TestLocalProjectSkillsActiveFlag(unittest.TestCase):
         # Make project with only 'commit' registered in skills:
         _make_project_yaml(self.project_dir, agents=[], skills=['commit'])
         # Create two local skills on filesystem; only 'commit' is registered
-        local_skills_dir = os.path.join(self.project_dir, '.claude', 'skills')
+        local_skills_dir = os.path.join(self.project_dir, '.teaparty', 'project', 'skills')
         _make_skill(local_skills_dir, 'commit')
         _make_skill(local_skills_dir, 'review-pr')
 
@@ -910,9 +912,9 @@ class TestLocalProjectSkillsActiveFlag(unittest.TestCase):
             static_dir=os.path.join(self.tmp, 'static'),
         )
         team = load_project_team(self.project_dir)
-        local_skills = discover_skills(os.path.join(self.project_dir, '.claude', 'skills'))
+        local_skills = discover_skills(os.path.join(self.project_dir, '.teaparty', 'project', 'skills'))
         import yaml as _yaml
-        with open(os.path.join(self.project_dir, '.teaparty.local', 'project.yaml')) as _f:
+        with open(os.path.join(self.project_dir, '.teaparty', 'project', 'project.yaml')) as _f:
             _proj_data = _yaml.safe_load(_f) or {}
         registered = _proj_data.get('members', {}).get('skills') or []
         result = bridge._serialize_project_team(
@@ -1029,25 +1031,24 @@ class TestWorkgroupDetailProjectCatalogExtension(unittest.TestCase):
     """GET /api/workgroups/{name}?project=slug must extend catalog with project-level items."""
 
     def setUp(self):
-        import json as _json
         self.tmp = tempfile.mkdtemp()
         self.teaparty_home = os.path.join(self.tmp, '.teaparty')
         self.project_dir = os.path.join(self.tmp, 'myproject')
         # Management team with workgroup
         _make_management_yaml(self.teaparty_home, agents=[])
-        wg_dir = os.path.join(self.teaparty_home, 'workgroups')
+        wg_dir = os.path.join(self.teaparty_home, 'management', 'workgroups')
         os.makedirs(wg_dir, exist_ok=True)
         self.wg_path = os.path.join(wg_dir, 'backlog.yaml')
         _make_workgroup_yaml(self.wg_path, agents=[], skills=[])
         # Register workgroup in teaparty.yaml
         data = _read_management_yaml(self.teaparty_home)
-        data['workgroups'] = [{'name': 'backlog', 'config': 'workgroups/backlog.yaml'}]
+        data['workgroups'] = [{'name': 'backlog', 'config': 'management/workgroups/backlog.yaml'}]
         data['projects'] = [{'name': 'myproject', 'path': self.project_dir}]
-        with open(os.path.join(self.teaparty_home, 'teaparty.yaml'), 'w') as f:
+        with open(os.path.join(self.teaparty_home, 'management', 'teaparty.yaml'), 'w') as f:
             yaml.dump(data, f, default_flow_style=False, sort_keys=False)
         # Project directory
         os.makedirs(self.project_dir)
-        proj_local = os.path.join(self.project_dir, '.teaparty.local')
+        proj_local = os.path.join(self.project_dir, '.teaparty', 'project')
         os.makedirs(proj_local)
         with open(os.path.join(proj_local, 'project.yaml'), 'w') as f:
             yaml.dump({
@@ -1057,14 +1058,15 @@ class TestWorkgroupDetailProjectCatalogExtension(unittest.TestCase):
                 'hooks': [], 'scheduled': [],
             }, f)
         # Project-level agent not in org catalog
-        proj_agents_dir = os.path.join(self.project_dir, '.claude', 'agents')
-        os.makedirs(proj_agents_dir)
-        with open(os.path.join(proj_agents_dir, 'proj-agent.md'), 'w') as f:
+        proj_agents_dir = os.path.join(self.project_dir, '.teaparty', 'project', 'agents')
+        proj_agent_dir = os.path.join(proj_agents_dir, 'proj-agent')
+        os.makedirs(proj_agent_dir)
+        with open(os.path.join(proj_agent_dir, 'agent.md'), 'w') as f:
             f.write('# proj-agent\n')
         # Project-level hook not in org hooks
-        proj_claude_dir = os.path.join(self.project_dir, '.claude')
-        with open(os.path.join(proj_claude_dir, 'settings.json'), 'w') as f:
-            _json.dump({'hooks': {'ProjectHookEvent': [{'matcher': '', 'hooks': [{'type': 'command', 'command': 'echo hi'}]}]}}, f)
+        proj_dir = os.path.join(self.project_dir, '.teaparty', 'project')
+        with open(os.path.join(proj_dir, 'settings.yaml'), 'w') as f:
+            yaml.dump({'hooks': {'ProjectHookEvent': [{'matcher': '', 'hooks': [{'type': 'command', 'command': 'echo hi'}]}]}}, f, default_flow_style=False, sort_keys=False)
 
     def tearDown(self):
         import shutil

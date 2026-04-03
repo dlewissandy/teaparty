@@ -41,27 +41,8 @@ class TestGlobalConfigHumanParticipantClickHandler(unittest.TestCase):
             "that opens the office manager chat, not the proxy chat",
         )
 
-    def test_global_human_participant_uses_proxy_conv_id_prefix(self):
-        """Human participant forEach in renderGlobal must construct a proxy: conversation ID."""
-        source = _read_config_html()
-        render_global_match = re.search(
-            r'async function renderGlobal\(\)(.*?)^async function ',
-            source,
-            re.DOTALL | re.MULTILINE,
-        )
-        self.assertIsNotNone(render_global_match, 'renderGlobal function not found in config.html')
-        render_global = render_global_match.group(1)
-
-        # The humans forEach must use 'proxy:' prefix (matching how manager card uses 'manager:')
-        self.assertIn(
-            "proxy:",
-            render_global,
-            "renderGlobal humans forEach must construct a proxy: conversation ID "
-            "(analogous to how manager card uses 'manager:' + decider)",
-        )
-
-    def test_global_human_participant_onclick_uses_proxy_prefix_with_h_name(self):
-        """Human participant forEach in renderGlobal must use 'proxy:' + h.name in the onclick."""
+    def test_global_human_participant_has_role_select(self):
+        """Human participant forEach in renderGlobal must render a role-select dropdown."""
         source = _read_config_html()
         render_global_match = re.search(
             r'async function renderGlobal\(\)(.*?)^async function ',
@@ -72,10 +53,27 @@ class TestGlobalConfigHumanParticipantClickHandler(unittest.TestCase):
         render_global = render_global_match.group(1)
 
         self.assertIn(
-            "'proxy:' + h.name",
+            "role-select",
             render_global,
-            "renderGlobal humans forEach must use 'proxy:' + h.name to construct the conv ID "
-            "(identical pattern to manager card using 'manager:' + team.decider)",
+            "renderGlobal humans forEach must render a role-select dropdown",
+        )
+
+    def test_global_human_participant_calls_setParticipantRole(self):
+        """Human participant forEach in renderGlobal must call setParticipantRole on change."""
+        source = _read_config_html()
+        render_global_match = re.search(
+            r'async function renderGlobal\(\)(.*?)^async function ',
+            source,
+            re.DOTALL | re.MULTILINE,
+        )
+        self.assertIsNotNone(render_global_match, 'renderGlobal function not found in config.html')
+        render_global = render_global_match.group(1)
+
+        self.assertIn(
+            "setParticipantRole",
+            render_global,
+            "renderGlobal humans forEach must call setParticipantRole "
+            "(human cards use role selection, not chat navigation)",
         )
 
 
@@ -100,8 +98,8 @@ class TestProjectConfigHumanParticipantClickHandler(unittest.TestCase):
             "that opens the office manager chat, not the proxy chat",
         )
 
-    def test_project_human_participant_uses_proxy_conv_id_prefix(self):
-        """Human participant forEach in renderProject must construct a proxy: conversation ID."""
+    def test_project_human_participant_has_role_select(self):
+        """Human participant forEach in renderProject must render a role-select dropdown."""
         source = _read_config_html()
         render_project_match = re.search(
             r'async function renderProject\(slug\)(.*?)^async function ',
@@ -112,13 +110,13 @@ class TestProjectConfigHumanParticipantClickHandler(unittest.TestCase):
         render_project = render_project_match.group(1)
 
         self.assertIn(
-            "proxy:",
+            "role-select",
             render_project,
-            "renderProject humans forEach must construct a proxy: conversation ID",
+            "renderProject humans forEach must render a role-select dropdown",
         )
 
-    def test_project_human_participant_onclick_uses_proxy_prefix_with_h_name(self):
-        """Human participant forEach in renderProject must use 'proxy:' + h.name in the onclick."""
+    def test_project_human_participant_calls_setParticipantRole(self):
+        """Human participant forEach in renderProject must call setParticipantRole on change."""
         source = _read_config_html()
         render_project_match = re.search(
             r'async function renderProject\(slug\)(.*?)^async function ',
@@ -129,9 +127,10 @@ class TestProjectConfigHumanParticipantClickHandler(unittest.TestCase):
         render_project = render_project_match.group(1)
 
         self.assertIn(
-            "'proxy:' + h.name",
+            "setParticipantRole",
             render_project,
-            "renderProject humans forEach must use 'proxy:' + h.name to construct the conv ID",
+            "renderProject humans forEach must call setParticipantRole "
+            "(human cards use role selection, not chat navigation)",
         )
 
 
@@ -179,26 +178,33 @@ class TestManagerCardUnaffected(unittest.TestCase):
         )
 
 
-class TestProxyConvIdShapeMatchesManagerPattern(unittest.TestCase):
-    """Proxy conv ID construction must mirror how the manager card constructs its ID."""
+class TestHumanCardsUseRoleSelectNotChat(unittest.TestCase):
+    """Human participant cards must use role-select dropdowns, not chat navigation."""
 
-    def test_proxy_conv_id_construction_mirrors_manager_conv_id_construction(self):
-        """Both manager and human card onclick handlers must use string concatenation with a
-        colon-prefixed identifier: 'manager:' + decider for manager, 'proxy:' + h.name for human.
-        """
+    def test_manager_card_still_uses_manager_conv_id_construction(self):
+        """Project manager card must still use 'manager:' + team.decider for chat."""
         source = _read_config_html()
 
-        # Manager card uses: 'manager:' + team.decider
         self.assertIn(
             "'manager:' + team.decider",
             source,
             "Manager card must use 'manager:' + team.decider (baseline pattern unchanged)",
         )
 
-        # Human card must use analogous pattern: 'proxy:' + h.name
-        self.assertIn(
-            "'proxy:' + h.name",
+    def test_human_cards_do_not_use_openChat(self):
+        """Human participant cards must not call openChat — they use role-select instead."""
+        source = _read_config_html()
+
+        # Extract the humans forEach blocks and verify they don't call openChat
+        humans_blocks = re.findall(
+            r'\((?:m|team)\.humans \|\| \[\]\)\.forEach\(function\(h\)\s*\{(.*?)\}\);',
             source,
-            "Human participant cards must use 'proxy:' + h.name — "
-            "identical construction to manager card using 'manager:' + team.decider",
+            re.DOTALL,
         )
+        self.assertGreater(len(humans_blocks), 0, 'Must find at least one humans forEach block')
+        for block in humans_blocks:
+            self.assertNotIn(
+                'openChat',
+                block,
+                'Human participant forEach must not call openChat — uses role-select instead',
+            )

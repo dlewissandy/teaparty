@@ -6,7 +6,7 @@
 
 Before spawning an agent, TeaParty creates a git worktree for the target project and composes its `.claude/skills/` directory from the central skill library.
 
-`teaparty_home` is the TeaParty installation root (e.g. `~/.teaparty/` or the repo root for local development). The skill library lives at `teaparty_home/skills/` with subdirectories `common/` and `roles/{role}/`. Project skills live in the project's own `.claude/skills/`. Each entry in those directories is itself a directory (the `{name}/SKILL.md` layout), so composition uses directory-level symlinks, not glob expansion:
+`teaparty_home` is the TeaParty installation root (e.g. `~/.teaparty/` or the repo root for local development). The skill library lives at `teaparty_home/skills/` with subdirectories `common/` and `roles/{role}/`. Project skills live in the project's own `.teaparty/project/skills/`. Each entry in those directories is itself a directory (the `{name}/SKILL.md` layout), so composition uses directory-level symlinks, not glob expansion:
 
 ```bash
 git worktree add /tmp/tp/agent-{id} HEAD
@@ -19,7 +19,7 @@ done
 for skill in $TEAPARTY_HOME/skills/roles/{role}/*/; do
     ln -s "$skill" /tmp/tp/agent-{id}/.claude/skills/
 done
-for skill in $PROJECT/.claude/skills/*/; do
+for skill in $PROJECT/.teaparty/project/skills/*/; do
     ln -s "$skill" /tmp/tp/agent-{id}/.claude/skills/
 done
 ```

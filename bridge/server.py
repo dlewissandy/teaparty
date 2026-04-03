@@ -57,6 +57,16 @@ from orchestrator.config_reader import (
     set_participant_role_workgroup,
     read_agent_frontmatter,
     write_agent_frontmatter,
+    management_dir,
+    management_agents_dir,
+    management_skills_dir,
+    management_settings_path,
+    management_workgroups_dir,
+    project_teaparty_dir,
+    project_agents_dir,
+    project_skills_dir,
+    project_settings_path,
+    project_workgroups_dir,
     WorkgroupRef,
     WorkgroupEntry,
 )
@@ -411,13 +421,10 @@ class TeaPartyBridge:
         try:
             team = load_management_team(teaparty_home=self.teaparty_home)
             projects = discover_projects(team)
-            active_projects = set(team.members_projects)
             for p in projects:
                 p['slug'] = os.path.basename(p['path'])
-                p['active'] = p['name'] in active_projects
-            claude_base = os.path.dirname(self.teaparty_home)
-            org_agents_dir = os.path.join(claude_base, '.claude', 'agents')
-            org_skills_dir = os.path.join(claude_base, '.claude', 'skills')
+            org_agents_dir = management_agents_dir(self.teaparty_home)
+            org_skills_dir = management_skills_dir(self.teaparty_home)
             discovered_agents = discover_agents(org_agents_dir)
             discovered_skills = discover_skills(org_skills_dir)
             return web.json_response({
@@ -441,28 +448,27 @@ class TeaPartyBridge:
         except FileNotFoundError:
             return web.json_response({'error': f'project config not found: {slug}'}, status=404)
 
-        claude_base = os.path.dirname(self.teaparty_home)
         try:
             mgmt = load_management_team(teaparty_home=self.teaparty_home)
             org_agents: list[str] = mgmt.members_agents
             org_catalog_skills: list[str] = discover_skills(
-                os.path.join(claude_base, '.claude', 'skills')
+                management_skills_dir(self.teaparty_home)
             )
         except FileNotFoundError:
             org_agents = []
             org_catalog_skills = []
 
         org_catalog_agents: list[str] = discover_agents(
-            os.path.join(claude_base, '.claude', 'agents')
+            management_agents_dir(self.teaparty_home)
         )
 
         local_skills: list[str] = discover_skills(
-            os.path.join(project_dir, '.claude', 'skills')
+            project_skills_dir(project_dir)
         )
 
         project_catalog = merge_catalog(
-            os.path.join(claude_base, '.claude'),
-            os.path.join(project_dir, '.claude'),
+            management_dir(self.teaparty_home),
+            project_teaparty_dir(project_dir),
         )
 
         members_workgroups_lower = {m.lower() for m in team.members_workgroups}
@@ -523,9 +529,9 @@ class TeaPartyBridge:
         kind = body.get('type', '')
         name = body.get('name', '')
         active = body.get('active')
-        if kind not in ('agent', 'project', 'workgroup', 'skill', 'hook', 'scheduled_task') or not name or not isinstance(active, bool):
+        if kind not in ('agent', 'workgroup', 'skill', 'hook', 'scheduled_task') or not name or not isinstance(active, bool):
             return web.json_response(
-                {'error': 'body must include type (agent|project|workgroup|skill|hook|scheduled_task), name, and active (bool)'},
+                {'error': 'body must include type (agent|workgroup|skill|hook|scheduled_task), name, and active (bool)'},
                 status=400,
             )
         try:
@@ -607,16 +613,15 @@ class TeaPartyBridge:
         role = body.get('role', '')
         if not name or not role:
             return web.json_response({'error': 'body must include name and role'}, status=400)
-        claude_base = os.path.dirname(self.teaparty_home)
         if project_slug:
             project_dir = self._lookup_project_path(project_slug)
             if project_dir is None:
                 return web.json_response({'error': f'project not found: {project_slug}'}, status=404)
-            yaml_path = os.path.join(project_dir, '.teaparty.local', 'workgroups', f'{wg_name}.yaml')
+            yaml_path = os.path.join(project_workgroups_dir(project_dir), f'{wg_name}.yaml')
             if not os.path.exists(yaml_path):
-                yaml_path = os.path.join(self.teaparty_home, 'workgroups', f'{wg_name}.yaml')
+                yaml_path = os.path.join(management_workgroups_dir(self.teaparty_home), f'{wg_name}.yaml')
         else:
-            yaml_path = os.path.join(self.teaparty_home, 'workgroups', f'{wg_name}.yaml')
+            yaml_path = os.path.join(management_workgroups_dir(self.teaparty_home), f'{wg_name}.yaml')
         try:
             set_participant_role_workgroup(yaml_path, name, role)
         except (FileNotFoundError, ValueError) as exc:
@@ -638,16 +643,15 @@ class TeaPartyBridge:
                 {'error': 'body must include type (agent|hook), name, and active (bool)'},
                 status=400,
             )
-        claude_base = os.path.dirname(self.teaparty_home)
         if project_slug:
             project_dir = self._lookup_project_path(project_slug)
             if project_dir is None:
                 return web.json_response({'error': f'project not found: {project_slug}'}, status=404)
-            yaml_path = os.path.join(project_dir, '.teaparty.local', 'workgroups', f'{wg_name}.yaml')
+            yaml_path = os.path.join(project_workgroups_dir(project_dir), f'{wg_name}.yaml')
             if not os.path.exists(yaml_path):
-                yaml_path = os.path.join(self.teaparty_home, 'workgroups', f'{wg_name}.yaml')
+                yaml_path = os.path.join(management_workgroups_dir(self.teaparty_home), f'{wg_name}.yaml')
         else:
-            yaml_path = os.path.join(self.teaparty_home, 'workgroups', f'{wg_name}.yaml')
+            yaml_path = os.path.join(management_workgroups_dir(self.teaparty_home), f'{wg_name}.yaml')
         try:
             toggle_workgroup_membership(yaml_path, kind, name, active)
         except (FileNotFoundError, ValueError) as exc:
@@ -685,16 +689,15 @@ class TeaPartyBridge:
         except FileNotFoundError as exc:
             return web.json_response({'error': str(exc)}, status=404)
 
-        claude_base = os.path.dirname(self.teaparty_home)
         catalog = merge_catalog(
-            os.path.join(claude_base, '.claude'),
-            os.path.join(project_dir, '.claude') if project_dir else None,
+            management_dir(self.teaparty_home),
+            project_teaparty_dir(project_dir) if project_dir else None,
         )
         org_catalog_agents: list[str] = catalog.agents
         org_hooks: list[dict] = catalog.hooks
         # Management-only set for 'shared' vs 'local' source tagging in the serializer.
         org_agents_set: set[str] = set(
-            discover_agents(os.path.join(claude_base, '.claude', 'agents'))
+            discover_agents(management_agents_dir(self.teaparty_home))
         )
 
         members_lower: set[str] | None = (
@@ -718,16 +721,18 @@ class TeaPartyBridge:
         name = request.match_info['name']
         project_slug = request.rel_url.query.get('project')
         project_dir: str | None = None
-        claude_base = os.path.dirname(self.teaparty_home)
         if project_slug:
             project_dir = self._lookup_project_path(project_slug)
             if project_dir is None:
                 return web.json_response({'error': f'project not found: {project_slug}'}, status=404)
-            yaml_path = os.path.join(project_dir, '.teaparty.local', 'workgroups', f'{name}.yaml')
+            yaml_path = os.path.join(project_workgroups_dir(project_dir), f'{name}.yaml')
             if not os.path.exists(yaml_path):
-                yaml_path = os.path.join(self.teaparty_home, 'workgroups', f'{name}.yaml')
+                # Legacy fallback
+                yaml_path = os.path.join(project_dir, '.teaparty.local', 'workgroups', f'{name}.yaml')
+            if not os.path.exists(yaml_path):
+                yaml_path = os.path.join(management_workgroups_dir(self.teaparty_home), f'{name}.yaml')
         else:
-            yaml_path = os.path.join(self.teaparty_home, 'workgroups', f'{name}.yaml')
+            yaml_path = os.path.join(management_workgroups_dir(self.teaparty_home), f'{name}.yaml')
         if not os.path.exists(yaml_path):
             return web.json_response({'error': f'workgroup not found: {name}'}, status=404)
         try:
@@ -753,13 +758,13 @@ class TeaPartyBridge:
             yaml.dump(data, f, default_flow_style=False, sort_keys=False)
         wg = load_workgroup(yaml_path)
         catalog = merge_catalog(
-            os.path.join(claude_base, '.claude'),
-            os.path.join(project_dir, '.claude') if project_dir else None,
+            management_dir(self.teaparty_home),
+            project_teaparty_dir(project_dir) if project_dir else None,
         )
         return web.json_response(
             self._serialize_workgroup(
                 wg, detail=True,
-                org_agents=set(discover_agents(os.path.join(claude_base, '.claude', 'agents'))),
+                org_agents=set(discover_agents(management_agents_dir(self.teaparty_home))),
                 org_catalog_agents=catalog.agents,
                 org_hooks_catalog=catalog.hooks,
             )
@@ -768,17 +773,16 @@ class TeaPartyBridge:
     async def _handle_agent_detail(self, request: web.Request) -> web.Response:
         name = request.match_info['name']
         project_slug = request.rel_url.query.get('project')
-        claude_base = os.path.dirname(self.teaparty_home)
         path: str | None = None
         if project_slug:
             project_dir = self._lookup_project_path(project_slug)
             if project_dir is None:
                 return web.json_response({'error': f'project not found: {project_slug}'}, status=404)
-            proj_path = os.path.join(project_dir, '.claude', 'agents', f'{name}.md')
+            proj_path = os.path.join(project_agents_dir(project_dir), name, 'agent.md')
             if os.path.exists(proj_path):
                 path = proj_path
         if path is None:
-            org_path = os.path.join(claude_base, '.claude', 'agents', f'{name}.md')
+            org_path = os.path.join(management_agents_dir(self.teaparty_home), name, 'agent.md')
             if os.path.exists(org_path):
                 path = org_path
         if path is None:
@@ -789,17 +793,16 @@ class TeaPartyBridge:
     async def _handle_agent_patch(self, request: web.Request) -> web.Response:
         name = request.match_info['name']
         project_slug = request.rel_url.query.get('project')
-        claude_base = os.path.dirname(self.teaparty_home)
         path: str | None = None
         if project_slug:
             project_dir = self._lookup_project_path(project_slug)
             if project_dir is None:
                 return web.json_response({'error': f'project not found: {project_slug}'}, status=404)
-            proj_path = os.path.join(project_dir, '.claude', 'agents', f'{name}.md')
+            proj_path = os.path.join(project_agents_dir(project_dir), name, 'agent.md')
             if os.path.exists(proj_path):
                 path = proj_path
         if path is None:
-            org_path = os.path.join(claude_base, '.claude', 'agents', f'{name}.md')
+            org_path = os.path.join(management_agents_dir(self.teaparty_home), name, 'agent.md')
             if os.path.exists(org_path):
                 path = org_path
         if path is None:
@@ -819,10 +822,9 @@ class TeaPartyBridge:
         project_dir = self._lookup_project_path(slug)
         if project_dir is None:
             return web.json_response({'error': f'project not found: {slug}'}, status=404)
-        claude_base = os.path.dirname(self.teaparty_home)
         catalog = merge_catalog(
-            os.path.join(claude_base, '.claude'),
-            os.path.join(project_dir, '.claude'),
+            management_dir(self.teaparty_home),
+            project_teaparty_dir(project_dir),
         )
         return web.json_response({
             'agents': catalog.agents,
@@ -831,8 +833,7 @@ class TeaPartyBridge:
         })
 
     async def _handle_catalog_org(self, request: web.Request) -> web.Response:
-        claude_base = os.path.dirname(self.teaparty_home)
-        catalog = merge_catalog(os.path.join(claude_base, '.claude'))
+        catalog = merge_catalog(management_dir(self.teaparty_home))
         return web.json_response({
             'agents': catalog.agents,
             'skills': catalog.skills,
@@ -1283,9 +1284,15 @@ class TeaPartyBridge:
         pins = body.get('artifact_pins')
         if not isinstance(pins, list):
             return web.json_response({'error': 'artifact_pins must be a list'}, status=400)
-        yaml_path = os.path.join(proj_path, '.teaparty.local', 'project.yaml')
+        from orchestrator.config_reader import project_config_path
+        yaml_path = project_config_path(proj_path)
         if not os.path.exists(yaml_path):
-            return web.json_response({'error': f'project config not found: {project}'}, status=404)
+            # Legacy fallback
+            legacy = os.path.join(proj_path, '.teaparty.local', 'project.yaml')
+            if os.path.exists(legacy):
+                yaml_path = legacy
+            else:
+                return web.json_response({'error': f'project config not found: {project}'}, status=404)
         with open(yaml_path) as f:
             data = yaml.safe_load(f) or {}
         data['artifact_pins'] = pins
@@ -1381,7 +1388,7 @@ class TeaPartyBridge:
             return web.json_response({'error': str(exc)}, status=409)
 
         discovered_skills = discover_skills(
-            os.path.join(os.path.dirname(self.teaparty_home), '.claude', 'skills')
+            management_skills_dir(self.teaparty_home)
         )
         return web.json_response({
             'ok': True,
@@ -1424,7 +1431,7 @@ class TeaPartyBridge:
             return web.json_response({'error': str(exc)}, status=409)
 
         discovered_skills = discover_skills(
-            os.path.join(os.path.dirname(self.teaparty_home), '.claude', 'skills')
+            management_skills_dir(self.teaparty_home)
         )
         return web.json_response({
             'ok': True,
@@ -1632,13 +1639,13 @@ class TeaPartyBridge:
         teaparty_home: str | None = None,
     ) -> dict:
         home = teaparty_home or self.teaparty_home
-        claude_base = os.path.dirname(home)  # .teaparty/ parent = repo root
-        agents_dir = os.path.join(claude_base, '.claude', 'agents')
-        skills_dir = os.path.join(claude_base, '.claude', 'skills')
-        config_yaml = os.path.join(home, 'teaparty.yaml')
+        repo_root = os.path.dirname(home)
+        agents_dir = management_agents_dir(home)
+        skills_dir = management_skills_dir(home)
+        config_yaml = os.path.join(home, 'management', 'teaparty.yaml')
 
         def _agent_file(name: str) -> str | None:
-            path = os.path.join(agents_dir, f'{name}.md')
+            path = os.path.join(agents_dir, name, 'agent.md')
             return path if os.path.isfile(path) else None
 
         def _skill_file(name: str) -> str | None:
@@ -1649,9 +1656,9 @@ class TeaPartyBridge:
             cmd = hook.get('command', '')
             if cmd and os.path.isabs(cmd) and os.path.isfile(cmd):
                 return cmd
-            # Resolve relative command paths against the claude_base directory.
+            # Resolve relative command paths against the repo root.
             if cmd:
-                resolved = os.path.join(claude_base, cmd)
+                resolved = os.path.join(repo_root, cmd)
                 if os.path.isfile(resolved):
                     return resolved
             return config_yaml
@@ -1660,7 +1667,7 @@ class TeaPartyBridge:
             path = os.path.join(skills_dir, skill_name, 'SKILL.md')
             return path if os.path.isfile(path) else None
 
-        settings_hooks = discover_hooks(os.path.join(claude_base, '.claude', 'settings.json'))
+        settings_hooks = discover_hooks(management_settings_path(home))
         yaml_hooks = [
             {**h, 'active': h.get('active', True), 'source': 'yaml'}
             for h in t.hooks
@@ -1668,7 +1675,7 @@ class TeaPartyBridge:
         sys_hooks = [{**h, 'active': True, 'source': 'settings'} for h in settings_hooks]
         all_hooks = yaml_hooks + sys_hooks
 
-        # Full agent catalog: all agents in .claude/agents/, with active: bool.
+        # Full agent catalog: all agents discovered, with active: bool.
         # Auto-discover from filesystem when not given an explicit list.
         active_agents_set = set(t.members_agents)
         all_catalog_agents: list[str] = (
@@ -1723,14 +1730,13 @@ class TeaPartyBridge:
         local_skills_set = set(local_skills or [])
         org_catalog_set = set(org_catalog_skills or [])
         home = teaparty_home or self.teaparty_home
-        claude_base = os.path.dirname(home)  # .teaparty/ parent = repo root
         proj = project_dir or ''
 
-        org_agents_dir = os.path.join(claude_base, '.claude', 'agents')
-        proj_agents_dir = os.path.join(proj, '.claude', 'agents') if proj else ''
-        org_skills_dir = os.path.join(claude_base, '.claude', 'skills')
-        proj_skills_dir = os.path.join(proj, '.claude', 'skills') if proj else ''
-        proj_config = os.path.join(proj, '.teaparty.local', 'project.yaml') if proj else ''
+        _org_agents = management_agents_dir(home)
+        _proj_agents = project_agents_dir(proj) if proj else ''
+        _org_skills = management_skills_dir(home)
+        _proj_skills = project_skills_dir(proj) if proj else ''
+        proj_config = os.path.join(proj, '.teaparty', 'project', 'project.yaml') if proj else ''
 
         def _agent_source(name: str) -> str:
             if name == t.lead:
@@ -1740,18 +1746,18 @@ class TeaPartyBridge:
         def _agent_file(name: str) -> str | None:
             source = _agent_source(name)
             if source == 'shared':
-                path = os.path.join(org_agents_dir, f'{name}.md')
-            elif proj_agents_dir:
-                path = os.path.join(proj_agents_dir, f'{name}.md')
+                path = os.path.join(_org_agents, name, 'agent.md')
+            elif _proj_agents:
+                path = os.path.join(_proj_agents, name, 'agent.md')
             else:
                 return None
             return path if os.path.isfile(path) else None
 
         def _skill_file(name: str, source: str) -> str | None:
             if source == 'local':
-                path = os.path.join(proj_skills_dir, name, 'SKILL.md') if proj_skills_dir else None
+                path = os.path.join(_proj_skills, name, 'SKILL.md') if _proj_skills else None
             elif source == 'shared':
-                path = os.path.join(org_skills_dir, name, 'SKILL.md')
+                path = os.path.join(_org_skills, name, 'SKILL.md')
             else:
                 return None  # missing
             return path if path and os.path.isfile(path) else None
@@ -1760,7 +1766,7 @@ class TeaPartyBridge:
             cmd = hook.get('command', '')
             if cmd and os.path.isabs(cmd) and os.path.isfile(cmd):
                 return cmd
-            # Resolve relative command paths against the project's .claude/ directory.
+            # Resolve relative command paths against the project directory.
             if cmd and proj:
                 resolved = os.path.join(proj, cmd)
                 if os.path.isfile(resolved):
@@ -1769,10 +1775,10 @@ class TeaPartyBridge:
 
         def _task_file(skill_name: str) -> str | None:
             # Local skills take precedence over org skills.
-            if proj_skills_dir and skill_name in local_skills_set:
-                path = os.path.join(proj_skills_dir, skill_name, 'SKILL.md')
+            if _proj_skills and skill_name in local_skills_set:
+                path = os.path.join(_proj_skills, skill_name, 'SKILL.md')
                 return path if os.path.isfile(path) else None
-            path = os.path.join(org_skills_dir, skill_name, 'SKILL.md')
+            path = os.path.join(_org_skills, skill_name, 'SKILL.md')
             return path if os.path.isfile(path) else None
 
         # Project teams dispatch to workgroups, not individual agents.
@@ -1812,7 +1818,7 @@ class TeaPartyBridge:
         if catalog_hooks is not None:
             settings_hooks = catalog_hooks
         else:
-            proj_settings = os.path.join(proj, '.claude', 'settings.json') if proj else ''
+            proj_settings = project_settings_path(proj) if proj else ''
             settings_hooks = discover_hooks(proj_settings) if proj_settings else []
         yaml_hooks = [
             {**h, 'active': h.get('active', True), 'source': 'yaml'}
@@ -1865,11 +1871,10 @@ class TeaPartyBridge:
             for name in active_agent_names:
                 if name not in catalog:
                     catalog = catalog + [name]
-            _wg_claude_base = os.path.dirname(self.teaparty_home)
-            _wg_agents_dir = os.path.join(_wg_claude_base, '.claude', 'agents')
+            _wg_agents_dir = management_agents_dir(self.teaparty_home)
 
             def _wg_agent_file(n: str) -> str | None:
-                path = os.path.join(_wg_agents_dir, f'{n}.md')
+                path = os.path.join(_wg_agents_dir, n, 'agent.md')
                 return path if os.path.isfile(path) else None
 
             result['agents'] = [

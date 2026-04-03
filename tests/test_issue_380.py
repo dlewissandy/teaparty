@@ -56,14 +56,16 @@ def _make_management_yaml(teaparty_home: str, agents: list):
         'scheduled': [],
         'workgroups': [],
     }
-    os.makedirs(teaparty_home, exist_ok=True)
-    with open(os.path.join(teaparty_home, 'teaparty.yaml'), 'w') as f:
+    mgmt_dir = os.path.join(teaparty_home, 'management')
+    os.makedirs(mgmt_dir, exist_ok=True)
+    with open(os.path.join(mgmt_dir, 'teaparty.yaml'), 'w') as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 
 
 def _make_agent_file(agents_dir: str, name: str):
-    os.makedirs(agents_dir, exist_ok=True)
-    with open(os.path.join(agents_dir, f'{name}.md'), 'w') as f:
+    agent_dir = os.path.join(agents_dir, name)
+    os.makedirs(agent_dir, exist_ok=True)
+    with open(os.path.join(agent_dir, 'agent.md'), 'w') as f:
         f.write(f'# {name}\n')
 
 
@@ -88,7 +90,7 @@ class TestManagementTeamAgentFileProperty(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
         self.teaparty_home = os.path.join(self.tmp, '.teaparty')
-        self.agents_dir = os.path.join(self.tmp, '.claude', 'agents')
+        self.agents_dir = os.path.join(self.tmp, '.teaparty', 'management', 'agents')
 
     def tearDown(self):
         import shutil
@@ -108,8 +110,8 @@ class TestManagementTeamAgentFileProperty(unittest.TestCase):
         self.assertIn('file', agent, '_serialize_management_team must include file on each agent')
         self.assertIsNotNone(agent['file'], 'file must not be None when definition exists on disk')
         self.assertTrue(
-            agent['file'].endswith('office-manager.md'),
-            f'file path must point to the .md definition: {agent["file"]}',
+            agent['file'].endswith('office-manager/agent.md'),
+            f'file path must point to the agent.md definition: {agent["file"]}',
         )
 
     def test_agent_file_is_none_when_definition_missing_from_disk(self):
@@ -157,7 +159,7 @@ class TestWorkgroupAgentFileProperty(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
         self.teaparty_home = os.path.join(self.tmp, '.teaparty')
-        self.agents_dir = os.path.join(self.tmp, '.claude', 'agents')
+        self.agents_dir = os.path.join(self.tmp, '.teaparty', 'management', 'agents')
         _make_management_yaml(self.teaparty_home, agents=[])
 
     def tearDown(self):
@@ -210,8 +212,8 @@ class TestWorkgroupAgentFileProperty(unittest.TestCase):
         file_val = agents['auditor']['file']
         self.assertIsNotNone(file_val, 'file must not be None when definition exists on disk')
         self.assertTrue(
-            file_val.endswith('auditor.md'),
-            f'file path must point to the .md definition: {file_val}',
+            file_val.endswith('auditor/agent.md'),
+            f'file path must point to the agent.md definition: {file_val}',
         )
 
     def test_workgroup_agent_file_is_none_when_definition_missing(self):

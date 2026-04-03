@@ -343,7 +343,7 @@ class Session:
         # 10. Run orchestrator — use message bus input provider for persistent
         # communication (Issue #200).  Falls back to the original input_provider
         # if the bus provider is unavailable (e.g., no-human mode).
-        proxy_model_path = os.path.join(self.poc_root, '.teaparty', 'proxy', '.proxy-confidence.json')
+        proxy_model_path = os.path.join(self.poc_root, '.teaparty', 'management', 'agents', 'proxy-review', '.proxy-confidence.json')
         effective_input = self._bus_input_provider or self.input_provider
 
         # Create intervention queue for human INTERVENE delivery (Issue #246).
@@ -842,7 +842,7 @@ class Session:
         # 13. Construct and run orchestrator — use message bus input provider
         # for persistent communication (Issue #200).
         effective_input = bus_input_provider or input_provider
-        proxy_model_path = os.path.join(poc_root, '.teaparty', 'proxy', '.proxy-confidence.json')
+        proxy_model_path = os.path.join(poc_root, '.teaparty', 'management', 'agents', 'proxy-review', '.proxy-confidence.json')
 
         # Create intervention queue for human INTERVENE delivery (Issue #246).
         intervention_queue = InterventionQueue(

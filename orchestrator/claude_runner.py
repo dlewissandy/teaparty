@@ -563,6 +563,14 @@ class ClaudeRunner:
                 stderr=asyncio.subprocess.DEVNULL,
             )
             await add_proc.wait()
+            # Unstage .claude/ — composed artifact, must not merge back
+            reset_proc = await asyncio.create_subprocess_exec(
+                'git', 'reset', 'HEAD', '--', '.claude/',
+                cwd=self.cwd,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            await reset_proc.wait()
             commit_proc = await asyncio.create_subprocess_exec(
                 'git', 'commit', '-m', 'Partial work saved on parent death (issue #149)',
                 '--allow-empty-message',

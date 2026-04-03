@@ -12,7 +12,7 @@ Single artifact, clear type → office manager routes directly to Skills Special
 2. Office manager recognizes this as a single-artifact configuration request for a skill
 3. Office manager routes directly to Skills Specialist via Send
 4. Skills Specialist asks clarifying questions back through the office manager if needed (what should the skill do? what tools does it need? is it user-invocable?)
-5. Skills Specialist designs the skill structure, writes files to `.claude/skills/{name}/`
+5. Skills Specialist designs the skill structure, writes files to `.teaparty/management/skills/{name}/`
 6. Office manager confirms to the human: "Created skill `deploy` with 4 files"
 
 ---
@@ -52,10 +52,10 @@ Single artifact, clear type → office manager routes directly to Skills Special
 Single artifact, clear type → office manager routes directly to Systems Engineer.
 
 1. Office manager routes to Systems Engineer
-2. Systems Engineer reads current `.claude/settings.json`
+2. Systems Engineer reads current `.teaparty/management/settings.yaml`
 3. Adds a `PreToolUse` hook matching `Bash` with a matcher that detects git commit commands
 4. Writes the hook handler (command type pointing to a validation script, or agent type that runs tests)
-5. Creates the handler script if needed (`.claude/hooks/pre-commit-tests.sh`)
+5. Creates the handler script if needed (`.teaparty/management/hooks/pre-commit-tests.sh`)
 
 ---
 
@@ -64,6 +64,6 @@ Single artifact, clear type → office manager routes directly to Systems Engine
 May require multiple artifacts (skill + scheduled task) → office manager dispatches to Configuration Lead.
 
 1. Configuration Lead checks: does a `test-sweep` skill exist? If not → routes to Skills Specialist first
-2. Skills Specialist creates `.claude/skills/test-sweep/SKILL.md` (if needed)
+2. Skills Specialist creates `.teaparty/management/skills/test-sweep/SKILL.md` (if needed)
 3. Systems Engineer adds the scheduled entry to the appropriate YAML (`teaparty.yaml` for cross-project, `project.yaml` for project-scoped)
 4. Systems Engineer creates the `/schedule` trigger via Claude Code

@@ -25,7 +25,7 @@ _AGENT_DEF_YAML = _REPO_ROOT / 'docs/proposals/configuration-team/examples/agent
 _PROPOSAL_MD = _REPO_ROOT / 'docs/proposals/configuration-team/proposal.md'
 _WG_CODING_YAML = _REPO_ROOT / 'docs/proposals/team-configuration/examples/workgroup-coding.yaml'
 _WG_CONFIG_YAML = _REPO_ROOT / 'docs/proposals/team-configuration/examples/workgroup-configuration.yaml'
-_LIVE_CONFIG_YAML = _REPO_ROOT / '.teaparty/workgroups/configuration.yaml'
+_LIVE_CONFIG_YAML = _REPO_ROOT / '.teaparty/management/workgroups/configuration.yaml'
 
 
 def _parse_frontmatter(path):
@@ -309,7 +309,7 @@ class TestLiveConfigurationWorkgroup(unittest.TestCase):
         )
 
 
-# ── Criterion: existing .claude/agents/ definitions ──────────────────────────
+# ── Criterion: existing agent definitions ────────────────────────────────────
 
 class TestExistingAgentDefinitionsAssessed(unittest.TestCase):
     """The issue requires updating any existing agent definitions that should have
@@ -323,10 +323,10 @@ class TestExistingAgentDefinitionsAssessed(unittest.TestCase):
     deliberately, not by omission.
     """
 
-    _AGENTS_DIR = _REPO_ROOT / '.claude/agents'
+    _AGENTS_DIR = _REPO_ROOT / '.teaparty/management/agents'
 
     def _get_frontmatter(self, name):
-        return _parse_frontmatter(self._AGENTS_DIR / f'{name}.md')
+        return _parse_frontmatter(self._AGENTS_DIR / name / 'agent.md')
 
     def test_auditor_has_no_skills_field(self):
         """The auditor agent must not have a skills: field.

@@ -40,51 +40,36 @@ class TestManagementScreenArtifactCardLabel(unittest.TestCase):
         )
 
 
-# ── AC2: Project screen artifact store card labelled "Sessions" ───────────────
+# ── AC2 & AC3: Project screen combines artifacts and pins into single "Artifacts" card ──
 
 class TestProjectScreenArtifactCardLabel(unittest.TestCase):
-    """Project screen must label the artifact store sections card 'Sessions'."""
+    """Project screen must combine session artifacts and pinned items into one 'Artifacts' card."""
 
-    def test_project_artifactItems_card_is_labelled_sessions(self):
-        """sectionCard containing artifactItems must use 'Sessions', not 'Artifacts'."""
+    def test_project_artifacts_card_combines_items_and_pins(self):
+        """sectionCard must use 'Artifacts' label with artifactItems.concat(pinItems)."""
         src = _config_html_source()
         self.assertIn(
-            "sectionCard('Sessions', artifactItems",
+            "sectionCard('Artifacts', artifactItems.concat(pinItems)",
             src,
-            "Project screen artifact store card must be labelled 'Sessions'",
+            "Project screen must combine artifactItems and pinItems into one 'Artifacts' card",
         )
 
-    def test_project_screen_does_not_label_artifactItems_as_artifacts(self):
-        """Project screen must not label the artifactItems card 'Artifacts'."""
+    def test_project_screen_does_not_have_separate_sessions_card(self):
+        """Project screen must not have a separate 'Sessions' sectionCard."""
         src = _config_html_source()
         self.assertNotIn(
-            "sectionCard('Artifacts', artifactItems",
+            "sectionCard('Sessions'",
             src,
-            "Project screen must not use 'Artifacts' for the artifact store sections card; use 'Sessions'",
-        )
-
-
-# ── AC3: Project screen pinned-items card labelled "Artifacts" ────────────────
-
-class TestProjectScreenPinsCardLabel(unittest.TestCase):
-    """Project screen must label the pinned-items card 'Artifacts'."""
-
-    def test_project_pinItems_card_is_labelled_artifacts(self):
-        """sectionCard containing pinItems must use 'Artifacts'."""
-        src = _config_html_source()
-        self.assertIn(
-            "sectionCard('Artifacts', pinItems",
-            src,
-            "Project screen pinned-items card must be labelled 'Artifacts'",
+            "Project screen must not use a separate 'Sessions' card; artifacts and pins are combined",
         )
 
     def test_project_screen_does_not_label_pinItems_as_pins(self):
-        """Project screen must not label the pinned-items card 'Pins'."""
+        """Project screen must not label pinned items as 'Pins'."""
         src = _config_html_source()
         self.assertNotIn(
             "sectionCard('Pins', pinItems",
             src,
-            "Project screen must not use 'Pins' for the pinned-items card; use 'Artifacts'",
+            "Project screen must not use 'Pins' for pinned items",
         )
 
 

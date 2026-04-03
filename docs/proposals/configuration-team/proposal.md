@@ -87,7 +87,7 @@ Creates and modifies hooks, MCP server configurations, scheduled tasks, and sett
 
 ### Agents
 
-**Location:** `.claude/agents/{name}.md` (project-scoped) or per-team agent JSON files
+**Location:** `.teaparty/project/agents/{name}/agent.md` (project-scoped) or per-team agent JSON files
 
 See [agent-definition.yaml](examples/agent-definition.yaml) for a complete example.
 
@@ -101,7 +101,7 @@ See [agent-definition.yaml](examples/agent-definition.yaml) for a complete examp
 
 ### Skills
 
-**Location:** `.claude/skills/{name}/SKILL.md` + supporting files
+**Location:** `.teaparty/management/skills/{name}/SKILL.md` + supporting files
 
 **Structure designed for progressive disclosure:**
 
@@ -124,7 +124,7 @@ Given a monolithic skill (single large SKILL.md), the Skills Specialist analyzes
 
 ### Hooks
 
-**Location:** `.claude/settings.json` under the `hooks` key, or `.claude/settings.local.json` for non-shared hooks
+**Location:** `.teaparty/management/settings.yaml` under the `hooks` key, or `.teaparty/management/settings.local.yaml` for non-shared hooks
 
 See [hook-definition.json](examples/hook-definition.json) for a complete example.
 
@@ -272,7 +272,7 @@ See [request-flows.md](references/request-flows.md) for five detailed scenarios.
 
 Each specialist has skills that guide its work, loaded on demand rather than burned into the agent's system prompt. These skills are **private to the specialist** — they are registered on the specialist's agent definition via the `skills:` allowlist field and cannot be invoked by any other agent.
 
-Skills are registered to agents, not the other way around. An agent may only invoke skills listed in its `skills:` field. An agent with no `skills:` field has access to no skills. A specialist's SOP skills live in `.claude/skills/` like any other skill, but are only accessible to the agent that declares them.
+Skills are registered to agents, not the other way around. An agent may only invoke skills listed in its `skills:` field. An agent with no `skills:` field has access to no skills. A specialist's SOP skills live in `.teaparty/management/skills/` like any other skill, but are only accessible to the agent that declares them.
 
 **Enforcement:** MCP tool scoping is structural. Each specialist's agents bundle entry lists `disallowedTools` covering all MCP tools outside its domain. An agent cannot call a tool it does not have — there is no prompt instruction to override. The `skills:` allowlist on each agent definition controls which skills the agent can auto-invoke; user-triggered slash commands (e.g., `/create-workgroup`) are not restricted by this field and require explicit human intent.
 

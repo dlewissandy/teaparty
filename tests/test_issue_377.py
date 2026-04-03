@@ -31,7 +31,8 @@ def _read_config_html() -> str:
 
 
 def _make_teaparty_yaml(teaparty_home: str, projects: list | None = None) -> None:
-    os.makedirs(teaparty_home, exist_ok=True)
+    mgmt_dir = os.path.join(teaparty_home, 'management')
+    os.makedirs(mgmt_dir, exist_ok=True)
     data = {
         'name': 'Management',
         'description': 'Test',
@@ -42,7 +43,7 @@ def _make_teaparty_yaml(teaparty_home: str, projects: list | None = None) -> Non
         'hooks': [],
         'scheduled': [],
     }
-    with open(os.path.join(teaparty_home, 'teaparty.yaml'), 'w') as f:
+    with open(os.path.join(mgmt_dir, 'teaparty.yaml'), 'w') as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 
 
@@ -51,7 +52,7 @@ def _make_project_yaml(
     workgroups: list | None = None,
     member_workgroups: list | None = None,
 ) -> None:
-    local_dir = os.path.join(project_dir, '.teaparty.local')
+    local_dir = os.path.join(project_dir, '.teaparty', 'project')
     os.makedirs(local_dir, exist_ok=True)
     data = {
         'name': 'TestProject',
@@ -80,7 +81,7 @@ def _make_workgroup_yaml(workgroups_dir: str, name: str) -> None:
 
 
 def _read_project_yaml(project_dir: str) -> dict:
-    path = os.path.join(project_dir, '.teaparty.local', 'project.yaml')
+    path = os.path.join(project_dir, '.teaparty', 'project', 'project.yaml')
     with open(path) as f:
         return yaml.safe_load(f)
 
@@ -113,14 +114,14 @@ class TestProjectConfigWorkgroupActiveField(unittest.TestCase):
         self.tmp = tempfile.mkdtemp()
         self.project_dir = os.path.join(self.tmp, 'testproject')
         os.makedirs(self.project_dir)
-        wg_dir = os.path.join(self.project_dir, '.teaparty', 'workgroups')
+        wg_dir = os.path.join(self.project_dir, '.teaparty', 'project', 'workgroups')
         _make_workgroup_yaml(wg_dir, 'Coding')
         _make_workgroup_yaml(wg_dir, 'Research')
         _make_project_yaml(
             self.project_dir,
             workgroups=[
-                {'name': 'Coding', 'config': '.teaparty/workgroups/coding.yaml'},
-                {'name': 'Research', 'config': '.teaparty/workgroups/research.yaml'},
+                {'name': 'Coding', 'config': 'workgroups/coding.yaml'},
+                {'name': 'Research', 'config': 'workgroups/research.yaml'},
             ],
             member_workgroups=['Coding'],
         )
@@ -186,8 +187,8 @@ class TestProjectToggleWorkgroupEndpoint(unittest.TestCase):
         _make_project_yaml(
             self.project_dir,
             workgroups=[
-                {'name': 'Coding', 'config': '.teaparty/workgroups/coding.yaml'},
-                {'name': 'Research', 'config': '.teaparty/workgroups/research.yaml'},
+                {'name': 'Coding', 'config': 'workgroups/coding.yaml'},
+                {'name': 'Research', 'config': 'workgroups/research.yaml'},
             ],
             member_workgroups=['Coding'],
         )
@@ -255,8 +256,8 @@ class TestConfigurationWorkgroupCannotBeActivated(unittest.TestCase):
         _make_project_yaml(
             self.project_dir,
             workgroups=[
-                {'name': 'Coding', 'config': '.teaparty/workgroups/coding.yaml'},
-                {'name': 'Configuration', 'config': '.teaparty/workgroups/configuration.yaml'},
+                {'name': 'Coding', 'config': 'workgroups/coding.yaml'},
+                {'name': 'Configuration', 'config': 'workgroups/configuration.yaml'},
             ],
             member_workgroups=['Coding'],
         )

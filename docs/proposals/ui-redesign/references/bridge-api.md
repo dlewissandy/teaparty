@@ -36,7 +36,7 @@ bridge.run(port=8081)
 ```
 
 1. Construct a single `StateReader(repo_root, teaparty_home=teaparty_home)` instance stored on the bridge. Projects are discovered from the registry in `teaparty_home/teaparty.yaml`. This single instance is shared by the polling loop and all REST state handlers (`/api/state`, `/api/state/{project}`) — not recreated per request.
-2. Open a `SqliteMessageBus` for the office manager at `{teaparty_home}/om/om-messages.db` (persistent, not session-scoped — see [Message routing](#message-routing) below)
+2. Open a `SqliteMessageBus` for the office manager at `{teaparty_home}/management/agents/office-manager/om-messages.db` (persistent, not session-scoped — see [Message routing](#message-routing) below)
 3. Load config via `load_management_team()` + `discover_projects()`
 4. Start 1-second polling loop (same cadence as the TUI)
 5. Serve static files at `/` and API routes at `/api/`
@@ -90,8 +90,8 @@ The bridge maintains three distinct database connections:
 
 | Type | Database path | Scope |
 |------|--------------|-------|
-| `office_manager` | `{teaparty_home}/om/om-messages.db` | Persistent — survives sessions, one per installation |
-| `proxy_review` | `{teaparty_home}/proxy/proxy-messages.db` | Persistent — survives sessions, one per installation |
+| `office_manager` | `{teaparty_home}/management/agents/office-manager/om-messages.db` | Persistent — survives sessions, one per installation |
+| `proxy_review` | `{teaparty_home}/management/agents/proxy-review/proxy-messages.db` | Persistent — survives sessions, one per installation |
 | All other types | `{infra_dir}/messages.db` | Session-scoped — one per active session |
 
 `?type=office_manager` queries the persistent OM database. `?type=proxy_review` queries the persistent proxy database. All other `?type=` values aggregate across active session databases. Querying a persistent-type against a session bus always returns an empty list.

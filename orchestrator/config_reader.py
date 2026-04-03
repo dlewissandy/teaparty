@@ -1,10 +1,13 @@
 """Configuration tree reader and project management for teaparty.yaml and project.yaml.
 
 Loads the two-level configuration tree:
-  Level 1: {repo_root}/.teaparty/teaparty.yaml → ManagementTeam
-  Level 2: {project}/.teaparty.local/project.yaml → ProjectTeam
-  Org workgroups: {teaparty_home}/workgroups/*.yaml → Workgroup
-  Project workgroup overrides: {project}/.teaparty.local/workgroups/*.yaml → Workgroup
+  Level 1: {teaparty_home}/management/teaparty.yaml → ManagementTeam
+  Level 2: {project}/.teaparty/project/project.yaml → ProjectTeam
+  Org workgroups: {teaparty_home}/management/workgroups/*.yaml → Workgroup
+  Project workgroup overrides: {project}/.teaparty/project/workgroups/*.yaml → Workgroup
+
+Agent/skill/settings sources live under .teaparty/; .claude/ is a composed
+artifact that TeaParty writes into worktrees at dispatch time.
 
 Project management operations:
   add_project    — register an existing directory as a project
@@ -30,6 +33,64 @@ import yaml
 def default_teaparty_home() -> str:
     """Return .teaparty/ under the current working directory."""
     return os.path.join(os.getcwd(), '.teaparty')
+
+
+# ── Path helpers ─────────────────────────────────────────────────────────────
+# Encode the .teaparty/ layout so path construction is centralized.
+
+def management_dir(teaparty_home: str) -> str:
+    """Return the management-level config directory."""
+    return os.path.join(teaparty_home, 'management')
+
+
+def management_agents_dir(teaparty_home: str) -> str:
+    return os.path.join(teaparty_home, 'management', 'agents')
+
+
+def management_skills_dir(teaparty_home: str) -> str:
+    return os.path.join(teaparty_home, 'management', 'skills')
+
+
+def management_settings_path(teaparty_home: str) -> str:
+    return os.path.join(teaparty_home, 'management', 'settings.yaml')
+
+
+def management_yaml_path(teaparty_home: str) -> str:
+    return os.path.join(teaparty_home, 'management', 'teaparty.yaml')
+
+
+def external_projects_path(teaparty_home: str) -> str:
+    """Return the path to the gitignored external-projects.yaml."""
+    return os.path.join(teaparty_home, 'management', 'external-projects.yaml')
+
+
+def management_workgroups_dir(teaparty_home: str) -> str:
+    return os.path.join(teaparty_home, 'management', 'workgroups')
+
+
+def project_teaparty_dir(project_dir: str) -> str:
+    """Return the .teaparty/project/ directory for a project."""
+    return os.path.join(project_dir, '.teaparty', 'project')
+
+
+def project_agents_dir(project_dir: str) -> str:
+    return os.path.join(project_dir, '.teaparty', 'project', 'agents')
+
+
+def project_skills_dir(project_dir: str) -> str:
+    return os.path.join(project_dir, '.teaparty', 'project', 'skills')
+
+
+def project_settings_path(project_dir: str) -> str:
+    return os.path.join(project_dir, '.teaparty', 'project', 'settings.yaml')
+
+
+def project_config_path(project_dir: str) -> str:
+    return os.path.join(project_dir, '.teaparty', 'project', 'project.yaml')
+
+
+def project_workgroups_dir(project_dir: str) -> str:
+    return os.path.join(project_dir, '.teaparty', 'project', 'workgroups')
 
 
 # ── Data classes ─────────────────────────────────────────────────────────────
@@ -89,7 +150,6 @@ class ManagementTeam:
     lead: str = ''
     humans: list[Human] = field(default_factory=list)
     projects: list[dict[str, str]] = field(default_factory=list)
-    members_projects: list[str] = field(default_factory=list)
     members_agents: list[str] = field(default_factory=list)
     members_skills: list[str] = field(default_factory=list)
     members_workgroups: list[str] = field(default_factory=list)
@@ -103,7 +163,7 @@ class ManagementTeam:
 
 @dataclass
 class ProjectTeam:
-    """A project team from {project}/.teaparty.local/project.yaml."""
+    """A project team from {project}/.teaparty/project/project.yaml."""
     name: str
     description: str = ''
     lead: str = ''
@@ -198,20 +258,29 @@ def load_management_team(
     teaparty_home: str | None = None,
     config_filename: str = 'teaparty.yaml',
 ) -> ManagementTeam:
-    """Load the management team from teaparty.yaml.
+    """Load the management team from management/teaparty.yaml.
 
     Args:
         teaparty_home: Path to the .teaparty directory (default: repo root).
-        config_filename: Name of the config file within teaparty_home.
+        config_filename: Name of the config file within management/.
     """
     home = os.path.expanduser(teaparty_home or default_teaparty_home())
     repo_root = os.path.dirname(home)
-    path = os.path.join(home, config_filename)
+    path = os.path.join(home, 'management', config_filename)
     if not os.path.exists(path):
         raise FileNotFoundError(f'Management team config not found: {path}')
 
     with open(path) as f:
         data = yaml.safe_load(f)
+
+    # Merge external projects (gitignored, machine-specific paths)
+    projects = list(data.get('projects') or [])
+    ext_path = external_projects_path(home)
+    if os.path.isfile(ext_path):
+        with open(ext_path) as f:
+            ext = yaml.safe_load(f)
+        if isinstance(ext, list):
+            projects.extend(ext)
 
     members = data.get('members') or {}
     return ManagementTeam(
@@ -219,8 +288,7 @@ def load_management_team(
         description=data.get('description', ''),
         lead=data.get('lead', ''),
         humans=_parse_humans(data.get('humans')),
-        projects=_parse_projects(data.get('projects'), repo_root=repo_root),
-        members_projects=members.get('projects') or [],
+        projects=_parse_projects(projects, repo_root=repo_root),
         members_agents=members.get('agents') or [],
         members_skills=members.get('skills') or [],
         members_workgroups=members.get('workgroups') or [],
@@ -237,7 +305,9 @@ def load_project_team(
     project_dir: str,
     config_path: str | None = None,
 ) -> ProjectTeam:
-    """Load a project team from {project}/.teaparty.local/project.yaml.
+    """Load a project team from {project}/.teaparty/project/project.yaml.
+
+    Falls back to the legacy .teaparty.local/project.yaml for unmigrated projects.
 
     Args:
         project_dir: Path to the project root directory.
@@ -246,7 +316,11 @@ def load_project_team(
     if config_path:
         path = config_path
     else:
-        path = os.path.join(project_dir, '.teaparty.local', 'project.yaml')
+        path = project_config_path(project_dir)
+        if not os.path.exists(path):
+            legacy = os.path.join(project_dir, '.teaparty.local', 'project.yaml')
+            if os.path.exists(legacy):
+                path = legacy
 
     if not os.path.exists(path):
         raise FileNotFoundError(f'Project config not found: {path}')
@@ -301,30 +375,31 @@ def load_workgroup(path: str) -> Workgroup:
 # ── Discovery & resolution ──────────────────────────────────────────────────
 
 def discover_agents(agents_dir: str) -> list[str]:
-    """Scan a .claude/agents/ directory and return agent names (without .md extension).
+    """Scan an agents/ directory and return agent names.
 
+    Each agent is a subdirectory containing an agent.md file.
     Returns an empty list if the directory does not exist.
 
     Args:
-        agents_dir: Absolute path to a .claude/agents/ directory.
+        agents_dir: Absolute path to an agents/ directory.
     """
     if not os.path.isdir(agents_dir):
         return []
     names = []
     for entry in sorted(os.scandir(agents_dir), key=lambda e: e.name):
-        if entry.is_file() and entry.name.endswith('.md'):
-            names.append(entry.name[:-3])
+        if entry.is_dir() and os.path.exists(os.path.join(entry.path, 'agent.md')):
+            names.append(entry.name)
     return names
 
 
 def discover_skills(skills_dir: str) -> list[str]:
-    """Scan a .claude/skills/ directory and return skill names.
+    """Scan a skills/ directory and return skill names.
 
     A skill is a subdirectory that contains a SKILL.md file.
     Returns an empty list if the directory does not exist.
 
     Args:
-        skills_dir: Absolute path to a .claude/skills/ directory.
+        skills_dir: Absolute path to a skills/ directory.
     """
     if not os.path.isdir(skills_dir):
         return []
@@ -335,22 +410,30 @@ def discover_skills(skills_dir: str) -> list[str]:
     return names
 
 
-def discover_hooks(settings_json_path: str) -> list[dict[str, str]]:
-    """Read Claude Code hooks from a .claude/settings.json file.
+def discover_hooks(settings_path: str) -> list[dict[str, str]]:
+    """Read hooks from a settings.yaml file.
 
     Returns a flat list of hook dicts with keys: event, matcher, type, command.
-    The format mirrors what config_reader loads from YAML hooks: entries.
+    The YAML schema mirrors Claude Code's hooks structure::
+
+        hooks:
+          PreToolUse:
+            - matcher: "Edit|Write"
+              hooks:
+                - type: command
+                  command: ./hooks/enforce-ownership.sh
+
     Returns an empty list if the file does not exist or has no hooks.
 
     Args:
-        settings_json_path: Absolute path to a .claude/settings.json file.
+        settings_path: Absolute path to a settings.yaml file.
     """
-    if not os.path.isfile(settings_json_path):
+    if not os.path.isfile(settings_path):
         return []
     try:
-        with open(settings_json_path) as f:
-            data = json.load(f)
-    except (json.JSONDecodeError, OSError):
+        with open(settings_path) as f:
+            data = yaml.safe_load(f) or {}
+    except (yaml.YAMLError, OSError):
         return []
     hooks_section = data.get('hooks', {})
     if not isinstance(hooks_section, dict):
@@ -377,7 +460,7 @@ def discover_hooks(settings_json_path: str) -> list[dict[str, str]]:
 
 @dataclass
 class MergedCatalog:
-    """Merged catalog combining management-level and project-level .claude/ entries.
+    """Merged catalog combining management-level and project-level entries.
 
     Project-level entries take precedence over management-level entries with the
     same name (per proposal.md §"Catalog and Active Selection").
@@ -386,8 +469,8 @@ class MergedCatalog:
         agents: Unique agent names. Project entries shadow management entries on collision.
         skills: Unique skill names. Project entries shadow management entries on collision.
         hooks: Merged hook dicts. Project hooks shadow management on same (event, matcher).
-        project_agents: Names sourced from the project .claude/agents/ (for source tagging).
-        project_skills: Names sourced from the project .claude/skills/ (for source tagging).
+        project_agents: Names sourced from the project agents/ (for source tagging).
+        project_skills: Names sourced from the project skills/ (for source tagging).
     """
     agents: list[str]
     skills: list[str]
@@ -397,10 +480,10 @@ class MergedCatalog:
 
 
 def merge_catalog(
-    mgmt_claude_dir: str,
-    project_claude_dir: str | None = None,
+    mgmt_base_dir: str,
+    project_base_dir: str | None = None,
 ) -> MergedCatalog:
-    """Build a merged catalog from management and optional project-level .claude/ directories.
+    """Build a merged catalog from management and optional project-level directories.
 
     Reads agents, skills, and hooks from each level and merges them with project
     entries taking precedence. If a project defines an agent, skill, or hook with
@@ -411,19 +494,20 @@ def merge_catalog(
     matcher are considered the same hook; the project's wins.
 
     Args:
-        mgmt_claude_dir: Path to the management-level .claude/ directory.
-        project_claude_dir: Optional path to the project's .claude/ directory.
-            If None or the directory does not exist, only management entries
-            are returned.
+        mgmt_base_dir: Path to the management-level directory (contains agents/,
+            skills/, settings.yaml).
+        project_base_dir: Optional path to the project's config directory
+            (contains agents/, skills/, settings.yaml).  If None or the
+            directory does not exist, only management entries are returned.
 
     Returns:
         MergedCatalog with merged agents, skills, and hooks.
     """
-    mgmt_agents = discover_agents(os.path.join(mgmt_claude_dir, 'agents'))
-    mgmt_skills = discover_skills(os.path.join(mgmt_claude_dir, 'skills'))
-    mgmt_hooks = discover_hooks(os.path.join(mgmt_claude_dir, 'settings.json'))
+    mgmt_agents = discover_agents(os.path.join(mgmt_base_dir, 'agents'))
+    mgmt_skills = discover_skills(os.path.join(mgmt_base_dir, 'skills'))
+    mgmt_hooks = discover_hooks(os.path.join(mgmt_base_dir, 'settings.yaml'))
 
-    if not project_claude_dir or not os.path.isdir(project_claude_dir):
+    if not project_base_dir or not os.path.isdir(project_base_dir):
         return MergedCatalog(
             agents=mgmt_agents,
             skills=mgmt_skills,
@@ -432,9 +516,9 @@ def merge_catalog(
             project_skills=set(),
         )
 
-    proj_agents = discover_agents(os.path.join(project_claude_dir, 'agents'))
-    proj_skills = discover_skills(os.path.join(project_claude_dir, 'skills'))
-    proj_hooks = discover_hooks(os.path.join(project_claude_dir, 'settings.json'))
+    proj_agents = discover_agents(os.path.join(project_base_dir, 'agents'))
+    proj_skills = discover_skills(os.path.join(project_base_dir, 'skills'))
+    proj_hooks = discover_hooks(os.path.join(project_base_dir, 'settings.yaml'))
 
     proj_agent_set = set(proj_agents)
     proj_skill_set = set(proj_skills)
@@ -461,8 +545,8 @@ def merge_catalog(
 def discover_projects(team: ManagementTeam) -> list[dict[str, Any]]:
     """Walk projects: entries and check which paths are valid TeaParty projects.
 
-    A directory is a TeaParty project if it contains .git/, .claude/, and
-    .teaparty/ (per the design doc). Each returned entry has:
+    A directory is a TeaParty project if it contains .git/ and .teaparty/.
+    Each returned entry has:
       - name: the project name from teaparty.yaml
       - path: the expanded absolute path
       - valid: True if the path exists and contains required markers
@@ -470,7 +554,7 @@ def discover_projects(team: ManagementTeam) -> list[dict[str, Any]]:
     Returns all entries (including invalid ones) so callers can report
     missing or misconfigured projects.
     """
-    required_markers = ['.git', '.claude', '.teaparty']
+    required_markers = ['.git', '.teaparty']
     result: list[dict[str, Any]] = []
     for entry in team.projects:
         path = entry['path']
@@ -492,7 +576,7 @@ def load_management_workgroups(
     home = os.path.expanduser(teaparty_home or default_teaparty_home())
     result: list[Workgroup] = []
     for entry in team.workgroups:
-        config_path = os.path.join(home, entry.config)
+        config_path = os.path.join(management_dir(home), entry.config)
         result.append(load_workgroup(config_path))
     return result
 
@@ -505,39 +589,42 @@ def resolve_workgroups(
     """Resolve workgroup entries to fully loaded Workgroup objects.
 
     Resolution order for ref: entries:
-      1. Project-level: {project_dir}/.teaparty.local/workgroups/{ref}.yaml
-      2. Org-level: {teaparty_home}/workgroups/{ref}.yaml
-    Project-level overrides org-level (same precedence as .claude/ settings).
+      1. Project-level: {project_dir}/.teaparty/project/workgroups/{ref}.yaml
+      2. Org-level: {teaparty_home}/management/workgroups/{ref}.yaml
+    Project-level overrides org-level.
 
     WorkgroupEntry entries are loaded from their config path relative to
-    the project's .teaparty.local/ directory or the teaparty home directory.
+    the project directory or the teaparty home directory.
     """
     home = os.path.expanduser(teaparty_home or default_teaparty_home())
     resolved: list[Workgroup] = []
 
     for entry in entries:
         if isinstance(entry, WorkgroupRef):
-            # Try project-level first (.teaparty.local/), then org-level
-            project_path = os.path.join(project_dir, '.teaparty.local', 'workgroups', f'{entry.ref}.yaml')
-            org_path = os.path.join(home, 'workgroups', f'{entry.ref}.yaml')
+            # Try project-level first, then legacy, then org-level
+            proj_path = os.path.join(project_workgroups_dir(project_dir), f'{entry.ref}.yaml')
+            legacy_path = os.path.join(project_dir, '.teaparty.local', 'workgroups', f'{entry.ref}.yaml')
+            org_path = os.path.join(management_workgroups_dir(home), f'{entry.ref}.yaml')
 
-            if os.path.exists(project_path):
-                resolved.append(load_workgroup(project_path))
+            if os.path.exists(proj_path):
+                resolved.append(load_workgroup(proj_path))
+            elif os.path.exists(legacy_path):
+                resolved.append(load_workgroup(legacy_path))
             elif os.path.exists(org_path):
                 resolved.append(load_workgroup(org_path))
             else:
                 raise FileNotFoundError(
                     f"Workgroup ref '{entry.ref}' not found at "
-                    f"{project_path} or {org_path}"
+                    f"{proj_path} or {org_path}"
                 )
         elif isinstance(entry, WorkgroupEntry):
-            # New schema: config path is repo-root-relative (e.g. .teaparty/workgroups/coding.yaml)
-            # Fall back to .teaparty.local/-relative (old schema) then org-level
-            repo_root_path = os.path.join(project_dir, entry.config)
+            # Config path is relative (e.g. workgroups/coding.yaml).
+            # Try: project .teaparty/project/, legacy .teaparty.local/, org management/
+            proj_path = os.path.join(project_teaparty_dir(project_dir), entry.config)
             legacy_path = os.path.join(project_dir, '.teaparty.local', entry.config)
-            org_path = os.path.join(home, entry.config)
-            if os.path.exists(repo_root_path):
-                resolved.append(load_workgroup(repo_root_path))
+            org_path = os.path.join(management_dir(home), entry.config)
+            if os.path.exists(proj_path):
+                resolved.append(load_workgroup(proj_path))
             elif os.path.exists(legacy_path):
                 resolved.append(load_workgroup(legacy_path))
             else:
@@ -640,9 +727,10 @@ def _save_management_yaml(
     teaparty_home: str | None,
     config_filename: str = 'teaparty.yaml',
 ) -> None:
-    """Write a management team data dict back to teaparty.yaml."""
+    """Write a management team data dict back to management/teaparty.yaml."""
     home = os.path.expanduser(teaparty_home or default_teaparty_home())
-    path = os.path.join(home, config_filename)
+    path = os.path.join(home, 'management', config_filename)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, 'w') as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 
@@ -651,16 +739,16 @@ def _load_management_yaml(
     teaparty_home: str | None,
     config_filename: str = 'teaparty.yaml',
 ) -> dict[str, Any]:
-    """Load the raw YAML dict from teaparty.yaml."""
+    """Load the raw YAML dict from management/teaparty.yaml."""
     home = os.path.expanduser(teaparty_home or default_teaparty_home())
-    path = os.path.join(home, config_filename)
+    path = os.path.join(home, 'management', config_filename)
     if not os.path.exists(path):
         raise FileNotFoundError(f'Management team config not found: {path}')
     with open(path) as f:
         return yaml.safe_load(f)
 
 
-_MEMBERSHIP_KEYS = {'agent': 'agents', 'project': 'projects', 'workgroup': 'workgroups', 'skill': 'skills', 'hook': 'hooks', 'scheduled_task': 'scheduled'}
+_MEMBERSHIP_KEYS = {'agent': 'agents', 'workgroup': 'workgroups', 'skill': 'skills', 'hook': 'hooks', 'scheduled_task': 'scheduled'}
 
 
 def _toggle_hook_active(hooks: list[dict], event: str, active: bool) -> list[dict]:
@@ -701,13 +789,13 @@ def toggle_management_membership(
 ) -> None:
     """Add/remove an item from the management team's active list in teaparty.yaml.
 
-    For agents, projects, workgroups, and skills: adds/removes the name from the list.
+    For agents, workgroups, and skills: adds/removes the name from the list.
     For hooks: sets the active flag on the hook entry identified by event name.
     For scheduled_task: sets the enabled flag on the scheduled task entry identified by name.
 
     Args:
         teaparty_home: Path to the .teaparty/ directory.
-        kind: 'agent', 'project', 'workgroup', 'skill', 'hook', or 'scheduled_task'.
+        kind: 'agent', 'workgroup', 'skill', 'hook', or 'scheduled_task'.
         name: Name/event of the item to toggle.
         active: True to activate, False to deactivate.
     """
@@ -751,9 +839,13 @@ def toggle_project_membership(
     """
     if kind not in _MEMBERSHIP_KEYS:
         raise ValueError(f'Invalid membership kind: {kind!r}')
-    yaml_path = os.path.join(project_dir, '.teaparty.local', 'project.yaml')
+    yaml_path = project_config_path(project_dir)
     if not os.path.exists(yaml_path):
-        raise FileNotFoundError(f'project.yaml not found: {yaml_path}')
+        legacy = os.path.join(project_dir, '.teaparty.local', 'project.yaml')
+        if os.path.exists(legacy):
+            yaml_path = legacy
+        else:
+            raise FileNotFoundError(f'project.yaml not found: {yaml_path}')
     with open(yaml_path) as f:
         data = yaml.safe_load(f) or {}
     if kind == 'hook':
@@ -857,9 +949,13 @@ def set_participant_role_management(teaparty_home: str, name: str, role: str) ->
 
 def set_participant_role_project(project_dir: str, name: str, role: str) -> None:
     """Set a human participant's role in a project config."""
-    yaml_path = os.path.join(project_dir, '.teaparty.local', 'project.yaml')
+    yaml_path = project_config_path(project_dir)
     if not os.path.exists(yaml_path):
-        raise FileNotFoundError(f'project.yaml not found: {yaml_path}')
+        legacy = os.path.join(project_dir, '.teaparty.local', 'project.yaml')
+        if os.path.exists(legacy):
+            yaml_path = legacy
+        else:
+            raise FileNotFoundError(f'project.yaml not found: {yaml_path}')
     with open(yaml_path) as f:
         data = yaml.safe_load(f) or {}
     _set_humans_role(data, name, role)
@@ -885,10 +981,10 @@ def _scaffold_project_yaml(
     lead: str = '',
     decider: str = '',
     workgroups: list | None = None,
-    config: str = '.teaparty/project.yaml',
+    config: str = '.teaparty/project/project.yaml',
 ) -> None:
-    """Create .teaparty.local/project.yaml with new-schema frontmatter if it doesn't exist."""
-    tp_dir = os.path.join(project_dir, '.teaparty.local')
+    """Create .teaparty/project/project.yaml with frontmatter if it doesn't exist."""
+    tp_dir = project_teaparty_dir(project_dir)
     os.makedirs(tp_dir, exist_ok=True)
     project_yaml_path = os.path.join(tp_dir, 'project.yaml')
     if os.path.exists(project_yaml_path):
@@ -917,13 +1013,12 @@ def add_project(
     lead: str = '',
     decider: str = '',
     workgroups: list | None = None,
-    config: str = '.teaparty/project.yaml',
+    config: str = '.teaparty/project/project.yaml',
 ) -> ManagementTeam:
     """Add an existing directory as a TeaParty project.
 
-    Creates .teaparty.local/project.yaml with the provided frontmatter if
-    missing, and adds a projects: entry to teaparty.yaml.  Prerequisites (.git/,
-    .claude/) are not validated here — the OM handles bootstrapping.
+    Creates .teaparty/project/project.yaml with the provided frontmatter if
+    missing, and adds a projects: entry to external-projects.yaml.
 
     Raises ValueError if the path does not exist or a project with this name
     already exists.
@@ -933,16 +1028,23 @@ def add_project(
     if not os.path.isdir(path):
         raise ValueError(f'Path does not exist or is not a directory: {path}')
 
-    data = _load_management_yaml(teaparty_home)
-    projects = data.get('projects') or []
-
-    for p in projects:
+    # Check for duplicates across both tracked and external project lists
+    team = load_management_team(teaparty_home=teaparty_home)
+    for p in team.projects:
         if p['name'] == name:
-            raise ValueError(f"Project '{name}' already exists in teaparty.yaml")
+            raise ValueError(f"Project '{name}' already exists")
 
-    projects.append({'name': name, 'path': path, 'config': config})
-    data['projects'] = projects
-    _save_management_yaml(data, teaparty_home)
+    # External projects go in external-projects.yaml (gitignored)
+    home = os.path.expanduser(teaparty_home or default_teaparty_home())
+    ext_path = external_projects_path(home)
+    ext: list = []
+    if os.path.isfile(ext_path):
+        with open(ext_path) as f:
+            ext = yaml.safe_load(f) or []
+    ext.append({'name': name, 'path': path, 'config': config})
+    os.makedirs(os.path.dirname(ext_path), exist_ok=True)
+    with open(ext_path, 'w') as f:
+        yaml.dump(ext, f, default_flow_style=False, sort_keys=False)
 
     _scaffold_project_yaml(
         name, path,
@@ -964,13 +1066,13 @@ def create_project(
     lead: str = '',
     decider: str = '',
     workgroups: list | None = None,
-    config: str = '.teaparty/project.yaml',
+    config: str = '.teaparty/project/project.yaml',
 ) -> ManagementTeam:
     """Create a new project directory with full scaffolding.
 
-    Creates the directory, runs git init, creates .claude/ and
-    .teaparty.local/project.yaml with the provided frontmatter, and adds a
-    projects: entry to teaparty.yaml.
+    Creates the directory, runs git init, creates .teaparty/project/ with
+    subdirectories and project.yaml, and adds a projects: entry to
+    external-projects.yaml.
 
     Raises ValueError if the directory already exists or a project with
     this name already exists.
@@ -980,16 +1082,18 @@ def create_project(
     if os.path.exists(path):
         raise ValueError(f'Directory already exists: {path}')
 
-    data = _load_management_yaml(teaparty_home)
-    projects = data.get('projects') or []
-
-    for p in projects:
+    # Check for duplicates across both tracked and external project lists
+    team = load_management_team(teaparty_home=teaparty_home)
+    for p in team.projects:
         if p['name'] == name:
-            raise ValueError(f"Project '{name}' already exists in teaparty.yaml")
+            raise ValueError(f"Project '{name}' already exists")
 
     # Create directory structure
     os.makedirs(path)
-    os.makedirs(os.path.join(path, '.claude'))
+    tp_proj = project_teaparty_dir(path)
+    os.makedirs(os.path.join(tp_proj, 'agents'), exist_ok=True)
+    os.makedirs(os.path.join(tp_proj, 'skills'), exist_ok=True)
+    os.makedirs(os.path.join(tp_proj, 'workgroups'), exist_ok=True)
     subprocess.run(
         ['git', 'init', path],
         check=True,
@@ -1005,9 +1109,17 @@ def create_project(
         config=config,
     )
 
-    projects.append({'name': name, 'path': path, 'config': config})
-    data['projects'] = projects
-    _save_management_yaml(data, teaparty_home)
+    # Register in external-projects.yaml
+    home = os.path.expanduser(teaparty_home or default_teaparty_home())
+    ext_path = external_projects_path(home)
+    ext: list = []
+    if os.path.isfile(ext_path):
+        with open(ext_path) as f:
+            ext = yaml.safe_load(f) or []
+    ext.append({'name': name, 'path': path, 'config': config})
+    os.makedirs(os.path.dirname(ext_path), exist_ok=True)
+    with open(ext_path, 'w') as f:
+        yaml.dump(ext, f, default_flow_style=False, sort_keys=False)
 
     return load_management_team(teaparty_home=teaparty_home)
 
@@ -1016,23 +1128,33 @@ def remove_project(
     name: str,
     teaparty_home: str | None = None,
 ) -> ManagementTeam:
-    """Remove a project from projects: in teaparty.yaml.
+    """Remove a project from the project registry.
 
-    The project directory itself is left untouched. Only the projects:
-    entry in teaparty.yaml is removed.
+    Checks both teaparty.yaml (tracked) and external-projects.yaml (gitignored).
+    The project directory itself is left untouched.
 
     Raises ValueError if no project with this name exists.
     """
+    home = os.path.expanduser(teaparty_home or default_teaparty_home())
+
+    # Try external-projects.yaml first (most common case)
+    ext_path = external_projects_path(home)
+    if os.path.isfile(ext_path):
+        with open(ext_path) as f:
+            ext = yaml.safe_load(f) or []
+        filtered = [p for p in ext if p['name'] != name]
+        if len(filtered) < len(ext):
+            with open(ext_path, 'w') as f:
+                yaml.dump(filtered, f, default_flow_style=False, sort_keys=False)
+            return load_management_team(teaparty_home=teaparty_home)
+
+    # Fall back to teaparty.yaml (tracked projects)
     data = _load_management_yaml(teaparty_home)
     projects = data.get('projects') or []
-
-    original_len = len(projects)
-    projects = [p for p in projects if p['name'] != name]
-
-    if len(projects) == original_len:
-        raise ValueError(f"Project '{name}' not found in teaparty.yaml")
-
-    data['projects'] = projects
+    filtered = [p for p in projects if p['name'] != name]
+    if len(filtered) == len(projects):
+        raise ValueError(f"Project '{name}' not found")
+    data['projects'] = filtered
     _save_management_yaml(data, teaparty_home)
 
     return load_management_team(teaparty_home=teaparty_home)
@@ -1044,7 +1166,7 @@ _FRONTMATTER_RE = re.compile(r'^---\n(.*?\n)---\n(.*)', re.DOTALL)
 
 
 def read_agent_frontmatter(path: str) -> dict[str, Any]:
-    """Parse the YAML frontmatter from a .claude/agents/{name}.md file.
+    """Parse the YAML frontmatter from an agents/{name}/agent.md file.
 
     Returns the frontmatter as a dict. Returns an empty dict when the file
     has no frontmatter block (i.e. does not start with ``---``).
@@ -1064,7 +1186,7 @@ def read_agent_frontmatter(path: str) -> dict[str, Any]:
 
 
 def write_agent_frontmatter(path: str, updates: dict[str, Any]) -> None:
-    """Update frontmatter fields in a .claude/agents/{name}.md file.
+    """Update frontmatter fields in an agents/{name}/agent.md file.
 
     Merges *updates* into the existing frontmatter. Fields not present in
     *updates* are preserved. The prose body (everything after the closing

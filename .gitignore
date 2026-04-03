@@ -26,6 +26,21 @@ teaparty.db-wal
 # Claude Code
 .claude/worktrees/
 
+# TeaParty — machine-specific external project registry
+.teaparty/management/external-projects.yaml
+
+# TeaParty — agent runtime state (message databases, session files, memory)
+.teaparty/management/agents/*/om-messages.db
+.teaparty/management/agents/*/pm-messages.db
+.teaparty/management/agents/*/proxy-messages.db
+.teaparty/management/agents/*/config-messages.db
+.teaparty/management/agents/*/.om-session-*
+.teaparty/management/agents/*/.pm-session-*
+.teaparty/management/agents/*/.proxy-session-*
+.teaparty/management/agents/*/.proxy-confidence*
+.teaparty/management/agents/*/.proxy-memory*
+.teaparty/management/agents/*/.om-agents-*
+
 # Generated Documents
 output/
 site/

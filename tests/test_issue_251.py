@@ -39,14 +39,14 @@ from orchestrator.config_reader import (
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def _make_teaparty_home(teaparty_yaml: str, workgroup_files: dict[str, str] | None = None) -> str:
-    """Create a temp ~/.teaparty/ with teaparty.yaml and optional workgroup files."""
+    """Create a temp ~/.teaparty/ with management/teaparty.yaml and optional workgroup files."""
     home = tempfile.mkdtemp()
-    tp_dir = os.path.join(home, '.teaparty')
-    os.makedirs(tp_dir)
-    with open(os.path.join(tp_dir, 'teaparty.yaml'), 'w') as f:
+    mgmt_dir = os.path.join(home, '.teaparty', 'management')
+    os.makedirs(mgmt_dir)
+    with open(os.path.join(mgmt_dir, 'teaparty.yaml'), 'w') as f:
         f.write(teaparty_yaml)
     if workgroup_files:
-        wg_dir = os.path.join(tp_dir, 'workgroups')
+        wg_dir = os.path.join(mgmt_dir, 'workgroups')
         os.makedirs(wg_dir, exist_ok=True)
         for name, content in workgroup_files.items():
             with open(os.path.join(wg_dir, name), 'w') as f:
@@ -55,18 +55,16 @@ def _make_teaparty_home(teaparty_yaml: str, workgroup_files: dict[str, str] | No
 
 
 def _make_project_dir(project_yaml: str, workgroup_files: dict[str, str] | None = None) -> str:
-    """Create a temp project dir with .teaparty.local/project.yaml and optional workgroups."""
+    """Create a temp project dir with .teaparty/project/project.yaml and optional workgroups."""
     proj = tempfile.mkdtemp()
-    tp_local = os.path.join(proj, '.teaparty.local')
-    os.makedirs(tp_local)
-    with open(os.path.join(tp_local, 'project.yaml'), 'w') as f:
+    tp_project = os.path.join(proj, '.teaparty', 'project')
+    os.makedirs(tp_project)
+    with open(os.path.join(tp_project, 'project.yaml'), 'w') as f:
         f.write(project_yaml)
-    # Also create .git/ and .claude/ and .teaparty/ so it looks like a valid project
+    # Also create .git/ so it looks like a valid project
     os.makedirs(os.path.join(proj, '.git'))
-    os.makedirs(os.path.join(proj, '.claude'))
-    os.makedirs(os.path.join(proj, '.teaparty'))
     if workgroup_files:
-        wg_dir = os.path.join(tp_local, 'workgroups')
+        wg_dir = os.path.join(tp_project, 'workgroups')
         os.makedirs(wg_dir, exist_ok=True)
         for name, content in workgroup_files.items():
             with open(os.path.join(wg_dir, name), 'w') as f:
@@ -200,12 +198,13 @@ class TestLoadManagementTeam(unittest.TestCase):
         self.assertEqual(team.projects[0]['name'], 'My Backend')
         self.assertEqual(team.projects[0]['path'], proj)
 
-    def test_members_projects(self):
+    def test_no_members_projects(self):
+        """ManagementTeam must not have members_projects — all registered projects are active."""
         proj = _make_project_dir("name: Dummy\ndescription: d\nlead: x\n")
         yaml_text = MINIMAL_TEAPARTY_YAML.format(project_path=proj)
         home = _make_teaparty_home(yaml_text)
         team = load_management_team(teaparty_home=os.path.join(home, '.teaparty'))
-        self.assertEqual(team.members_projects, ['My Backend'])
+        self.assertFalse(hasattr(team, 'members_projects'))
 
     def test_scheduled_tasks(self):
         proj = _make_project_dir("name: Dummy\ndescription: d\nlead: x\n")
@@ -325,7 +324,7 @@ class TestDiscoverProjects(unittest.TestCase):
         self.assertTrue(projects[0]['valid'])
 
     def test_invalid_project_missing_markers(self):
-        """A directory without .git/.claude/.teaparty is marked invalid."""
+        """A directory without .git/.teaparty is marked invalid."""
         d = tempfile.mkdtemp()  # bare dir, no markers
         yaml_text = MINIMAL_TEAPARTY_YAML.format(project_path=d)
         home = _make_teaparty_home(yaml_text)

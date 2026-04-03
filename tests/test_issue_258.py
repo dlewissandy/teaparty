@@ -2,8 +2,8 @@
 """Tests for Issue #258: Team discovery — add, create, and remove projects.
 
 Covers:
- 1. add_project: validate existing dir, create .teaparty.local/project.yaml, update teams:
- 2. create_project: new dir with git init, .claude/, .teaparty.local/, update teams:
+ 1. add_project: validate existing dir, create .teaparty/project/project.yaml, update teams:
+ 2. create_project: new dir with git init, .claude/, .teaparty/project/, update teams:
  3. remove_project: remove from teams:, leave project untouched
  4. Validation: duplicate names, nonexistent paths
     Note: .git/ and .claude/ prereqs removed by #322 — OM handles bootstrapping.
@@ -31,20 +31,19 @@ from orchestrator.config_reader import (
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def _make_teaparty_home(teaparty_yaml: str) -> str:
-    """Create a temp ~/.teaparty/ with teaparty.yaml."""
+    """Create a temp ~/.teaparty/ with management/teaparty.yaml."""
     home = tempfile.mkdtemp()
-    tp_dir = os.path.join(home, '.teaparty')
-    os.makedirs(tp_dir)
-    with open(os.path.join(tp_dir, 'teaparty.yaml'), 'w') as f:
+    mgmt_dir = os.path.join(home, '.teaparty', 'management')
+    os.makedirs(mgmt_dir)
+    with open(os.path.join(mgmt_dir, 'teaparty.yaml'), 'w') as f:
         f.write(teaparty_yaml)
     return home
 
 
 def _make_existing_project(name: str = 'My Project') -> str:
-    """Create a temp dir with .git/ and .claude/ (valid candidate for add)."""
+    """Create a temp dir with .git/ (valid candidate for add)."""
     d = tempfile.mkdtemp()
     os.makedirs(os.path.join(d, '.git'))
-    os.makedirs(os.path.join(d, '.claude'))
     return d
 
 
@@ -92,19 +91,19 @@ class TestAddProject(unittest.TestCase):
         self.assertEqual(team.projects[0]['name'], 'My Backend')
         self.assertEqual(team.projects[0]['path'], os.path.realpath(proj))
 
-    def test_creates_teaparty_local_dir_and_project_yaml(self):
+    def test_creates_teaparty_project_dir_and_project_yaml(self):
         proj = _make_existing_project()
         home = _make_teaparty_home(MINIMAL_YAML)
         tp_home = os.path.join(home, '.teaparty')
 
         add_project('My Backend', proj, teaparty_home=tp_home)
 
-        project_yaml = os.path.join(proj, '.teaparty.local', 'project.yaml')
+        project_yaml = os.path.join(proj, '.teaparty/project', 'project.yaml')
         self.assertTrue(os.path.exists(project_yaml))
 
     def test_does_not_overwrite_existing_project_yaml(self):
         proj = _make_existing_project()
-        tp_local = os.path.join(proj, '.teaparty.local')
+        tp_local = os.path.join(proj, '.teaparty/project')
         os.makedirs(tp_local)
         existing_content = 'name: Already Here\n'
         with open(os.path.join(tp_local, 'project.yaml'), 'w') as f:
@@ -188,8 +187,8 @@ class TestCreateProject(unittest.TestCase):
         create_project('New Project', new_dir, teaparty_home=tp_home)
 
         self.assertTrue(os.path.isdir(os.path.join(new_dir, '.git')))
-        self.assertTrue(os.path.isdir(os.path.join(new_dir, '.claude')))
-        self.assertTrue(os.path.isfile(os.path.join(new_dir, '.teaparty.local', 'project.yaml')))
+        self.assertTrue(os.path.isdir(os.path.join(new_dir, '.teaparty', 'project')))
+        self.assertTrue(os.path.isfile(os.path.join(new_dir, '.teaparty', 'project', 'project.yaml')))
 
     def test_adds_to_teams(self):
         home = _make_teaparty_home(MINIMAL_YAML)
@@ -220,7 +219,7 @@ class TestCreateProject(unittest.TestCase):
         create_project('New Project', new_dir, teaparty_home=tp_home)
 
         import yaml
-        with open(os.path.join(new_dir, '.teaparty.local', 'project.yaml')) as f:
+        with open(os.path.join(new_dir, '.teaparty/project', 'project.yaml')) as f:
             data = yaml.safe_load(f)
         self.assertEqual(data['name'], 'New Project')
 
@@ -269,7 +268,6 @@ class TestRemoveProject(unittest.TestCase):
         # Project dir still exists with its markers
         self.assertTrue(os.path.isdir(proj))
         self.assertTrue(os.path.isdir(os.path.join(proj, '.git')))
-        self.assertTrue(os.path.isdir(os.path.join(proj, '.claude')))
 
     def test_persists_removal_to_yaml(self):
         proj = _make_existing_project()

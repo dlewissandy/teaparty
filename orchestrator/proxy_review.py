@@ -426,11 +426,11 @@ def proxy_bus_path(teaparty_home: str) -> str:
     """Return the canonical path to the proxy review message database.
 
     The proxy database is persistent and not session-scoped.  It lives at
-    {teaparty_home}/proxy/proxy-messages.db, separate from per-session
-    messages.db files.  Both the bridge and the orchestrator use this
-    function to locate the same database.  Issue #331.
+    {teaparty_home}/management/agents/proxy-review/proxy-messages.db,
+    separate from per-session messages.db files.  Both the bridge and the
+    orchestrator use this function to locate the same database.  Issue #331.
     """
-    return os.path.join(teaparty_home, 'proxy', 'proxy-messages.db')
+    return os.path.join(teaparty_home, 'management', 'agents', 'proxy-review', 'proxy-messages.db')
 
 
 def proxy_memory_path(teaparty_home: str) -> str:
@@ -439,7 +439,7 @@ def proxy_memory_path(teaparty_home: str) -> str:
     Used by the bridge-invoked proxy review chat to read and write the same
     ACT-R memory that consult_proxy reads at approval gates.  Issue #331.
     """
-    return os.path.join(teaparty_home, 'proxy', '.proxy-memory.db')
+    return os.path.join(teaparty_home, 'management', 'agents', 'proxy-review', '.proxy-memory.db')
 
 
 
@@ -501,7 +501,7 @@ class ProxyReviewSession:
 
     def __init__(self, teaparty_home: str, decider: str):
         self.teaparty_home = os.path.expanduser(teaparty_home)
-        self._infra_dir = os.path.join(self.teaparty_home, 'proxy')
+        self._infra_dir = os.path.join(self.teaparty_home, 'management', 'agents', 'proxy-review')
         self.decider = decider
         self.conversation_id = make_conversation_id(
             ConversationType.PROXY_REVIEW, decider,
@@ -754,7 +754,7 @@ def read_proxy_session_title(teaparty_home: str, decider: str) -> str | None:
     Returns None if no title is stored or the file doesn't exist.
     """
     safe_id = decider.replace('/', '-').replace(':', '-').replace(' ', '-')
-    state_path = os.path.join(teaparty_home, 'proxy', f'.proxy-session-{safe_id}.json')
+    state_path = os.path.join(teaparty_home, 'management', 'agents', 'proxy-review', f'.proxy-session-{safe_id}.json')
     try:
         with open(state_path) as f:
             state = json.load(f)

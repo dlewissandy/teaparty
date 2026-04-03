@@ -366,11 +366,8 @@ async function renderGlobal() {
   _updateBladeIframe();
 
   var projectItems = projects.map(function(p) {
-    var isActive = p.active !== false;
-    var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
     var cardClick = ' onclick="configNav(\'project\',\'' + p.name + '\')" style="cursor:pointer"';
-    var toggle = '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleMembership(\'global\', \'project\', \'' + p.name + '\', ' + !isActive + ')"></span>';
-    return '<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-project">&#9654;</div><div class="item-body"><div class="item-title">' + p.name + '</div><div class="item-meta">' + (p.path || '') + '</div></div>' + toggle + '</div>';
+    return '<div class="item item-catalog-active"' + cardClick + '><div class="item-icon icon-project">&#9654;</div><div class="item-body"><div class="item-title">' + p.name + '</div><div class="item-meta">' + (p.path || '') + '</div></div></div>';
   });
 
   var wgItems = (workgroupsData || []).map(function(w) {
@@ -672,11 +669,8 @@ async function renderWorkgroup(name, projectSlug) {
       if (cfgResp.ok) {
         var cfgData = await cfgResp.json();
         var projectItems = (cfgData.projects || []).map(function(p) {
-          var isActive = p.active !== false;
-          var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
           var cardClick = ' onclick="configNav(\'project\',\'' + p.name + '\')" style="cursor:pointer"';
-          var toggle = '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleMembership(\'global\', \'project\', \'' + p.name + '\', ' + !isActive + ')"></span>';
-          return '<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-project">&#9654;</div><div class="item-body"><div class="item-title">' + p.name + '</div><div class="item-meta">' + (p.path || '') + '</div></div>' + toggle + '</div>';
+          return '<div class="item item-catalog-active"' + cardClick + '><div class="item-icon icon-project">&#9654;</div><div class="item-body"><div class="item-title">' + p.name + '</div><div class="item-meta">' + (p.path || '') + '</div></div></div>';
         });
         contextSection = sectionCard('Projects', projectItems, { empty: 'No projects' });
       }

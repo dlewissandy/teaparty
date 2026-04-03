@@ -579,9 +579,9 @@ class TestRestConfig(unittest.TestCase):
 
     def setUp(self):
         self._tmp = tempfile.mkdtemp()
-        teaparty_dir = os.path.join(self._tmp, '.teaparty')
-        os.makedirs(teaparty_dir)
-        with open(os.path.join(teaparty_dir, 'teaparty.yaml'), 'w') as f:
+        mgmt_dir = os.path.join(self._tmp, '.teaparty', 'management')
+        os.makedirs(mgmt_dir)
+        with open(os.path.join(mgmt_dir, 'teaparty.yaml'), 'w') as f:
             f.write("""\
 name: Test Org
 description: Test organization
@@ -650,11 +650,11 @@ class TestRestWorkgroups(unittest.TestCase):
 
     def setUp(self):
         self._tmp = tempfile.mkdtemp()
-        teaparty_dir = os.path.join(self._tmp, '.teaparty')
-        workgroups_dir = os.path.join(teaparty_dir, 'workgroups')
+        mgmt_dir = os.path.join(self._tmp, '.teaparty', 'management')
+        workgroups_dir = os.path.join(mgmt_dir, 'workgroups')
         os.makedirs(workgroups_dir)
         # Management team references workgroup by config path
-        with open(os.path.join(teaparty_dir, 'teaparty.yaml'), 'w') as f:
+        with open(os.path.join(mgmt_dir, 'teaparty.yaml'), 'w') as f:
             f.write("""\
 name: Test Org
 description: Test
@@ -708,9 +708,10 @@ budget: {}
     def test_workgroups_returns_empty_list_when_none_configured(self):
         """GET /api/workgroups returns [] when no workgroups are configured."""
         # Create team with no workgroups
+        alt_mgmt = os.path.join(self._tmp, 'alt', 'management')
+        os.makedirs(alt_mgmt)
         alt_home = os.path.join(self._tmp, 'alt')
-        os.makedirs(alt_home)
-        with open(os.path.join(alt_home, 'teaparty.yaml'), 'w') as f:
+        with open(os.path.join(alt_mgmt, 'teaparty.yaml'), 'w') as f:
             f.write("name: Empty\ndescription: x\nlead: x\ndecider: x\nagents: []\n"
                     "humans: []\nskills: []\nhooks: []\nscheduled: []\nprojects: []\n"
                     "workgroups: []\n")
@@ -1189,14 +1190,15 @@ class TestRestConfigProject(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.mkdtemp()
         self._teaparty_home = os.path.join(self._tmp, '.teaparty')
-        os.makedirs(self._teaparty_home)
-        with open(os.path.join(self._teaparty_home, 'teaparty.yaml'), 'w') as f:
+        mgmt_dir = os.path.join(self._teaparty_home, 'management')
+        os.makedirs(mgmt_dir)
+        with open(os.path.join(mgmt_dir, 'teaparty.yaml'), 'w') as f:
             f.write("name: Org\ndescription: x\nlead: lead\ndecider: d\nagents: []\n"
                     "humans: []\nskills: []\nhooks: []\nscheduled: []\nprojects: []\n"
                     "workgroups: []\n")
         # Create a project with project.yaml
         proj_dir = os.path.join(self._tmp, 'myproject')
-        teaparty_proj_dir = os.path.join(proj_dir, '.teaparty.local')
+        teaparty_proj_dir = os.path.join(proj_dir, '.teaparty', 'project')
         os.makedirs(teaparty_proj_dir)
         with open(os.path.join(teaparty_proj_dir, 'project.yaml'), 'w') as f:
             f.write("name: My Project\ndescription: A test project\nlead: proj-lead\n"

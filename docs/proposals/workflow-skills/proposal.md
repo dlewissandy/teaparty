@@ -23,7 +23,7 @@ Work moves rightward as experience accumulates. It moves left when a skill encou
 
 A workflow skill is a continuation chain: a `SKILL.md` entry point and a set of phase files, each ending with a `Next:` pointer. The agent navigates by following pointers. Sequencing is deterministic; behavior within each phase is agent-guided.
 
-The fix-issue skill in `.claude/skills/fix-issue/` is the existence proof of this pattern. A workflow skill uses the same structure at the CfA level — phases instead of issue-resolution steps, escalation via MCP tools instead of `gh` commands.
+The fix-issue skill in `.teaparty/management/skills/fix-issue/` is the existence proof of this pattern. A workflow skill uses the same structure at the CfA level — phases instead of issue-resolution steps, escalation via MCP tools instead of `gh` commands.
 
 See [references/skill-graph.md](references/skill-graph.md) for the phase file format and gate mechanics. See [examples/research-workflow.md](examples/research-workflow.md) for an end-to-end walkthrough.
 

@@ -1,9 +1,9 @@
 """Tests for issue #327: Skills resolution — filesystem discovery, org registration, and precedence.
 
 Acceptance criteria:
-1. Global config Skill Catalog shows skills discovered from {teaparty_home}/.claude/skills/,
+1. Global config Skill Catalog shows skills discovered from {teaparty_home}/management/skills/,
    not from the YAML skills: list alone.
-2. Project config Skills card shows local skills from {project_dir}/.claude/skills/ plus
+2. Project config Skills card shows local skills from {project_dir}/.teaparty/project/skills/ plus
    registered org skills from project.yaml skills:, with local/shared source badges.
 3. A local skill with the same name as an org skill displays as local; the org version is not shown.
 4. A skill declared in project.yaml skills: that does not exist in the org catalog is flagged
@@ -43,12 +43,12 @@ def _make_bridge(teaparty_home: str, static_dir: str):
 # ── Criterion 1 & 6: discover_skills function ────────────────────────────────
 
 class TestDiscoverSkillsReturnsNamesFromFilesystem(unittest.TestCase):
-    """discover_skills() scans a .claude/skills/ directory and returns skill names."""
+    """discover_skills() scans a skills/ directory and returns skill names."""
 
     def test_returns_names_of_subdirectories_containing_skill_md(self):
         """Skills with SKILL.md are discovered; their names are returned."""
         with tempfile.TemporaryDirectory() as tmp:
-            skills_dir = os.path.join(tmp, '.claude', 'skills')
+            skills_dir = os.path.join(tmp, '.teaparty', 'management', 'skills')
             os.makedirs(skills_dir)
             _make_skill(skills_dir, 'fix-issue')
             _make_skill(skills_dir, 'audit')
@@ -59,7 +59,7 @@ class TestDiscoverSkillsReturnsNamesFromFilesystem(unittest.TestCase):
     def test_excludes_subdirectories_without_skill_md(self):
         """A subdirectory without SKILL.md is not a skill and must not appear."""
         with tempfile.TemporaryDirectory() as tmp:
-            skills_dir = os.path.join(tmp, '.claude', 'skills')
+            skills_dir = os.path.join(tmp, '.teaparty', 'management', 'skills')
             os.makedirs(skills_dir)
             _make_skill(skills_dir, 'real-skill')
             _make_dir_without_skill_md(skills_dir, 'not-a-skill')
@@ -69,13 +69,13 @@ class TestDiscoverSkillsReturnsNamesFromFilesystem(unittest.TestCase):
 
     def test_returns_empty_list_when_directory_does_not_exist(self):
         """discover_skills must return [] gracefully when the directory is absent."""
-        result = discover_skills('/nonexistent/path/.claude/skills')
+        result = discover_skills('/nonexistent/path/.teaparty/management/skills')
         self.assertEqual(result, [])
 
     def test_returns_empty_list_for_empty_directory(self):
         """discover_skills must return [] for an existing but empty directory."""
         with tempfile.TemporaryDirectory() as tmp:
-            skills_dir = os.path.join(tmp, '.claude', 'skills')
+            skills_dir = os.path.join(tmp, '.teaparty', 'management', 'skills')
             os.makedirs(skills_dir)
             result = discover_skills(skills_dir)
             self.assertEqual(result, [])
@@ -83,7 +83,7 @@ class TestDiscoverSkillsReturnsNamesFromFilesystem(unittest.TestCase):
     def test_result_contains_only_strings(self):
         """Each element in the returned list must be a string (the skill name)."""
         with tempfile.TemporaryDirectory() as tmp:
-            skills_dir = os.path.join(tmp, '.claude', 'skills')
+            skills_dir = os.path.join(tmp, '.teaparty', 'management', 'skills')
             os.makedirs(skills_dir)
             _make_skill(skills_dir, 'research')
             result = discover_skills(skills_dir)
@@ -144,7 +144,7 @@ class TestProjectTeamSerializerMergesLocalAndOrgSkills(unittest.TestCase):
         return _make_bridge(tmp, os.path.join(tmp, 'static'))
 
     def test_local_skill_appears_with_local_source(self):
-        """Skills discovered from the project's .claude/skills/ must have source='local'."""
+        """Skills discovered from the project's .teaparty/project/skills/ must have source='local'."""
         with tempfile.TemporaryDirectory() as tmp:
             bridge = self._make_bridge(tmp)
         team = self._make_project_team(yaml_skills=[])
@@ -301,12 +301,12 @@ class TestWorkgroupLevelSkillsRemoved(unittest.TestCase):
 # ── Criterion 1 (integration): discover_skills wired into management team path ─
 
 class TestDiscoverSkillsIntegrationWithOrgPath(unittest.TestCase):
-    """discover_skills must scan {teaparty_home}/.claude/skills/ correctly."""
+    """discover_skills must scan {teaparty_home}/management/skills/ correctly."""
 
-    def test_skills_discovered_from_teaparty_home_dot_claude_skills(self):
-        """Skill directories with SKILL.md under {teaparty_home}/.claude/skills/ are discovered."""
+    def test_skills_discovered_from_teaparty_home_management_skills(self):
+        """Skill directories with SKILL.md under {teaparty_home}/management/skills/ are discovered."""
         with tempfile.TemporaryDirectory() as tmp:
-            skills_dir = os.path.join(tmp, '.claude', 'skills')
+            skills_dir = os.path.join(tmp, '.teaparty', 'management', 'skills')
             os.makedirs(skills_dir)
             _make_skill(skills_dir, 'sprint-plan')
             _make_skill(skills_dir, 'audit')
@@ -318,7 +318,7 @@ class TestDiscoverSkillsIntegrationWithOrgPath(unittest.TestCase):
     def test_files_at_skills_dir_root_are_not_returned_as_skill_names(self):
         """Regular files (not directories) at the skills_dir root must not be returned."""
         with tempfile.TemporaryDirectory() as tmp:
-            skills_dir = os.path.join(tmp, '.claude', 'skills')
+            skills_dir = os.path.join(tmp, '.teaparty', 'management', 'skills')
             os.makedirs(skills_dir)
             _make_skill(skills_dir, 'real-skill')
             # A file (not a directory) at root level

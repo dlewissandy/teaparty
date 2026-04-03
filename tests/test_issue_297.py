@@ -5,7 +5,7 @@ Acceptance criteria:
 2. TeaPartyBridge class exists with run() method and _build_app() method
 3. All REST routes registered: state, config, messages, artifacts, actions, WebSocket
 4. ?type= query param converted to ConversationType enum (not raw string)
-5. ?type=office_manager routes to {teaparty_home}/om/om-messages.db (issue #290)
+5. ?type=office_manager routes to {teaparty_home}/management/agents/office-manager/om-messages.db (issue #290)
 6. GET /api/heartbeat/{session_id} uses _heartbeat_three_state() (alive|stale|dead)
 7. POST /api/withdraw/{session_id} writes to {teaparty_home}/sockets/{session_id}.sock
 8. CfA state endpoint loads phase, state, actor, history, backtrack_count
@@ -161,7 +161,7 @@ class TestOfficManagerBusRouting(unittest.TestCase):
     """?type=office_manager must query om-messages.db, not a per-session messages.db.
 
     This is the fix for issue #290: the office manager uses a separate database
-    at {teaparty_home}/om/om-messages.db. Without this routing, the office manager
+    at {teaparty_home}/management/agents/office-manager/om-messages.db. Without this routing, the office manager
     conversation is invisible to the bridge.
     """
 

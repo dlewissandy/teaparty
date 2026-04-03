@@ -40,7 +40,7 @@ from orchestrator.office_manager import (
 
 def config_lead_bus_path(teaparty_home: str) -> str:
     """Return the canonical path to the config lead message database."""
-    return os.path.join(teaparty_home, 'config', 'config-messages.db')
+    return os.path.join(teaparty_home, 'management', 'agents', 'configuration-lead', 'config-messages.db')
 
 
 class ConfigLeadSession:
@@ -58,7 +58,7 @@ class ConfigLeadSession:
 
     def __init__(self, teaparty_home: str, qualifier: str):
         self.teaparty_home = os.path.expanduser(teaparty_home)
-        self._infra_dir = os.path.join(self.teaparty_home, 'config')
+        self._infra_dir = os.path.join(self.teaparty_home, 'management', 'agents', 'configuration-lead')
         self.qualifier = qualifier
         self.conversation_id = make_conversation_id(ConversationType.CONFIG_LEAD, qualifier)
         self.claude_session_id: str | None = None

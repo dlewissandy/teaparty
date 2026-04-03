@@ -87,9 +87,9 @@ class TestIntentTaskIncludesConstraints(unittest.TestCase):
     def test_intent_task_contains_constraints_section(self):
         """Intent task must have a constraints block when norms are configured."""
         project_dir = tempfile.mkdtemp()
-        tp_local = os.path.join(project_dir, '.teaparty.local')
-        os.makedirs(tp_local)
-        Path(os.path.join(tp_local, 'project.yaml')).write_text(textwrap.dedent("""\
+        tp_project = os.path.join(project_dir, '.teaparty', 'project')
+        os.makedirs(tp_project)
+        Path(os.path.join(tp_project, 'project.yaml')).write_text(textwrap.dedent("""\
             name: test-project
             norms:
               safety:
@@ -107,9 +107,9 @@ class TestIntentTaskIncludesConstraints(unittest.TestCase):
     def test_intent_task_contains_escalation_guidance(self):
         """Intent task must mention escalation when constraints are present."""
         project_dir = tempfile.mkdtemp()
-        tp_local = os.path.join(project_dir, '.teaparty.local')
-        os.makedirs(tp_local)
-        Path(os.path.join(tp_local, 'project.yaml')).write_text(textwrap.dedent("""\
+        tp_project = os.path.join(project_dir, '.teaparty', 'project')
+        os.makedirs(tp_project)
+        Path(os.path.join(tp_project, 'project.yaml')).write_text(textwrap.dedent("""\
             name: test-project
             norms:
               safety:

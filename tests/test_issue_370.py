@@ -61,7 +61,8 @@ def _extract_render_project_body(source: str) -> str:
 
 def _make_teaparty_home(tmp: str, projects: list | None = None) -> str:
     tp_home = os.path.join(tmp, '.teaparty')
-    os.makedirs(tp_home)
+    mgmt_dir = os.path.join(tp_home, 'management')
+    os.makedirs(mgmt_dir)
     data = {
         'name': 'Test Org',
         'description': 'test',
@@ -72,15 +73,15 @@ def _make_teaparty_home(tmp: str, projects: list | None = None) -> str:
         'workgroups': [],
         'scheduled': [],
     }
-    with open(os.path.join(tp_home, 'teaparty.yaml'), 'w') as f:
+    with open(os.path.join(mgmt_dir, 'teaparty.yaml'), 'w') as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
     return tp_home
 
 
 def _make_project_dir(tmp: str, slug: str, artifact_pins: list | None = None) -> str:
-    """Create a project directory with .teaparty.local/project.yaml."""
+    """Create a project directory with .teaparty/project/project.yaml."""
     proj_dir = os.path.join(tmp, slug)
-    tp_local = os.path.join(proj_dir, '.teaparty.local')
+    tp_local = os.path.join(proj_dir, '.teaparty', 'project')
     os.makedirs(tp_local)
     data = {
         'name': slug,
@@ -104,7 +105,7 @@ def _make_bridge(teaparty_home: str, tmp: str):
 
 
 def _read_project_yaml(proj_dir: str) -> dict:
-    path = os.path.join(proj_dir, '.teaparty.local', 'project.yaml')
+    path = os.path.join(proj_dir, '.teaparty', 'project', 'project.yaml')
     with open(path) as f:
         return yaml.safe_load(f)
 

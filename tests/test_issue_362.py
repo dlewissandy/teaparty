@@ -26,9 +26,9 @@ from orchestrator.config_reader import (
 # Path to the repo root — the worktree is two levels above tests/
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _TEAPARTY_HOME = os.path.join(_REPO_ROOT, '.teaparty')
-_PROJECT_YAML = os.path.join(_REPO_ROOT, '.teaparty.local', 'project.yaml')
-_CODING_YAML = os.path.join(_TEAPARTY_HOME, 'workgroups', 'coding.yaml')
-_CONFIGURATION_YAML = os.path.join(_TEAPARTY_HOME, 'workgroups', 'configuration.yaml')
+_PROJECT_YAML = os.path.join(_REPO_ROOT, '.teaparty', 'project', 'project.yaml')
+_CODING_YAML = os.path.join(_TEAPARTY_HOME, 'management', 'workgroups', 'coding.yaml')
+_CONFIGURATION_YAML = os.path.join(_TEAPARTY_HOME, 'management', 'workgroups', 'configuration.yaml')
 
 
 def _load_yaml(path: str) -> dict:
@@ -42,7 +42,7 @@ class TestTeapartyYamlHasProjectsRegistrationBlock(unittest.TestCase):
     """teaparty.yaml must use projects: for registration, not teams:."""
 
     def setUp(self):
-        self.data = _load_yaml(os.path.join(_TEAPARTY_HOME, 'teaparty.yaml'))
+        self.data = _load_yaml(os.path.join(_TEAPARTY_HOME, 'management', 'teaparty.yaml'))
 
     def test_has_projects_key_not_teams(self):
         self.assertIn('projects', self.data, "teaparty.yaml must have a 'projects:' key")
@@ -62,40 +62,29 @@ class TestTeapartyYamlHasProjectsRegistrationBlock(unittest.TestCase):
             self.assertIn('config', p, f"Project '{p.get('name')}' must have a 'config' field")
 
 
-class TestTeapartyYamlHasMembersProjectsBlock(unittest.TestCase):
-    """teaparty.yaml must have a members.projects: block for active dispatch."""
+class TestTeapartyYamlMembersBlockNoProjects(unittest.TestCase):
+    """teaparty.yaml members: block must not have a projects: key.
+
+    All registered projects are active (#379) — members.projects was dead weight.
+    """
 
     def setUp(self):
-        self.data = _load_yaml(os.path.join(_TEAPARTY_HOME, 'teaparty.yaml'))
+        self.data = _load_yaml(os.path.join(_TEAPARTY_HOME, 'management', 'teaparty.yaml'))
 
     def test_has_members_block(self):
         self.assertIn('members', self.data, "teaparty.yaml must have a 'members:' block")
 
-    def test_members_has_projects_list(self):
+    def test_members_has_no_projects_key(self):
         members = self.data.get('members', {})
-        self.assertIn('projects', members, "members: block must have a 'projects:' list")
-        self.assertIsInstance(members['projects'], list)
-
-    def test_members_projects_are_names_only(self):
-        """members.projects: contains project names (strings), not full dicts."""
-        members = self.data.get('members', {})
-        for entry in members.get('projects', []):
-            self.assertIsInstance(entry, str,
-                "members.projects: entries must be project name strings, not dicts")
-
-    def test_members_projects_subset_of_registered_projects(self):
-        """Every name in members.projects must be a registered project."""
-        registered_names = {p['name'] for p in self.data.get('projects', [])}
-        for name in self.data.get('members', {}).get('projects', []):
-            self.assertIn(name, registered_names,
-                f"members.projects entry '{name}' is not a registered project")
+        self.assertNotIn('projects', members,
+            "members: must not have 'projects:' — all registered projects are active")
 
 
 class TestTeapartyYamlNoSkillsAtManagementLevel(unittest.TestCase):
     """Skills are a per-agent concern; they must not appear in teaparty.yaml."""
 
     def setUp(self):
-        self.data = _load_yaml(os.path.join(_TEAPARTY_HOME, 'teaparty.yaml'))
+        self.data = _load_yaml(os.path.join(_TEAPARTY_HOME, 'management', 'teaparty.yaml'))
 
     def test_no_top_level_skills_key(self):
         self.assertNotIn('skills', self.data,
@@ -106,7 +95,7 @@ class TestTeapartyYamlHumansBlock(unittest.TestCase):
     """teaparty.yaml humans: block must use the dict form {decider: name}."""
 
     def setUp(self):
-        self.data = _load_yaml(os.path.join(_TEAPARTY_HOME, 'teaparty.yaml'))
+        self.data = _load_yaml(os.path.join(_TEAPARTY_HOME, 'management', 'teaparty.yaml'))
 
     def test_humans_is_dict_with_decider(self):
         humans = self.data.get('humans', {})
@@ -301,23 +290,20 @@ class TestConfigWorkgroupRegisteredButNotMemberInTeapartyYaml(unittest.TestCase)
     """
 
     def setUp(self):
-        self.data = _load_yaml(os.path.join(_TEAPARTY_HOME, 'teaparty.yaml'))
+        self.data = _load_yaml(os.path.join(_TEAPARTY_HOME, 'management', 'teaparty.yaml'))
 
     def test_configuration_workgroup_is_registered(self):
         wg_names = [wg['name'] for wg in self.data.get('workgroups', [])]
         self.assertIn('Configuration', wg_names,
             "Configuration workgroup must be registered in teaparty.yaml workgroups:")
 
-    def test_configuration_workgroup_not_in_members(self):
-        # members.projects is projects; the workgroup is registered separately.
-        # teaparty.yaml does not have members.workgroups — the Config workgroup
-        # is registered under workgroups: at the management level and is
-        # never in the dispatch roster.
+    def test_configuration_workgroup_in_members_workgroups(self):
+        # members.workgroups tracks active workgroups at management level (#376).
+        # Configuration is registered and active — it is reached via the config
+        # screen's chat blade, not through OM dispatch.
         members = self.data.get('members', {})
-        # The management workgroup dispatches to projects, not workgroups
-        self.assertNotIn('workgroups', members,
-            "teaparty.yaml members: must not have a 'workgroups:' key — "
-            "OM dispatches to projects, not workgroups directly")
+        self.assertIn('workgroups', members,
+            "teaparty.yaml members: must have a 'workgroups:' key")
 
 
 class TestConfigWorkgroupNotInProjectYamlMembers(unittest.TestCase):
@@ -347,7 +333,7 @@ class TestRegistrationAndMembershipAreDistinctInTeapartyYaml(unittest.TestCase):
     it must be possible to have a registered project that is not a member."""
 
     def test_can_have_registered_project_not_in_members(self):
-        data = _load_yaml(os.path.join(_TEAPARTY_HOME, 'teaparty.yaml'))
+        data = _load_yaml(os.path.join(_TEAPARTY_HOME, 'management', 'teaparty.yaml'))
         registered = {p['name'] for p in data.get('projects', [])}
         members = set(data.get('members', {}).get('projects', []))
         # There must be at least one registered project that exists only for
@@ -386,24 +372,14 @@ class TestLoadManagementTeamRoundTrip(unittest.TestCase):
             self.assertIn('path', p)
             self.assertIn('config', p)
 
-    def test_members_projects_loaded(self):
-        """team.members_projects contains the active dispatch roster."""
-        self.assertIsInstance(self.team.members_projects, list)
-        self.assertGreater(len(self.team.members_projects), 0,
-            "ManagementTeam.members_projects must be populated from members.projects:")
-        for name in self.team.members_projects:
-            self.assertIsInstance(name, str)
+    def test_no_members_projects_field(self):
+        """ManagementTeam must not have members_projects — all registered projects are active."""
+        self.assertFalse(hasattr(self.team, 'members_projects'),
+            "ManagementTeam must not have 'members_projects' — removed in #379")
 
     def test_members_agents_loaded(self):
         """team.members_agents contains any directly dispatched agents."""
         self.assertIsInstance(self.team.members_agents, list)
-
-    def test_members_projects_subset_of_projects(self):
-        """Every name in members_projects must appear in the projects catalog."""
-        registered = {p['name'] for p in self.team.projects}
-        for name in self.team.members_projects:
-            self.assertIn(name, registered,
-                f"members_projects entry '{name}' must be in projects catalog")
 
     def test_no_teams_field(self):
         """ManagementTeam must not have old-schema teams field."""

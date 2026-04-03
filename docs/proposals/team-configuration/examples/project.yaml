@@ -5,7 +5,7 @@
 
 name: My Backend
 description: Backend API service — REST endpoints, database layer, authentication, and deployment infrastructure.
-lead: project-lead                              # → .claude/agents/project-lead.md
+lead: project-lead                              # → .teaparty/project/agents/project-lead/agent.md
 humans:
   decider: darrell                              # human whose approval matters at gates
   advisors:
@@ -36,7 +36,7 @@ scheduled:
 hooks:
   - event: PreToolUse
     matcher: Bash
-    handler: .claude/hooks/validate-worktree.sh
+    handler: .teaparty/project/hooks/validate-worktree.sh
 
 stats:
   storage: .teaparty/stats/project.json

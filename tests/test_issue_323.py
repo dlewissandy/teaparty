@@ -40,7 +40,9 @@ def _write_teaparty_yaml(home: str, teams: list[dict]) -> None:
         'projects': [{'name': t['name'], 'path': t['path'], 'config': ''} for t in teams],
         'workgroups': [],
     }
-    with open(os.path.join(home, 'teaparty.yaml'), 'w') as f:
+    mgmt = os.path.join(home, 'management')
+    os.makedirs(mgmt, exist_ok=True)
+    with open(os.path.join(mgmt, 'teaparty.yaml'), 'w') as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 
 
@@ -48,7 +50,7 @@ def _make_project_dir(tmpdir: str, name: str) -> str:
     """Create a valid TeaParty project directory (has .git, .claude, .teaparty)."""
     proj = os.path.join(tmpdir, name)
     os.makedirs(proj)
-    for marker in ('.git', '.claude', '.teaparty'):
+    for marker in ('.git', '.teaparty'):
         os.makedirs(os.path.join(proj, marker))
     return proj
 
@@ -191,7 +193,9 @@ class TestRegistryLoadErrorPropagates(unittest.TestCase):
         self.tmpdir = _make_tmpdir()
         self.home = _make_teaparty_home(self.tmpdir)
         # Write intentionally malformed YAML
-        with open(os.path.join(self.home, 'teaparty.yaml'), 'w') as f:
+        mgmt = os.path.join(self.home, 'management')
+        os.makedirs(mgmt, exist_ok=True)
+        with open(os.path.join(mgmt, 'teaparty.yaml'), 'w') as f:
             f.write('name: [unclosed bracket\n')
         self.reader = _make_state_reader(self.tmpdir, self.home)
 

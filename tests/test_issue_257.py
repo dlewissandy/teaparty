@@ -34,9 +34,9 @@ from orchestrator.config_reader import (
 
 def _make_teaparty_home(teaparty_yaml: str) -> str:
     home = tempfile.mkdtemp()
-    tp_dir = os.path.join(home, '.teaparty')
-    os.makedirs(tp_dir)
-    with open(os.path.join(tp_dir, 'teaparty.yaml'), 'w') as f:
+    mgmt_dir = os.path.join(home, '.teaparty', 'management')
+    os.makedirs(mgmt_dir)
+    with open(os.path.join(mgmt_dir, 'teaparty.yaml'), 'w') as f:
         f.write(teaparty_yaml)
     return home
 
@@ -213,11 +213,10 @@ class TestNormsBudgetSeparation(unittest.TestCase):
               job_limit_usd: 5.00
         """)
         d = tempfile.mkdtemp()
-        tp_local = os.path.join(d, '.teaparty.local')
-        os.makedirs(tp_local)
+        tp_project = os.path.join(d, '.teaparty', 'project')
+        os.makedirs(tp_project)
         os.makedirs(os.path.join(d, '.git'))
-        os.makedirs(os.path.join(d, '.claude'))
-        with open(os.path.join(tp_local, 'project.yaml'), 'w') as f:
+        with open(os.path.join(tp_project, 'project.yaml'), 'w') as f:
             f.write(yaml_text)
         team = load_project_team(d)
         self.assertNotIn('budget', team.norms)
@@ -230,7 +229,7 @@ class TestNormsReachSession(unittest.TestCase):
     """Norms from YAML flow into the session's task prompt."""
 
     def test_resolve_norms_static_with_project_yaml(self):
-        """Session._resolve_norms_static reads .teaparty.local/project.yaml norms."""
+        """Session._resolve_norms_static reads .teaparty/project/project.yaml norms."""
         from orchestrator.session import Session
 
         yaml_text = textwrap.dedent("""\
@@ -244,11 +243,10 @@ class TestNormsReachSession(unittest.TestCase):
                 - Architect plans, Developer implements
         """)
         d = tempfile.mkdtemp()
-        tp_local = os.path.join(d, '.teaparty.local')
-        os.makedirs(tp_local)
+        tp_project = os.path.join(d, '.teaparty', 'project')
+        os.makedirs(tp_project)
         os.makedirs(os.path.join(d, '.git'))
-        os.makedirs(os.path.join(d, '.claude'))
-        with open(os.path.join(tp_local, 'project.yaml'), 'w') as f:
+        with open(os.path.join(tp_project, 'project.yaml'), 'w') as f:
             f.write(yaml_text)
 
         result = Session._resolve_norms_static(d)
@@ -289,13 +287,12 @@ class TestNormsReachSession(unittest.TestCase):
                 - Code review required
         """)
         d = tempfile.mkdtemp()
-        tp_local = os.path.join(d, '.teaparty.local')
-        os.makedirs(tp_local)
+        tp_project = os.path.join(d, '.teaparty', 'project')
+        os.makedirs(tp_project)
         os.makedirs(os.path.join(d, '.git'))
-        os.makedirs(os.path.join(d, '.claude'))
-        wg_dir = os.path.join(tp_local, 'workgroups')
+        wg_dir = os.path.join(tp_project, 'workgroups')
         os.makedirs(wg_dir)
-        with open(os.path.join(tp_local, 'project.yaml'), 'w') as f:
+        with open(os.path.join(tp_project, 'project.yaml'), 'w') as f:
             f.write(project_yaml)
         with open(os.path.join(wg_dir, 'coding.yaml'), 'w') as f:
             f.write(workgroup_yaml)
@@ -332,13 +329,12 @@ class TestNormsReachSession(unittest.TestCase):
                 - Developers may not use WebSearch
         """)
         d = tempfile.mkdtemp()
-        tp_local = os.path.join(d, '.teaparty.local')
-        os.makedirs(tp_local)
+        tp_project = os.path.join(d, '.teaparty', 'project')
+        os.makedirs(tp_project)
         os.makedirs(os.path.join(d, '.git'))
-        os.makedirs(os.path.join(d, '.claude'))
-        wg_dir = os.path.join(tp_local, 'workgroups')
+        wg_dir = os.path.join(tp_project, 'workgroups')
         os.makedirs(wg_dir)
-        with open(os.path.join(tp_local, 'project.yaml'), 'w') as f:
+        with open(os.path.join(tp_project, 'project.yaml'), 'w') as f:
             f.write(project_yaml)
         with open(os.path.join(wg_dir, 'coding.yaml'), 'w') as f:
             f.write(workgroup_yaml)

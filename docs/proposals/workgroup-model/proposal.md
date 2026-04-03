@@ -66,12 +66,12 @@ Humans in the `inform:` list do not have proxies. When an agent decides a partic
 Every workgroup draws from a **catalog** — a pool of agents, skills, hooks, and scheduled tasks available to it. The catalog is defined at two levels:
 
 **Management level** — implicit, derived from the filesystem:
-- Agents: everything in `.claude/agents/`
-- Skills: everything in `.claude/skills/`
-- Hooks: everything in `.claude/settings.json`
+- Agents: everything in `.teaparty/management/agents/`
+- Skills: everything in `.teaparty/management/skills/`
+- Hooks: everything in `.teaparty/management/settings.yaml`
 - Scheduled tasks: all tasks defined at management level
 
-**Project level** — a project may define additional agents, skills, hooks, and scheduled tasks in its own `.claude/` directory. These extend the management catalog and are available to workgroups within that project.
+**Project level** — a project may define additional agents, skills, hooks, and scheduled tasks in its own `.teaparty/project/` directory. These extend the management catalog and are available to workgroups within that project.
 
 Individual workgroups do not define their own catalogs. They are consumers, not owners.
 

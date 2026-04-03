@@ -49,10 +49,11 @@ def _make_bridge(tmpdir):
 
 
 def _make_management_team(tmpdir, agents=None, humans=None, skills=None, hooks=None, scheduled=None, workgroups=None):
-    """Write teaparty.yaml into tmpdir/.teaparty/ and return a loaded ManagementTeam."""
+    """Write teaparty.yaml into tmpdir/.teaparty/management/ and return a loaded ManagementTeam."""
     from orchestrator.config_reader import load_management_team
     teaparty_home = os.path.join(tmpdir, '.teaparty')
-    os.makedirs(teaparty_home, exist_ok=True)
+    mgmt_dir = os.path.join(teaparty_home, 'management')
+    os.makedirs(mgmt_dir, exist_ok=True)
     # humans accepts dict (new schema) or list (old schema, still handled by loader)
     humans_block = humans or {'decider': 'Darrell'}
     data = {
@@ -66,7 +67,7 @@ def _make_management_team(tmpdir, agents=None, humans=None, skills=None, hooks=N
         'workgroups': workgroups or [],
         'projects': [],
     }
-    with open(os.path.join(teaparty_home, 'teaparty.yaml'), 'w') as f:
+    with open(os.path.join(mgmt_dir, 'teaparty.yaml'), 'w') as f:
         yaml.dump(data, f)
     return load_management_team(teaparty_home=teaparty_home)
 
@@ -77,7 +78,7 @@ def _make_project_team(project_dir, humans=None, hooks=None, scheduled=None, wor
     Project teams dispatch to workgroups only; no agents or skills at this level.
     """
     from orchestrator.config_reader import load_project_team
-    tp_local = os.path.join(project_dir, '.teaparty.local')
+    tp_local = os.path.join(project_dir, '.teaparty', 'project')
     os.makedirs(tp_local, exist_ok=True)
     # humans accepts dict (new schema) or list (old schema, still handled by loader)
     humans_block = humans or [{'name': 'Alice', 'role': 'advisor'}]
@@ -277,7 +278,6 @@ class TestConfigEndpointProjectSlug(unittest.IsolatedAsyncioTestCase):
         # Create a project directory to reference
         project_path = os.path.join(self.tmpdir, 'myproject')
         os.makedirs(os.path.join(project_path, '.git'))
-        os.makedirs(os.path.join(project_path, '.claude'))
         os.makedirs(os.path.join(project_path, '.teaparty'))
 
         data = {
@@ -292,8 +292,9 @@ class TestConfigEndpointProjectSlug(unittest.IsolatedAsyncioTestCase):
             'projects': [{'name': 'My Project', 'path': project_path, 'config': ''}],
         }
         teaparty_home = os.path.join(self.tmpdir, '.teaparty')
-        os.makedirs(teaparty_home, exist_ok=True)
-        with open(os.path.join(teaparty_home, 'teaparty.yaml'), 'w') as f:
+        mgmt_dir = os.path.join(teaparty_home, 'management')
+        os.makedirs(mgmt_dir, exist_ok=True)
+        with open(os.path.join(mgmt_dir, 'teaparty.yaml'), 'w') as f:
             yaml.dump(data, f)
 
     async def asyncTearDown(self):
@@ -329,17 +330,17 @@ class TestConfigProjectWorkgroupSourceTags(unittest.TestCase):
         self.bridge = _make_bridge(self.tmpdir)
 
         # Create a shared workgroup at org level
-        org_wg_dir = os.path.join(self.tmpdir, 'workgroups')
+        org_wg_dir = os.path.join(self.tmpdir, '.teaparty', 'management', 'workgroups')
         _make_workgroup_yaml(org_wg_dir, name='Coding')
 
         # Create project directory with shared + local workgroups
         self.project_dir = os.path.join(self.tmpdir, 'poc')
         os.makedirs(self.project_dir)
-        proj_tp_local = os.path.join(self.project_dir, '.teaparty.local')
-        os.makedirs(proj_tp_local)
+        proj_tp = os.path.join(self.project_dir, '.teaparty', 'project')
+        os.makedirs(proj_tp)
 
         # Create local workgroup YAML for this project
-        local_wg_dir = os.path.join(proj_tp_local, 'workgroups')
+        local_wg_dir = os.path.join(proj_tp, 'workgroups')
         _make_workgroup_yaml(local_wg_dir, name='Research')
 
         # Project config with one shared (ref) and one local (entry) workgroup
@@ -356,7 +357,7 @@ class TestConfigProjectWorkgroupSourceTags(unittest.TestCase):
                 {'name': 'Research', 'config': 'workgroups/research.yaml'},  # WorkgroupEntry → source: local
             ],
         }
-        with open(os.path.join(proj_tp_local, 'project.yaml'), 'w') as f:
+        with open(os.path.join(proj_tp, 'project.yaml'), 'w') as f:
             yaml.dump(project_data, f)
 
     def tearDown(self):
@@ -403,7 +404,7 @@ class TestConfigProjectWorkgroupSourceTags(unittest.TestCase):
                 resolved = resolve_workgroups(
                     [entry],
                     project_dir=self.project_dir,
-                    teaparty_home=self.tmpdir,
+                    teaparty_home=os.path.join(self.tmpdir, '.teaparty'),
                 )
                 for w in resolved:
                     tagged.append(self.bridge._serialize_workgroup(w, source=source))
@@ -430,7 +431,7 @@ class TestConfigProjectWorkgroupSourceTags(unittest.TestCase):
                 resolved = resolve_workgroups(
                     [entry],
                     project_dir=self.project_dir,
-                    teaparty_home=self.tmpdir,
+                    teaparty_home=os.path.join(self.tmpdir, '.teaparty'),
                 )
                 for w in resolved:
                     tagged.append({'source': source, 'name': w.name})
@@ -618,7 +619,7 @@ class TestSkillSourceTags(unittest.TestCase):
         self.assertEqual(by_name['audit'], 'shared')
 
     def test_project_only_skill_tagged_local(self):
-        """Skill discovered from the project's .claude/skills/ must be tagged 'local'."""
+        """Skill discovered from the project's .teaparty/project/skills/ must be tagged 'local'."""
         # Issue #327: local skills are filesystem-discovered; pass via local_skills param.
         team = _make_project_team(self.project_dir)
         result = self.bridge._serialize_project_team(
@@ -715,11 +716,11 @@ class TestConfigProjectHandlerEndToEnd(unittest.IsolatedAsyncioTestCase):
         _make_project_team(self.project_dir)
         # Issue #327: install org-skill in org catalog and local-skill in project.
         # The handler uses filesystem discovery to determine source tags.
-        org_skill_dir = os.path.join(self.tmpdir, '.claude', 'skills', 'org-skill')
+        org_skill_dir = os.path.join(self.tmpdir, '.teaparty', 'management', 'skills', 'org-skill')
         os.makedirs(org_skill_dir, exist_ok=True)
         with open(os.path.join(org_skill_dir, 'SKILL.md'), 'w') as f:
             f.write('# org-skill\n')
-        local_skill_dir = os.path.join(self.project_dir, '.claude', 'skills', 'local-skill')
+        local_skill_dir = os.path.join(self.project_dir, '.teaparty', 'project', 'skills', 'local-skill')
         os.makedirs(local_skill_dir, exist_ok=True)
         with open(os.path.join(local_skill_dir, 'SKILL.md'), 'w') as f:
             f.write('# local-skill\n')

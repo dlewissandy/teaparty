@@ -220,10 +220,10 @@ const mockData = {
             { name: "Cross-Project Patterns", path: ".teaparty/learnings/cross-project.md", summary: "Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore" },
           ]},
           { heading: "Procedural Skills", items: [
-            { name: "Sprint Planning", path: ".claude/skills/sprint-plan/SKILL.md", summary: "Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia" },
-            { name: "Issue Resolution", path: ".claude/skills/fix-issue/SKILL.md", summary: "Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium" },
-            { name: "Code Audit", path: ".claude/skills/audit/SKILL.md", summary: "Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit" },
-            { name: "Milestone Close", path: ".claude/skills/close-milestone/SKILL.md", summary: "Neque porro quisquam est, qui dolorem ipsum quia dolor sit amet consectetur" },
+            { name: "Sprint Planning", path: ".teaparty/management/skills/sprint-plan/SKILL.md", summary: "Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia" },
+            { name: "Issue Resolution", path: ".teaparty/management/skills/fix-issue/SKILL.md", summary: "Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium" },
+            { name: "Code Audit", path: ".teaparty/management/skills/audit/SKILL.md", summary: "Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit" },
+            { name: "Milestone Close", path: ".teaparty/management/skills/close-milestone/SKILL.md", summary: "Neque porro quisquam est, qui dolorem ipsum quia dolor sit amet consectetur" },
           ]},
           { heading: "Proxy Knowledge", items: [
             { name: "Preferential Model", path: ".teaparty/learnings/proxy.md", summary: "At vero eos et accusamus et iusto odio dignissimos ducimus qui blanditiis" },

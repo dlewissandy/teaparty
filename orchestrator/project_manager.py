@@ -30,14 +30,14 @@ from orchestrator.office_manager import (
 
 def pm_bus_path(teaparty_home: str) -> str:
     """Return the canonical path to the project manager message database."""
-    return os.path.join(teaparty_home, 'pm', 'pm-messages.db')
+    return os.path.join(teaparty_home, 'management', 'agents', 'project-manager', 'pm-messages.db')
 
 
 def read_pm_session_title(teaparty_home: str, project_slug: str, user_id: str) -> str | None:
     """Read the conversation title from a saved PM session state file."""
     qualifier = f'{project_slug}:{user_id}'
     safe_id = qualifier.replace('/', '-').replace(':', '-').replace(' ', '-')
-    state_path = os.path.join(teaparty_home, 'pm', f'.pm-session-{safe_id}.json')
+    state_path = os.path.join(teaparty_home, 'management', 'agents', 'project-manager', f'.pm-session-{safe_id}.json')
     try:
         with open(state_path) as f:
             state = json.load(f)
@@ -63,7 +63,7 @@ class ProjectManagerSession:
         self.teaparty_home = teaparty_home
         self.project_slug = project_slug
         self.user_id = user_id
-        self._infra_dir = os.path.join(teaparty_home, 'pm')
+        self._infra_dir = os.path.join(teaparty_home, 'management', 'agents', 'project-manager')
         self.lead = f'{project_slug}-project-manager'
         self.conversation_id = make_conversation_id(
             ConversationType.PROJECT_MANAGER, f'{project_slug}:{user_id}',

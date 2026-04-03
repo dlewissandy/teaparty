@@ -35,13 +35,14 @@ def _make_management_yaml(teaparty_home: str, scheduled: list | None = None):
         'scheduled': scheduled or [],
         'workgroups': [],
     }
-    os.makedirs(teaparty_home, exist_ok=True)
-    with open(os.path.join(teaparty_home, 'teaparty.yaml'), 'w') as f:
+    mgmt_dir = os.path.join(teaparty_home, 'management')
+    os.makedirs(mgmt_dir, exist_ok=True)
+    with open(os.path.join(mgmt_dir, 'teaparty.yaml'), 'w') as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 
 
 def _make_project_yaml(project_dir: str, scheduled: list | None = None):
-    tp_local = os.path.join(project_dir, '.teaparty.local')
+    tp_local = os.path.join(project_dir, '.teaparty', 'project')
     os.makedirs(tp_local, exist_ok=True)
     data = {
         'name': 'Test Project',
@@ -58,12 +59,12 @@ def _make_project_yaml(project_dir: str, scheduled: list | None = None):
 
 
 def _read_management_yaml(teaparty_home: str) -> dict:
-    with open(os.path.join(teaparty_home, 'teaparty.yaml')) as f:
+    with open(os.path.join(teaparty_home, 'management', 'teaparty.yaml')) as f:
         return yaml.safe_load(f)
 
 
 def _read_project_yaml(project_dir: str) -> dict:
-    with open(os.path.join(project_dir, '.teaparty.local', 'project.yaml')) as f:
+    with open(os.path.join(project_dir, '.teaparty', 'project', 'project.yaml')) as f:
         return yaml.safe_load(f)
 
 

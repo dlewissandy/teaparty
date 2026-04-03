@@ -16,10 +16,10 @@ import unittest
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).parent.parent
-_SKILLS_DIR = _REPO_ROOT / '.claude' / 'skills'
-_AGENTS_DIR = _REPO_ROOT / '.claude' / 'agents'
+_SKILLS_DIR = _REPO_ROOT / '.teaparty' / 'management' / 'skills'
+_AGENTS_DIR = _REPO_ROOT / '.teaparty' / 'management' / 'agents'
 _CONFIG_HTML = _REPO_ROOT / 'bridge' / 'static' / 'config.html'
-_OM_AGENT = _AGENTS_DIR / 'office-manager.md'
+_OM_AGENT = _AGENTS_DIR / 'office-manager' / 'agent.md'
 _CREATING_THINGS_DOC = _REPO_ROOT / 'docs' / 'proposals' / 'dashboard-ui' / 'references' / 'creating-things.md'
 
 

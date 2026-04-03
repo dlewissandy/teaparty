@@ -41,7 +41,8 @@ def _run(coro):
 def _make_teaparty_home(tmpdir: str, project_name: str, project_path: str) -> str:
     """Create .teaparty/ with a teaparty.yaml that registers a project."""
     tp_home = os.path.join(tmpdir, '.teaparty')
-    os.makedirs(tp_home, exist_ok=True)
+    mgmt_dir = os.path.join(tp_home, 'management')
+    os.makedirs(mgmt_dir, exist_ok=True)
     data = {
         'name': 'Test Team',
         'description': 'test',
@@ -52,14 +53,14 @@ def _make_teaparty_home(tmpdir: str, project_name: str, project_path: str) -> st
         'workgroups': [],
         'scheduled': [],
     }
-    with open(os.path.join(tp_home, 'teaparty.yaml'), 'w') as f:
+    with open(os.path.join(mgmt_dir, 'teaparty.yaml'), 'w') as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
     return tp_home
 
 
 def _make_project_yaml(project_dir: str, pins: list | None = None) -> str:
-    """Create .teaparty.local/project.yaml with optional artifact_pins."""
-    tp_local = os.path.join(project_dir, '.teaparty.local')
+    """Create .teaparty/project/project.yaml with optional artifact_pins."""
+    tp_local = os.path.join(project_dir, '.teaparty', 'project')
     os.makedirs(tp_local, exist_ok=True)
     path = os.path.join(tp_local, 'project.yaml')
     data = {
@@ -155,7 +156,7 @@ class TestScaffoldProjectYamlIncludesArtifactPins(unittest.TestCase):
         from orchestrator.config_reader import _scaffold_project_yaml
         tmpdir = _make_tmpdir()
         _scaffold_project_yaml(name='myproject', project_dir=tmpdir)
-        project_yaml_path = os.path.join(tmpdir, '.teaparty.local', 'project.yaml')
+        project_yaml_path = os.path.join(tmpdir, '.teaparty', 'project', 'project.yaml')
         self.assertTrue(os.path.exists(project_yaml_path))
         with open(project_yaml_path) as f:
             data = yaml.safe_load(f)
@@ -197,7 +198,7 @@ class TestPinArtifactHandler(unittest.TestCase):
         ))
         self.assertTrue(result.get('success'), f'Expected success, got: {result}')
 
-        project_yaml_path = os.path.join(project_dir, '.teaparty.local', 'project.yaml')
+        project_yaml_path = os.path.join(project_dir, '.teaparty', 'project', 'project.yaml')
         with open(project_yaml_path) as f:
             data = yaml.safe_load(f)
         self.assertEqual(len(data['artifact_pins']), 1)
@@ -218,7 +219,7 @@ class TestPinArtifactHandler(unittest.TestCase):
             teaparty_home=tp_home,
         )
 
-        project_yaml_path = os.path.join(project_dir, '.teaparty.local', 'project.yaml')
+        project_yaml_path = os.path.join(project_dir, '.teaparty', 'project', 'project.yaml')
         with open(project_yaml_path) as f:
             data = yaml.safe_load(f)
         # Must not have created a duplicate
@@ -263,7 +264,7 @@ class TestUnpinArtifactHandler(unittest.TestCase):
         ))
         self.assertTrue(result.get('success'), f'Expected success, got: {result}')
 
-        project_yaml_path = os.path.join(project_dir, '.teaparty.local', 'project.yaml')
+        project_yaml_path = os.path.join(project_dir, '.teaparty', 'project', 'project.yaml')
         with open(project_yaml_path) as f:
             data = yaml.safe_load(f)
         paths = [p['path'] for p in data['artifact_pins']]

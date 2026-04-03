@@ -79,7 +79,8 @@ def _read_workgroup_yaml(path: str) -> dict:
 
 def _make_teaparty_home(tmp: str) -> str:
     tp_home = os.path.join(tmp, '.teaparty')
-    os.makedirs(tp_home)
+    mgmt_dir = os.path.join(tp_home, 'management')
+    os.makedirs(mgmt_dir)
     data = {
         'name': 'Test Org',
         'description': 'test',
@@ -90,7 +91,7 @@ def _make_teaparty_home(tmp: str) -> str:
         'workgroups': [],
         'scheduled': [],
     }
-    with open(os.path.join(tp_home, 'teaparty.yaml'), 'w') as f:
+    with open(os.path.join(mgmt_dir, 'teaparty.yaml'), 'w') as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
     return tp_home
 
@@ -352,7 +353,7 @@ class TestWorkgroupPatchSupportsArtifacts(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
         self.teaparty_home = os.path.join(self.tmp, '.teaparty')
-        wg_dir = os.path.join(self.teaparty_home, 'workgroups')
+        wg_dir = os.path.join(self.teaparty_home, 'management', 'workgroups')
         os.makedirs(wg_dir, exist_ok=True)
         self.wg_path = os.path.join(wg_dir, 'coding.yaml')
         _make_workgroup_yaml(

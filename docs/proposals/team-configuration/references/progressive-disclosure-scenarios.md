@@ -13,7 +13,7 @@ Total for a deep drill-down: ~150 lines across 3 files. Without progressive disc
 ## Configuration Team Creating a Workgroup
 
 1. Configuration Lead reads `{project}/.teaparty/project.yaml` to see current workgroups
-2. Agent Designer creates agent definitions in `{project}/.claude/agents/` and the team JSON
+2. Agent Designer creates agent definitions in `{project}/.teaparty/project/agents/` and the team JSON
 3. Skill Architect assigns skills
 4. Configuration Lead writes `{project}/.teaparty/workgroups/{name}.yaml`
 5. Configuration Lead adds the workgroup entry to `{project}/.teaparty/project.yaml`

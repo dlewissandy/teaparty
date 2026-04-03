@@ -1,7 +1,7 @@
 """Tests for issue #327 follow-up: org catalog is filesystem-only; no YAML registration needed.
 
 Design decision (see issue comment):
-- The org-level Skill Catalog is defined entirely by {teaparty_home}/.claude/skills/.
+- The org-level Skill Catalog is defined entirely by {teaparty_home}/management/skills/.
 - teaparty.yaml skills: is an agent allowlist, not a catalog registration list.
 - _serialize_management_team must never fall back to t.skills (YAML list) for the catalog.
 
@@ -154,7 +154,7 @@ class TestProposalSkillDiscoverySection(unittest.TestCase):
         """Proposal must explicitly state that the org catalog comes from the filesystem."""
         has_filesystem_statement = (
             'filesystem' in self.content.lower()
-            or '.claude/skills' in self.content
+            or '.teaparty/management/skills' in self.content
         )
         self.assertTrue(
             has_filesystem_statement,

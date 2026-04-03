@@ -106,8 +106,8 @@ Shared items may have **override indicators** (e.g., "norms overridden") showing
 | Click "+ Catalog" | Opens Office Manager chat for catalog selection |
 | Click participant | Opens participant chat |
 | Click artifact section | Opens Artifacts viewer for this project |
-| Click agent item | Opens agent definition file (`.claude/agents/{name}.md`) in Artifacts viewer |
-| Click skill item | Opens skill definition file (`.claude/skills/{name}/SKILL.md`) in Artifacts viewer |
+| Click agent item | Opens agent definition file (`.teaparty/management/agents/{name}/agent.md`) in Artifacts viewer |
+| Click skill item | Opens skill definition file (`.teaparty/management/skills/{name}/SKILL.md`) in Artifacts viewer |
 | Click hook item | Opens handler script in Artifacts viewer if command is a file; otherwise opens the config YAML that defines it |
 | Click scheduled task item | Opens the SKILL.md for the skill it invokes in Artifacts viewer |
 | Click breadcrumb "Global Config" | Returns to global config |

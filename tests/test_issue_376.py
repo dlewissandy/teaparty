@@ -33,8 +33,9 @@ def _make_tmpdir():
 
 
 def _make_teaparty_yaml(teaparty_home: str, data: dict) -> str:
-    os.makedirs(teaparty_home, exist_ok=True)
-    path = os.path.join(teaparty_home, 'teaparty.yaml')
+    mgmt_dir = os.path.join(teaparty_home, 'management')
+    os.makedirs(mgmt_dir, exist_ok=True)
+    path = os.path.join(mgmt_dir, 'teaparty.yaml')
     with open(path, 'w') as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
     return path
@@ -78,7 +79,7 @@ def _minimal_management_data(**overrides) -> dict:
         'lead': 'office-manager',
         'humans': {'decider': 'darrell'},
         'projects': [],
-        'members': {'projects': [], 'agents': [], 'workgroups': []},
+        'members': {'agents': [], 'workgroups': []},
         'workgroups': [],
         'hooks': [],
         'scheduled': [],
@@ -96,8 +97,8 @@ class TestManagementTeamHasMembersWorkgroupsField(unittest.TestCase):
         self._tmpdir = tempfile.mkdtemp()
         data = _minimal_management_data(
             workgroups=[
-                {'name': 'Configuration', 'config': 'workgroups/configuration.yaml'},
-                {'name': 'Coding', 'config': 'workgroups/coding.yaml'},
+                {'name': 'Configuration', 'config': 'management/workgroups/configuration.yaml'},
+                {'name': 'Coding', 'config': 'management/workgroups/coding.yaml'},
             ],
             members={
                 'projects': [],
@@ -172,8 +173,8 @@ class TestToggleManagementMembershipWorkgroup(unittest.TestCase):
         self._tmpdir = tempfile.mkdtemp()
         data = _minimal_management_data(
             workgroups=[
-                {'name': 'Configuration', 'config': 'workgroups/configuration.yaml'},
-                {'name': 'Coding', 'config': 'workgroups/coding.yaml'},
+                {'name': 'Configuration', 'config': 'management/workgroups/configuration.yaml'},
+                {'name': 'Coding', 'config': 'management/workgroups/coding.yaml'},
             ],
             members={
                 'projects': [],
@@ -219,11 +220,10 @@ class TestToggleManagementMembershipWorkgroup(unittest.TestCase):
         self.assertNotIn('Coding', team.members_workgroups)
 
     def test_toggling_workgroup_preserves_other_members(self):
-        """Toggling workgroup active state must not alter members.agents or members.projects."""
+        """Toggling workgroup active state must not alter members.agents."""
         data = _minimal_management_data(
-            workgroups=[{'name': 'Coding', 'config': 'workgroups/coding.yaml'}],
+            workgroups=[{'name': 'Coding', 'config': 'management/workgroups/coding.yaml'}],
             members={
-                'projects': ['TeaParty'],
                 'agents': ['auditor', 'researcher'],
                 'workgroups': [],
             },
@@ -232,7 +232,6 @@ class TestToggleManagementMembershipWorkgroup(unittest.TestCase):
         toggle_management_membership(self._home, 'workgroup', 'Coding', True)
         team = load_management_team(teaparty_home=self._home)
         self.assertEqual(team.members_agents, ['auditor', 'researcher'])
-        self.assertEqual(team.members_projects, ['TeaParty'])
 
 
 # ── AC4: _handle_workgroups returns active flag ──────────────────────────────
@@ -244,7 +243,7 @@ class TestHandleWorkgroupsReturnsActiveFlag(unittest.IsolatedAsyncioTestCase):
         self._tmpdir = _make_tmpdir()
         self._home = os.path.join(self._tmpdir, '.teaparty')
 
-        wg_dir = os.path.join(self._home, 'workgroups')
+        wg_dir = os.path.join(self._home, 'management', 'workgroups')
         _make_workgroup_yaml(wg_dir, 'Configuration')
         _make_workgroup_yaml(wg_dir, 'Coding')
 
@@ -302,11 +301,11 @@ class TestManagementToggleAcceptsWorkgroupKind(unittest.IsolatedAsyncioTestCase)
         self._tmpdir = _make_tmpdir()
         self._home = os.path.join(self._tmpdir, '.teaparty')
 
-        wg_dir = os.path.join(self._home, 'workgroups')
+        wg_dir = os.path.join(self._home, 'management', 'workgroups')
         _make_workgroup_yaml(wg_dir, 'coding')
 
         data = _minimal_management_data(
-            workgroups=[{'name': 'Coding', 'config': 'workgroups/coding.yaml'}],
+            workgroups=[{'name': 'Coding', 'config': 'management/workgroups/coding.yaml'}],
             members={'projects': [], 'agents': [], 'workgroups': []},
         )
         _make_teaparty_yaml(self._home, data)

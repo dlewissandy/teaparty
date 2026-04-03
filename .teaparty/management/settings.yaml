@@ -1,0 +1,6 @@
+hooks:
+  PreToolUse:
+    - matcher: "Edit|Write"
+      hooks:
+        - type: command
+          command: ".claude/hooks/enforce-ownership.sh"

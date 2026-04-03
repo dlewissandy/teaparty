@@ -24,8 +24,8 @@ import yaml
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).parent.parent
-_AGENTS_DIR = _REPO_ROOT / '.claude/agents'
-_SKILLS_DIR = _REPO_ROOT / '.claude/skills'
+_AGENTS_DIR = _REPO_ROOT / '.teaparty/management/agents'
+_SKILLS_DIR = _REPO_ROOT / '.teaparty/management/skills'
 
 _ALL_SKILLS = [
     'create-project', 'edit-project', 'remove-project',
@@ -89,49 +89,49 @@ class TestConfigurationTeamAgentsExist(unittest.TestCase):
     """All six configuration team agent definitions must exist."""
 
     def _agent_path(self, name):
-        return _AGENTS_DIR / f'{name}.md'
+        return _AGENTS_DIR / name / 'agent.md'
 
     def test_configuration_lead_exists(self):
-        """configuration-lead.md must exist in .claude/agents/."""
+        """configuration-lead/agent.md must exist in agents dir."""
         self.assertTrue(
             self._agent_path('configuration-lead').exists(),
-            '.claude/agents/configuration-lead.md does not exist — '
+            'agents/configuration-lead/agent.md does not exist — '
             'the Configuration Lead is the team lead that routes requests',
         )
 
     def test_project_specialist_exists(self):
-        """project-specialist.md must exist in .claude/agents/."""
+        """project-specialist/agent.md must exist in agents dir."""
         self.assertTrue(
             self._agent_path('project-specialist').exists(),
-            '.claude/agents/project-specialist.md does not exist',
+            'agents/project-specialist/agent.md does not exist',
         )
 
     def test_workgroup_specialist_exists(self):
-        """workgroup-specialist.md must exist in .claude/agents/."""
+        """workgroup-specialist/agent.md must exist in agents dir."""
         self.assertTrue(
             self._agent_path('workgroup-specialist').exists(),
-            '.claude/agents/workgroup-specialist.md does not exist',
+            'agents/workgroup-specialist/agent.md does not exist',
         )
 
     def test_agent_specialist_exists(self):
-        """agent-specialist.md must exist in .claude/agents/."""
+        """agent-specialist/agent.md must exist in agents dir."""
         self.assertTrue(
             self._agent_path('agent-specialist').exists(),
-            '.claude/agents/agent-specialist.md does not exist',
+            'agents/agent-specialist/agent.md does not exist',
         )
 
     def test_skills_specialist_exists(self):
-        """skills-specialist.md must exist in .claude/agents/."""
+        """skills-specialist/agent.md must exist in agents dir."""
         self.assertTrue(
             self._agent_path('skills-specialist').exists(),
-            '.claude/agents/skills-specialist.md does not exist',
+            'agents/skills-specialist/agent.md does not exist',
         )
 
     def test_systems_engineer_exists(self):
-        """systems-engineer.md must exist in .claude/agents/."""
+        """systems-engineer/agent.md must exist in agents dir."""
         self.assertTrue(
             self._agent_path('systems-engineer').exists(),
-            '.claude/agents/systems-engineer.md does not exist',
+            'agents/systems-engineer/agent.md does not exist',
         )
 
 
@@ -139,7 +139,7 @@ class TestAgentModels(unittest.TestCase):
     """Each agent must use the model specified in the design."""
 
     def _make_frontmatter(self, name):
-        return _parse_frontmatter(_AGENTS_DIR / f'{name}.md')
+        return _parse_frontmatter(_AGENTS_DIR / name / 'agent.md')
 
     def test_configuration_lead_uses_sonnet(self):
         """Configuration Lead must use sonnet — routes requests, no heavy lifting."""
@@ -194,7 +194,7 @@ class TestSpecialistSkillAllowlists(unittest.TestCase):
     """Each specialist's skills: field must declare exactly the right CRUD skills."""
 
     def _make_frontmatter(self, name):
-        return _parse_frontmatter(_AGENTS_DIR / f'{name}.md')
+        return _parse_frontmatter(_AGENTS_DIR / name / 'agent.md')
 
     def test_project_specialist_skills_allowlist(self):
         """project-specialist.md must declare create-project, edit-project, remove-project."""
@@ -255,7 +255,7 @@ class TestWriteCapableSpecialistTools(unittest.TestCase):
     """Specialists that create/modify config files must have Write and Edit tools."""
 
     def _make_frontmatter(self, name):
-        return _parse_frontmatter(_AGENTS_DIR / f'{name}.md')
+        return _parse_frontmatter(_AGENTS_DIR / name / 'agent.md')
 
     def _tools_list(self, name):
         fm = self._make_frontmatter(name)
@@ -299,7 +299,7 @@ class TestConfigurationLeadTools(unittest.TestCase):
     """Configuration Lead must have Send for routing (no Write — it doesn't create)."""
 
     def setUp(self):
-        self.fm = _parse_frontmatter(_AGENTS_DIR / 'configuration-lead.md')
+        self.fm = _parse_frontmatter(_AGENTS_DIR / 'configuration-lead' / 'agent.md')
 
     def _tools_list(self):
         raw = self.fm.get('tools', '')
@@ -549,7 +549,7 @@ class TestOfficeManagerRouting(unittest.TestCase):
     """
 
     def setUp(self):
-        self.content = (_AGENTS_DIR / 'office-manager.md').read_text()
+        self.content = (_AGENTS_DIR / 'office-manager' / 'agent.md').read_text()
 
     def test_om_mentions_configuration_lead_routing(self):
         """OM must explicitly route multi-artifact requests to Configuration Lead."""

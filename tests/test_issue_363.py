@@ -18,10 +18,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from orchestrator.config_reader import load_management_team, load_project_team
 
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_AGENTS_DIR = os.path.join(_REPO_ROOT, '.claude', 'agents')
+_AGENTS_DIR = os.path.join(_REPO_ROOT, '.teaparty', 'management', 'agents')
 _TEAPARTY_HOME = os.path.join(_REPO_ROOT, '.teaparty')
-_PROJECT_YAML = os.path.join(_REPO_ROOT, '.teaparty.local', 'project.yaml')
-_TEAPARTY_LEAD_AGENT = os.path.join(_AGENTS_DIR, 'teaparty-lead.md')
+_PROJECT_YAML = os.path.join(_REPO_ROOT, '.teaparty', 'project', 'project.yaml')
+_TEAPARTY_LEAD_AGENT = os.path.join(_AGENTS_DIR, 'teaparty-lead', 'agent.md')
 
 
 def _parse_frontmatter(path: str) -> dict:
@@ -154,11 +154,12 @@ class TestOMDispatchRoutingToProjectLead(unittest.TestCase):
         self.mgmt = load_management_team(teaparty_home=_TEAPARTY_HOME)
         self.project = load_project_team(_REPO_ROOT)
 
-    def test_teaparty_in_om_members_projects(self):
-        """TeaParty must be in the OM's dispatch roster so it can route work to it."""
+    def test_teaparty_in_registered_projects(self):
+        """TeaParty must be a registered project so OM can route work to it."""
+        project_names = [p['name'] for p in self.mgmt.projects]
         self.assertIn(
-            'TeaParty', self.mgmt.members_projects,
-            "TeaParty must be in teaparty.yaml members.projects for OM dispatch",
+            'TeaParty', project_names,
+            "TeaParty must be in teaparty.yaml projects: for OM dispatch",
         )
 
     def test_project_lead_is_set_on_project_team(self):
@@ -169,13 +170,13 @@ class TestOMDispatchRoutingToProjectLead(unittest.TestCase):
         )
 
     def test_project_lead_agent_file_exists_for_om_dispatch_targets(self):
-        """For every project the OM dispatches to, the project lead agent file must exist.
+        """For every registered project, the project lead agent file must exist.
 
         The OM routes work to projects. Each project has a lead. That lead must
         be a real agent (file on disk) — otherwise the dispatch chain is broken.
         """
         registered = {p['name']: p for p in self.mgmt.projects}
-        for project_name in self.mgmt.members_projects:
+        for project_name in registered:
             self.assertIn(project_name, registered,
                 f"OM dispatch target '{project_name}' is not in registered projects")
             project_entry = registered[project_name]
@@ -184,9 +185,9 @@ class TestOMDispatchRoutingToProjectLead(unittest.TestCase):
             if config_rel:
                 config_abs = os.path.join(project_path, config_rel)
                 if not os.path.exists(config_abs):
-                    config_abs = os.path.join(project_path, '.teaparty.local', 'project.yaml')
+                    config_abs = os.path.join(project_path, '.teaparty', 'project', 'project.yaml')
             else:
-                config_abs = os.path.join(project_path, '.teaparty.local', 'project.yaml')
+                config_abs = os.path.join(project_path, '.teaparty', 'project', 'project.yaml')
             if not os.path.exists(config_abs):
                 continue  # skip projects not on this machine
             project_data = _load_yaml(config_abs)
@@ -196,16 +197,16 @@ class TestOMDispatchRoutingToProjectLead(unittest.TestCase):
                 lead, 'office-manager',
                 f"Project '{project_name}' lead must not be 'office-manager'",
             )
-            agent_file = os.path.join(_AGENTS_DIR, f'{lead}.md')
+            agent_file = os.path.join(_AGENTS_DIR, lead, 'agent.md')
             self.assertTrue(
                 os.path.isfile(agent_file),
                 f"Project '{project_name}' lead agent '{lead}' must have a file at {agent_file}",
             )
 
     def test_project_lead_name_matches_agent_file(self):
-        """The lead name in project.yaml must correspond to an agent file in .claude/agents/."""
+        """The lead name in project.yaml must correspond to an agent dir in agents/."""
         lead = self.project.lead
-        agent_file = os.path.join(_AGENTS_DIR, f'{lead}.md')
+        agent_file = os.path.join(_AGENTS_DIR, lead, 'agent.md')
         self.assertTrue(
             os.path.isfile(agent_file),
             f"Project lead '{lead}' must have an agent file at {agent_file}",

@@ -33,11 +33,11 @@ def om_bus_path(teaparty_home: str) -> str:
     """Return the canonical path to the office manager's message database.
 
     The OM database is persistent and not session-scoped. It lives at
-    {teaparty_home}/om/om-messages.db, separate from per-session messages.db
+    {teaparty_home}/management/agents/office-manager/om-messages.db, separate from per-session messages.db
     files. Both the orchestrator and the bridge use this function to locate
     the same database. Issue #290.
     """
-    return os.path.join(teaparty_home, 'om', 'om-messages.db')
+    return os.path.join(teaparty_home, 'management', 'agents', 'office-manager', 'om-messages.db')
 
 
 # ── Memory chunk types ──────────────────────────────────────────────────────
@@ -463,7 +463,7 @@ class OfficeManagerSession:
 
     def __init__(self, teaparty_home: str, user_id: str):
         self.teaparty_home = teaparty_home
-        self._infra_dir = os.path.join(teaparty_home, 'om')
+        self._infra_dir = os.path.join(teaparty_home, 'management', 'agents', 'office-manager')
         self.user_id = user_id
         self.conversation_id = make_conversation_id(
             ConversationType.OFFICE_MANAGER, user_id,
@@ -666,7 +666,7 @@ def read_om_session_title(teaparty_home: str, qualifier: str) -> str | None:
     Returns None if no title is stored or the file doesn't exist.
     """
     safe_id = qualifier.replace('/', '-').replace(':', '-').replace(' ', '-')
-    state_path = os.path.join(teaparty_home, 'om', f'.om-session-{safe_id}.json')
+    state_path = os.path.join(teaparty_home, 'management', 'agents', 'office-manager', f'.om-session-{safe_id}.json')
     try:
         with open(state_path) as f:
             state = json.load(f)

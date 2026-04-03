@@ -452,9 +452,9 @@ class TestSkillComposition(unittest.TestCase):
 
         # Project version of 'audit' skill (should win)
         project_dir = os.path.join(self.tmpdir, 'my-project')
-        os.makedirs(os.path.join(project_dir, '.claude', 'skills'))
+        os.makedirs(os.path.join(project_dir, '.teaparty', 'project', 'skills'))
         project_skill = self._make_skill(
-            os.path.join(project_dir, '.claude', 'skills'), 'audit',
+            os.path.join(project_dir, '.teaparty', 'project', 'skills'), 'audit',
         )
 
         worktree = os.path.join(self.tmpdir, 'agent-wt')

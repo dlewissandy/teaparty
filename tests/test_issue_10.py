@@ -358,16 +358,16 @@ class TestSkillsOverride(unittest.TestCase):
         self.assertEqual(resolved['developer']['allowedTools'], ['Read', 'Write', 'Grep'])
 
 
-# ── 11. Project .claude/CLAUDE.md (finding #1) ──────────────────────────────
+# ── 11. Project project.md (finding #1) ──────────────────────────────────
 
 class TestProjectClaudeMd(unittest.TestCase):
-    """PhaseConfig loads .claude/CLAUDE.md from project_dir."""
+    """PhaseConfig loads .teaparty/project/project.md from project_dir."""
 
     def test_claude_md_loaded(self):
-        """CLAUDE.md content is available via project_claude_md."""
+        """project.md content is available via project_claude_md."""
         d = tempfile.mkdtemp()
-        os.makedirs(os.path.join(d, '.claude'))
-        with open(os.path.join(d, '.claude', 'CLAUDE.md'), 'w') as f:
+        os.makedirs(os.path.join(d, '.teaparty', 'project'))
+        with open(os.path.join(d, '.teaparty', 'project', 'project.md'), 'w') as f:
             f.write('# Project Rules\nUse LaTeX for all docs.')
         with open(os.path.join(d, 'project.json'), 'w') as f:
             json.dump({'teams': {'coding': {}}}, f)

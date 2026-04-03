@@ -36,21 +36,19 @@ from orchestrator.events import EventType
 
 def _make_teaparty_home(teaparty_yaml: str) -> str:
     home = tempfile.mkdtemp()
-    tp_dir = os.path.join(home, '.teaparty')
-    os.makedirs(tp_dir)
-    with open(os.path.join(tp_dir, 'teaparty.yaml'), 'w') as f:
+    mgmt_dir = os.path.join(home, '.teaparty', 'management')
+    os.makedirs(mgmt_dir)
+    with open(os.path.join(mgmt_dir, 'teaparty.yaml'), 'w') as f:
         f.write(teaparty_yaml)
     return home
 
 
 def _make_project_dir(project_yaml: str) -> str:
     proj = tempfile.mkdtemp()
-    tp_local = os.path.join(proj, '.teaparty.local')
-    os.makedirs(tp_local)
+    tp_project = os.path.join(proj, '.teaparty', 'project')
+    os.makedirs(tp_project)
     os.makedirs(os.path.join(proj, '.git'))
-    os.makedirs(os.path.join(proj, '.claude'))
-    os.makedirs(os.path.join(proj, '.teaparty'))
-    with open(os.path.join(tp_local, 'project.yaml'), 'w') as f:
+    with open(os.path.join(tp_project, 'project.yaml'), 'w') as f:
         f.write(project_yaml)
     return proj
 
@@ -729,9 +727,9 @@ class TestProductionWiring(unittest.TestCase):
         from orchestrator.session import _resolve_cost_tracker_impl
 
         tmpdir = tempfile.mkdtemp()
-        teaparty_local = os.path.join(tmpdir, '.teaparty.local')
-        os.makedirs(teaparty_local)
-        with open(os.path.join(teaparty_local, 'project.yaml'), 'w') as f:
+        teaparty_project = os.path.join(tmpdir, '.teaparty', 'project')
+        os.makedirs(teaparty_project)
+        with open(os.path.join(teaparty_project, 'project.yaml'), 'w') as f:
             yaml.dump({
                 'name': 'test',
                 'workgroups': [],

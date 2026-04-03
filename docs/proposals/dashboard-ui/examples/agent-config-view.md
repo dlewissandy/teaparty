@@ -5,7 +5,7 @@ Clicking an agent on any dashboard opens a modal showing the full configuration 
 ```
 Agent:  Office Manager
 Role:   Team Lead
-File:   .claude/agents/office-manager.md
+File:   .teaparty/management/agents/office-manager/agent.md
 Status: active
 
 ── Model ──────────────────────────

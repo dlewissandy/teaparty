@@ -52,8 +52,9 @@ def _read_workgroup_yaml(path: str) -> dict:
 
 
 def _make_agent_file(agents_dir: str, name: str, frontmatter: dict | None = None, body: str = '') -> str:
-    os.makedirs(agents_dir, exist_ok=True)
-    path = os.path.join(agents_dir, f'{name}.md')
+    agent_dir = os.path.join(agents_dir, name)
+    os.makedirs(agent_dir, exist_ok=True)
+    path = os.path.join(agent_dir, 'agent.md')
     if frontmatter is None:
         frontmatter = {'name': name, 'description': f'The {name} agent', 'model': 'opus', 'maxTurns': 20}
     fm_str = yaml.dump(frontmatter, default_flow_style=False, sort_keys=False).rstrip()
@@ -70,8 +71,8 @@ def _make_skill_dir(skills_dir: str, name: str) -> None:
         f.write(f'# {name}\n')
 
 
-def _make_settings_json(claude_dir: str, hooks: list[dict]) -> None:
-    os.makedirs(claude_dir, exist_ok=True)
+def _make_settings_yaml(settings_dir: str, hooks: list[dict]) -> None:
+    os.makedirs(settings_dir, exist_ok=True)
     settings: dict = {'hooks': {}}
     for h in hooks:
         event = h['event']
@@ -86,8 +87,8 @@ def _make_settings_json(claude_dir: str, hooks: list[dict]) -> None:
             group = {'matcher': matcher, 'hooks': []}
             settings['hooks'][event].append(group)
         group['hooks'].append({'type': h.get('type', 'command'), 'command': h.get('command', '')})
-    with open(os.path.join(claude_dir, 'settings.json'), 'w') as f:
-        json.dump(settings, f)
+    with open(os.path.join(settings_dir, 'settings.yaml'), 'w') as f:
+        yaml.dump(settings, f, default_flow_style=False, sort_keys=False)
 
 
 def _make_bridge(teaparty_home: str, tmp: str):
@@ -347,16 +348,17 @@ class TestWorkgroupDetailReturnsFullData(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
         self.teaparty_home = os.path.join(self.tmp, '.teaparty')
-        wg_dir = os.path.join(self.teaparty_home, 'workgroups')
+        mgmt_dir = os.path.join(self.teaparty_home, 'management')
+        wg_dir = os.path.join(mgmt_dir, 'workgroups')
         os.makedirs(wg_dir, exist_ok=True)
         self.wg_path = os.path.join(wg_dir, 'coding.yaml')
         _make_workgroup_yaml(self.wg_path, agents=['auditor'], hooks=['PreToolUse'])
         # Create agent files in org catalog
-        org_agents_dir = os.path.join(self.tmp, '.claude', 'agents')
+        org_agents_dir = os.path.join(self.teaparty_home, 'management', 'agents')
         _make_agent_file(org_agents_dir, 'auditor')
         _make_agent_file(org_agents_dir, 'researcher')
         # Create org hooks
-        _make_settings_json(os.path.join(self.tmp, '.claude'), [
+        _make_settings_yaml(os.path.join(self.teaparty_home, 'management'), [
             {'event': 'PreToolUse', 'matcher': '', 'command': 'echo pre'},
             {'event': 'PostToolUse', 'matcher': '', 'command': 'echo post'},
         ])
@@ -366,7 +368,7 @@ class TestWorkgroupDetailReturnsFullData(unittest.TestCase):
             'workgroups': [{'name': 'coding', 'config': 'workgroups/coding.yaml'}],
             'members': {'agents': []},
         }
-        with open(os.path.join(self.teaparty_home, 'teaparty.yaml'), 'w') as f:
+        with open(os.path.join(mgmt_dir, 'teaparty.yaml'), 'w') as f:
             yaml.dump(mgmt_data, f, default_flow_style=False, sort_keys=False)
 
     def tearDown(self):
@@ -433,7 +435,8 @@ class TestWorkgroupDetailIncludesHumansAndArtifacts(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
         self.teaparty_home = os.path.join(self.tmp, '.teaparty')
-        wg_dir = os.path.join(self.teaparty_home, 'workgroups')
+        mgmt_dir = os.path.join(self.teaparty_home, 'management')
+        wg_dir = os.path.join(mgmt_dir, 'workgroups')
         os.makedirs(wg_dir, exist_ok=True)
         self.wg_path = os.path.join(wg_dir, 'coding.yaml')
         _make_workgroup_yaml(
@@ -442,14 +445,14 @@ class TestWorkgroupDetailIncludesHumansAndArtifacts(unittest.TestCase):
             humans={'decider': 'darrell', 'advisors': ['alice']},
             artifacts=[{'path': 'NORMS.md'}, {'path': 'docs/', 'label': 'Docs'}],
         )
-        org_agents_dir = os.path.join(self.tmp, '.claude', 'agents')
+        org_agents_dir = os.path.join(self.teaparty_home, 'management', 'agents')
         _make_agent_file(org_agents_dir, 'auditor')
         mgmt_data = {
             'name': 'Management',
             'workgroups': [{'name': 'coding', 'config': 'workgroups/coding.yaml'}],
             'members': {'agents': []},
         }
-        with open(os.path.join(self.teaparty_home, 'teaparty.yaml'), 'w') as f:
+        with open(os.path.join(mgmt_dir, 'teaparty.yaml'), 'w') as f:
             yaml.dump(mgmt_data, f, default_flow_style=False, sort_keys=False)
 
     def tearDown(self):
@@ -508,7 +511,8 @@ class TestWorkgroupPatchWritesMembership(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
         self.teaparty_home = os.path.join(self.tmp, '.teaparty')
-        wg_dir = os.path.join(self.teaparty_home, 'workgroups')
+        mgmt_dir = os.path.join(self.teaparty_home, 'management')
+        wg_dir = os.path.join(mgmt_dir, 'workgroups')
         os.makedirs(wg_dir, exist_ok=True)
         self.wg_path = os.path.join(wg_dir, 'coding.yaml')
         _make_workgroup_yaml(self.wg_path, agents=['auditor'], hooks=['PreToolUse'])
@@ -588,7 +592,7 @@ class TestAgentDetailEndpoint(unittest.TestCase):
         self.teaparty_home = os.path.join(self.tmp, '.teaparty')
         os.makedirs(self.teaparty_home, exist_ok=True)
         # Create org-level agent
-        org_agents_dir = os.path.join(self.tmp, '.claude', 'agents')
+        org_agents_dir = os.path.join(self.teaparty_home, 'management', 'agents')
         _make_agent_file(
             org_agents_dir, 'auditor',
             frontmatter={'name': 'auditor', 'description': 'The auditor', 'model': 'opus', 'maxTurns': 20},
@@ -630,7 +634,7 @@ class TestAgentDetailEndpoint(unittest.TestCase):
     def test_returns_project_level_agent_first(self):
         """GET /api/agents/{name}?project=x returns project-level agent when it exists."""
         self.project_dir = os.path.join(self.tmp, 'myproject')
-        proj_agents_dir = os.path.join(self.project_dir, '.claude', 'agents')
+        proj_agents_dir = os.path.join(self.project_dir, '.teaparty', 'project', 'agents')
         _make_agent_file(
             proj_agents_dir, 'auditor',
             frontmatter={'name': 'auditor', 'description': 'Project auditor', 'model': 'haiku'},
@@ -653,7 +657,7 @@ class TestAgentDetailEndpoint(unittest.TestCase):
     def test_falls_back_to_org_agent_when_no_project_level(self):
         """GET /api/agents/{name}?project=x returns org agent if not overridden at project."""
         self.project_dir = os.path.join(self.tmp, 'myproject')
-        os.makedirs(os.path.join(self.project_dir, '.claude', 'agents'), exist_ok=True)
+        os.makedirs(os.path.join(self.project_dir, '.teaparty', 'project', 'agents'), exist_ok=True)
         bridge = _make_bridge(self.teaparty_home, self.tmp)
         bridge._project_path_cache = {'myproject': self.project_dir}
 
@@ -679,7 +683,7 @@ class TestAgentPatchEndpoint(unittest.TestCase):
         self.tmp = tempfile.mkdtemp()
         self.teaparty_home = os.path.join(self.tmp, '.teaparty')
         os.makedirs(self.teaparty_home, exist_ok=True)
-        org_agents_dir = os.path.join(self.tmp, '.claude', 'agents')
+        org_agents_dir = os.path.join(self.teaparty_home, 'management', 'agents')
         self.agent_path = _make_agent_file(
             org_agents_dir, 'auditor',
             frontmatter={'name': 'auditor', 'model': 'opus', 'maxTurns': 20},
@@ -754,18 +758,18 @@ class TestCatalogEndpoint(unittest.TestCase):
         os.makedirs(self.project_dir, exist_ok=True)
 
         # Org-level agents + skills + hooks
-        org_claude = os.path.join(self.tmp, '.claude')
-        _make_agent_file(os.path.join(org_claude, 'agents'), 'auditor')
-        _make_agent_file(os.path.join(org_claude, 'agents'), 'researcher')
-        _make_skill_dir(os.path.join(org_claude, 'skills'), 'commit')
-        _make_settings_json(org_claude, [
+        org_mgmt = os.path.join(self.teaparty_home, 'management')
+        _make_agent_file(os.path.join(org_mgmt, 'agents'), 'auditor')
+        _make_agent_file(os.path.join(org_mgmt, 'agents'), 'researcher')
+        _make_skill_dir(os.path.join(org_mgmt, 'skills'), 'commit')
+        _make_settings_yaml(org_mgmt, [
             {'event': 'PostToolUse', 'matcher': '', 'command': 'echo org'},
         ])
 
         # Project-level agent + skill
-        proj_claude = os.path.join(self.project_dir, '.claude')
-        _make_agent_file(os.path.join(proj_claude, 'agents'), 'domain-expert')
-        _make_skill_dir(os.path.join(proj_claude, 'skills'), 'deploy')
+        proj_tp = os.path.join(self.project_dir, '.teaparty', 'project')
+        _make_agent_file(os.path.join(proj_tp, 'agents'), 'domain-expert')
+        _make_skill_dir(os.path.join(proj_tp, 'skills'), 'deploy')
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)

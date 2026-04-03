@@ -652,8 +652,8 @@ class TestProxyMemoryPathAlignment(unittest.TestCase):
 
     def test_review_memory_path_matches_gate_memory_path(self):
         """proxy_memory_path(teaparty_home) must equal resolve_memory_db_path when
-        proxy_model_path is derived from {poc_root}/.teaparty/proxy/ (as session.py
-        sets it).  This verifies the single-database guarantee — corrections written
+        proxy_model_path is derived from {poc_root}/.teaparty/management/agents/proxy-review/
+        (as session.py sets it).  This verifies the single-database guarantee — corrections written
         during a proxy review conversation land in the same DB that consult_proxy
         reads at approval gates."""
         from orchestrator.proxy_review import proxy_memory_path
@@ -662,7 +662,7 @@ class TestProxyMemoryPathAlignment(unittest.TestCase):
         teaparty_home = '/tmp/test-teaparty-home'
         # Derive proxy_model_path the same way session.py does
         poc_root = os.path.dirname(teaparty_home)  # analogous: teaparty_home = poc_root/.teaparty
-        proxy_model_path = os.path.join(teaparty_home, 'proxy', '.proxy-confidence.json')
+        proxy_model_path = os.path.join(teaparty_home, 'management', 'agents', 'proxy-review', '.proxy-confidence.json')
 
         review_db = proxy_memory_path(teaparty_home)
         gate_db = resolve_memory_db_path(proxy_model_path)
@@ -675,15 +675,15 @@ class TestProxyMemoryPathAlignment(unittest.TestCase):
         )
 
     def test_session_proxy_model_path_is_under_teaparty_proxy_dir(self):
-        """session.py must derive proxy_model_path from {poc_root}/.teaparty/proxy/
-        so that resolve_memory_db_path returns {teaparty_home}/proxy/.proxy-memory.db."""
+        """session.py must derive proxy_model_path from the proxy-review agent dir
+        so that resolve_memory_db_path returns the co-located .proxy-memory.db."""
         import inspect
         from orchestrator.session import Session
         source = inspect.getsource(Session.run)
         self.assertIn(
             '.teaparty',
             source,
-            'Session.run must derive proxy_model_path from {poc_root}/.teaparty/proxy/ — '
+            'Session.run must derive proxy_model_path from .teaparty/ — '
             'found no .teaparty reference, so gate memory is not aligned with review session memory',
         )
         self.assertNotIn(

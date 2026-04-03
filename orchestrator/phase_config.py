@@ -139,10 +139,10 @@ class PhaseConfig:
             self._project_config = json.load(f)
 
     def _load_project_claude_md(self) -> None:
-        """Load .claude/CLAUDE.md from project_dir if it exists."""
+        """Load project rules from .teaparty/project/project.md if it exists."""
         if not self.project_dir:
             return
-        path = os.path.join(self.project_dir, '.claude', 'CLAUDE.md')
+        path = os.path.join(self.project_dir, '.teaparty', 'project', 'project.md')
         try:
             with open(path) as f:
                 self._project_claude_md = f.read()

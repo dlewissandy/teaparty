@@ -70,6 +70,12 @@ _MERGE_EXCLUDE = frozenset({
 
 def _is_excluded(relpath: str) -> bool:
     """Return True if relpath should be excluded from merge commits."""
+    # The .claude/ directory in worktrees is a composed artifact written at
+    # dispatch time (from .teaparty/ sources).  It must never merge back —
+    # the trunk's .claude/ is the interactive-session config, not the
+    # dispatch-composed version.
+    if relpath == '.claude' or relpath.startswith('.claude/') or relpath.startswith('.claude\\'):
+        return True
     basename = os.path.basename(relpath)
     if basename in _MERGE_EXCLUDE:
         return True
@@ -224,6 +230,10 @@ async def _add_tracked_and_new(worktree: str) -> None:
     """
     # Stage all tracked files that have been modified
     await _git_try(worktree, 'add', '-u')
+
+    # Unstage .claude/ — it's a composed artifact written at dispatch time
+    # from .teaparty/ sources.  Must not merge back into the trunk.
+    await _git_try(worktree, 'reset', 'HEAD', '--', '.claude/')
 
     # Find untracked files and add only non-excluded ones
     output = await _git_output(worktree, 'ls-files', '--others', '--exclude-standard')

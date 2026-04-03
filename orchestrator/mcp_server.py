@@ -498,28 +498,40 @@ def _teaparty_home(override: str) -> str:
     return override if override else os.path.join(os.getcwd(), '.teaparty')
 
 
-def _claude_dir(project_root: str) -> str:
-    return os.path.join(project_root, '.claude')
+def _mgmt_agents_dir(teaparty_home: str) -> str:
+    return os.path.join(teaparty_home, 'management', 'agents')
 
 
-def _agents_dir(project_root: str) -> str:
-    return os.path.join(_claude_dir(project_root), 'agents')
+def _mgmt_skills_dir(teaparty_home: str) -> str:
+    return os.path.join(teaparty_home, 'management', 'skills')
 
 
-def _skills_dir(project_root: str) -> str:
-    return os.path.join(_claude_dir(project_root), 'skills')
+def _mgmt_settings_yaml(teaparty_home: str) -> str:
+    return os.path.join(teaparty_home, 'management', 'settings.yaml')
 
 
-def _settings_json(project_root: str) -> str:
-    return os.path.join(_claude_dir(project_root), 'settings.json')
+def _mgmt_workgroups_dir(teaparty_home: str) -> str:
+    return os.path.join(teaparty_home, 'management', 'workgroups')
 
 
-def _workgroups_dir(teaparty_home: str) -> str:
-    return os.path.join(teaparty_home, 'workgroups')
+def _proj_agents_dir(project_root: str) -> str:
+    return os.path.join(project_root, '.teaparty', 'project', 'agents')
+
+
+def _proj_skills_dir(project_root: str) -> str:
+    return os.path.join(project_root, '.teaparty', 'project', 'skills')
+
+
+def _proj_settings_yaml(project_root: str) -> str:
+    return os.path.join(project_root, '.teaparty', 'project', 'settings.yaml')
+
+
+def _proj_workgroups_dir(project_root: str) -> str:
+    return os.path.join(project_root, '.teaparty', 'project', 'workgroups')
 
 
 def _parse_agent_file(path: str) -> tuple[dict, str]:
-    """Parse a .claude/agents/{name}.md file.
+    """Parse an agents/{name}/agent.md file.
 
     Returns (frontmatter_dict, body_text).
     """
@@ -532,7 +544,7 @@ def _parse_agent_file(path: str) -> tuple[dict, str]:
 
 
 def _write_agent_file(path: str, fm: dict, body: str) -> None:
-    """Write a .claude/agents/{name}.md file."""
+    """Write an agents/{name}/agent.md file."""
     # Render frontmatter preserving field order
     fm_str = yaml.dump(fm, default_flow_style=False, sort_keys=False).rstrip()
     content = f'---\n{fm_str}\n---\n{body}'
@@ -560,27 +572,25 @@ def _write_skill_file(path: str, fm: dict, body: str) -> None:
         f.write(content)
 
 
-def _load_settings(project_root: str) -> dict:
-    """Load .claude/settings.json, creating it if missing."""
-    path = _settings_json(project_root)
-    if os.path.exists(path):
-        with open(path) as f:
+def _load_settings(settings_path: str) -> dict:
+    """Load a settings.yaml file, returning default if missing."""
+    if os.path.exists(settings_path):
+        with open(settings_path) as f:
             try:
-                return json.load(f)
-            except json.JSONDecodeError:
+                return yaml.safe_load(f) or {'hooks': {}}
+            except yaml.YAMLError:
                 return {'hooks': {}}
     return {'hooks': {}}
 
 
-def _save_settings(project_root: str, data: dict) -> None:
-    path = _settings_json(project_root)
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, 'w') as f:
-        json.dump(data, f, indent=2)
+def _save_settings(settings_path: str, data: dict) -> None:
+    os.makedirs(os.path.dirname(settings_path), exist_ok=True)
+    with open(settings_path, 'w') as f:
+        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 
 
 def _load_teaparty_yaml(teaparty_home: str) -> dict:
-    path = os.path.join(teaparty_home, 'teaparty.yaml')
+    path = os.path.join(teaparty_home, 'management', 'teaparty.yaml')
     if not os.path.exists(path):
         raise FileNotFoundError(f'teaparty.yaml not found: {path}')
     with open(path) as f:
@@ -588,7 +598,8 @@ def _load_teaparty_yaml(teaparty_home: str) -> dict:
 
 
 def _save_teaparty_yaml(teaparty_home: str, data: dict) -> None:
-    path = os.path.join(teaparty_home, 'teaparty.yaml')
+    path = os.path.join(teaparty_home, 'management', 'teaparty.yaml')
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, 'w') as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 
@@ -609,8 +620,8 @@ def add_project_handler(
 ) -> str:
     """Add an existing directory as a TeaParty project.
 
-    Registers it in teaparty.yaml and creates .teaparty.local/project.yaml
-    with the provided fields.  Returns JSON result.
+    Registers it in management/teaparty.yaml and creates
+    .teaparty/project/project.yaml with the provided fields.  Returns JSON result.
     """
     if not name or not name.strip():
         return _err('AddProject requires a non-empty name')
@@ -646,7 +657,7 @@ def create_project_handler(
     skills: list | None = None,
     teaparty_home: str = '',
 ) -> str:
-    """Create a new project directory with full scaffolding (git init, .claude/, etc.)."""
+    """Create a new project directory with full scaffolding (git init, .teaparty/, etc.)."""
     if not name or not name.strip():
         return _err('CreateProject requires a non-empty name')
     if not path or not path.strip():
@@ -694,7 +705,7 @@ def scaffold_project_yaml_handler(
     workgroups: list | None = None,
     skills: list | None = None,
 ) -> str:
-    """Create or overwrite .teaparty.local/project.yaml for an existing project.
+    """Create or overwrite .teaparty/project/project.yaml for an existing project.
 
     Unlike _scaffold_project_yaml, this always writes (retroactive fix for
     projects with missing or empty fields).
@@ -704,7 +715,7 @@ def scaffold_project_yaml_handler(
     if not name or not name.strip():
         return _err('ScaffoldProjectYaml requires a non-empty name')
 
-    tp_dir = os.path.join(project_path, '.teaparty.local')
+    tp_dir = os.path.join(project_path, '.teaparty', 'project')
     os.makedirs(tp_dir, exist_ok=True)
     data = {
         'name': name,
@@ -734,17 +745,22 @@ def _find_project_path(name: str, teaparty_home: str) -> str | None:
 
 
 def _load_project_yaml(project_dir: str) -> dict:
-    """Load .teaparty.local/project.yaml, returning an empty dict if missing."""
-    path = os.path.join(project_dir, '.teaparty.local', 'project.yaml')
+    """Load .teaparty/project/project.yaml, returning an empty dict if missing."""
+    path = os.path.join(project_dir, '.teaparty', 'project', 'project.yaml')
     if not os.path.exists(path):
+        # Legacy fallback
+        legacy = os.path.join(project_dir, '.teaparty.local', 'project.yaml')
+        if os.path.exists(legacy):
+            with open(legacy) as f:
+                return yaml.safe_load(f) or {}
         return {}
     with open(path) as f:
         return yaml.safe_load(f) or {}
 
 
 def _save_project_yaml(project_dir: str, data: dict) -> None:
-    """Write data to .teaparty.local/project.yaml."""
-    tp_dir = os.path.join(project_dir, '.teaparty.local')
+    """Write data to .teaparty/project/project.yaml."""
+    tp_dir = os.path.join(project_dir, '.teaparty', 'project')
     os.makedirs(tp_dir, exist_ok=True)
     path = os.path.join(tp_dir, 'project.yaml')
     with open(path, 'w') as f:
@@ -834,7 +850,7 @@ def create_agent_handler(
     max_turns: int = 20,
     project_root: str = '',
 ) -> str:
-    """Create .claude/agents/{name}.md with validated frontmatter."""
+    """Create agents/{name}/agent.md with validated frontmatter."""
     if not name or not name.strip():
         return _err('CreateAgent requires a non-empty name')
     if not description or not description.strip():
@@ -843,7 +859,8 @@ def create_agent_handler(
         return _err('CreateAgent requires a non-empty model')
 
     root = _project_root(project_root)
-    path = os.path.join(_agents_dir(root), f'{name}.md')
+    agents_dir = _mgmt_agents_dir(os.path.join(root, '.teaparty'))
+    path = os.path.join(agents_dir, name, 'agent.md')
 
     fm: dict[str, Any] = {
         'name': name,
@@ -873,7 +890,8 @@ def edit_agent_handler(
         return _err('EditAgent requires a non-empty name')
 
     root = _project_root(project_root)
-    path = os.path.join(_agents_dir(root), f'{name}.md')
+    agents_dir = _mgmt_agents_dir(os.path.join(root, '.teaparty'))
+    path = os.path.join(agents_dir, name, 'agent.md')
     if not os.path.exists(path):
         return _err(f"Agent '{name}' not found at {path}")
 
@@ -895,16 +913,17 @@ def edit_agent_handler(
 
 
 def remove_agent_handler(name: str, project_root: str = '') -> str:
-    """Delete .claude/agents/{name}.md."""
+    """Delete agents/{name}/ directory."""
     if not name or not name.strip():
         return _err('RemoveAgent requires a non-empty name')
 
     root = _project_root(project_root)
-    path = os.path.join(_agents_dir(root), f'{name}.md')
-    if not os.path.exists(path):
-        return _err(f"Agent '{name}' not found at {path}")
+    agents_dir = _mgmt_agents_dir(os.path.join(root, '.teaparty'))
+    agent_dir = os.path.join(agents_dir, name)
+    if not os.path.isdir(agent_dir):
+        return _err(f"Agent '{name}' not found at {agent_dir}")
 
-    os.remove(path)
+    shutil.rmtree(agent_dir)
     return _ok(f"Agent '{name}' removed")
 
 
@@ -919,14 +938,15 @@ def create_skill_handler(
     user_invocable: bool = False,
     project_root: str = '',
 ) -> str:
-    """Create .claude/skills/{name}/SKILL.md with validated frontmatter."""
+    """Create skills/{name}/SKILL.md with validated frontmatter."""
     if not name or not name.strip():
         return _err('CreateSkill requires a non-empty name')
     if not description or not description.strip():
         return _err('CreateSkill requires a non-empty description')
 
     root = _project_root(project_root)
-    skill_dir = os.path.join(_skills_dir(root), name)
+    skills_dir = _mgmt_skills_dir(os.path.join(root, '.teaparty'))
+    skill_dir = os.path.join(skills_dir, name)
     path = os.path.join(skill_dir, 'SKILL.md')
 
     fm: dict[str, Any] = {
@@ -959,7 +979,8 @@ def edit_skill_handler(
         return _err('EditSkill requires a non-empty name')
 
     root = _project_root(project_root)
-    path = os.path.join(_skills_dir(root), name, 'SKILL.md')
+    skills_dir = _mgmt_skills_dir(os.path.join(root, '.teaparty'))
+    path = os.path.join(skills_dir, name, 'SKILL.md')
     if not os.path.exists(path):
         return _err(f"Skill '{name}' not found at {path}")
 
@@ -976,12 +997,13 @@ def edit_skill_handler(
 
 
 def remove_skill_handler(name: str, project_root: str = '') -> str:
-    """Remove .claude/skills/{name}/ directory."""
+    """Remove skills/{name}/ directory."""
     if not name or not name.strip():
         return _err('RemoveSkill requires a non-empty name')
 
     root = _project_root(project_root)
-    skill_dir = os.path.join(_skills_dir(root), name)
+    skills_dir = _mgmt_skills_dir(os.path.join(root, '.teaparty'))
+    skill_dir = os.path.join(skills_dir, name)
     if not os.path.isdir(skill_dir):
         return _err(f"Skill '{name}' not found at {skill_dir}")
 
@@ -1000,12 +1022,12 @@ def create_workgroup_handler(
     norms_yaml: str = '',
     teaparty_home: str = '',
 ) -> str:
-    """Create a workgroup YAML in .teaparty/workgroups/{name}.yaml."""
+    """Create a workgroup YAML in management/workgroups/{name}.yaml."""
     if not name or not name.strip():
         return _err('CreateWorkgroup requires a non-empty name')
 
     home = _teaparty_home(teaparty_home)
-    wg_dir = _workgroups_dir(home)
+    wg_dir = _mgmt_workgroups_dir(home)
     os.makedirs(wg_dir, exist_ok=True)
     path = os.path.join(wg_dir, f'{name}.yaml')
 
@@ -1048,7 +1070,7 @@ def edit_workgroup_handler(
 ) -> str:
     """Edit a single field in an existing workgroup YAML."""
     home = _teaparty_home(teaparty_home)
-    path = os.path.join(_workgroups_dir(home), f'{name}.yaml')
+    path = os.path.join(_mgmt_workgroups_dir(home), f'{name}.yaml')
     if not os.path.exists(path):
         return _err(f"Workgroup '{name}' not found at {path}")
 
@@ -1072,7 +1094,7 @@ def edit_workgroup_handler(
 def remove_workgroup_handler(name: str, teaparty_home: str = '') -> str:
     """Remove .teaparty/workgroups/{name}.yaml."""
     home = _teaparty_home(teaparty_home)
-    path = os.path.join(_workgroups_dir(home), f'{name}.yaml')
+    path = os.path.join(_mgmt_workgroups_dir(home), f'{name}.yaml')
     if not os.path.exists(path):
         return _err(f"Workgroup '{name}' not found at {path}")
 
@@ -1089,14 +1111,15 @@ def create_hook_handler(
     command: str,
     project_root: str = '',
 ) -> str:
-    """Add a hook entry to .claude/settings.json."""
+    """Add a hook entry to settings.yaml."""
     if not event or not event.strip():
         return _err('CreateHook requires a non-empty event')
     if not command or not command.strip():
         return _err('CreateHook requires a non-empty command')
 
     root = _project_root(project_root)
-    data = _load_settings(root)
+    settings_path = _mgmt_settings_yaml(os.path.join(root, '.teaparty'))
+    data = _load_settings(settings_path)
     hooks = data.setdefault('hooks', {})
     event_hooks = hooks.setdefault(event, [])
 
@@ -1105,7 +1128,7 @@ def create_hook_handler(
         'hooks': [{'type': handler_type, 'command': command}],
     }
     event_hooks.append(new_entry)
-    _save_settings(root, data)
+    _save_settings(settings_path, data)
     return _ok(f"Hook added: {event}/{matcher}")
 
 
@@ -1118,7 +1141,8 @@ def edit_hook_handler(
 ) -> str:
     """Edit a field in an existing hook entry."""
     root = _project_root(project_root)
-    data = _load_settings(root)
+    settings_path = _mgmt_settings_yaml(os.path.join(root, '.teaparty'))
+    data = _load_settings(settings_path)
     event_hooks = data.get('hooks', {}).get(event, [])
 
     for entry in event_hooks:
@@ -1130,16 +1154,17 @@ def edit_hook_handler(
                     h[field] = value
             else:
                 entry[field] = value
-            _save_settings(root, data)
+            _save_settings(settings_path, data)
             return _ok(f"Hook {event}/{matcher} field '{field}' updated")
 
     return _err(f"Hook not found: {event}/{matcher}")
 
 
 def remove_hook_handler(event: str, matcher: str, project_root: str = '') -> str:
-    """Remove a hook entry from .claude/settings.json."""
+    """Remove a hook entry from settings.yaml."""
     root = _project_root(project_root)
-    data = _load_settings(root)
+    settings_path = _mgmt_settings_yaml(os.path.join(root, '.teaparty'))
+    data = _load_settings(settings_path)
     event_hooks = data.get('hooks', {}).get(event, [])
 
     original_len = len(event_hooks)
@@ -1150,7 +1175,7 @@ def remove_hook_handler(event: str, matcher: str, project_root: str = '') -> str
     if len(data['hooks'][event]) == original_len:
         return _err(f"Hook not found: {event}/{matcher}")
 
-    _save_settings(root, data)
+    _save_settings(settings_path, data)
     return _ok(f"Hook removed: {event}/{matcher}")
 
 
@@ -1405,8 +1430,8 @@ def create_server() -> FastMCP:
     ) -> str:
         """Register an existing directory as a TeaParty project.
 
-        Creates a teams: entry in teaparty.yaml and scaffolds
-        .teaparty.local/project.yaml with the provided fields.
+        Creates a projects: entry in management/teaparty.yaml and scaffolds
+        .teaparty/project/project.yaml with the provided fields.
 
         Args:
             name: Project name (must be unique in teaparty.yaml).
@@ -1447,7 +1472,7 @@ def create_server() -> FastMCP:
     ) -> str:
         """Create a new project directory with full scaffolding.
 
-        Runs git init, creates .claude/, scaffolds .teaparty.local/project.yaml,
+        Runs git init, scaffolds .teaparty/project/project.yaml,
         and adds a teams: entry to teaparty.yaml.
 
         Args:
@@ -1498,7 +1523,7 @@ def create_server() -> FastMCP:
         workgroups: str = '',
         skills: str = '',
     ) -> str:
-        """Create or overwrite .teaparty.local/project.yaml for an existing project.
+        """Create or overwrite .teaparty/project/project.yaml for an existing project.
 
         Use this to retroactively fix a project.yaml that was created without
         required fields (e.g. empty lead or decider).  Always overwrites.
@@ -1536,7 +1561,7 @@ def create_server() -> FastMCP:
         max_turns: int = 20,
         project_root: str = '',
     ) -> str:
-        """Create a new agent definition at .claude/agents/{name}.md.
+        """Create a new agent definition at agents/{name}/agent.md.
 
         Args:
             name: Agent name (becomes the filename).
@@ -1576,7 +1601,7 @@ def create_server() -> FastMCP:
 
     @server.tool()
     async def RemoveAgent(name: str, project_root: str = '') -> str:
-        """Delete .claude/agents/{name}.md.
+        """Delete agents/{name}/ directory.
 
         Args:
             name: Agent name.
@@ -1594,7 +1619,7 @@ def create_server() -> FastMCP:
         user_invocable: bool = False,
         project_root: str = '',
     ) -> str:
-        """Create a new skill at .claude/skills/{name}/SKILL.md.
+        """Create a new skill at skills/{name}/SKILL.md.
 
         Args:
             name: Skill name (becomes the directory name).
@@ -1634,7 +1659,7 @@ def create_server() -> FastMCP:
 
     @server.tool()
     async def RemoveSkill(name: str, project_root: str = '') -> str:
-        """Remove .claude/skills/{name}/ directory and all its contents.
+        """Remove skills/{name}/ directory and all its contents.
 
         Args:
             name: Skill name.
@@ -1706,7 +1731,7 @@ def create_server() -> FastMCP:
         command: str,
         project_root: str = '',
     ) -> str:
-        """Add a hook entry to .claude/settings.json.
+        """Add a hook entry to settings.yaml.
 
         Args:
             event: Lifecycle event (PreToolUse, PostToolUse, Notification, Stop).
@@ -1745,7 +1770,7 @@ def create_server() -> FastMCP:
 
     @server.tool()
     async def RemoveHook(event: str, matcher: str, project_root: str = '') -> str:
-        """Remove a hook entry from .claude/settings.json.
+        """Remove a hook entry from settings.yaml.
 
         Args:
             event: Lifecycle event of the hook to remove.

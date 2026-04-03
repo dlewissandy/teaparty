@@ -7,7 +7,7 @@ Acceptance criteria:
 3. Each configuration specialist has disallowedTools for out-of-sphere config tools
 4. OfficeManagerSession.invoke() passes mcp_config to ClaudeRunner
 5. The 19 config skills no longer list Write or Edit in allowed-tools
-6. Pybayes .teaparty.local/project.yaml has non-empty lead and decider
+6. Pybayes .teaparty/project/project.yaml has non-empty lead and decider
 7. docs/proposals/configuration-team/proposal.md describes the MCP tool enforcement model
 """
 import asyncio
@@ -22,8 +22,8 @@ from pathlib import Path
 import yaml
 
 _REPO_ROOT = Path(__file__).parent.parent
-_AGENTS_DIR = _REPO_ROOT / '.claude' / 'agents'
-_SKILLS_DIR = _REPO_ROOT / '.claude' / 'skills'
+_AGENTS_DIR = _REPO_ROOT / '.teaparty' / 'management' / 'agents'
+_SKILLS_DIR = _REPO_ROOT / '.teaparty' / 'management' / 'skills'
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -33,25 +33,25 @@ def _make_tmpdir() -> str:
 
 
 def _make_project_root(tmpdir: str) -> str:
-    """Create a minimal project root with .claude/ and .teaparty/ dirs."""
-    claude_dir = os.path.join(tmpdir, '.claude')
-    agents_dir = os.path.join(claude_dir, 'agents')
-    skills_dir = os.path.join(claude_dir, 'skills')
-    settings_path = os.path.join(claude_dir, 'settings.json')
-    tp_dir = os.path.join(tmpdir, '.teaparty')
-    wg_dir = os.path.join(tp_dir, 'workgroups')
+    """Create a minimal project root with .teaparty/management/ dirs."""
+    mgmt_dir = os.path.join(tmpdir, '.teaparty', 'management')
+    agents_dir = os.path.join(mgmt_dir, 'agents')
+    skills_dir = os.path.join(mgmt_dir, 'skills')
+    settings_path = os.path.join(mgmt_dir, 'settings.yaml')
+    wg_dir = os.path.join(mgmt_dir, 'workgroups')
     os.makedirs(agents_dir, exist_ok=True)
     os.makedirs(skills_dir, exist_ok=True)
     os.makedirs(wg_dir, exist_ok=True)
     with open(settings_path, 'w') as f:
-        json.dump({'hooks': {}}, f)
+        yaml.dump({'hooks': {}}, f, default_flow_style=False, sort_keys=False)
     return tmpdir
 
 
 def _make_teaparty_home(tmpdir: str) -> str:
-    """Create .teaparty/ structure with a teaparty.yaml."""
+    """Create .teaparty/ structure with a management/teaparty.yaml."""
     tp_home = os.path.join(tmpdir, '.teaparty')
-    os.makedirs(tp_home, exist_ok=True)
+    mgmt_dir = os.path.join(tp_home, 'management')
+    os.makedirs(mgmt_dir, exist_ok=True)
     data = {
         'name': 'Test Team',
         'description': 'test',
@@ -62,7 +62,7 @@ def _make_teaparty_home(tmpdir: str) -> str:
         'workgroups': [],
         'scheduled': [],
     }
-    with open(os.path.join(tp_home, 'teaparty.yaml'), 'w') as f:
+    with open(os.path.join(mgmt_dir, 'teaparty.yaml'), 'w') as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
     return tp_home
 
@@ -80,8 +80,8 @@ def _run(coro):
 
 
 def _read_agent(agents_dir: str, name: str) -> dict:
-    """Parse a .claude/agents/{name}.md file and return frontmatter + body."""
-    path = os.path.join(agents_dir, f'{name}.md')
+    """Parse an agents/{name}/agent.md file and return frontmatter + body."""
+    path = os.path.join(agents_dir, name, 'agent.md')
     with open(path) as f:
         content = f.read()
     # Parse YAML frontmatter between --- delimiters
@@ -221,7 +221,7 @@ class TestProjectToolValidation(unittest.TestCase):
         self.assertFalse(parsed['success'])
 
     def test_add_project_creates_registry_entry(self):
-        """AddProject with valid args must add teams: entry to teaparty.yaml."""
+        """AddProject with valid args must add entry to external-projects.yaml."""
         from orchestrator.mcp_server import add_project_handler
         result = add_project_handler(
             name='testproj',
@@ -233,14 +233,15 @@ class TestProjectToolValidation(unittest.TestCase):
         )
         parsed = json.loads(result)
         self.assertTrue(parsed['success'], parsed.get('error'))
-        # Verify registry entry
-        with open(os.path.join(self.tp_home, 'teaparty.yaml')) as f:
+        # Verify registry entry in external-projects.yaml
+        ext_path = os.path.join(self.tp_home, 'management', 'external-projects.yaml')
+        with open(ext_path) as f:
             data = yaml.safe_load(f)
-        names = [t['name'] for t in data.get('projects', [])]
+        names = [t['name'] for t in data]
         self.assertIn('testproj', names)
 
     def test_add_project_creates_project_yaml(self):
-        """AddProject with valid args must create .teaparty.local/project.yaml."""
+        """AddProject with valid args must create .teaparty/project/project.yaml."""
         from orchestrator.mcp_server import add_project_handler
         add_project_handler(
             name='testproj',
@@ -250,7 +251,7 @@ class TestProjectToolValidation(unittest.TestCase):
             decider='darrell',
             teaparty_home=self.tp_home,
         )
-        yaml_path = os.path.join(self.proj_dir, '.teaparty.local', 'project.yaml')
+        yaml_path = os.path.join(self.proj_dir, '.teaparty', 'project', 'project.yaml')
         self.assertTrue(os.path.exists(yaml_path))
         with open(yaml_path) as f:
             data = yaml.safe_load(f)
@@ -277,7 +278,7 @@ class TestProjectToolValidation(unittest.TestCase):
         result = remove_project_handler(name='testproj', teaparty_home=self.tp_home)
         parsed = json.loads(result)
         self.assertTrue(parsed['success'], parsed.get('error'))
-        with open(os.path.join(self.tp_home, 'teaparty.yaml')) as f:
+        with open(os.path.join(self.tp_home, 'management', 'teaparty.yaml')) as f:
             data = yaml.safe_load(f)
         names = [t['name'] for t in data.get('projects', [])]
         self.assertNotIn('testproj', names)
@@ -317,7 +318,7 @@ class TestProjectToolValidation(unittest.TestCase):
         self.assertFalse(parsed['success'])
 
     def test_scaffold_project_yaml_creates_file_with_fields(self):
-        """ScaffoldProjectYaml must create .teaparty.local/project.yaml with all fields."""
+        """ScaffoldProjectYaml must create .teaparty/project/project.yaml with all fields."""
         from orchestrator.mcp_server import scaffold_project_yaml_handler
         result = scaffold_project_yaml_handler(
             project_path=self.proj_dir,
@@ -328,7 +329,7 @@ class TestProjectToolValidation(unittest.TestCase):
         )
         parsed = json.loads(result)
         self.assertTrue(parsed['success'], parsed.get('error'))
-        yaml_path = os.path.join(self.proj_dir, '.teaparty.local', 'project.yaml')
+        yaml_path = os.path.join(self.proj_dir, '.teaparty', 'project', 'project.yaml')
         with open(yaml_path) as f:
             data = yaml.safe_load(f)
         self.assertEqual(data['lead'], 'office-manager')
@@ -338,7 +339,7 @@ class TestProjectToolValidation(unittest.TestCase):
         """ScaffoldProjectYaml must overwrite an existing project.yaml (retroactive fix)."""
         from orchestrator.mcp_server import scaffold_project_yaml_handler
         # Create an existing project.yaml with empty fields (the pybayes scenario)
-        tp_local = os.path.join(self.proj_dir, '.teaparty.local')
+        tp_local = os.path.join(self.proj_dir, '.teaparty', 'project')
         os.makedirs(tp_local, exist_ok=True)
         with open(os.path.join(tp_local, 'project.yaml'), 'w') as f:
             yaml.dump({'name': 'testproj', 'lead': '', 'decider': ''}, f)
@@ -371,7 +372,7 @@ class TestProjectToolValidation(unittest.TestCase):
         )
         parsed = json.loads(result)
         self.assertTrue(parsed['success'], parsed.get('error'))
-        yaml_path = os.path.join(self.proj_dir, '.teaparty.local', 'project.yaml')
+        yaml_path = os.path.join(self.proj_dir, '.teaparty', 'project', 'project.yaml')
         with open(yaml_path) as f:
             data = yaml.safe_load(f)
         self.assertEqual(data['agents'], ['agent-a', 'agent-b'])
@@ -384,7 +385,7 @@ class TestAgentToolValidation(unittest.TestCase):
     def setUp(self):
         self.tmpdir = _make_tmpdir()
         self.proj = _make_project_root(self.tmpdir)
-        self.agents_dir = os.path.join(self.proj, '.claude', 'agents')
+        self.agents_dir = os.path.join(self.proj, '.teaparty', 'management', 'agents')
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
@@ -500,7 +501,7 @@ class TestAgentToolValidation(unittest.TestCase):
         parsed = json.loads(result)
         self.assertTrue(parsed['success'], parsed.get('error'))
         self.assertFalse(
-            os.path.exists(os.path.join(self.agents_dir, 'test-agent.md')),
+            os.path.exists(os.path.join(self.agents_dir, 'test-agent', 'agent.md')),
         )
 
     def test_remove_agent_nonexistent_returns_error(self):
@@ -517,7 +518,7 @@ class TestSkillToolValidation(unittest.TestCase):
     def setUp(self):
         self.tmpdir = _make_tmpdir()
         self.proj = _make_project_root(self.tmpdir)
-        self.skills_dir = os.path.join(self.proj, '.claude', 'skills')
+        self.skills_dir = os.path.join(self.proj, '.teaparty', 'management', 'skills')
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
@@ -692,7 +693,7 @@ class TestWorkgroupToolValidation(unittest.TestCase):
         )
         parsed = json.loads(result)
         self.assertTrue(parsed['success'], parsed.get('error'))
-        wg_path = os.path.join(self.tp_home, 'workgroups', 'test-wg.yaml')
+        wg_path = os.path.join(self.tp_home, 'management', 'workgroups', 'test-wg.yaml')
         self.assertTrue(os.path.exists(wg_path))
         with open(wg_path) as f:
             data = yaml.safe_load(f)
@@ -711,7 +712,7 @@ class TestWorkgroupToolValidation(unittest.TestCase):
         )
         parsed = json.loads(result)
         self.assertTrue(parsed['success'], parsed.get('error'))
-        wg_path = os.path.join(self.tp_home, 'workgroups', 'test-wg.yaml')
+        wg_path = os.path.join(self.tp_home, 'management', 'workgroups', 'test-wg.yaml')
         with open(wg_path) as f:
             data = yaml.safe_load(f)
         self.assertEqual(data['lead'], 'configuration-lead')
@@ -735,7 +736,7 @@ class TestWorkgroupToolValidation(unittest.TestCase):
         result = remove_workgroup_handler(name='test-wg', teaparty_home=self.tp_home)
         parsed = json.loads(result)
         self.assertTrue(parsed['success'], parsed.get('error'))
-        wg_path = os.path.join(self.tp_home, 'workgroups', 'test-wg.yaml')
+        wg_path = os.path.join(self.tp_home, 'management', 'workgroups', 'test-wg.yaml')
         self.assertFalse(os.path.exists(wg_path))
 
     def test_remove_workgroup_nonexistent_returns_error(self):
@@ -752,7 +753,7 @@ class TestHookToolValidation(unittest.TestCase):
     def setUp(self):
         self.tmpdir = _make_tmpdir()
         self.proj = _make_project_root(self.tmpdir)
-        self.settings_path = os.path.join(self.proj, '.claude', 'settings.json')
+        self.settings_path = os.path.join(self.proj, '.teaparty', 'management', 'settings.yaml')
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
@@ -791,7 +792,7 @@ class TestHookToolValidation(unittest.TestCase):
         parsed = json.loads(result)
         self.assertTrue(parsed['success'], parsed.get('error'))
         with open(self.settings_path) as f:
-            data = json.load(f)
+            data = yaml.safe_load(f)
         hooks = data.get('hooks', {})
         self.assertIn('PostToolUse', hooks)
         entries = hooks['PostToolUse']
@@ -817,7 +818,7 @@ class TestHookToolValidation(unittest.TestCase):
             project_root=self.proj,
         )
         with open(self.settings_path) as f:
-            data = json.load(f)
+            data = yaml.safe_load(f)
         matchers = [e.get('matcher') for e in data['hooks']['PostToolUse']]
         self.assertIn('Write', matchers)
         self.assertIn('Edit', matchers)
@@ -836,7 +837,7 @@ class TestHookToolValidation(unittest.TestCase):
         parsed = json.loads(result)
         self.assertTrue(parsed['success'], parsed.get('error'))
         with open(self.settings_path) as f:
-            data = json.load(f)
+            data = yaml.safe_load(f)
         hooks = data.get('hooks', {}).get('PostToolUse', [])
         found = any(e.get('matcher') == 'Edit' for e in hooks)
         self.assertFalse(found, 'Hook entry should have been removed')
@@ -867,7 +868,7 @@ class TestHookToolValidation(unittest.TestCase):
         parsed = json.loads(result)
         self.assertTrue(parsed['success'], parsed.get('error'))
         with open(self.settings_path) as f:
-            data = json.load(f)
+            data = yaml.safe_load(f)
         for entry in data['hooks']['PostToolUse']:
             if entry.get('matcher') == 'Edit':
                 cmd = entry['hooks'][0]['command']
@@ -928,7 +929,7 @@ class TestScheduledTaskToolValidation(unittest.TestCase):
         )
         parsed = json.loads(result)
         self.assertTrue(parsed['success'], parsed.get('error'))
-        with open(os.path.join(self.tp_home, 'teaparty.yaml')) as f:
+        with open(os.path.join(self.tp_home, 'management', 'teaparty.yaml')) as f:
             data = yaml.safe_load(f)
         scheduled = data.get('scheduled', [])
         names = [s['name'] for s in scheduled]
@@ -952,7 +953,7 @@ class TestScheduledTaskToolValidation(unittest.TestCase):
         )
         parsed = json.loads(result)
         self.assertTrue(parsed['success'], parsed.get('error'))
-        with open(os.path.join(self.tp_home, 'teaparty.yaml')) as f:
+        with open(os.path.join(self.tp_home, 'management', 'teaparty.yaml')) as f:
             data = yaml.safe_load(f)
         entry = next(s for s in data['scheduled'] if s['name'] == 'nightly')
         self.assertEqual(entry['schedule'], '0 3 * * *')
@@ -981,7 +982,7 @@ class TestScheduledTaskToolValidation(unittest.TestCase):
         )
         parsed = json.loads(result)
         self.assertTrue(parsed['success'], parsed.get('error'))
-        with open(os.path.join(self.tp_home, 'teaparty.yaml')) as f:
+        with open(os.path.join(self.tp_home, 'management', 'teaparty.yaml')) as f:
             data = yaml.safe_load(f)
         names = [s['name'] for s in data.get('scheduled', [])]
         self.assertNotIn('nightly', names)
@@ -1033,7 +1034,7 @@ class TestToolScoping(unittest.TestCase):
 
     def _check_specialist_scoping(self, agent_name: str):
         """Verify that agent_name has disallowedTools covering all out-of-sphere tools."""
-        path = _AGENTS_DIR / f'{agent_name}.md'
+        path = _AGENTS_DIR / agent_name / 'agent.md'
         self.assertTrue(path.exists(), f'{path} must exist')
         fm = _read_agent_frontmatter(path)
         disallowed = set(fm.get('disallowedTools', []))
@@ -1067,7 +1068,7 @@ class TestToolScoping(unittest.TestCase):
 
     def test_configuration_lead_has_no_disallowed_config_tools(self):
         """configuration-lead must NOT disallow any config tools — it needs all of them."""
-        path = _AGENTS_DIR / 'configuration-lead.md'
+        path = _AGENTS_DIR / 'configuration-lead' / 'agent.md'
         fm = _read_agent_frontmatter(path)
         disallowed = set(fm.get('disallowedTools', []))
         disallowed_config = disallowed & _ALL_CONFIG_TOOLS
@@ -1092,7 +1093,7 @@ class TestOmSessionPassesMcpConfig(unittest.TestCase):
         tmpdir = _make_tmpdir()
         try:
             tp_home = _make_teaparty_home(tmpdir)
-            om_dir = os.path.join(tp_home, 'om')
+            om_dir = os.path.join(tp_home, 'management', 'agents', 'office-manager')
             os.makedirs(om_dir, exist_ok=True)
             bus_path = os.path.join(om_dir, 'om-messages.db')
             bus = SqliteMessageBus(bus_path)
@@ -1224,16 +1225,16 @@ class TestConfigSkillsNoDirectWrite(unittest.TestCase):
 # ── AC6: Pybayes project.yaml has required fields ─────────────────────────────
 
 @unittest.skipUnless(
-    Path('/Users/darrell/git/pybayes/.teaparty.local/project.yaml').exists(),
+    Path('/Users/darrell/git/pybayes/.teaparty/project/project.yaml').exists(),
     'pybayes project.yaml not present in this environment',
 )
 class TestPybayesProjectYaml(unittest.TestCase):
-    """Pybayes .teaparty.local/project.yaml must have required fields."""
+    """Pybayes .teaparty/project/project.yaml must have required fields."""
 
-    _PYBAYES_YAML = Path('/Users/darrell/git/pybayes/.teaparty.local/project.yaml')
+    _PYBAYES_YAML = Path('/Users/darrell/git/pybayes/.teaparty/project/project.yaml')
 
     def test_pybayes_project_yaml_exists(self):
-        """Pybayes must have .teaparty.local/project.yaml."""
+        """Pybayes must have .teaparty/project/project.yaml."""
         self.assertTrue(
             self._PYBAYES_YAML.exists(),
             f'{self._PYBAYES_YAML} must exist',

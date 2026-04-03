@@ -15,7 +15,7 @@ After four sessions: consistent phase sequence, consistent gate outcomes, consis
 ## The Crystallized Skill
 
 ```
-.claude/skills/research-paper/
+.teaparty/management/skills/research-paper/
 ├── SKILL.md              ← entry point, applicability boundary
 ├── phase-survey.md       ← literature search and evaluation
 ├── phase-synthesize.md   ← argument construction

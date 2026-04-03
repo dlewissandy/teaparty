@@ -39,8 +39,9 @@ def _make_skill_dir(skills_dir: str, name: str) -> None:
 
 
 def _make_agent_file(agents_dir: str, name: str, frontmatter: dict | None = None) -> str:
-    os.makedirs(agents_dir, exist_ok=True)
-    path = os.path.join(agents_dir, f'{name}.md')
+    agent_dir = os.path.join(agents_dir, name)
+    os.makedirs(agent_dir, exist_ok=True)
+    path = os.path.join(agent_dir, 'agent.md')
     if frontmatter is None:
         frontmatter = {'name': name, 'description': f'The {name} agent', 'model': 'opus', 'maxTurns': 20}
     fm_str = yaml.dump(frontmatter, default_flow_style=False, sort_keys=False).rstrip()
@@ -50,9 +51,10 @@ def _make_agent_file(agents_dir: str, name: str, frontmatter: dict | None = None
 
 
 def _make_teaparty_home(tmp: str) -> str:
-    """Create tmp/.teaparty/ with teaparty.yaml; returns path to .teaparty dir."""
+    """Create tmp/.teaparty/management/ with teaparty.yaml; returns path to .teaparty dir."""
     tp_home = os.path.join(tmp, '.teaparty')
-    os.makedirs(tp_home)
+    mgmt_dir = os.path.join(tp_home, 'management')
+    os.makedirs(mgmt_dir)
     data = {
         'name': 'Test Org',
         'description': 'test',
@@ -63,7 +65,7 @@ def _make_teaparty_home(tmp: str) -> str:
         'workgroups': [],
         'scheduled': [],
     }
-    with open(os.path.join(tp_home, 'teaparty.yaml'), 'w') as f:
+    with open(os.path.join(mgmt_dir, 'teaparty.yaml'), 'w') as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
     return tp_home
 
@@ -315,13 +317,13 @@ class TestCatalogOrgEndpoint(unittest.TestCase):
         import shutil
         self.tmp = tempfile.mkdtemp()
         self.tp_home = _make_teaparty_home(self.tmp)
-        # Add org-level skills in tmp/.claude/skills/
-        claude_dir = os.path.join(self.tmp, '.claude')
-        skills_dir = os.path.join(claude_dir, 'skills')
+        # Add org-level skills in tmp/.teaparty/management/skills/
+        mgmt_dir = os.path.join(self.tp_home, 'management')
+        skills_dir = os.path.join(mgmt_dir, 'skills')
         _make_skill_dir(skills_dir, 'commit')
         _make_skill_dir(skills_dir, 'review')
-        # Add org-level agent in tmp/.claude/agents/
-        agents_dir = os.path.join(claude_dir, 'agents')
+        # Add org-level agent in tmp/.teaparty/management/agents/
+        agents_dir = os.path.join(mgmt_dir, 'agents')
         _make_agent_file(agents_dir, 'auditor')
         self.bridge = _make_bridge(self.tp_home, self.tmp)
 

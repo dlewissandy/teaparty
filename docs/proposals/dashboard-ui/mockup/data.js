@@ -17,7 +17,7 @@ const data = {
           { event: "Stop", type: "agent", detail: "Summarize conversation as memory chunks" },
         ],
         prompt: "You are the office manager for TeaParty. You coordinate across project teams, synthesize status, relay human steering directives, and dispatch work to project leads via Send. You use ACT-R memory to carry context between sessions. You never modify code directly.",
-        agentFile: ".claude/agents/office-manager.md" },
+        agentFile: ".teaparty/management/agents/office-manager/agent.md" },
       { id: "auditor", name: "Auditor", role: "Specialist", status: "idle",
         model: "claude-opus-4",
         maxTurns: 40,
@@ -28,7 +28,7 @@ const data = {
         mcpTools: [],
         hooks: [],
         prompt: "You are a code auditor on the management team. You perform multi-dimensional code review across all projects: security, correctness, performance, maintainability, and consistency with project conventions. The office manager consults you for cross-project quality assessments. You spawn specialized reviewer subagents. You never modify code — you file findings as GitHub issues.",
-        agentFile: ".claude/agents/auditor.md" },
+        agentFile: ".teaparty/management/agents/auditor/agent.md" },
       { id: "researcher", name: "Researcher", role: "Specialist", status: "idle",
         model: "claude-opus-4",
         maxTurns: 30,
@@ -39,7 +39,7 @@ const data = {
         mcpTools: [],
         hooks: [],
         prompt: "You are a research agent on the management team. You find peer-reviewed research, survey literature, and synthesize findings for strategic decisions. The office manager consults you when evaluating technology choices, architectural approaches, or when the human asks for background on a topic. You write research summaries to docs/research/.",
-        agentFile: ".claude/agents/researcher.md" },
+        agentFile: ".teaparty/management/agents/researcher/agent.md" },
       { id: "strategist", name: "Strategist", role: "Specialist", status: "idle",
         model: "claude-opus-4",
         maxTurns: 20,
@@ -50,7 +50,7 @@ const data = {
         mcpTools: [],
         hooks: [],
         prompt: "You are a strategy advisor on the management team. You help with roadmap planning, milestone scoping, resource allocation, and risk assessment across projects. The office manager consults you when the human is making portfolio-level decisions. You analyze project state, velocity, and dependencies to provide actionable recommendations.",
-        agentFile: ".claude/agents/strategist.md" },
+        agentFile: ".teaparty/management/agents/strategist/agent.md" },
     ],
     stats: {
       jobsCompleted: 47, tasksCompleted: 183, activeJobs: 6,
@@ -78,10 +78,10 @@ const data = {
       { name: "Bob", role: "informed", self: false },
     ],
     skills: [
-      { name: "sprint-plan", path: ".claude/skills/sprint-plan/", files: ["SKILL.md","design-readiness.md","backlog-scan.md","gap-analysis.md"] },
-      { name: "audit", path: ".claude/skills/audit/", files: ["SKILL.md","issue-template.md","reviewers.md"] },
-      { name: "close-milestone", path: ".claude/skills/close-milestone/", files: ["SKILL.md"] },
-      { name: "fix-issue", path: ".claude/skills/fix-issue/", files: ["SKILL.md"] },
+      { name: "sprint-plan", path: ".teaparty/management/skills/sprint-plan/", files: ["SKILL.md","design-readiness.md","backlog-scan.md","gap-analysis.md"] },
+      { name: "audit", path: ".teaparty/management/skills/audit/", files: ["SKILL.md","issue-template.md","reviewers.md"] },
+      { name: "close-milestone", path: ".teaparty/management/skills/close-milestone/", files: ["SKILL.md"] },
+      { name: "fix-issue", path: ".teaparty/management/skills/fix-issue/", files: ["SKILL.md"] },
     ],
     sessions: [
       { id: "s1", title: "Q2 planning discussion", date: "2026-03-25", messages: 14, heartbeat: "alive", lastActivity: "2 min ago" },
@@ -171,8 +171,8 @@ const data = {
       { id: "ps2", title: "Workgroup structure review", date: "2026-03-20", messages: 12, heartbeat: "dead", lastActivity: "6 days ago" },
     ],
     skills: [
-      { name: "fix-issue", path: "projects/POC/.claude/skills/fix-issue/", files: ["SKILL.md"] },
-      { name: "sprint-plan", path: "projects/POC/.claude/skills/sprint-plan/", files: ["SKILL.md","backlog-scan.md","gap-analysis.md"] },
+      { name: "fix-issue", path: "projects/POC/.teaparty/project/skills/fix-issue/", files: ["SKILL.md"] },
+      { name: "sprint-plan", path: "projects/POC/.teaparty/project/skills/sprint-plan/", files: ["SKILL.md","backlog-scan.md","gap-analysis.md"] },
     ],
     escalations: [
       { id: "e1", workgroup: "Coding", jobId: "j1", phase: "WORK_ASSERT", summary: "Test failures in auth module — unsure whether to block merge", time: "12m" },
@@ -223,8 +223,8 @@ const data = {
       { id: "wcs2", title: "Test coverage gaps", date: "2026-03-24", messages: 9, heartbeat: "dead", lastActivity: "3 days ago" },
     ],
     skills: [
-      { name: "fix-issue", path: ".claude/skills/fix-issue/", files: ["SKILL.md"] },
-      { name: "code-cleanup", path: ".claude/skills/code-cleanup/", files: ["SKILL.md"] },
+      { name: "fix-issue", path: ".teaparty/management/skills/fix-issue/", files: ["SKILL.md"] },
+      { name: "code-cleanup", path: ".teaparty/management/skills/code-cleanup/", files: ["SKILL.md"] },
     ],
     escalations: [
       { id: "e1", job: "ACT-R retrieval", jobId: "j1", phase: "WORK_ASSERT", summary: "Test failures in auth module — unsure whether to block merge", time: "12m" },
@@ -258,7 +258,7 @@ const data = {
       { id: "wrs1", title: "Proxy handoff scope", date: "2026-03-25", messages: 4, heartbeat: "stale", lastActivity: "2 hrs ago" },
     ],
     skills: [
-      { name: "research", path: ".claude/skills/research/", files: ["SKILL.md"] },
+      { name: "research", path: ".teaparty/management/skills/research/", files: ["SKILL.md"] },
     ],
     escalations: [
       { id: "e2", job: "Proxy handoff", jobId: "j2", phase: "PLAN_ASSERT", summary: "DB migration plan — wants review of rollback strategy", time: "3m" },

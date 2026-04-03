@@ -1,6 +1,6 @@
 """Tests for issue #290: office manager conversation routing in the bridge.
 
-The office manager uses om-messages.db in {teaparty_home}/om/, not the
+The office manager uses om-messages.db in {teaparty_home}/management/agents/office-manager/, not the
 per-session messages.db. The bridge must route ?type=office_manager to that
 separate database. The orchestrator and bridge must agree on the canonical path.
 
@@ -60,7 +60,7 @@ class TestOmBusPathContract(unittest.TestCase):
         home = '/home/user/.teaparty'
         orchestrator_path = om_bus_path(home)
 
-        # The canonical path is {teaparty_home}/om/om-messages.db per the spec
+        # The canonical path is {teaparty_home}/management/agents/office-manager/om-messages.db
         # (bridge-api.md, issue #290). Verify the orchestrator matches.
         self.assertTrue(
             orchestrator_path.startswith(home),

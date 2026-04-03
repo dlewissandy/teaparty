@@ -2,10 +2,10 @@
 
 ## Directory Layout
 
-Skills are located in `.claude/skills/{name}/` with supporting files for progressive disclosure:
+Skills are located in `.teaparty/management/skills/{name}/` with supporting files for progressive disclosure:
 
 ```
-.claude/skills/deploy/
+.teaparty/management/skills/deploy/
 ├── SKILL.md              ← invocation entry point (loads on demand)
 ├── checklist.md          ← loaded by agent when reaching validation step
 ├── rollback-procedure.md ← loaded only if deployment fails

@@ -465,15 +465,17 @@ class TestCollectScheduledTasks(unittest.TestCase):
 
     def _make_teaparty_home(self, yaml_content: str) -> str:
         home = tempfile.mkdtemp()
-        os.makedirs(os.path.join(home, '.teaparty'))
-        with open(os.path.join(home, '.teaparty', 'teaparty.yaml'), 'w') as f:
+        mgmt_dir = os.path.join(home, '.teaparty', 'management')
+        os.makedirs(mgmt_dir)
+        with open(os.path.join(mgmt_dir, 'teaparty.yaml'), 'w') as f:
             f.write(yaml_content)
         return os.path.join(home, '.teaparty')
 
     def _make_project_dir(self, yaml_content: str) -> str:
         d = tempfile.mkdtemp()
-        os.makedirs(os.path.join(d, '.teaparty.local'))
-        with open(os.path.join(d, '.teaparty.local', 'project.yaml'), 'w') as f:
+        tp_project = os.path.join(d, '.teaparty', 'project')
+        os.makedirs(tp_project)
+        with open(os.path.join(tp_project, 'project.yaml'), 'w') as f:
             f.write(yaml_content)
         return d
 

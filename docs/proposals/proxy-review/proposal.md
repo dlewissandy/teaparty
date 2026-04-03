@@ -105,7 +105,7 @@ Only humans who are a decider on at least one team have a proxy to review.
 
 The proxy review chat is invoked from the bridge, not the TUI (retired in #305).
 
-When the human clicks the Proxy entry in the dashboard's Participants card, the frontend opens a `proxy:{decider}` conversation and routes it to the bridge. The bridge maintains a persistent proxy message bus at `{teaparty_home}/proxy/proxy-messages.db` (analogous to the OM bus at `{teaparty_home}/om/om-messages.db`).
+When the human clicks the Proxy entry in the dashboard's Participants card, the frontend opens a `proxy:{decider}` conversation and routes it to the bridge. The bridge maintains a persistent proxy message bus at `{teaparty_home}/management/agents/proxy-review/proxy-messages.db` (analogous to the OM bus at `{teaparty_home}/management/agents/office-manager/om-messages.db`).
 
 On each POST to `proxy:{decider}`:
 1. The conversation is auto-created on the bus if it does not yet exist.
@@ -115,9 +115,9 @@ On each POST to `proxy:{decider}`:
 5. `[CORRECTION:...]` and `[REINFORCE:...]` signals are parsed from the response and stored in the ACT-R DB before the response is written to the bus.
 6. `MessageRelay` broadcasts the response to connected WebSocket clients.
 
-Multi-turn conversations resume via `--resume` with the Claude session ID persisted in `{teaparty_home}/proxy/.proxy-session-{decider}.json`.
+Multi-turn conversations resume via `--resume` with the Claude session ID persisted in `{teaparty_home}/management/agents/proxy-review/.proxy-session-{decider}.json`.
 
-The proxy ACT-R memory used during review is the same database consulted at approval gates: `{teaparty_home}/proxy/.proxy-memory.db`. Corrections made in a review conversation take effect at the next gate.
+The proxy ACT-R memory used during review is the same database consulted at approval gates: `{teaparty_home}/management/agents/proxy-review/.proxy-memory.db`. Corrections made in a review conversation take effect at the next gate.
 
 ---
 

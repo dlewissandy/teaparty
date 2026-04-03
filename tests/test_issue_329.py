@@ -33,9 +33,11 @@ def _make_teaparty_home(workgroup_files=None):
     tmp = tempfile.mkdtemp()
     tp_dir = os.path.join(tmp, '.teaparty')
     os.makedirs(tp_dir)
-    wg_dir = os.path.join(tp_dir, 'workgroups')
+    mgmt_dir = os.path.join(tp_dir, 'management')
+    os.makedirs(mgmt_dir)
+    wg_dir = os.path.join(mgmt_dir, 'workgroups')
     os.makedirs(wg_dir)
-    with open(os.path.join(tp_dir, 'teaparty.yaml'), 'w') as f:
+    with open(os.path.join(mgmt_dir, 'teaparty.yaml'), 'w') as f:
         yaml.dump({'name': 'Org', 'lead': 'om', 'decider': 'om'}, f)
     if workgroup_files:
         for name, data in workgroup_files.items():
@@ -188,7 +190,7 @@ class TestWorkgroupDetailEndpointReturnsFullData(unittest.TestCase):
         tp_dir = _make_teaparty_home(workgroup_files={f'{wg_name}.yaml': wg_data})
         # Register the workgroup in teaparty.yaml
         import yaml
-        teaparty_yaml = os.path.join(tp_dir, 'teaparty.yaml')
+        teaparty_yaml = os.path.join(tp_dir, 'management', 'teaparty.yaml')
         with open(teaparty_yaml) as f:
             data = yaml.safe_load(f)
         data['workgroups'] = [{'name': wg_data['name'], 'config': f'workgroups/{wg_name}.yaml'}]
@@ -459,17 +461,17 @@ class TestRenderWorkgroupRendersAgentsAndSkills(unittest.TestCase):
             end = source.find('\nvar urlParams', start)
         return source[start:end] if end != -1 else source[start:]
 
-    def test_renderWorkgroup_renders_norms_section(self):
-        """renderWorkgroup must include a Norms section card."""
+    def test_renderWorkgroup_does_not_render_norms_section(self):
+        """renderWorkgroup must not render inline Norms — norms are managed via chat blade (#368)."""
         source = self._get_renderWorkgroup_body()
-        self.assertIn("'Norms'", source,
-            "renderWorkgroup must render a 'Norms' section card")
+        self.assertNotIn("sectionCard('Norms'", source,
+            "renderWorkgroup must not render inline Norms section — norms managed via chat blade (#368)")
 
-    def test_renderWorkgroup_renders_budget_section(self):
-        """renderWorkgroup must include a Budget section card."""
+    def test_renderWorkgroup_does_not_render_budget_section(self):
+        """renderWorkgroup must not render inline Budget — budget is managed via chat blade (#368)."""
         source = self._get_renderWorkgroup_body()
-        self.assertIn("'Budget'", source,
-            "renderWorkgroup must render a 'Budget' section card")
+        self.assertNotIn("sectionCard('Budget'", source,
+            "renderWorkgroup must not render inline Budget section — budget managed via chat blade (#368)")
 
     def test_renderWorkgroup_renders_agents_with_source_badge(self):
         """renderWorkgroup must call sourceBadge with a.source for agent source badge."""

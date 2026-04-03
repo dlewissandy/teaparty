@@ -5,7 +5,7 @@ Acceptance criteria:
 2. "+ Add" opens om:add-project conversation; "+ New" opens om:new-project conversation
 3. GET /api/fs/list?path=<p> returns directory listing with name, path, is_dir fields
 4. POST /api/projects/add accepts full frontmatter (description, lead, decider, agents,
-   humans, workgroups, skills) and writes all fields to .teaparty.local/project.yaml
+   humans, workgroups, skills) and writes all fields to .teaparty/project/project.yaml
 5. POST /api/projects/create accepts full frontmatter and writes it
 6. add_project() accepts frontmatter kwargs and writes them to project.yaml
 7. add_project() no longer requires .git/ and .claude/ as hard prerequisites
@@ -44,22 +44,22 @@ def _write_teaparty_yaml(home: str, teams: list | None = None) -> None:
         'projects': [],
         'workgroups': [],
     }
-    with open(os.path.join(home, 'teaparty.yaml'), 'w') as f:
+    mgmt_dir = os.path.join(home, 'management')
+    os.makedirs(mgmt_dir, exist_ok=True)
+    with open(os.path.join(mgmt_dir, 'teaparty.yaml'), 'w') as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 
 
-def _make_project_dir(tmpdir: str, name: str, with_git: bool = False, with_claude: bool = False) -> str:
+def _make_project_dir(tmpdir: str, name: str, with_git: bool = False) -> str:
     proj = os.path.join(tmpdir, name)
     os.makedirs(proj)
     if with_git:
         os.makedirs(os.path.join(proj, '.git'))
-    if with_claude:
-        os.makedirs(os.path.join(proj, '.claude'))
     return proj
 
 
 def _read_project_yaml(proj_dir: str) -> dict:
-    path = os.path.join(proj_dir, '.teaparty.local', 'project.yaml')
+    path = os.path.join(proj_dir, '.teaparty', 'project', 'project.yaml')
     with open(path) as f:
         return yaml.safe_load(f)
 
@@ -328,7 +328,7 @@ class TestAddProjectLoosensPrereqs(unittest.TestCase):
     def test_add_project_succeeds_without_git(self):
         """add_project() must succeed for a directory without .git/."""
         from orchestrator.config_reader import add_project
-        proj = _make_project_dir(self.tmpdir, 'no-git', with_git=False, with_claude=False)
+        proj = _make_project_dir(self.tmpdir, 'no-git', with_git=False)
         try:
             add_project('no-git', proj, teaparty_home=self.home)
         except ValueError as exc:
@@ -336,20 +336,6 @@ class TestAddProjectLoosensPrereqs(unittest.TestCase):
                 self.fail(
                     f'add_project() raised ValueError about missing .git/: {exc}\n'
                     'OM handles .git bootstrapping — backend must not gate on it'
-                )
-            raise
-
-    def test_add_project_succeeds_without_claude(self):
-        """add_project() must succeed for a directory without .claude/."""
-        from orchestrator.config_reader import add_project
-        proj = _make_project_dir(self.tmpdir, 'no-claude', with_git=False, with_claude=False)
-        try:
-            add_project('no-claude', proj, teaparty_home=self.home)
-        except ValueError as exc:
-            if '.claude' in str(exc):
-                self.fail(
-                    f'add_project() raised ValueError about missing .claude/: {exc}\n'
-                    'OM handles .claude bootstrapping — backend must not gate on it'
                 )
             raise
 
@@ -561,7 +547,7 @@ class TestOfficeManagerStatePerConversation(unittest.TestCase):
     def setUp(self):
         self.tmpdir = _make_tmpdir()
         self.teaparty_home = _make_teaparty_home(self.tmpdir)
-        os.makedirs(os.path.join(self.teaparty_home, 'om'), exist_ok=True)
+        os.makedirs(os.path.join(self.teaparty_home, 'management', 'agents', 'office-manager'), exist_ok=True)
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
@@ -623,7 +609,7 @@ class TestOfficeManagerInvokeWritesToBus(unittest.TestCase):
     def setUp(self):
         self.tmpdir = _make_tmpdir()
         self.teaparty_home = _make_teaparty_home(self.tmpdir)
-        om_dir = os.path.join(self.teaparty_home, 'om')
+        om_dir = os.path.join(self.teaparty_home, 'management', 'agents', 'office-manager')
         os.makedirs(om_dir, exist_ok=True)
 
     def tearDown(self):

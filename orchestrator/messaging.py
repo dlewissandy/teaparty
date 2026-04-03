@@ -183,7 +183,8 @@ class SqliteMessageBus:
                 status TEXT NOT NULL DEFAULT 'open',
                 pending_count INTEGER NOT NULL DEFAULT 0,
                 created_at REAL NOT NULL,
-                conversation_status TEXT NOT NULL DEFAULT 'open'
+                conversation_status TEXT NOT NULL DEFAULT 'open',
+                agent_worktree_path TEXT NOT NULL DEFAULT ''
             )
         ''')
         # Migrate existing DBs that predate the conversation_status column (issue #383)
@@ -191,6 +192,14 @@ class SqliteMessageBus:
             self._conn.execute(
                 "ALTER TABLE agent_contexts "
                 "ADD COLUMN conversation_status TEXT NOT NULL DEFAULT 'open'"
+            )
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        # Migrate existing DBs that predate the agent_worktree_path column (issue #379)
+        try:
+            self._conn.execute(
+                "ALTER TABLE agent_contexts "
+                "ADD COLUMN agent_worktree_path TEXT NOT NULL DEFAULT ''"
             )
         except sqlite3.OperationalError:
             pass  # Column already exists
@@ -424,7 +433,7 @@ class SqliteMessageBus:
         row = self._conn.execute(
             'SELECT context_id, initiator_agent_id, recipient_agent_id, '
             'parent_context_id, session_id, status, pending_count, created_at, '
-            'conversation_status '
+            'conversation_status, agent_worktree_path '
             'FROM agent_contexts WHERE context_id = ?',
             (context_id,),
         ).fetchone()
@@ -440,6 +449,7 @@ class SqliteMessageBus:
             'pending_count': row[6],
             'created_at': row[7],
             'conversation_status': row[8],
+            'agent_worktree_path': row[9],
         }
 
     def close_agent_conversation(self, context_id: str) -> None:
@@ -460,6 +470,14 @@ class SqliteMessageBus:
         self._conn.execute(
             'UPDATE agent_contexts SET session_id = ? WHERE context_id = ?',
             (session_id, context_id),
+        )
+        self._conn.commit()
+
+    def set_agent_context_worktree_path(self, context_id: str, worktree_path: str) -> None:
+        """Record the agent's worktree path for cleanup on conversation close."""
+        self._conn.execute(
+            'UPDATE agent_contexts SET agent_worktree_path = ? WHERE context_id = ?',
+            (worktree_path, context_id),
         )
         self._conn.commit()
 
@@ -503,7 +521,7 @@ class SqliteMessageBus:
         cursor = self._conn.execute(
             'SELECT context_id, initiator_agent_id, recipient_agent_id, '
             'parent_context_id, session_id, status, pending_count, created_at, '
-            'conversation_status '
+            'conversation_status, agent_worktree_path '
             "FROM agent_contexts WHERE status = 'open' ORDER BY created_at"
         )
         return [
@@ -517,6 +535,7 @@ class SqliteMessageBus:
                 'pending_count': row[6],
                 'created_at': row[7],
                 'conversation_status': row[8],
+                'agent_worktree_path': row[9],
             }
             for row in cursor.fetchall()
         ]

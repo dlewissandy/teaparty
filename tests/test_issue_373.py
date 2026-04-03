@@ -34,15 +34,16 @@ from orchestrator.config_reader import (
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _make_teaparty_yaml(teaparty_home: str, data: dict) -> str:
-    os.makedirs(teaparty_home, exist_ok=True)
-    path = os.path.join(teaparty_home, 'teaparty.yaml')
+    mgmt_dir = os.path.join(teaparty_home, 'management')
+    os.makedirs(mgmt_dir, exist_ok=True)
+    path = os.path.join(mgmt_dir, 'teaparty.yaml')
     with open(path, 'w') as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
     return path
 
 
 def _make_project_yaml(project_dir: str, data: dict) -> str:
-    local_dir = os.path.join(project_dir, '.teaparty.local')
+    local_dir = os.path.join(project_dir, '.teaparty', 'project')
     os.makedirs(local_dir, exist_ok=True)
     path = os.path.join(local_dir, 'project.yaml')
     with open(path, 'w') as f:
@@ -65,7 +66,7 @@ def _minimal_management_data(**overrides) -> dict:
         'lead': 'office-manager',
         'humans': {'decider': 'darrell'},
         'projects': [],
-        'members': {'projects': [], 'agents': []},
+        'members': {'agents': []},
         'workgroups': [],
         'hooks': [],
         'scheduled': [],
@@ -110,8 +111,8 @@ class TestLoadManagementTeamParsesNewMembersBlock(unittest.TestCase):
         self._tmpdir = tempfile.mkdtemp()
         data = _minimal_management_data(
             projects=[
-                {'name': 'Alpha', 'path': '/tmp/alpha', 'config': '.teaparty/project.yaml'},
-                {'name': 'Beta', 'path': '/tmp/beta', 'config': '.teaparty/project.yaml'},
+                {'name': 'Alpha', 'path': '/tmp/alpha', 'config': '.teaparty/project/project.yaml'},
+                {'name': 'Beta', 'path': '/tmp/beta', 'config': '.teaparty/project/project.yaml'},
             ],
             members={
                 'projects': ['Alpha'],
@@ -122,10 +123,6 @@ class TestLoadManagementTeamParsesNewMembersBlock(unittest.TestCase):
         self.team = load_management_team(
             teaparty_home=os.path.join(self._tmpdir, '.teaparty')
         )
-
-    def test_members_projects_parsed(self):
-        """members.projects: list loaded into members_projects field."""
-        self.assertEqual(self.team.members_projects, ['Alpha'])
 
     def test_members_agents_parsed(self):
         """members.agents: list loaded into members_agents field."""
@@ -146,8 +143,8 @@ class TestLoadProjectTeamParsesNewMembersBlock(unittest.TestCase):
         self._tmpdir = tempfile.mkdtemp()
         data = _minimal_project_data(
             workgroups=[
-                {'name': 'Coding', 'config': '.teaparty/workgroups/coding.yaml'},
-                {'name': 'Configuration', 'config': '.teaparty/workgroups/configuration.yaml'},
+                {'name': 'Coding', 'config': '.teaparty/management/workgroups/coding.yaml'},
+                {'name': 'Configuration', 'config': '.teaparty/management/workgroups/configuration.yaml'},
             ],
             members={'workgroups': ['Coding']},
         )
@@ -191,17 +188,16 @@ class TestLoadWorkgroupParsesNewMembersBlock(unittest.TestCase):
 
 # ── AC2: reader exposes both catalog and members (distinction) ────────────────
 
-class TestManagementTeamRegisteredVsActiveMembership(unittest.TestCase):
-    """Reader must expose all registered projects and only active members_projects."""
+class TestManagementTeamRegisteredProjects(unittest.TestCase):
+    """Reader must expose all registered projects (no active/inactive distinction)."""
 
     def setUp(self):
         self._tmpdir = tempfile.mkdtemp()
         data = _minimal_management_data(
             projects=[
-                {'name': 'Active', 'path': '/tmp/active', 'config': '.teaparty/project.yaml'},
-                {'name': 'Registered', 'path': '/tmp/reg', 'config': '.teaparty/project.yaml'},
+                {'name': 'Alpha', 'path': '/tmp/alpha', 'config': '.teaparty/project/project.yaml'},
+                {'name': 'Beta', 'path': '/tmp/beta', 'config': '.teaparty/project/project.yaml'},
             ],
-            members={'projects': ['Active'], 'agents': []},
         )
         _make_teaparty_yaml(os.path.join(self._tmpdir, '.teaparty'), data)
         self.team = load_management_team(
@@ -209,21 +205,14 @@ class TestManagementTeamRegisteredVsActiveMembership(unittest.TestCase):
         )
 
     def test_registered_catalog_includes_all_projects(self):
-        """projects field includes both Active and Registered."""
+        """projects field includes both Alpha and Beta."""
         names = {p['name'] for p in self.team.projects}
-        self.assertIn('Active', names)
-        self.assertIn('Registered', names)
+        self.assertIn('Alpha', names)
+        self.assertIn('Beta', names)
 
-    def test_members_projects_contains_only_active_project(self):
-        """members_projects contains only the active project, not the registered-only one."""
-        self.assertIn('Active', self.team.members_projects)
-        self.assertNotIn('Registered', self.team.members_projects)
-
-    def test_members_projects_is_strict_subset_of_catalog(self):
-        """Every name in members_projects appears in the projects catalog."""
-        registered = {p['name'] for p in self.team.projects}
-        for name in self.team.members_projects:
-            self.assertIn(name, registered)
+    def test_no_members_projects_attribute(self):
+        """ManagementTeam must not have members_projects — all registered projects are active."""
+        self.assertFalse(hasattr(self.team, 'members_projects'))
 
 
 class TestProjectTeamRegisteredVsActiveMembership(unittest.TestCase):
@@ -233,8 +222,8 @@ class TestProjectTeamRegisteredVsActiveMembership(unittest.TestCase):
         self._tmpdir = tempfile.mkdtemp()
         data = _minimal_project_data(
             workgroups=[
-                {'name': 'Coding', 'config': '.teaparty/workgroups/coding.yaml'},
-                {'name': 'Configuration', 'config': '.teaparty/workgroups/configuration.yaml'},
+                {'name': 'Coding', 'config': '.teaparty/management/workgroups/coding.yaml'},
+                {'name': 'Configuration', 'config': '.teaparty/management/workgroups/configuration.yaml'},
             ],
             members={'workgroups': ['Coding']},
         )
@@ -262,8 +251,8 @@ class TestLoadWorkgroupParsesArtifactsAsDicts(unittest.TestCase):
         self._tmpdir = tempfile.mkdtemp()
         data = _minimal_workgroup_data(
             artifacts=[
-                {'path': '.teaparty/workgroups/NORMS.md', 'label': 'Norms'},
-                {'path': '.teaparty/workgroups/DESIGN.md', 'label': 'Design Doc'},
+                {'path': '.teaparty/management/workgroups/NORMS.md', 'label': 'Norms'},
+                {'path': '.teaparty/management/workgroups/DESIGN.md', 'label': 'Design Doc'},
             ],
         )
         self._path = _make_workgroup_yaml(self._tmpdir, 'coding', data)
@@ -293,7 +282,7 @@ class TestLoadWorkgroupParsesArtifactsAsDicts(unittest.TestCase):
         """Artifact path and label values match the YAML."""
         paths = {a['path'] for a in self.wg.artifacts}
         labels = {a['label'] for a in self.wg.artifacts}
-        self.assertIn('.teaparty/workgroups/NORMS.md', paths)
+        self.assertIn('.teaparty/management/workgroups/NORMS.md', paths)
         self.assertIn('Norms', labels)
 
     def test_empty_artifacts_list_is_valid(self):
@@ -366,67 +355,10 @@ class TestLoadWorkgroupNoSkillsKeyRequired(unittest.TestCase):
             'Workgroup must not expose skills even if present in YAML')
 
 
-# ── AC6: toggle_management_membership supports 'project' kind ────────────────
-
-class TestToggleManagementMembershipProject(unittest.TestCase):
-    """toggle_management_membership must support kind='project' to toggle members.projects."""
-
-    def setUp(self):
-        self._tmpdir = tempfile.mkdtemp()
-        data = _minimal_management_data(
-            projects=[
-                {'name': 'Alpha', 'path': '/tmp/alpha', 'config': '.teaparty/project.yaml'},
-                {'name': 'Beta', 'path': '/tmp/beta', 'config': '.teaparty/project.yaml'},
-            ],
-            members={'projects': ['Alpha'], 'agents': []},
-        )
-        self._home = os.path.join(self._tmpdir, '.teaparty')
-        _make_teaparty_yaml(self._home, data)
-
-    def test_activate_project_adds_to_members_projects(self):
-        """Activating an inactive project adds it to members.projects in YAML."""
-        toggle_management_membership(self._home, 'project', 'Beta', True)
-        team = load_management_team(teaparty_home=self._home)
-        self.assertIn('Beta', team.members_projects)
-
-    def test_deactivate_project_removes_from_members_projects(self):
-        """Deactivating an active project removes it from members.projects in YAML."""
-        toggle_management_membership(self._home, 'project', 'Alpha', False)
-        team = load_management_team(teaparty_home=self._home)
-        self.assertNotIn('Alpha', team.members_projects)
-
-    def test_activating_already_active_project_is_idempotent(self):
-        """Activating an already-active project does not duplicate it."""
-        toggle_management_membership(self._home, 'project', 'Alpha', True)
-        team = load_management_team(teaparty_home=self._home)
-        self.assertEqual(team.members_projects.count('Alpha'), 1)
-
-    def test_deactivating_inactive_project_is_safe(self):
-        """Deactivating a project not in members.projects does not raise."""
-        toggle_management_membership(self._home, 'project', 'Beta', False)
-        team = load_management_team(teaparty_home=self._home)
-        self.assertNotIn('Beta', team.members_projects)
-
-
-class TestToggleManagementMembershipProjectDoesNotAffectOtherMembers(unittest.TestCase):
-    """Toggling a project must not modify other membership sub-keys."""
-
-    def setUp(self):
-        self._tmpdir = tempfile.mkdtemp()
-        data = _minimal_management_data(
-            projects=[
-                {'name': 'Alpha', 'path': '/tmp/alpha', 'config': '.teaparty/project.yaml'},
-            ],
-            members={'projects': [], 'agents': ['auditor', 'researcher']},
-        )
-        self._home = os.path.join(self._tmpdir, '.teaparty')
-        _make_teaparty_yaml(self._home, data)
-
-    def test_toggling_project_preserves_agents_membership(self):
-        """Toggling project active state must not alter members.agents."""
-        toggle_management_membership(self._home, 'project', 'Alpha', True)
-        team = load_management_team(teaparty_home=self._home)
-        self.assertEqual(team.members_agents, ['auditor', 'researcher'])
+# ── Project toggle removed — all registered projects are active ──────────────
+# TestToggleManagementMembershipProject and
+# TestToggleManagementMembershipProjectDoesNotAffectOtherMembers were removed:
+# members_projects was dead weight (#379). All registered projects are active.
 
 
 # ── AC6: empty members: block is handled gracefully ──────────────────────────
@@ -438,7 +370,7 @@ class TestLoadManagementTeamWithEmptyMembersBlock(unittest.TestCase):
         self._tmpdir = tempfile.mkdtemp()
 
     def test_absent_members_block_yields_empty_lists(self):
-        """No members: key at all → members_projects and members_agents are empty."""
+        """No members: key at all → members_agents are empty."""
         data = {
             'name': 'Management',
             'lead': 'office-manager',
@@ -447,11 +379,10 @@ class TestLoadManagementTeamWithEmptyMembersBlock(unittest.TestCase):
         home = os.path.join(self._tmpdir, '.teaparty')
         _make_teaparty_yaml(home, data)
         team = load_management_team(teaparty_home=home)
-        self.assertEqual(team.members_projects, [])
         self.assertEqual(team.members_agents, [])
 
     def test_empty_members_dict_yields_empty_lists(self):
-        """Empty members: {} → members_projects and members_agents are empty."""
+        """Empty members: {} → members_agents are empty."""
         data = {
             'name': 'Management',
             'lead': 'office-manager',
@@ -461,7 +392,6 @@ class TestLoadManagementTeamWithEmptyMembersBlock(unittest.TestCase):
         home = os.path.join(self._tmpdir, '.teaparty2')
         _make_teaparty_yaml(home, data)
         team = load_management_team(teaparty_home=home)
-        self.assertEqual(team.members_projects, [])
         self.assertEqual(team.members_agents, [])
 
 
@@ -577,8 +507,8 @@ class TestToggleProjectMembershipWorkgroup(unittest.TestCase):
         self._tmpdir = tempfile.mkdtemp()
         data = _minimal_project_data(
             workgroups=[
-                {'name': 'Coding', 'config': '.teaparty/workgroups/coding.yaml'},
-                {'name': 'Research', 'config': '.teaparty/workgroups/research.yaml'},
+                {'name': 'Coding', 'config': '.teaparty/management/workgroups/coding.yaml'},
+                {'name': 'Research', 'config': '.teaparty/management/workgroups/research.yaml'},
             ],
             members={'workgroups': ['Coding']},
         )
@@ -609,60 +539,6 @@ class TestToggleProjectMembershipWorkgroup(unittest.TestCase):
         self.assertNotIn('Research', team.members_workgroups)
 
 
-# ── AC6: bridge /api/config exposes project active status ────────────────────
-
-class TestBridgeConfigProjectsIncludeActiveFlag(unittest.TestCase):
-    """GET /api/config projects list must include active: bool from members_projects."""
-
-    def setUp(self):
-        self._tmpdir = tempfile.mkdtemp()
-        self._home = os.path.join(self._tmpdir, '.teaparty')
-        data = _minimal_management_data(
-            projects=[
-                {'name': 'Active', 'path': os.path.join(self._tmpdir, 'active'), 'config': '.teaparty/project.yaml'},
-                {'name': 'Inactive', 'path': os.path.join(self._tmpdir, 'inactive'), 'config': '.teaparty/project.yaml'},
-            ],
-            members={'projects': ['Active'], 'agents': []},
-        )
-        _make_teaparty_yaml(self._home, data)
-        # Create project directories so discover_projects can validate them
-        for sub in ('active', 'inactive'):
-            d = os.path.join(self._tmpdir, sub)
-            os.makedirs(os.path.join(d, '.git'), exist_ok=True)
-            os.makedirs(os.path.join(d, '.claude'), exist_ok=True)
-            os.makedirs(os.path.join(d, '.teaparty'), exist_ok=True)
-
-    def test_active_project_has_active_true(self):
-        """A project in members_projects must have active=True in the response."""
-        from orchestrator.config_reader import discover_projects
-        team = load_management_team(teaparty_home=self._home)
-        projects = discover_projects(team)
-        active_projects = set(team.members_projects)
-        for p in projects:
-            p['active'] = p['name'] in active_projects
-        active_entry = next(p for p in projects if p['name'] == 'Active')
-        self.assertTrue(active_entry['active'])
-
-    def test_inactive_project_has_active_false(self):
-        """A project NOT in members_projects must have active=False in the response."""
-        from orchestrator.config_reader import discover_projects
-        team = load_management_team(teaparty_home=self._home)
-        projects = discover_projects(team)
-        active_projects = set(team.members_projects)
-        for p in projects:
-            p['active'] = p['name'] in active_projects
-        inactive_entry = next(p for p in projects if p['name'] == 'Inactive')
-        self.assertFalse(inactive_entry['active'])
-
-    def test_active_flag_reflects_toggle(self):
-        """After toggling a project, the active flag changes correctly."""
-        from orchestrator.config_reader import discover_projects
-        # Deactivate 'Active'
-        toggle_management_membership(self._home, 'project', 'Active', False)
-        team = load_management_team(teaparty_home=self._home)
-        projects = discover_projects(team)
-        active_projects = set(team.members_projects)
-        for p in projects:
-            p['active'] = p['name'] in active_projects
-        active_entry = next(p for p in projects if p['name'] == 'Active')
-        self.assertFalse(active_entry['active'])
+# ── Bridge project active flag removed ───────────────────────────────────────
+# TestBridgeConfigProjectsIncludeActiveFlag was removed:
+# members_projects was dead weight (#379). All registered projects are active.

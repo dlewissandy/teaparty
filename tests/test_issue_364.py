@@ -43,7 +43,7 @@ def _make_parent_state_file(tmpdir: str) -> str:
 
 def _make_project_team(registered: list[str], members: list[str]) -> ProjectTeam:
     """Build a ProjectTeam with the given registered and member workgroup names."""
-    workgroups = [WorkgroupEntry(name=n, config=f'.teaparty/workgroups/{n.lower()}.yaml')
+    workgroups = [WorkgroupEntry(name=n, config=f'.teaparty/management/workgroups/{n.lower()}.yaml')
                   for n in registered]
     return ProjectTeam(
         name='TestProject',
@@ -215,7 +215,7 @@ class TestDispatchGuardWithWorkgroupRef(unittest.TestCase):
         team = ProjectTeam(
             name='TestProject',
             workgroups=[
-                WorkgroupEntry(name='Coding', config='.teaparty/workgroups/coding.yaml'),
+                WorkgroupEntry(name='Coding', config='.teaparty/management/workgroups/coding.yaml'),
                 WorkgroupRef(ref='configuration'),
             ],
             members_workgroups=['Coding'],
@@ -243,7 +243,7 @@ class TestConfigWorkgroupYamlState(unittest.TestCase):
     """
 
     _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    _PROJECT_YAML = os.path.join(_REPO_ROOT, '.teaparty.local', 'project.yaml')
+    _PROJECT_YAML = os.path.join(_REPO_ROOT, '.teaparty', 'project', 'project.yaml')
     _TEAPARTY_HOME = os.path.join(_REPO_ROOT, '.teaparty')
 
     def test_configuration_workgroup_registered_in_project_yaml(self):
@@ -267,20 +267,20 @@ class TestConfigWorkgroupYamlState(unittest.TestCase):
     def test_configuration_workgroup_registered_in_teaparty_yaml(self):
         """Configuration workgroup must appear in teaparty.yaml workgroups: catalog."""
         import yaml
-        with open(os.path.join(self._TEAPARTY_HOME, 'teaparty.yaml')) as f:
+        with open(os.path.join(self._TEAPARTY_HOME, 'management', 'teaparty.yaml')) as f:
             data = yaml.safe_load(f)
         wg_names = [wg['name'] for wg in data.get('workgroups', [])]
         self.assertIn('Configuration', wg_names,
             "Configuration must be registered in teaparty.yaml workgroups:")
 
-    def test_teaparty_yaml_members_has_no_workgroups_key(self):
-        """OM dispatches to projects, not workgroups — members: must have no workgroups: key."""
+    def test_teaparty_yaml_members_has_workgroups_key(self):
+        """members.workgroups tracks active workgroups at management level (#376)."""
         import yaml
-        with open(os.path.join(self._TEAPARTY_HOME, 'teaparty.yaml')) as f:
+        with open(os.path.join(self._TEAPARTY_HOME, 'management', 'teaparty.yaml')) as f:
             data = yaml.safe_load(f)
         members = data.get('members', {})
-        self.assertNotIn('workgroups', members,
-            "teaparty.yaml members: must not have workgroups: — OM dispatches to projects only")
+        self.assertIn('workgroups', members,
+            "teaparty.yaml members: must have workgroups: for management-level workgroup membership")
 
 
 # ── Criterion 2: bridge API exposes active field on project workgroups ────────

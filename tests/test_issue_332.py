@@ -40,6 +40,8 @@ def _make_teaparty_home(tmpdir: str) -> str:
 
 def _write_teaparty_yaml(home: str, teams: list[dict], workgroups: list[dict] | None = None) -> None:
     """Write a teaparty.yaml with the given teams and workgroups."""
+    mgmt_dir = os.path.join(home, 'management')
+    os.makedirs(mgmt_dir, exist_ok=True)
     data = {
         'name': 'Management Team',
         'lead': 'office-manager',
@@ -47,22 +49,22 @@ def _write_teaparty_yaml(home: str, teams: list[dict], workgroups: list[dict] | 
         'projects': [{'name': t['name'], 'path': t['path'], 'config': ''} for t in teams],
         'workgroups': workgroups or [],
     }
-    with open(os.path.join(home, 'teaparty.yaml'), 'w') as f:
+    with open(os.path.join(mgmt_dir, 'teaparty.yaml'), 'w') as f:
         yaml.dump(data, f, default_flow_style=False)
 
 
 def _make_valid_project(tmpdir: str, name: str) -> str:
-    """Create a valid TeaParty project directory (with .git, .claude, .teaparty)."""
+    """Create a valid TeaParty project directory (with .git, .teaparty)."""
     project_dir = os.path.join(tmpdir, name.lower().replace(' ', '-'))
     os.makedirs(project_dir)
-    for marker in ['.git', '.claude', '.teaparty']:
+    for marker in ['.git', '.teaparty']:
         os.makedirs(os.path.join(project_dir, marker))
     return project_dir
 
 
 def _make_workgroup_yaml(home: str, name: str = 'Configuration') -> str:
     """Write a minimal workgroup YAML file and return the config path."""
-    wg_dir = os.path.join(home, 'workgroups')
+    wg_dir = os.path.join(home, 'management', 'workgroups')
     os.makedirs(wg_dir, exist_ok=True)
     filename = f'{name.lower()}.yaml'
     path = os.path.join(wg_dir, filename)
@@ -74,7 +76,7 @@ def _make_workgroup_yaml(home: str, name: str = 'Configuration') -> str:
     }
     with open(path, 'w') as f:
         yaml.dump(data, f)
-    return f'workgroups/{filename}'
+    return f'management/workgroups/{filename}'
 
 
 def _make_stream_jsonl(text: str, session_id: str = 'sid-test') -> str:
@@ -283,7 +285,7 @@ class TestLiaisonPromptContainsProjectPath(unittest.TestCase):
         )
 
     def test_invalid_project_path_not_included(self):
-        """A project with an invalid path (missing .git/.claude/.teaparty) must not be included."""
+        """A project with an invalid path (missing .git/.teaparty) must not be included."""
         bad_dir = os.path.join(self.tmpdir, 'nonexistent-project')
         _write_teaparty_yaml(self.home, teams=[{'name': 'BadProject', 'path': bad_dir}])
 
@@ -425,8 +427,8 @@ class TestInvokePassesAgentsFileToClaude(unittest.TestCase):
 
     def setUp(self):
         self.tmpdir = _make_tmpdir()
-        # teaparty.yaml goes directly in tmpdir (= teaparty_home for OfficeManagerSession)
-        os.makedirs(os.path.join(self.tmpdir, 'om'), exist_ok=True)
+        # teaparty.yaml goes under tmpdir/management/ (= teaparty_home for OfficeManagerSession)
+        os.makedirs(os.path.join(self.tmpdir, 'management', 'agents', 'office-manager'), exist_ok=True)
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
@@ -526,8 +528,8 @@ class TestOfficeManagerMdLiaisonNaming(unittest.TestCase):
     """office-manager.md must reflect the slug-based liaison naming convention."""
 
     def _get_agent_def(self) -> str:
-        path = _REPO_ROOT / '.claude' / 'agents' / 'office-manager.md'
-        self.assertTrue(path.exists(), f'office-manager.md not found at {path}')
+        path = _REPO_ROOT / '.teaparty' / 'management' / 'agents' / 'office-manager' / 'agent.md'
+        self.assertTrue(path.exists(), f'office-manager/agent.md not found at {path}')
         return path.read_text()
 
     def test_office_manager_md_mentions_slug_naming_for_liaisons(self):
