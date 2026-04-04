@@ -838,6 +838,174 @@ def unpin_artifact_handler(
     return _ok(f"Unpinned '{path}' from project '{project}'")
 
 
+# ── Read/list tools ──────────────────────────────────────────────────────────
+
+
+def list_projects_handler(teaparty_home: str = '') -> str:
+    """List all registered projects."""
+    home = _teaparty_home(teaparty_home)
+    try:
+        data = _load_teaparty_yaml(home)
+    except FileNotFoundError as e:
+        return _err(str(e))
+    projects = data.get('projects', [])
+    items = [{'name': p.get('name', ''), 'path': p.get('path', '')}
+             for p in projects]
+    return json.dumps({'success': True, 'projects': items})
+
+
+def get_project_handler(name: str, teaparty_home: str = '') -> str:
+    """Get full details for a single project."""
+    if not name or not name.strip():
+        return _err('GetProject requires a non-empty name')
+    home = _teaparty_home(teaparty_home)
+    project_dir = _find_project_path(name, home)
+    if project_dir is None:
+        return _err(f"Project '{name}' not found in registry")
+    data = _load_project_yaml(project_dir)
+    data['path'] = project_dir
+    return json.dumps({'success': True, 'project': data})
+
+
+def list_agents_handler(project_root: str = '') -> str:
+    """List all agent definitions with summary info."""
+    root = _project_root(project_root)
+    agents_dir = _mgmt_agents_dir(os.path.join(root, '.teaparty'))
+    items = []
+    if os.path.isdir(agents_dir):
+        for name in sorted(os.listdir(agents_dir)):
+            path = os.path.join(agents_dir, name, 'agent.md')
+            if os.path.isfile(path):
+                fm, _ = _parse_agent_file(path)
+                items.append({
+                    'name': name,
+                    'description': fm.get('description', ''),
+                    'model': fm.get('model', ''),
+                })
+    return json.dumps({'success': True, 'agents': items})
+
+
+def get_agent_handler(name: str, project_root: str = '') -> str:
+    """Get full details for a single agent definition."""
+    if not name or not name.strip():
+        return _err('GetAgent requires a non-empty name')
+    root = _project_root(project_root)
+    agents_dir = _mgmt_agents_dir(os.path.join(root, '.teaparty'))
+    path = os.path.join(agents_dir, name, 'agent.md')
+    if not os.path.isfile(path):
+        return _err(f"Agent '{name}' not found at {path}")
+    fm, body = _parse_agent_file(path)
+    return json.dumps({'success': True, 'agent': {
+        'name': name, 'path': path, **fm, 'body': body,
+    }})
+
+
+def list_skills_handler(project_root: str = '') -> str:
+    """List all skill definitions with summary info."""
+    root = _project_root(project_root)
+    skills_dir = _mgmt_skills_dir(os.path.join(root, '.teaparty'))
+    items = []
+    if os.path.isdir(skills_dir):
+        for name in sorted(os.listdir(skills_dir)):
+            path = os.path.join(skills_dir, name, 'SKILL.md')
+            if os.path.isfile(path):
+                fm, _ = _parse_skill_file(path)
+                items.append({
+                    'name': name,
+                    'description': fm.get('description', ''),
+                    'user-invocable': fm.get('user-invocable', False),
+                })
+    return json.dumps({'success': True, 'skills': items})
+
+
+def get_skill_handler(name: str, project_root: str = '') -> str:
+    """Get full details for a single skill definition."""
+    if not name or not name.strip():
+        return _err('GetSkill requires a non-empty name')
+    root = _project_root(project_root)
+    skills_dir = _mgmt_skills_dir(os.path.join(root, '.teaparty'))
+    path = os.path.join(skills_dir, name, 'SKILL.md')
+    if not os.path.isfile(path):
+        return _err(f"Skill '{name}' not found at {path}")
+    fm, body = _parse_skill_file(path)
+    return json.dumps({'success': True, 'skill': {
+        'name': name, 'path': path, **fm, 'body': body,
+    }})
+
+
+def list_workgroups_handler(teaparty_home: str = '') -> str:
+    """List all workgroup definitions."""
+    home = _teaparty_home(teaparty_home)
+    wg_dir = _mgmt_workgroups_dir(home)
+    items = []
+    if os.path.isdir(wg_dir):
+        for fname in sorted(os.listdir(wg_dir)):
+            if fname.endswith('.yaml'):
+                path = os.path.join(wg_dir, fname)
+                with open(path) as f:
+                    data = yaml.safe_load(f) or {}
+                items.append({
+                    'name': data.get('name', fname[:-5]),
+                    'description': data.get('description', ''),
+                    'lead': data.get('lead', ''),
+                })
+    return json.dumps({'success': True, 'workgroups': items})
+
+
+def get_workgroup_handler(name: str, teaparty_home: str = '') -> str:
+    """Get full details for a single workgroup."""
+    if not name or not name.strip():
+        return _err('GetWorkgroup requires a non-empty name')
+    home = _teaparty_home(teaparty_home)
+    path = os.path.join(_mgmt_workgroups_dir(home), f'{name}.yaml')
+    if not os.path.exists(path):
+        return _err(f"Workgroup '{name}' not found at {path}")
+    with open(path) as f:
+        data = yaml.safe_load(f) or {}
+    return json.dumps({'success': True, 'workgroup': data})
+
+
+def list_hooks_handler(project_root: str = '') -> str:
+    """List all hooks grouped by event."""
+    root = _project_root(project_root)
+    settings_path = _mgmt_settings_yaml(os.path.join(root, '.teaparty'))
+    data = _load_settings(settings_path)
+    hooks = data.get('hooks', {})
+    items = []
+    for event, entries in hooks.items():
+        for entry in entries:
+            items.append({
+                'event': event,
+                'matcher': entry.get('matcher', ''),
+                'hooks': entry.get('hooks', []),
+            })
+    return json.dumps({'success': True, 'hooks': items})
+
+
+def list_scheduled_tasks_handler(teaparty_home: str = '') -> str:
+    """List all scheduled tasks."""
+    home = _teaparty_home(teaparty_home)
+    try:
+        data = _load_teaparty_yaml(home)
+    except FileNotFoundError as e:
+        return _err(str(e))
+    scheduled = data.get('scheduled', [])
+    return json.dumps({'success': True, 'scheduled_tasks': scheduled})
+
+
+def list_pins_handler(project: str, teaparty_home: str = '') -> str:
+    """List all artifact pins for a project."""
+    if not project or not project.strip():
+        return _err('ListPins requires a non-empty project')
+    home = _teaparty_home(teaparty_home)
+    project_dir = _find_project_path(project, home)
+    if project_dir is None:
+        return _err(f"Project '{project}' not found in registry")
+    data = _load_project_yaml(project_dir)
+    pins = data.get('artifact_pins', [])
+    return json.dumps({'success': True, 'pins': pins})
+
+
 # ── Agent tools ───────────────────────────────────────────────────────────────
 
 def create_agent_handler(
@@ -1395,6 +1563,143 @@ def create_server() -> FastMCP:
         return await intervention_handler(
             'reprioritize_dispatch', dispatch_id=dispatch_id, priority=priority,
         )
+
+    # ── Read/list tools ──────────────────────────────────────────────────────
+
+    @server.tool()
+    async def ListProjects(teaparty_home: str = '') -> str:
+        """List all registered projects.
+
+        Returns project names and paths for all projects registered in
+        teaparty.yaml (both inline and external-projects).
+
+        Args:
+            teaparty_home: Override for .teaparty/ directory path.
+        """
+        return list_projects_handler(teaparty_home=teaparty_home)
+
+    @server.tool()
+    async def GetProject(name: str, teaparty_home: str = '') -> str:
+        """Get full configuration for a registered project.
+
+        Returns the project's project.yaml contents including lead,
+        decider, humans, workgroups, and artifact pins.
+
+        Args:
+            name: Project name as registered in teaparty.yaml.
+            teaparty_home: Override for .teaparty/ directory path.
+        """
+        return get_project_handler(name=name, teaparty_home=teaparty_home)
+
+    @server.tool()
+    async def ListAgents(project_root: str = '') -> str:
+        """List all agent definitions with summary info.
+
+        Returns name, description, and model for each agent found in
+        the agents/ directory.
+
+        Args:
+            project_root: Override for project root directory.
+        """
+        return list_agents_handler(project_root=project_root)
+
+    @server.tool()
+    async def GetAgent(name: str, project_root: str = '') -> str:
+        """Get full definition for a single agent.
+
+        Returns all frontmatter fields (name, description, model, tools,
+        maxTurns, skills) and the body text.
+
+        Args:
+            name: Agent name.
+            project_root: Override for project root directory.
+        """
+        return get_agent_handler(name=name, project_root=project_root)
+
+    @server.tool()
+    async def ListSkills(project_root: str = '') -> str:
+        """List all skill definitions with summary info.
+
+        Returns name, description, and user-invocable flag for each
+        skill found in the skills/ directory.
+
+        Args:
+            project_root: Override for project root directory.
+        """
+        return list_skills_handler(project_root=project_root)
+
+    @server.tool()
+    async def GetSkill(name: str, project_root: str = '') -> str:
+        """Get full definition for a single skill.
+
+        Returns all frontmatter fields and the body text.
+
+        Args:
+            name: Skill name.
+            project_root: Override for project root directory.
+        """
+        return get_skill_handler(name=name, project_root=project_root)
+
+    @server.tool()
+    async def ListWorkgroups(teaparty_home: str = '') -> str:
+        """List all workgroup definitions with summary info.
+
+        Returns name, description, and lead for each workgroup YAML
+        found in the workgroups/ directory.
+
+        Args:
+            teaparty_home: Override for .teaparty/ directory path.
+        """
+        return list_workgroups_handler(teaparty_home=teaparty_home)
+
+    @server.tool()
+    async def GetWorkgroup(name: str, teaparty_home: str = '') -> str:
+        """Get full configuration for a single workgroup.
+
+        Returns all fields: name, description, lead, agents, skills, norms.
+
+        Args:
+            name: Workgroup name.
+            teaparty_home: Override for .teaparty/ directory path.
+        """
+        return get_workgroup_handler(name=name, teaparty_home=teaparty_home)
+
+    @server.tool()
+    async def ListHooks(project_root: str = '') -> str:
+        """List all hooks from settings.yaml.
+
+        Returns each hook entry with its event, matcher, and handler
+        configuration.
+
+        Args:
+            project_root: Override for project root directory.
+        """
+        return list_hooks_handler(project_root=project_root)
+
+    @server.tool()
+    async def ListScheduledTasks(teaparty_home: str = '') -> str:
+        """List all scheduled tasks from teaparty.yaml.
+
+        Returns each task with name, schedule, skill, args, and
+        enabled status.
+
+        Args:
+            teaparty_home: Override for .teaparty/ directory path.
+        """
+        return list_scheduled_tasks_handler(teaparty_home=teaparty_home)
+
+    @server.tool()
+    async def ListPins(project: str, teaparty_home: str = '') -> str:
+        """List all artifact pins for a project.
+
+        Returns each pin's path and label from the project's
+        artifact_pins list.
+
+        Args:
+            project: Project name as registered in teaparty.yaml.
+            teaparty_home: Override for .teaparty/ directory path.
+        """
+        return list_pins_handler(project=project, teaparty_home=teaparty_home)
 
     # ── Config tools ──────────────────────────────────────────────────────────
 
