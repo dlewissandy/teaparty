@@ -306,14 +306,36 @@ function sectionCard(title, items, opts) {
   return '<div class="section"><div class="section-header">' + title + '<span style="flex:1"></span>' + buttons + '</div><div class="section-scroll">' + body + '</div></div>';
 }
 
-function sourceBadge(source) {
-  if (!source) return '';
-  return '<span class="source-badge source-' + source + '">' + source + '</span>';
-}
-
-function overrideBadge(overrides) {
-  if (!overrides || overrides.length === 0) return '';
-  return '<span class="override-indicator">' + overrides.join(', ') + ' overridden</span>';
+// ── Unified card renderer ──────────────────────────────────────────────────
+// opts: { icon, iconClass, iconStyle, title, meta, source, overrides,
+//         badge, badgeClass, active, toggleScope, toggleType, toggleName,
+//         toggleExtra, onClick, trailing }
+function itemCard(opts) {
+  var o = opts || {};
+  var isActive = o.active;
+  var cls = 'item';
+  if (isActive === true) cls += ' item-catalog-active';
+  else if (isActive === false) cls += ' item-catalog-inactive';
+  var click = o.onClick ? ' onclick="' + o.onClick + '" style="cursor:pointer"' : '';
+  var iconStyle = o.iconStyle ? ' style="' + o.iconStyle + '"' : '';
+  var iconCls = o.iconClass ? ' ' + o.iconClass : '';
+  var html = '<div class="' + cls + '"' + click + '>';
+  html += '<div class="item-icon' + iconCls + '"' + iconStyle + '>' + (o.icon || '') + '</div>';
+  html += '<div class="item-body"><div class="item-title">' + (o.title || '') + '</div>';
+  if (o.meta) html += '<div class="item-meta">' + o.meta + '</div>';
+  html += '</div>';
+  // Trailing elements: toggle, source badge, type badge, custom trailing
+  if (o.toggleScope) {
+    var onCls = isActive ? ' toggle-on' : '';
+    var tExtra = o.toggleExtra ? ",'" + o.toggleExtra + "'" : '';
+    html += '<span class="catalog-toggle' + onCls + '" onclick="event.stopPropagation();toggleMembership(\'' + o.toggleScope + '\',\'' + o.toggleType + '\',\'' + o.toggleName + '\',' + !isActive + tExtra + ')"></span>';
+  }
+  if (o.trailing) html += o.trailing;
+  if (o.source) html += '<span class="source-badge source-' + o.source + '">' + o.source + '</span>';
+  if (o.overrides && o.overrides.length) html += '<span class="override-indicator">' + o.overrides.join(', ') + ' overridden</span>';
+  if (o.badge) html += '<span class="item-badge ' + (o.badgeClass || '') + '">' + o.badge + '</span>';
+  html += '</div>';
+  return html;
 }
 
 function setBreadcrumb(html) {
@@ -372,82 +394,52 @@ async function renderGlobal() {
 
   // Subteams: projects + workgroups unified
   var subteamItems = [];
-
-  // Projects as subteams
   projects.forEach(function(p) {
     var r = rosterByProject[p.name];
-    var leadName = r ? r.name : '';
-    var desc = r ? r.description : '';
-    var cardClick = ' onclick="configNav(\'project\',\'' + p.name + '\')" style="cursor:pointer"';
-    subteamItems.push('<div class="item item-catalog-active"' + cardClick + '><div class="item-icon icon-project">&#9654;</div><div class="item-body"><div class="item-title">' + p.name + '</div><div class="item-meta">' + (desc || '') + '</div>' + (leadName ? '<div class="item-meta">' + leadName + '</div>' : '') + '</div><span class="item-badge badge-project">project</span></div>');
+    var meta = [r ? r.description : '', r ? r.name : ''].filter(Boolean).join(' · ');
+    subteamItems.push(itemCard({ icon: '&#9654;', iconClass: 'icon-project', title: p.name, meta: meta, active: true, badge: 'project', badgeClass: 'badge-project', onClick: "configNav('project','" + p.name + "')" }));
   });
-
-  // Workgroups as subteams
   (workgroupsData || []).forEach(function(w) {
-    var isActive = w.active !== false;
-    var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
-    var cardClick = ' onclick="configNav(\'workgroup\',\'' + w.name + '\')" style="cursor:pointer"';
-    var toggle = '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleMembership(\'global\', \'workgroup\', \'' + w.name + '\', ' + !isActive + ')"></span>';
-    subteamItems.push('<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-workgroup">&#9670;</div><div class="item-body"><div class="item-title">' + w.name + '</div><div class="item-meta">' + (w.description || '') + '</div><div class="item-meta">' + (w.lead || '') + (w.agents_count != null ? ' &middot; ' + w.agents_count + ' agents' : '') + '</div></div>' + toggle + '<span class="item-badge badge-workgroup">workgroup</span></div>');
+    var meta = [w.description || '', (w.lead || '') + (w.agents_count != null ? ' · ' + w.agents_count + ' agents' : '')].filter(Boolean).join(' · ');
+    subteamItems.push(itemCard({ icon: '&#9670;', iconClass: 'icon-workgroup', title: w.name, meta: meta, active: w.active !== false, toggleScope: 'global', toggleType: 'workgroup', toggleName: w.name, badge: 'workgroup', badgeClass: 'badge-workgroup', onClick: "configNav('workgroup','" + w.name + "')" }));
   });
 
   var agentItems = [];
   if (m.lead) {
-    agentItems.push('<div class="item item-catalog-active" onclick="configNav(\'agent\',\'' + m.lead + '\')" style="cursor:pointer"><div class="item-icon icon-member">&#9672;</div><div class="item-body"><div class="item-title">' + m.lead + '</div></div><span class="item-badge badge-lead">lead</span></div>');
+    agentItems.push(itemCard({ icon: '&#9672;', iconClass: 'icon-member', title: m.lead, active: true, badge: 'lead', badgeClass: 'badge-lead', onClick: "configNav('agent','" + m.lead + "')" }));
   }
   (m.agents || []).forEach(function(a) {
     var name = typeof a === 'object' ? a.name : a;
+    if (name === m.lead) return;
     var isActive = typeof a === 'object' ? a.active !== false : true;
-    var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
-    var cardClick = ' onclick="configNav(\'agent\',\'' + name + '\')" style="cursor:pointer"';
-    var toggle = '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleMembership(\'global\', \'agent\', \'' + name + '\', ' + !isActive + ')"></span>';
-    if (name !== m.lead) {
-      agentItems.push('<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-member">&#9672;</div><div class="item-body"><div class="item-title">' + name + '</div></div>' + toggle + '</div>');
-    }
+    agentItems.push(itemCard({ icon: '&#9672;', iconClass: 'icon-member', title: name, active: isActive, toggleScope: 'global', toggleType: 'agent', toggleName: name, onClick: "configNav('agent','" + name + "')" }));
   });
 
-  var participantItems = [];
-  (m.humans || []).forEach(function(h) {
-    var sel = ['decider','advisor','inform','none'].map(function(r) {
-      return '<option value="' + r + '"' + (h.role === r ? ' selected' : '') + '>' + r + '</option>';
-    }).join('');
-    participantItems.push('<div class="item"><div class="item-icon icon-member">&#9786;</div><div class="item-body"><div class="item-title"><a href="chat.html?conv=proxy:' + encodeURIComponent(h.name) + '" target="_blank" style="color:inherit;text-decoration:none" onmouseover="this.style.textDecoration=\'underline\'" onmouseout="this.style.textDecoration=\'none\'">' + h.name + '</a></div></div><select class="role-select" onchange="setParticipantRole(\'global\',\'' + h.name + '\',this.value)">' + sel + '</select></div>');
+  var participantItems = (m.humans || []).map(function(h) {
+    var sel = ['decider','advisor','inform','none'].map(function(r) { return '<option value="' + r + '"' + (h.role === r ? ' selected' : '') + '>' + r + '</option>'; }).join('');
+    return itemCard({ icon: '&#9786;', iconClass: 'icon-member', title: '<a href="chat.html?conv=proxy:' + encodeURIComponent(h.name) + '" target="_blank" style="color:inherit;text-decoration:none" onmouseover="this.style.textDecoration=\'underline\'" onmouseout="this.style.textDecoration=\'none\'">' + h.name + '</a>', trailing: '<select class="role-select" onchange="setParticipantRole(\'global\',\'' + h.name + '\',this.value)">' + sel + '</select>' });
   });
 
   var orgArtifactItems = Object.keys(artifactsData).map(function(heading) {
-    return '<div class="item" onclick="window.open(\'artifacts.html?scope=system&title=Management\',\'_blank\')" style="background:rgba(78,204,163,0.03)"><div class="item-icon" style="background:rgba(78,204,163,0.15);color:var(--green)">&#9654;</div><div class="item-body"><div class="item-title">' + heading + '</div></div></div>';
+    return itemCard({ icon: '&#9654;', iconStyle: 'background:rgba(78,204,163,0.15);color:var(--green)', title: heading, active: true, onClick: "window.open('artifacts.html?scope=system&title=Management','_blank')" });
   });
 
   var skillItems = (m.skills || []).map(function(s) {
     var name = typeof s === 'object' ? s.name : s;
     var file = typeof s === 'object' ? s.file : null;
     var isActive = typeof s === 'object' ? s.active !== false : true;
-    var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
-    var cardClick = file ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + file + '\'),\'_blank\')" style="cursor:pointer"' : '';
-    var toggle = '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleMembership(\'global\', \'skill\', \'' + name + '\', ' + !isActive + ')"></span>';
-    return '<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-skill">&#9881;</div><div class="item-body"><div class="item-title">' + name + '</div></div>' + toggle + '</div>';
+    return itemCard({ icon: '&#9881;', iconClass: 'icon-skill', title: name, active: isActive, toggleScope: 'global', toggleType: 'skill', toggleName: name, onClick: file ? "window.open('artifacts.html?file=' + encodeURIComponent('" + file + "'),'_blank')" : null });
   });
 
   var hookItems = (m.hooks || []).map(function(h) {
     var isActive = h.active !== false;
-    var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
-    var meta = '&project=org' +
-      (h.event ? '&hook_event=' + encodeURIComponent(h.event) : '') +
-      (h.matcher ? '&hook_matcher=' + encodeURIComponent(h.matcher) : '') +
-      (h.type ? '&hook_type=' + encodeURIComponent(h.type) : '');
-    var cardClick = h.file ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + h.file + '\') + \'' + meta + '\',\'_blank\')" style="cursor:pointer"' : '';
-    var toggle = (h.source === 'yaml')
-      ? '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleMembership(\'global\', \'hook\', \'' + (h.event || '') + '\', ' + !isActive + ')"></span>'
-      : '';
-    return '<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-hook">&#9889;</div><div class="item-body"><div class="item-title">' + (h.event || '') + (h.matcher ? ' [' + h.matcher + ']' : '') + '</div><div class="item-meta">' + (h.type || '') + '</div></div>' + toggle + '</div>';
+    var meta = '&project=org' + (h.event ? '&hook_event=' + encodeURIComponent(h.event) : '') + (h.matcher ? '&hook_matcher=' + encodeURIComponent(h.matcher) : '') + (h.type ? '&hook_type=' + encodeURIComponent(h.type) : '');
+    return itemCard({ icon: '&#9889;', iconClass: 'icon-hook', title: (h.event || '') + (h.matcher ? ' [' + h.matcher + ']' : ''), meta: h.type || '', active: isActive, toggleScope: h.source === 'yaml' ? 'global' : null, toggleType: 'hook', toggleName: h.event || '', onClick: h.file ? "window.open('artifacts.html?file=' + encodeURIComponent('" + h.file + "') + '" + meta + "','_blank')" : null });
   });
 
   var cronItems = (m.scheduled || []).map(function(c) {
     var isActive = c.enabled !== false;
-    var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
-    var cardClick = c.file ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + c.file + '\') + \'&project=org\',\'_blank\')" style="cursor:pointer"' : '';
-    var toggle = '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleMembership(\'global\', \'scheduled_task\', \'' + c.name + '\', ' + !isActive + ')"></span>';
-    return '<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-cron">&#9200;</div><div class="item-body"><div class="item-title">' + c.name + '</div><div class="item-meta">' + c.schedule + (c.skill ? ' &middot; ' + c.skill : '') + '</div></div>' + toggle + '</div>';
+    return itemCard({ icon: '&#9200;', iconClass: 'icon-cron', title: c.name, meta: c.schedule + (c.skill ? ' · ' + c.skill : ''), active: isActive, toggleScope: 'global', toggleType: 'scheduled_task', toggleName: c.name, onClick: c.file ? "window.open('artifacts.html?file=' + encodeURIComponent('" + c.file + "') + '&project=org','_blank')" : null });
   });
 
   var subtitle = projects.length + ' projects &middot; ' + (workgroupsData || []).length + ' workgroups &middot; ' + (m.agents || []).length + ' agents';
@@ -508,47 +500,32 @@ async function renderProject(slug) {
   document.title = 'TeaParty \u2014 ' + (team.name || slug) + ' Team';
 
   var wgItems = workgroups.map(function(w) {
-    var src = sourceBadge(w.source);
-    var ovr = overrideBadge(w.overrides);
-    var agentInfo = w.agents_count != null ? w.agents_count + ' agents' : '';
+    var meta = (w.lead || '') + (w.agents_count != null ? ' · ' + w.agents_count + ' agents' : '');
     if (w.name.toLowerCase() === 'configuration') {
-      return '<div class="item" onclick="configNav(\'workgroup\',\'' + w.name + '\',\'' + slug + '\')"><div class="item-icon icon-config">&#9881;</div><div class="item-body"><div class="item-title">' + w.name + ' ' + src + '</div><div class="item-meta">config &middot; ' + (w.lead || '') + '</div></div></div>';
+      return itemCard({ icon: '&#9881;', iconClass: 'icon-config', title: w.name, meta: 'config · ' + (w.lead || ''), source: w.source, onClick: "configNav('workgroup','" + w.name + "','" + slug + "')" });
     }
-    var isActive = w.active === true;
-    var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
-    var cardClick = ' onclick="configNav(\'workgroup\',\'' + w.name + '\',\'' + slug + '\')" style="cursor:pointer"';
-    var toggle = '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleMembership(\'' + slug + '\', \'workgroup\', \'' + w.name + '\', ' + !isActive + ')"></span>';
-    return '<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-workgroup">&#9670;</div><div class="item-body"><div class="item-title">' + w.name + ' ' + src + ' ' + ovr + '</div><div class="item-meta">' + (w.lead || '') + (agentInfo ? ' &middot; ' + agentInfo : '') + '</div></div>' + toggle + '</div>';
+    return itemCard({ icon: '&#9670;', iconClass: 'icon-workgroup', title: w.name, meta: meta, source: w.source, overrides: w.overrides, active: w.active === true, toggleScope: slug, toggleType: 'workgroup', toggleName: w.name, onClick: "configNav('workgroup','" + w.name + "','" + slug + "')" });
   });
 
   var agentItems = [];
   if (team.lead) {
-    agentItems.push('<div class="item item-catalog-active" onclick="configNav(\'agent\',\'' + team.lead + '\',\'' + slug + '\')" style="cursor:pointer"><div class="item-icon icon-member">&#9672;</div><div class="item-body"><div class="item-title">' + team.lead + '</div></div><span class="item-badge badge-lead">lead</span></div>');
+    agentItems.push(itemCard({ icon: '&#9672;', iconClass: 'icon-member', title: team.lead, active: true, badge: 'lead', badgeClass: 'badge-lead', onClick: "configNav('agent','" + team.lead + "','" + slug + "')" }));
   }
   (team.agents || []).forEach(function(a) {
     var name = typeof a === 'object' ? a.name : a;
+    if (name === team.lead) return;
     var source = typeof a === 'object' ? a.source : null;
     var isActive = typeof a === 'object' ? a.active !== false : true;
-    var src = sourceBadge(source);
-    var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
-    var cardClick = ' onclick="configNav(\'agent\',\'' + name + '\',\'' + slug + '\')" style="cursor:pointer"';
-    var toggle = '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleMembership(\'' + slug + '\', \'agent\', \'' + name + '\', ' + !isActive + ')"></span>';
-    if (name !== team.lead) {
-      agentItems.push('<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-member">&#9672;</div><div class="item-body"><div class="item-title">' + name + ' ' + src + '</div></div>' + toggle + '</div>');
-    }
+    agentItems.push(itemCard({ icon: '&#9672;', iconClass: 'icon-member', title: name, source: source, active: isActive, toggleScope: slug, toggleType: 'agent', toggleName: name, onClick: "configNav('agent','" + name + "','" + slug + "')" }));
   });
 
-  var participantItems = [];
-  var managerConvId = team.decider ? 'manager:' + team.decider : 'manager:unknown';
-  (team.humans || []).forEach(function(h) {
-    var sel = ['decider','advisor','inform','none'].map(function(r) {
-      return '<option value="' + r + '"' + (h.role === r ? ' selected' : '') + '>' + r + '</option>';
-    }).join('');
-    participantItems.push('<div class="item"><div class="item-icon icon-member">&#9786;</div><div class="item-body"><div class="item-title"><a href="chat.html?conv=proxy:' + encodeURIComponent(h.name) + '" target="_blank" style="color:inherit;text-decoration:none" onmouseover="this.style.textDecoration=\'underline\'" onmouseout="this.style.textDecoration=\'none\'">' + h.name + '</a></div></div><select class="role-select" onchange="setParticipantRole(\'' + slug + '\',\'' + h.name + '\',this.value)">' + sel + '</select></div>');
+  var participantItems = (team.humans || []).map(function(h) {
+    var sel = ['decider','advisor','inform','none'].map(function(r) { return '<option value="' + r + '"' + (h.role === r ? ' selected' : '') + '>' + r + '</option>'; }).join('');
+    return itemCard({ icon: '&#9786;', iconClass: 'icon-member', title: '<a href="chat.html?conv=proxy:' + encodeURIComponent(h.name) + '" target="_blank" style="color:inherit;text-decoration:none" onmouseover="this.style.textDecoration=\'underline\'" onmouseout="this.style.textDecoration=\'none\'">' + h.name + '</a>', trailing: '<select class="role-select" onchange="setParticipantRole(\'' + slug + '\',\'' + h.name + '\',this.value)">' + sel + '</select>' });
   });
 
   var artifactItems = Object.keys(artifactsData).map(function(heading) {
-    return '<div class="item" onclick="window.open(\'artifacts.html?scope=project&project=' + encodeURIComponent(slug) + '&title=' + encodeURIComponent(team.name || slug) + '\',\'_blank\')" style="background:rgba(78,204,163,0.03)"><div class="item-icon" style="background:rgba(78,204,163,0.15);color:var(--green)">&#9654;</div><div class="item-body"><div class="item-title">' + heading + '</div></div></div>';
+    return itemCard({ icon: '&#9654;', iconStyle: 'background:rgba(78,204,163,0.15);color:var(--green)', title: heading, active: true, onClick: "window.open('artifacts.html?scope=project&project=" + encodeURIComponent(slug) + "&title=" + encodeURIComponent(team.name || slug) + "','_blank')" });
   });
 
   var skillItems = (team.skills || []).map(function(s) {
@@ -556,41 +533,24 @@ async function renderProject(slug) {
     var file = typeof s === 'object' ? s.file : null;
     var source = typeof s === 'object' ? s.source : null;
     var isActive = typeof s === 'object' ? s.active !== false : true;
-    var src = sourceBadge(source);
-    var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
-    var cardClick = file ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + file + '\'),\'_blank\')" style="cursor:pointer"' : '';
-    var toggle = '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleMembership(\'' + slug + '\', \'skill\', \'' + name + '\', ' + !isActive + ')"></span>';
-    return '<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-skill">&#9881;</div><div class="item-body"><div class="item-title">' + name + ' ' + src + '</div></div>' + toggle + '</div>';
+    return itemCard({ icon: '&#9881;', iconClass: 'icon-skill', title: name, source: source, active: isActive, toggleScope: slug, toggleType: 'skill', toggleName: name, onClick: file ? "window.open('artifacts.html?file=' + encodeURIComponent('" + file + "'),'_blank')" : null });
   });
 
   var hookItems = (team.hooks || []).map(function(h) {
     var isActive = h.active !== false;
-    var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
-    var meta = '&project=' + encodeURIComponent(slug) +
-      (h.event ? '&hook_event=' + encodeURIComponent(h.event) : '') +
-      (h.matcher ? '&hook_matcher=' + encodeURIComponent(h.matcher) : '') +
-      (h.type ? '&hook_type=' + encodeURIComponent(h.type) : '');
-    var cardClick = h.file ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + h.file + '\') + \'' + meta + '\',\'_blank\')" style="cursor:pointer"' : '';
-    var toggle = (h.source === 'yaml')
-      ? '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleMembership(\'' + slug + '\', \'hook\', \'' + (h.event || '') + '\', ' + !isActive + ')"></span>'
-      : '';
-    return '<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-hook">&#9889;</div><div class="item-body"><div class="item-title">' + (h.event || '') + (h.matcher ? ' [' + h.matcher + ']' : '') + '</div><div class="item-meta">' + (h.type || '') + '</div></div>' + toggle + '</div>';
+    var meta = '&project=' + encodeURIComponent(slug) + (h.event ? '&hook_event=' + encodeURIComponent(h.event) : '') + (h.matcher ? '&hook_matcher=' + encodeURIComponent(h.matcher) : '') + (h.type ? '&hook_type=' + encodeURIComponent(h.type) : '');
+    return itemCard({ icon: '&#9889;', iconClass: 'icon-hook', title: (h.event || '') + (h.matcher ? ' [' + h.matcher + ']' : ''), meta: h.type || '', active: isActive, toggleScope: h.source === 'yaml' ? slug : null, toggleType: 'hook', toggleName: h.event || '', onClick: h.file ? "window.open('artifacts.html?file=' + encodeURIComponent('" + h.file + "') + '" + meta + "','_blank')" : null });
   });
 
   var cronItems = (team.scheduled || []).map(function(c) {
     var isActive = c.enabled !== false;
-    var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
-    var cardClick = c.file ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + c.file + '\') + \'&project=' + encodeURIComponent(slug) + '\',\'_blank\')" style="cursor:pointer"' : '';
-    var toggle = '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleMembership(\'' + slug + '\', \'scheduled_task\', \'' + c.name + '\', ' + !isActive + ')"></span>';
-    return '<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-cron">&#9200;</div><div class="item-body"><div class="item-title">' + c.name + '</div><div class="item-meta">' + c.schedule + (c.skill ? ' &middot; ' + c.skill : '') + '</div></div>' + toggle + '</div>';
+    return itemCard({ icon: '&#9200;', iconClass: 'icon-cron', title: c.name, meta: c.schedule + (c.skill ? ' · ' + c.skill : ''), active: isActive, toggleScope: slug, toggleType: 'scheduled_task', toggleName: c.name, onClick: c.file ? "window.open('artifacts.html?file=' + encodeURIComponent('" + c.file + "') + '&project=" + encodeURIComponent(slug) + "','_blank')" : null });
   });
 
   var pinItems = (pinsData || []).map(function(p) {
-    var icon = p.is_dir ? '&#9654;' : '&#9679;';
-    var click = ' onclick="window.open(\'artifacts.html?project=' + encodeURIComponent(slug) + '\',\'_blank\')" style="cursor:pointer"';
     var displayPath = p.rel_path || p.path;
     var unpin = '<span class="catalog-toggle toggle-on" onclick="event.stopPropagation();unpinProjectPin(\'' + slug + '\',\'' + displayPath.replace(/\\/g, '\\\\').replace(/'/g, "\\'") + '\')"></span>';
-    return '<div class="item item-catalog-active"' + click + '><div class="item-icon" style="background:rgba(78,204,163,0.15);color:var(--green)">' + icon + '</div><div class="item-body"><div class="item-title">' + p.label + '</div><div class="item-meta">' + displayPath + '</div></div>' + unpin + '</div>';
+    return itemCard({ icon: p.is_dir ? '&#9654;' : '&#9679;', iconStyle: 'background:rgba(78,204,163,0.15);color:var(--green)', title: p.label, meta: displayPath, active: true, trailing: unpin, onClick: "window.open('artifacts.html?project=" + encodeURIComponent(slug) + "','_blank')" });
   });
 
   bladeConvId = 'config:project:' + slug;
@@ -646,38 +606,51 @@ async function renderWorkgroup(name, projectSlug) {
 
   var leadItems = [];
   if (wgData.lead) {
-    leadItems.push('<div class="item"><div class="item-icon icon-member">&#9733;</div><div class="item-body"><div class="item-title">' + wgData.lead + '</div><div class="item-meta">workgroup lead</div></div></div>');
+    leadItems.push(itemCard({ icon: '&#9733;', iconClass: 'icon-member', title: wgData.lead, meta: 'workgroup lead' }));
   }
 
   var memberItems = (wgData.agents || []).map(function(a) {
-    var aName = a.name;
     var isActive = a.active !== false;
-    var src = sourceBadge(a.source);
-    var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
-    var cardClick = ' onclick="configNav(\'agent\',\'' + aName + '\',\'' + (projectSlug || '') + '\')" style="cursor:pointer"';
-    var toggle = '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleMembership(\'wg:' + name + '\', \'agent\', \'' + aName + '\', ' + !isActive + ', \'' + (projectSlug || '') + '\')"></span>';
-    return '<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-member">&#9672;</div><div class="item-body"><div class="item-title">' + aName + ' ' + src + '</div><div class="item-meta">' + (a.role || '') + (a.model ? ' &middot; ' + a.model : '') + '</div></div>' + toggle + '</div>';
+    return itemCard({
+      icon: '&#9672;', iconClass: 'icon-member', title: a.name, active: isActive,
+      meta: (a.role || '') + (a.model ? ' &middot; ' + a.model : ''),
+      onClick: "configNav('agent','" + a.name + "','" + (projectSlug || '') + "')",
+      toggleScope: 'wg:' + name, toggleType: 'agent', toggleName: a.name,
+      toggleExtra: projectSlug || '', source: a.source,
+    });
   });
 
   var hookItems = (wgData.hooks || []).map(function(h) {
     var isActive = h.active !== false;
-    var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
-    var toggle = '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleMembership(\'wg:' + name + '\', \'hook\', \'' + (h.event || '') + '\', ' + !isActive + ', \'' + (projectSlug || '') + '\')"></span>';
-    return '<div class="item' + cls + '"><div class="item-icon icon-hook">&#9889;</div><div class="item-body"><div class="item-title">' + (h.event || '') + (h.matcher ? ' [' + h.matcher + ']' : '') + '</div><div class="item-meta">' + (h.type || '') + '</div></div>' + toggle + '</div>';
+    return itemCard({
+      icon: '&#9889;', iconClass: 'icon-hook', active: isActive,
+      title: (h.event || '') + (h.matcher ? ' [' + h.matcher + ']' : ''),
+      meta: h.type || '',
+      toggleScope: 'wg:' + name, toggleType: 'hook', toggleName: h.event || '',
+      toggleExtra: projectSlug || '',
+    });
   });
 
   var humanItems = (wgData.humans || []).map(function(h) {
     var sel = ['decider','advisor','inform','none'].map(function(r) {
       return '<option value="' + r + '"' + (h.role === r ? ' selected' : '') + '>' + r + '</option>';
     }).join('');
-    return '<div class="item"><div class="item-icon icon-member">&#9786;</div><div class="item-body"><div class="item-title"><a href="chat.html?conv=proxy:' + encodeURIComponent(h.name) + '" target="_blank" style="color:inherit;text-decoration:none" onmouseover="this.style.textDecoration=\'underline\'" onmouseout="this.style.textDecoration=\'none\'">' + h.name + '</a></div></div><select class="role-select" onchange="setParticipantRole(\'wg:' + name + '\',\'' + h.name + '\',this.value,\'' + (projectSlug || '') + '\')">' + sel + '</select></div>';
+    var roleSelect = '<select class="role-select" onchange="setParticipantRole(\'wg:' + name + '\',\'' + h.name + '\',this.value,\'' + (projectSlug || '') + '\')">' + sel + '</select>';
+    return itemCard({
+      icon: '&#9786;', iconClass: 'icon-member',
+      title: '<a href="chat.html?conv=proxy:' + encodeURIComponent(h.name) + '" target="_blank" style="color:inherit;text-decoration:none" onmouseover="this.style.textDecoration=\'underline\'" onmouseout="this.style.textDecoration=\'none\'">' + h.name + '</a>',
+      trailing: roleSelect,
+    });
   });
 
   var artifactItems = (wgData.artifacts || []).map(function(a) {
     var label = typeof a === 'object' ? (a.label || a.path || a) : a;
     var path = typeof a === 'object' ? (a.path || '') : a;
     var unpin = '<span class="catalog-toggle toggle-on" onclick="event.stopPropagation();unpinWorkgroupArtifact(\'' + path.replace(/\\/g, '\\\\').replace(/'/g, "\\'") + '\')"></span>';
-    return '<div class="item item-catalog-active"><div class="item-icon" style="background:rgba(78,204,163,0.15);color:var(--green)">&#9654;</div><div class="item-body"><div class="item-title">' + label + '</div><div class="item-meta">' + path + '</div></div>' + unpin + '</div>';
+    return itemCard({
+      icon: '&#9654;', iconStyle: 'background:rgba(78,204,163,0.15);color:var(--green)',
+      title: label, meta: path, active: true, trailing: unpin,
+    });
   });
 
   var contextSection = '';
@@ -687,8 +660,11 @@ async function renderWorkgroup(name, projectSlug) {
       if (cfgResp.ok) {
         var cfgData = await cfgResp.json();
         var projectItems = (cfgData.projects || []).map(function(p) {
-          var cardClick = ' onclick="configNav(\'project\',\'' + p.name + '\')" style="cursor:pointer"';
-          return '<div class="item item-catalog-active"' + cardClick + '><div class="item-icon icon-project">&#9654;</div><div class="item-body"><div class="item-title">' + p.name + '</div><div class="item-meta">' + (p.path || '') + '</div></div></div>';
+          return itemCard({
+            icon: '&#9654;', iconClass: 'icon-project', title: p.name,
+            meta: p.path || '', active: true,
+            onClick: "configNav('project','" + p.name + "')",
+          });
         });
         contextSection = sectionCard('Projects', projectItems, { empty: 'No projects' });
       }
@@ -700,10 +676,12 @@ async function renderWorkgroup(name, projectSlug) {
         var prjData = await prjResp.json();
         var subwgItems = (prjData.workgroups || []).map(function(w) {
           var isActive = w.active === true;
-          var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
-          var cardClick = ' onclick="configNav(\'workgroup\',\'' + w.name + '\',\'' + projectSlug + '\')" style="cursor:pointer"';
-          var toggle = '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleMembership(\'' + projectSlug + '\', \'workgroup\', \'' + w.name + '\', ' + !isActive + ')"></span>';
-          return '<div class="item' + cls + '"' + cardClick + '><div class="item-icon icon-workgroup">&#9670;</div><div class="item-body"><div class="item-title">' + w.name + '</div><div class="item-meta">' + (w.lead || '') + '</div></div>' + toggle + '</div>';
+          return itemCard({
+            icon: '&#9670;', iconClass: 'icon-workgroup', title: w.name,
+            meta: w.lead || '', active: isActive,
+            onClick: "configNav('workgroup','" + w.name + "','" + projectSlug + "')",
+            toggleScope: projectSlug, toggleType: 'workgroup', toggleName: w.name,
+          });
         });
         contextSection = sectionCard('Workgroups', subwgItems, { empty: 'No workgroups' });
       }
@@ -718,7 +696,7 @@ async function renderWorkgroup(name, projectSlug) {
 
   var sections = '<div class="sections">' +
     sectionCard('Lead', leadItems, { empty: 'No lead assigned' }) +
-    sectionCard('Members', memberItems, { addBtn: true, catalogBtn: true, empty: 'No members' }) +
+    sectionCard('Agents', memberItems, { addBtn: true, catalogBtn: true, empty: 'No agents' }) +
     sectionCard('Hooks', hookItems, { addBtn: true, empty: 'No hooks' }) +
     sectionCard('Humans', humanItems, { empty: 'No humans' }) +
     sectionCard('Artifacts', artifactItems, { addBtn: true, browseBtn: 'openFileBrowser(\'workgroup\',\'' + name + '\',\'' + (projectSlug || '') + '\')', empty: 'No artifacts' }) +
@@ -733,7 +711,7 @@ async function renderWorkgroup(name, projectSlug) {
   document.getElementById('content').innerHTML =
     '<div class="pane-title">' + name + '</div>' +
     '<div class="pane-description">' + (wgData.description || '') + '</div>' +
-    '<div class="pane-subtitle">Lead: ' + (wgData.lead || '') + ' &middot; ' + (wgData.agents_count || 0) + ' members</div>' +
+    '<div class="pane-subtitle">Lead: ' + (wgData.lead || '') + ' &middot; ' + (wgData.agents_count || 0) + ' agents</div>' +
     sections;
 }
 
