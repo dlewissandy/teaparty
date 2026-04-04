@@ -330,9 +330,8 @@ class TeaPartyBridge:
 
         # Open persistent agent buses and register them for MessageRelay polling.
         # Agent-name keys are stable and will never collide with a session_id.
-        for agent_name in ('office-manager', 'project-manager', 'proxy-review'):
-            bus = self._get_agent_bus(agent_name)
-            self._buses[agent_name] = bus
+        for agent_name in ('office-manager', 'project-manager', 'proxy-review', 'configuration-lead'):
+            self._get_agent_bus(agent_name)
 
     async def _on_cleanup(self, app: web.Application) -> None:
         for key in ('_poller_task', '_relay_task'):
@@ -1599,13 +1598,17 @@ class TeaPartyBridge:
     }
 
     def _get_agent_bus(self, agent_name: str) -> SqliteMessageBus:
-        """Return the persistent bus for *agent_name*, creating it if needed."""
+        """Return the persistent bus for *agent_name*, creating it if needed.
+
+        Also registers the bus in ``self._buses`` so MessageRelay polls it.
+        """
         bus = self._agent_buses.get(agent_name)
         if bus is None:
             path = agent_bus_path(self.teaparty_home, agent_name)
             os.makedirs(os.path.dirname(path), exist_ok=True)
             bus = SqliteMessageBus(path)
             self._agent_buses[agent_name] = bus
+            self._buses[agent_name] = bus
         return bus
 
     def _bus_for_conversation(self, conv_id: str) -> SqliteMessageBus | None:
