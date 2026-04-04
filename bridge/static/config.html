@@ -653,41 +653,6 @@ async function renderWorkgroup(name, projectSlug) {
     });
   });
 
-  var contextSection = '';
-  if (!projectSlug) {
-    try {
-      var cfgResp = await fetch('/api/config');
-      if (cfgResp.ok) {
-        var cfgData = await cfgResp.json();
-        var projectItems = (cfgData.projects || []).map(function(p) {
-          return itemCard({
-            icon: '&#9654;', iconClass: 'icon-project', title: p.name,
-            meta: p.path || '', active: true,
-            onClick: "configNav('project','" + p.name + "')",
-          });
-        });
-        contextSection = sectionCard('Projects', projectItems, { empty: 'No projects' });
-      }
-    } catch (e) { }
-  } else {
-    try {
-      var prjResp = await fetch('/api/config/' + encodeURIComponent(projectSlug));
-      if (prjResp.ok) {
-        var prjData = await prjResp.json();
-        var subwgItems = (prjData.workgroups || []).map(function(w) {
-          var isActive = w.active === true;
-          return itemCard({
-            icon: '&#9670;', iconClass: 'icon-workgroup', title: w.name,
-            meta: w.lead || '', active: isActive,
-            onClick: "configNav('workgroup','" + w.name + "','" + projectSlug + "')",
-            toggleScope: projectSlug, toggleType: 'workgroup', toggleName: w.name,
-          });
-        });
-        contextSection = sectionCard('Workgroups', subwgItems, { empty: 'No workgroups' });
-      }
-    } catch (e) { }
-  }
-
   var breadcrumb = '<div class="breadcrumb-bar"><a onclick="configNav(\'global\')" style="cursor:pointer">Management Team</a>';
   if (projectSlug) {
     breadcrumb += ' <span>/</span> <a onclick="configNav(\'project\',\'' + projectSlug + '\')" style="cursor:pointer">' + projectSlug + ' Team</a>';
@@ -700,7 +665,6 @@ async function renderWorkgroup(name, projectSlug) {
     sectionCard('Hooks', hookItems, { addBtn: true, empty: 'No hooks' }) +
     sectionCard('Humans', humanItems, { empty: 'No humans' }) +
     sectionCard('Artifacts', artifactItems, { addBtn: true, browseBtn: 'openFileBrowser(\'workgroup\',\'' + name + '\',\'' + (projectSlug || '') + '\')', empty: 'No artifacts' }) +
-    contextSection +
   '</div>';
 
   bladeConvId = 'config:wg:' + (projectSlug || '') + ':' + name;
