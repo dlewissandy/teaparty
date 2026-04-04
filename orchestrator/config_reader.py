@@ -232,7 +232,7 @@ class ProjectTeam:
     humans: list[Human] = field(default_factory=list)
     workgroups: list[WorkgroupRef | WorkgroupEntry] = field(default_factory=list)
     members_workgroups: list[str] = field(default_factory=list)
-    members_skills: list[str] = field(default_factory=list)
+    members_skills: list[str] | None = None
     norms: dict[str, list[str]] = field(default_factory=dict)
     scheduled: list[ScheduledTask] = field(default_factory=list)
     hooks: list[dict[str, str]] = field(default_factory=list)
@@ -400,7 +400,7 @@ def load_project_team(
         humans=_parse_humans(data.get('humans')),
         workgroups=_parse_workgroup_entries(data.get('workgroups')),
         members_workgroups=members.get('workgroups') or [],
-        members_skills=members.get('skills') or [],
+        members_skills=members.get('skills'),
         norms=data.get('norms', {}),
         scheduled=_parse_scheduled(data.get('scheduled')),
         hooks=data.get('hooks', []),
@@ -889,6 +889,7 @@ def toggle_project_membership(
     kind: str,
     name: str,
     active: bool,
+    catalog: list[str] | None = None,
 ) -> None:
     """Add/remove an item from a project team's active list in project.yaml.
 
@@ -896,11 +897,17 @@ def toggle_project_membership(
     For hooks: sets the active flag on the hook entry identified by event name.
     For scheduled_task: sets the enabled flag on the scheduled task entry identified by name.
 
+    When deactivating an item whose membership key doesn't exist yet in the
+    YAML (meaning "all active by default"), the catalog must be provided so
+    the list can be seeded with all items minus the one being deactivated.
+
     Args:
         project_dir: Path to the project root directory.
         kind: 'agent', 'skill', 'hook', or 'scheduled_task'.
         name: Name/event of the item to toggle.
         active: True to activate, False to deactivate.
+        catalog: Full list of available names for this kind, used to seed
+            the membership list on first deactivation.
     """
     if kind not in _MEMBERSHIP_KEYS:
         raise ValueError(f'Invalid membership kind: {kind!r}')
@@ -920,7 +927,10 @@ def toggle_project_membership(
     else:
         key = _MEMBERSHIP_KEYS[kind]
         members = data.setdefault('members', {})
-        current: list = members.get(key) or []
+        current = members.get(key)
+        if current is None:
+            # Key not set = "all active by default". Seed from catalog.
+            current = list(catalog) if catalog else []
         if active:
             if name not in current:
                 current = current + [name]

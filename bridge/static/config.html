@@ -134,9 +134,9 @@ function _renderAgentContent() {
     return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
-  var breadcrumb = '<div class="breadcrumb-bar"><a onclick="configNav(\'global\')" style="cursor:pointer">Global Config</a>';
+  var breadcrumb = '<div class="breadcrumb-bar"><a onclick="configNav(\'global\')" style="cursor:pointer">Management Team</a>';
   if (projectSlug) {
-    breadcrumb += ' <span>/</span> <a onclick="configNav(\'project\',\'' + projectSlug + '\')" style="cursor:pointer">' + projectSlug + '</a>';
+    breadcrumb += ' <span>/</span> <a onclick="configNav(\'project\',\'' + projectSlug + '\')" style="cursor:pointer">' + projectSlug + ' Team</a>';
   }
   breadcrumb += ' <span>/</span> <a>' + name + '</a></div>';
 
@@ -359,7 +359,7 @@ async function renderGlobal() {
   var projects = configData.projects || [];
   omConvId = m.decider ? 'om:' + m.decider : 'om:unknown';
 
-  document.title = 'TeaParty \u2014 Global Configuration';
+  document.title = 'TeaParty \u2014 Management Team';
   bladeConvId = 'config:management';
   document.getElementById('blade-title').textContent = 'Management \u2014 Config Lead';
   _updateBladeIframe();
@@ -505,7 +505,7 @@ async function renderProject(slug) {
 
   omConvId = team.decider ? 'om:' + team.decider : 'om:unknown';
 
-  document.title = 'TeaParty \u2014 ' + (team.name || slug) + ' Configuration';
+  document.title = 'TeaParty \u2014 ' + (team.name || slug) + ' Team';
 
   var wgItems = workgroups.map(function(w) {
     var src = sourceBadge(w.source);
@@ -597,9 +597,9 @@ async function renderProject(slug) {
   document.getElementById('blade-title').textContent = (team.name || slug) + ' \u2014 Config Lead';
   _updateBladeIframe();
 
-  setBreadcrumb('<div class="breadcrumb-bar"><a onclick="configNav(\'global\')" style="cursor:pointer">Global Config</a> <span>/</span> <a>' + (team.name || slug) + '</a></div>');
+  setBreadcrumb('<div class="breadcrumb-bar"><a onclick="configNav(\'global\')" style="cursor:pointer">Management Team</a> <span>/</span> <a>' + (team.name || slug) + ' Team</a></div>');
   document.getElementById('content').innerHTML =
-    '<div class="pane-title">' + (team.name || slug) + '</div>' +
+    '<div class="pane-title">' + (team.name || slug) + ' Team</div>' +
     '<div class="pane-description">' + (team.description || '') + '</div>' +
     '<div class="pane-subtitle">Decider: ' + (team.decider || '') + ' &middot; Lead: ' + (team.lead || '') + '</div>' +
     '<div class="sections">' +
@@ -710,9 +710,9 @@ async function renderWorkgroup(name, projectSlug) {
     } catch (e) { }
   }
 
-  var breadcrumb = '<div class="breadcrumb-bar"><a onclick="configNav(\'global\')" style="cursor:pointer">Global Config</a>';
+  var breadcrumb = '<div class="breadcrumb-bar"><a onclick="configNav(\'global\')" style="cursor:pointer">Management Team</a>';
   if (projectSlug) {
-    breadcrumb += ' <span>/</span> <a onclick="configNav(\'project\',\'' + projectSlug + '\')" style="cursor:pointer">' + projectSlug + '</a>';
+    breadcrumb += ' <span>/</span> <a onclick="configNav(\'project\',\'' + projectSlug + '\')" style="cursor:pointer">' + projectSlug + ' Team</a>';
   }
   breadcrumb += ' <span>/</span> <a>' + name + '</a></div>';
 

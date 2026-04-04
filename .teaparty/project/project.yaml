@@ -11,7 +11,6 @@ workgroups:
 members:
   workgroups:
   - Coding
-  skills: []
 artifact_pins:
 - path: docs/
   label: docs

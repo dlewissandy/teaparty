@@ -563,8 +563,15 @@ class TeaPartyBridge:
                 {'error': 'Configuration workgroup cannot be added to dispatch members'},
                 status=400,
             )
+        # Build catalog for first-deactivation seeding
+        catalog = None
+        if kind == 'skill' and not active:
+            catalog = (
+                discover_skills(project_skills_dir(project_dir))
+                + discover_skills(management_skills_dir(self.teaparty_home))
+            )
         try:
-            toggle_project_membership(project_dir, kind, name, active)
+            toggle_project_membership(project_dir, kind, name, active, catalog=catalog)
         except (FileNotFoundError, ValueError) as exc:
             return web.json_response({'error': str(exc)}, status=404)
         return web.json_response({'ok': True})
@@ -1931,15 +1938,17 @@ class TeaPartyBridge:
         agents_result = []
 
         # Build merged skill list: local first, then shared org skills.
-        # Active state comes from the project's members.skills list.
-        active_skills_set = set(t.members_skills or [])
+        # Active state: None = all active (not configured yet), list = explicit membership.
+        all_active = t.members_skills is None
+        active_skills_set = set(t.members_skills) if t.members_skills is not None else set()
         skills_result = []
         seen_skills: set[str] = set()
         for name in sorted(local_skills or []):
             source = 'local'
             skills_result.append({
                 'name': name, 'source': source,
-                'file': _skill_file(name, source), 'active': name in active_skills_set,
+                'file': _skill_file(name, source),
+                'active': all_active or name in active_skills_set,
             })
             seen_skills.add(name)
         # All org catalog skills not already shown as local
@@ -1949,7 +1958,8 @@ class TeaPartyBridge:
             source = 'shared'
             skills_result.append({
                 'name': name, 'source': source,
-                'file': _skill_file(name, source), 'active': name in active_skills_set,
+                'file': _skill_file(name, source),
+                'active': all_active or name in active_skills_set,
             })
             seen_skills.add(name)
 
