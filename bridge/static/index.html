@@ -272,16 +272,6 @@ function render() {
   orgHtml += '<div><div class="oc-label">Statistics</div><div class="oc-meta">Org-wide metrics</div></div>';
   orgHtml += '</div>';
 
-  orgHtml += '<div class="org-card" onclick="openPage(\'artifacts.html?project=org\')">';
-  orgHtml += '<span class="oc-icon">&#128196;</span>';
-  orgHtml += '<div><div class="oc-label">Org Knowledge</div><div class="oc-meta">organization.md</div></div>';
-  orgHtml += '</div>';
-
-  orgHtml += '<div class="org-card" onclick="openPage(\'chat.html?conv=' + pageState.omConvId + '\')">';
-  orgHtml += '<span class="oc-icon">&#9733;</span>';
-  orgHtml += '<div><div class="oc-label">Office Manager</div><div class="oc-meta">Org-level coordination</div></div>';
-  orgHtml += '</div>';
-
   if (totalEsc > 0) {
     orgHtml += '<div class="org-card" style="border-color:var(--red)">';
     orgHtml += '<span class="attention-dot"></span>';

@@ -18,6 +18,7 @@ import uuid
 from orchestrator.messaging import (
     ConversationType,
     SqliteMessageBus,
+    agent_bus_path,
     make_conversation_id,
 )
 from orchestrator.office_manager import (
@@ -30,7 +31,7 @@ from orchestrator.office_manager import (
 
 def pm_bus_path(teaparty_home: str) -> str:
     """Return the canonical path to the project manager message database."""
-    return os.path.join(teaparty_home, 'management', 'agents', 'project-manager', 'pm-messages.db')
+    return agent_bus_path(teaparty_home, 'project-manager')
 
 
 def read_pm_session_title(teaparty_home: str, project_slug: str, user_id: str) -> str | None:

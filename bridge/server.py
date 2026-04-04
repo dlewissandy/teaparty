@@ -27,15 +27,14 @@ import yaml
 
 from aiohttp import web
 
-from orchestrator.messaging import ConversationType, SqliteMessageBus
-from orchestrator.office_manager import om_bus_path as _om_bus_path, OfficeManagerSession, read_om_session_title
-from orchestrator.project_manager import pm_bus_path as _pm_bus_path, ProjectManagerSession, read_pm_session_title
+from orchestrator.messaging import ConversationType, SqliteMessageBus, agent_bus_path
+from orchestrator.office_manager import OfficeManagerSession, read_om_session_title
+from orchestrator.project_manager import ProjectManagerSession, read_pm_session_title
 from orchestrator.proxy_review import (
-    proxy_bus_path as _proxy_bus_path,
     ProxyReviewSession,
     read_proxy_session_title,
 )
-from orchestrator.config_lead import config_lead_bus_path as _config_lead_bus_path, ConfigLeadSession
+from orchestrator.config_lead import ConfigLeadSession
 from orchestrator.state_reader import StateReader
 from orchestrator.heartbeat import _heartbeat_three_state
 from orchestrator.config_reader import (
@@ -214,30 +213,16 @@ class TeaPartyBridge:
         # Shared bus registry: session_id -> SqliteMessageBus.
         # Populated by the StatePoller; consumed by MessageRelay.
         self._buses: dict[str, SqliteMessageBus] = {}
-        # Office manager bus (persistent, not session-scoped).
-        self._om_bus: SqliteMessageBus | None = None
-        # Per-qualifier asyncio locks: queues concurrent OM invocations rather than dropping them.
+        # Agent buses: agent-name -> SqliteMessageBus (persistent, not session-scoped).
+        self._agent_buses: dict[str, SqliteMessageBus] = {}
+        # Per-qualifier asyncio locks: queues concurrent invocations per agent type.
         self._om_locks: dict[str, asyncio.Lock] = {}
-        # Per-qualifier OM session cache: keeps the OfficeManagerSession alive across invocations
-        # so the --resume session ID is available in memory between turns.
         self._om_sessions: dict[str, OfficeManagerSession] = {}
-        # Project manager bus (persistent, not session-scoped).
-        self._pm_bus: SqliteMessageBus | None = None
-        # Per-qualifier (project_slug:user_id) asyncio locks for PM invocations.
         self._pm_locks: dict[str, asyncio.Lock] = {}
-        # Per-qualifier PM session cache.
         self._pm_sessions: dict[str, ProjectManagerSession] = {}
-        # Proxy review bus (persistent, not session-scoped).
-        self._proxy_bus: SqliteMessageBus | None = None
-        # Per-qualifier asyncio locks for proxy review: queues concurrent invocations.
         self._proxy_locks: dict[str, asyncio.Lock] = {}
-        # Per-qualifier proxy session cache: keeps ProxyReviewSession alive across invocations.
         self._proxy_sessions: dict[str, ProxyReviewSession] = {}
-        # Config lead bus (persistent, not session-scoped).
-        self._config_lead_bus: SqliteMessageBus | None = None
-        # Per-qualifier asyncio locks for config lead invocations.
         self._config_lead_locks: dict[str, asyncio.Lock] = {}
-        # Per-qualifier config lead session cache.
         self._config_lead_sessions: dict[str, ConfigLeadSession] = {}
         # StateReader uses registry-based project discovery.
         self._state_reader = StateReader(
@@ -343,27 +328,11 @@ class TeaPartyBridge:
         app['_poller_task'] = asyncio.create_task(poller.run())
         app['_relay_task'] = asyncio.create_task(relay.run())
 
-        # Open the office manager bus (persistent, not session-scoped).
-        # Add to self._buses so MessageRelay polls it alongside per-session buses.
-        # The 'om' key is stable and will never collide with a session_id.
-        om_path = _om_bus_path(self.teaparty_home)
-        os.makedirs(os.path.dirname(om_path), exist_ok=True)
-        self._om_bus = SqliteMessageBus(om_path)
-        self._buses['om'] = self._om_bus
-
-        # Open the project manager bus (persistent, not session-scoped).
-        # The 'pm' key is stable and will never collide with a session_id.
-        pm_path = _pm_bus_path(self.teaparty_home)
-        os.makedirs(os.path.dirname(pm_path), exist_ok=True)
-        self._pm_bus = SqliteMessageBus(pm_path)
-        self._buses['pm'] = self._pm_bus
-
-        # Open the proxy review bus (persistent, not session-scoped).
-        # The 'proxy' key is stable and will never collide with a session_id.
-        proxy_path = _proxy_bus_path(self.teaparty_home)
-        os.makedirs(os.path.dirname(proxy_path), exist_ok=True)
-        self._proxy_bus = SqliteMessageBus(proxy_path)
-        self._buses['proxy'] = self._proxy_bus
+        # Open persistent agent buses and register them for MessageRelay polling.
+        # Agent-name keys are stable and will never collide with a session_id.
+        for agent_name in ('office-manager', 'project-manager', 'proxy-review'):
+            bus = self._get_agent_bus(agent_name)
+            self._buses[agent_name] = bus
 
     async def _on_cleanup(self, app: web.Application) -> None:
         for key in ('_poller_task', '_relay_task'):
@@ -376,8 +345,11 @@ class TeaPartyBridge:
                     pass
         for bus in self._buses.values():
             bus.close()
-        # self._om_bus is in self._buses['om'] and closed above
-        # self._proxy_bus is in self._buses['proxy'] and closed above
+        # Agent buses registered in self._buses are closed above.
+        # Close any agent buses opened lazily but not in self._buses.
+        for name, bus in self._agent_buses.items():
+            if name not in self._buses:
+                bus.close()
 
     # ── State handlers ────────────────────────────────────────────────────────
 
@@ -865,7 +837,7 @@ class TeaPartyBridge:
 
         # Route office_manager type to the persistent OM bus (issue #290)
         if conv_type == ConversationType.OFFICE_MANAGER:
-            bus = self._get_om_bus()
+            bus = self._get_agent_bus('office-manager')
             convs = bus.active_conversations(conv_type)
             result = []
             for c in convs:
@@ -884,7 +856,7 @@ class TeaPartyBridge:
 
         # Route project_manager type to the persistent PM bus
         if conv_type == ConversationType.PROJECT_MANAGER:
-            bus = self._get_pm_bus()
+            bus = self._get_agent_bus('project-manager')
             convs = bus.active_conversations(conv_type)
             result = []
             for c in convs:
@@ -907,7 +879,7 @@ class TeaPartyBridge:
 
         # Route proxy_review type to the persistent proxy bus (issue #331)
         if conv_type == ConversationType.PROXY_REVIEW:
-            bus = self._get_proxy_bus()
+            bus = self._get_agent_bus('proxy-review')
             convs = bus.active_conversations(conv_type)
             result = []
             for c in convs:
@@ -1334,6 +1306,22 @@ class TeaPartyBridge:
                     path_root = candidate
             if scope_dir is None:
                 return web.json_response({'error': f'workgroup not found: {name}'}, status=404)
+            # Fall back to workgroup YAML artifacts field if no pins.yaml.
+            result = resolve_pins(scope_dir, path_root)
+            if not result:
+                wg_yaml = os.path.join(scope_dir, name + '.yaml')
+                if not os.path.isfile(wg_yaml):
+                    # Workgroup YAML may live directly in the workgroups dir
+                    wg_yaml = os.path.join(os.path.dirname(scope_dir), name + '.yaml')
+                if os.path.isfile(wg_yaml):
+                    with open(wg_yaml) as _f:
+                        wg_data = yaml.safe_load(_f) or {}
+                    for art in wg_data.get('artifacts', []):
+                        rel = art.get('path', '') if isinstance(art, dict) else str(art)
+                        label = (art.get('label', '') if isinstance(art, dict) else '') or os.path.basename(rel.rstrip('/\\'))
+                        abs_path = os.path.normpath(os.path.join(path_root, rel))
+                        result.append({'path': abs_path, 'rel_path': rel, 'label': label, 'is_dir': os.path.isdir(abs_path)})
+            return web.json_response(result)
 
         elif scope == 'job':
             if not name or not project_slug:
@@ -1602,53 +1590,33 @@ class TeaPartyBridge:
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
-    def _get_om_bus(self) -> SqliteMessageBus:
-        """Return the office manager bus, creating it if needed."""
-        if self._om_bus is None:
-            om_path = _om_bus_path(self.teaparty_home)
-            os.makedirs(os.path.dirname(om_path), exist_ok=True)
-            self._om_bus = SqliteMessageBus(om_path)
-        return self._om_bus
+    # Conversation-ID prefix → agent name whose bus owns those conversations.
+    _CONV_PREFIX_TO_AGENT: dict[str, str] = {
+        'om:':     'office-manager',
+        'pm:':     'project-manager',
+        'proxy:':  'proxy-review',
+        'config:': 'configuration-lead',
+    }
 
-    def _get_pm_bus(self) -> SqliteMessageBus:
-        """Return the project manager bus, creating it if needed."""
-        if self._pm_bus is None:
-            pm_path = _pm_bus_path(self.teaparty_home)
-            os.makedirs(os.path.dirname(pm_path), exist_ok=True)
-            self._pm_bus = SqliteMessageBus(pm_path)
-        return self._pm_bus
-
-    def _get_proxy_bus(self) -> SqliteMessageBus:
-        """Return the proxy review bus, creating it if needed."""
-        if self._proxy_bus is None:
-            proxy_path = _proxy_bus_path(self.teaparty_home)
-            os.makedirs(os.path.dirname(proxy_path), exist_ok=True)
-            self._proxy_bus = SqliteMessageBus(proxy_path)
-        return self._proxy_bus
-
-    def _get_config_lead_bus(self) -> SqliteMessageBus:
-        """Return the config lead bus, creating it if needed."""
-        if self._config_lead_bus is None:
-            config_path = _config_lead_bus_path(self.teaparty_home)
-            os.makedirs(os.path.dirname(config_path), exist_ok=True)
-            self._config_lead_bus = SqliteMessageBus(config_path)
-        return self._config_lead_bus
+    def _get_agent_bus(self, agent_name: str) -> SqliteMessageBus:
+        """Return the persistent bus for *agent_name*, creating it if needed."""
+        bus = self._agent_buses.get(agent_name)
+        if bus is None:
+            path = agent_bus_path(self.teaparty_home, agent_name)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            bus = SqliteMessageBus(path)
+            self._agent_buses[agent_name] = bus
+        return bus
 
     def _bus_for_conversation(self, conv_id: str) -> SqliteMessageBus | None:
         """Find the bus that owns a conversation.
 
-        Office manager conversations (om:*) go to the OM bus.
-        Proxy review conversations (proxy:*) go to the proxy bus.
+        Persistent agent conversations are routed by conv_id prefix.
         All other conversations are searched across active session buses.
         """
-        if conv_id.startswith('om:'):
-            return self._get_om_bus()
-        if conv_id.startswith('pm:'):
-            return self._get_pm_bus()
-        if conv_id.startswith('proxy:'):
-            return self._get_proxy_bus()
-        if conv_id.startswith('config:'):
-            return self._get_config_lead_bus()
+        for prefix, agent_name in self._CONV_PREFIX_TO_AGENT.items():
+            if conv_id.startswith(prefix):
+                return self._get_agent_bus(agent_name)
         for bus in self._buses.values():
             try:
                 if bus.get_conversation(conv_id) is not None:

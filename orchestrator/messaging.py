@@ -36,6 +36,22 @@ if TYPE_CHECKING:
 _log = logging.getLogger('orchestrator.messaging')
 
 
+def agent_bus_path(teaparty_home: str, agent_name: str) -> str:
+    """Return the canonical path to an agent's persistent message database.
+
+    Convention: {teaparty_home}/management/agents/{agent-name}/{agent-name}-messages.db
+
+    Every agent has a persistent bus at this path.  The bridge and orchestrator
+    both use this function to locate the same database.  Agent name is the
+    kebab-case directory name under management/agents/ (e.g. 'office-manager',
+    'teaparty-lead', 'proxy-review').
+    """
+    return os.path.join(
+        teaparty_home, 'management', 'agents', agent_name,
+        f'{agent_name}-messages.db',
+    )
+
+
 class ConversationType(Enum):
     OFFICE_MANAGER = 'office_manager'    # One per human, persistent across days/weeks
     PROJECT_MANAGER = 'project_manager'  # One per project+human, persistent

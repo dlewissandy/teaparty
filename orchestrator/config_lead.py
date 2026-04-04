@@ -28,6 +28,7 @@ import tempfile
 from orchestrator.messaging import (
     ConversationType,
     SqliteMessageBus,
+    agent_bus_path,
     make_conversation_id,
 )
 from orchestrator.office_manager import (
@@ -40,7 +41,7 @@ from orchestrator.office_manager import (
 
 def config_lead_bus_path(teaparty_home: str) -> str:
     """Return the canonical path to the config lead message database."""
-    return os.path.join(teaparty_home, 'management', 'agents', 'configuration-lead', 'config-messages.db')
+    return agent_bus_path(teaparty_home, 'configuration-lead')
 
 
 class ConfigLeadSession:

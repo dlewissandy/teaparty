@@ -423,14 +423,9 @@ async def _invoke_review_agent(prompt: str) -> str:
 # ── Path helpers (bridge-facing) ─────────────────────────────────────────────
 
 def proxy_bus_path(teaparty_home: str) -> str:
-    """Return the canonical path to the proxy review message database.
-
-    The proxy database is persistent and not session-scoped.  It lives at
-    {teaparty_home}/management/agents/proxy-review/proxy-messages.db,
-    separate from per-session messages.db files.  Both the bridge and the
-    orchestrator use this function to locate the same database.  Issue #331.
-    """
-    return os.path.join(teaparty_home, 'management', 'agents', 'proxy-review', 'proxy-messages.db')
+    """Return the canonical path to the proxy review message database."""
+    from orchestrator.messaging import agent_bus_path
+    return agent_bus_path(teaparty_home, 'proxy-review')
 
 
 def proxy_memory_path(teaparty_home: str) -> str:

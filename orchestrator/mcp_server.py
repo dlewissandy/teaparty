@@ -1044,6 +1044,17 @@ def create_agent_handler(
 
     body_text = body if body.startswith('\n') else f'\n{body}'
     _write_agent_file(path, fm, body_text)
+
+    # Write default pins.yaml so every agent has prompt and settings pinned.
+    from orchestrator.config_reader import write_pins
+    pins_dir = os.path.dirname(path)
+    pins_path = os.path.join(pins_dir, 'pins.yaml')
+    if not os.path.exists(pins_path):
+        write_pins(pins_dir, [
+            {'path': 'agent.md', 'label': 'Prompt & Identity'},
+            {'path': 'settings.yaml', 'label': 'Tool & File Permissions'},
+        ])
+
     return _ok(f"Agent '{name}' created at {path}", path=path)
 
 
