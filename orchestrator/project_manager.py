@@ -59,10 +59,12 @@ class ProjectManagerSession:
     invocations.
     """
 
-    def __init__(self, teaparty_home: str, project_slug: str, user_id: str):
+    def __init__(self, teaparty_home: str, project_slug: str, user_id: str,
+                 llm_backend: str = 'claude'):
         self.teaparty_home = teaparty_home
         self.project_slug = project_slug
         self.user_id = user_id
+        self._llm_backend = llm_backend
         self._infra_dir = os.path.join(teaparty_home, 'management', 'agents', 'project-manager')
         self.lead = f'{project_slug}-project-manager'
         self.conversation_id = make_conversation_id(
@@ -135,7 +137,7 @@ class ProjectManagerSession:
     async def invoke(self, *, cwd: str) -> str:
         """Invoke the project manager agent to respond to the current conversation."""
         import asyncio
-        from orchestrator.claude_runner import ClaudeRunner
+        from orchestrator.claude_runner import create_runner
 
         self.load_state()
         is_fresh_session = self.claude_session_id is None
@@ -152,10 +154,11 @@ class ProjectManagerSession:
         os.close(stream_fd)
 
         try:
-            runner = ClaudeRunner(
-                prompt=prompt,
+            runner = create_runner(
+                prompt,
                 cwd=cwd,
                 stream_file=stream_path,
+                backend=self._llm_backend,
                 lead=self.lead,
                 permission_mode='default',
                 settings={

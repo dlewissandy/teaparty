@@ -13,7 +13,7 @@ import signal
 import tempfile
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Protocol
 
 from orchestrator.context_budget import ContextBudget
 from orchestrator.events import Event, EventBus, EventType
@@ -48,6 +48,39 @@ class ClaudeResult:
         - '529' (HTTP status code)
         """
         return _stderr_indicates_overload(self.stderr_lines)
+
+
+class LLMRunner(Protocol):
+    """Minimal interface for any LLM backend."""
+
+    async def run(self) -> ClaudeResult: ...
+
+
+def create_runner(
+    prompt: str,
+    *,
+    cwd: str,
+    stream_file: str,
+    backend: str = 'claude',
+    **kwargs: Any,
+) -> LLMRunner:
+    """Create an LLM runner for the given backend.
+
+    Backends:
+      'claude' — ClaudeRunner (default, production)
+      'ollama' — OllamaRunner (cheap local model)
+      'deterministic' — DeterministicRunner (scripted responses for tests)
+    """
+    if backend == 'claude':
+        return ClaudeRunner(prompt, cwd=cwd, stream_file=stream_file, **kwargs)
+    elif backend == 'ollama':
+        from orchestrator.ollama_runner import OllamaRunner
+        return OllamaRunner(prompt, cwd=cwd, stream_file=stream_file, **kwargs)
+    elif backend == 'deterministic':
+        from orchestrator.deterministic_runner import DeterministicRunner
+        return DeterministicRunner(prompt, cwd=cwd, stream_file=stream_file, **kwargs)
+    else:
+        raise ValueError(f"Unknown LLM backend: {backend!r}")
 
 
 class ClaudeRunner:

@@ -379,6 +379,7 @@ class Session:
             human_presence=self.human_presence,
             cost_tracker=self._resolve_cost_tracker(project_dir),
             intervention_queue=self._intervention_queue,
+            llm_backend=os.environ.get('TEAPARTY_LLM_BACKEND', 'claude'),
         )
 
         result = await orchestrator.run()

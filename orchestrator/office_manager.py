@@ -392,10 +392,11 @@ class OfficeManagerSession:
     session ID is created.
     """
 
-    def __init__(self, teaparty_home: str, user_id: str):
+    def __init__(self, teaparty_home: str, user_id: str, llm_backend: str = 'claude'):
         self.teaparty_home = teaparty_home
         self._infra_dir = os.path.join(teaparty_home, 'management', 'agents', 'office-manager')
         self.user_id = user_id
+        self._llm_backend = llm_backend
         self.conversation_id = make_conversation_id(
             ConversationType.OFFICE_MANAGER, user_id,
         )
@@ -488,7 +489,7 @@ class OfficeManagerSession:
         """
         import asyncio
         import tempfile
-        from orchestrator.claude_runner import ClaudeRunner
+        from orchestrator.claude_runner import create_runner
 
         self.load_state()
         is_fresh_session = self.claude_session_id is None
@@ -528,10 +529,11 @@ class OfficeManagerSession:
             agents_path = None
 
         try:
-            runner = ClaudeRunner(
-                prompt=prompt,
+            runner = create_runner(
+                prompt,
                 cwd=cwd,
                 stream_file=stream_path,
+                backend=self._llm_backend,
                 agents_file=agents_path,
                 lead='office-manager',
                 permission_mode='default',

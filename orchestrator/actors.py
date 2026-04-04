@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
-from orchestrator.claude_runner import ClaudeRunner, ClaudeResult
+from orchestrator.claude_runner import ClaudeResult, create_runner
 from orchestrator.events import (
     Event, EventBus, EventType, InputRequest,
 )
@@ -153,8 +153,9 @@ MIN_EXECUTION_SECONDS = 120
 class AgentRunner:
     """Invokes Claude CLI as a subprocess, streams output."""
 
-    def __init__(self, stall_timeout: int = 1800):
+    def __init__(self, stall_timeout: int = 1800, llm_backend: str = 'claude'):
         self.stall_timeout = stall_timeout
+        self.llm_backend = llm_backend
 
     async def run(self, ctx: ActorContext) -> ActorResult:
         """Run a Claude agent turn and interpret the result."""
@@ -214,10 +215,11 @@ class AgentRunner:
                 'handler': jail_hook,
             })
 
-        runner = ClaudeRunner(
-            prompt=prompt,
+        runner = create_runner(
+            prompt,
             cwd=ctx.session_worktree,
             stream_file=os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file),
+            backend=self.llm_backend,
             agents_file=agents_path,
             lead=ctx.phase_spec.lead,
             settings=settings,

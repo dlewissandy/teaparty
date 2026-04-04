@@ -1037,6 +1037,21 @@ def set_participant_role_workgroup(yaml_path: str, name: str, role: str) -> None
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 
 
+def _ensure_project_dirs(project_dir: str) -> None:
+    """Ensure .git, .claude, and .teaparty/project/ structure exists."""
+    if not os.path.isdir(os.path.join(project_dir, '.git')):
+        subprocess.run(
+            ['git', 'init', project_dir],
+            check=True,
+            capture_output=True,
+        )
+    os.makedirs(os.path.join(project_dir, '.claude'), exist_ok=True)
+    tp_proj = project_teaparty_dir(project_dir)
+    os.makedirs(os.path.join(tp_proj, 'agents'), exist_ok=True)
+    os.makedirs(os.path.join(tp_proj, 'skills'), exist_ok=True)
+    os.makedirs(os.path.join(tp_proj, 'workgroups'), exist_ok=True)
+
+
 def _scaffold_project_yaml(
     name: str,
     project_dir: str,
@@ -1097,6 +1112,9 @@ def add_project(
         if p['name'] == name:
             raise ValueError(f"Project '{name}' already exists")
 
+    # Ensure required directory structure exists
+    _ensure_project_dirs(path)
+
     # External projects go in external-projects.yaml (gitignored)
     home = os.path.expanduser(teaparty_home or default_teaparty_home())
     ext_path = external_projects_path(home)
@@ -1153,15 +1171,12 @@ def create_project(
 
     # Create directory structure
     os.makedirs(path)
-    tp_proj = project_teaparty_dir(path)
-    os.makedirs(os.path.join(tp_proj, 'agents'), exist_ok=True)
-    os.makedirs(os.path.join(tp_proj, 'skills'), exist_ok=True)
-    os.makedirs(os.path.join(tp_proj, 'workgroups'), exist_ok=True)
     subprocess.run(
         ['git', 'init', path],
         check=True,
         capture_output=True,
     )
+    _ensure_project_dirs(path)
 
     _scaffold_project_yaml(
         name, path,

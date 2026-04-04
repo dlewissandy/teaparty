@@ -376,6 +376,7 @@ async def dispatch(
         phase_session_ids=phase_session_ids if phase_session_ids else None,
         parent_heartbeat=os.path.join(infra_dir, '.heartbeat') if infra_dir else '',
         cost_tracker=_resolve_cost_tracker(project_dir),
+        llm_backend=os.environ.get('TEAPARTY_LLM_BACKEND', 'claude'),
     )
 
     retries = 0

@@ -56,10 +56,11 @@ class ConfigLeadSession:
 
     LEAD = 'configuration-lead'
 
-    def __init__(self, teaparty_home: str, qualifier: str):
+    def __init__(self, teaparty_home: str, qualifier: str, llm_backend: str = 'claude'):
         self.teaparty_home = os.path.expanduser(teaparty_home)
         self._infra_dir = os.path.join(self.teaparty_home, 'management', 'agents', 'configuration-lead')
         self.qualifier = qualifier
+        self._llm_backend = llm_backend
         self.conversation_id = make_conversation_id(ConversationType.CONFIG_LEAD, qualifier)
         self.claude_session_id: str | None = None
         self.conversation_title: str | None = None
@@ -140,7 +141,7 @@ class ConfigLeadSession:
         Returns the agent's response text, or '' if invocation fails.
         """
         import asyncio
-        from orchestrator.claude_runner import ClaudeRunner
+        from orchestrator.claude_runner import create_runner
 
         self.load_state()
         is_fresh_session = self.claude_session_id is None
@@ -157,10 +158,11 @@ class ConfigLeadSession:
         os.close(stream_fd)
 
         try:
-            runner = ClaudeRunner(
-                prompt=prompt,
+            runner = create_runner(
+                prompt,
                 cwd=cwd,
                 stream_file=stream_path,
+                backend=self._llm_backend,
                 lead=self.LEAD,
                 permission_mode='default',
                 settings={

@@ -209,6 +209,7 @@ class TeaPartyBridge:
     def __init__(self, teaparty_home: str, static_dir: str):
         self.teaparty_home = os.path.expanduser(teaparty_home)
         self.static_dir = os.path.expanduser(static_dir)
+        self._llm_backend = os.environ.get('TEAPARTY_LLM_BACKEND', 'claude')
         self._ws_clients: Set[web.WebSocketResponse] = set()
         # Shared bus registry: session_id -> SqliteMessageBus.
         # Populated by the StatePoller; consumed by MessageRelay.
@@ -1085,7 +1086,7 @@ class TeaPartyBridge:
 
         async with lock:
             if qualifier not in self._om_sessions:
-                self._om_sessions[qualifier] = OfficeManagerSession(self.teaparty_home, qualifier)
+                self._om_sessions[qualifier] = OfficeManagerSession(self.teaparty_home, qualifier, llm_backend=self._llm_backend)
             session = self._om_sessions[qualifier]
             try:
                 await session.invoke(cwd=self._repo_root)
@@ -1117,6 +1118,7 @@ class TeaPartyBridge:
                 user_id = parts[1] if len(parts) > 1 else qualifier
                 self._pm_sessions[qualifier] = ProjectManagerSession(
                     self.teaparty_home, project_slug, user_id,
+                    llm_backend=self._llm_backend,
                 )
             session = self._pm_sessions[qualifier]
             try:
@@ -1154,7 +1156,7 @@ class TeaPartyBridge:
 
         async with lock:
             if qualifier not in self._proxy_sessions:
-                self._proxy_sessions[qualifier] = ProxyReviewSession(self.teaparty_home, qualifier)
+                self._proxy_sessions[qualifier] = ProxyReviewSession(self.teaparty_home, qualifier, llm_backend=self._llm_backend)
             session = self._proxy_sessions[qualifier]
             try:
                 await session.invoke(cwd=self._repo_root)
@@ -1188,6 +1190,7 @@ class TeaPartyBridge:
             if qualifier not in self._config_lead_sessions:
                 self._config_lead_sessions[qualifier] = ConfigLeadSession(
                     self.teaparty_home, qualifier,
+                    llm_backend=self._llm_backend,
                 )
             session = self._config_lead_sessions[qualifier]
             try:

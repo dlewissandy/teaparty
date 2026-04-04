@@ -126,6 +126,7 @@ class Orchestrator:
         human_presence: HumanPresence | None = None,
         gate_queue: GateQueue | None = None,
         cost_tracker: CostTracker | None = None,
+        llm_backend: str = 'claude',
     ):
         self.cfa = cfa_state
         self.config = phase_config
@@ -169,7 +170,10 @@ class Orchestrator:
         self._scratch_writer = ScratchWriter(session_worktree)
 
         # Agent runners
-        self._agent_runner = AgentRunner(stall_timeout=phase_config.stall_timeout)
+        self._agent_runner = AgentRunner(
+            stall_timeout=phase_config.stall_timeout,
+            llm_backend=llm_backend,
+        )
         self._approval_gate = ApprovalGate(
             proxy_model_path=proxy_model_path,
             input_provider=input_provider,

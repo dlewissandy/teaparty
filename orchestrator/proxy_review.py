@@ -499,10 +499,11 @@ class ProxyReviewSession:
     Issue #331.
     """
 
-    def __init__(self, teaparty_home: str, decider: str):
+    def __init__(self, teaparty_home: str, decider: str, llm_backend: str = 'claude'):
         self.teaparty_home = os.path.expanduser(teaparty_home)
         self._infra_dir = os.path.join(self.teaparty_home, 'management', 'agents', 'proxy-review')
         self.decider = decider
+        self._llm_backend = llm_backend
         self.conversation_id = make_conversation_id(
             ConversationType.PROXY_REVIEW, decider,
         )
@@ -642,7 +643,7 @@ class ProxyReviewSession:
         Returns the agent's response text, or '' if invocation fails.
         """
         import tempfile
-        from orchestrator.claude_runner import ClaudeRunner
+        from orchestrator.claude_runner import create_runner
 
         self.load_state()
         is_fresh_session = self.claude_session_id is None
@@ -694,10 +695,11 @@ class ProxyReviewSession:
         os.close(stream_fd)
 
         try:
-            runner = ClaudeRunner(
-                prompt=prompt,
+            runner = create_runner(
+                prompt,
                 cwd=cwd,
                 stream_file=stream_path,
+                backend=self._llm_backend,
                 lead='proxy-review',
                 permission_mode='default',
                 resume_session=self.claude_session_id,
