@@ -639,6 +639,7 @@ class ProxyReviewSession:
         """
         import tempfile
         from orchestrator.claude_runner import create_runner
+        from orchestrator.worktree import ensure_agent_worktree
 
         self.load_state()
         is_fresh_session = self.claude_session_id is None
@@ -646,6 +647,11 @@ class ProxyReviewSession:
         latest_human = self._latest_human_message()
         if not latest_human:
             return ''
+
+        # Agent isolation: run in a worktree with a scoped .claude/.
+        effective_cwd = await ensure_agent_worktree(
+            'proxy-review', cwd, self._infra_dir,
+        )
 
         if self.claude_session_id:
             # Resumed: provide fresh memory context so corrections surface immediately.
@@ -692,7 +698,7 @@ class ProxyReviewSession:
         try:
             runner = create_runner(
                 prompt,
-                cwd=cwd,
+                cwd=effective_cwd,
                 stream_file=stream_path,
                 backend=self._llm_backend,
                 lead='proxy-review',

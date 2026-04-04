@@ -231,6 +231,59 @@ async def cleanup_worktree(worktree_path: str) -> None:
         log.warning("cleanup_worktree: failed to unregister %s from manifest", worktree_path)
 
 
+async def ensure_agent_worktree(
+    agent_name: str,
+    repo_root: str,
+    parent_dir: str,
+) -> str:
+    """Ensure a worktree exists for an agent, with a scoped ``.claude/``.
+
+    Creates a detached-HEAD worktree on first call.  On subsequent calls,
+    fast-forwards to the current HEAD of *repo_root* so the agent sees
+    up-to-date files.
+
+    The worktree's ``.claude/`` is populated with only the agent's allowed
+    skills and config (via :func:`populate_scoped_claude_dir`).
+
+    Thread-safe: the worktree path is deterministic per *agent_name* and
+    *parent_dir*, and ``populate_scoped_claude_dir`` replaces the directory
+    atomically.
+
+    Args:
+        agent_name: Agent name (e.g. ``'office-manager'``).
+        repo_root: Path to the main repository root.
+        parent_dir: Directory under which the worktree is created
+            (e.g. the agent's infra dir).
+
+    Returns:
+        Absolute path to the worktree, for use as ``cwd``.
+    """
+    from orchestrator.claude_runner import populate_scoped_claude_dir
+
+    worktree_path = os.path.join(parent_dir, f'{agent_name}-workspace')
+
+    if not os.path.isdir(worktree_path):
+        os.makedirs(parent_dir, exist_ok=True)
+        await _run_git(repo_root, 'worktree', 'add', '--detach', worktree_path)
+    else:
+        # Fast-forward to current HEAD so the agent sees latest files.
+        head = (await _run_git_output(repo_root, 'rev-parse', 'HEAD')).strip()
+        try:
+            await _run_git(worktree_path, 'checkout', '--detach', head)
+        except RuntimeError:
+            log.warning('ensure_agent_worktree: checkout failed for %s, recreating', agent_name)
+            await _run_git(repo_root, 'worktree', 'remove', '--force', worktree_path)
+            await _run_git(repo_root, 'worktree', 'add', '--detach', worktree_path)
+
+    # Populate .claude/ with only this agent's allowed content.
+    source_claude = os.path.join(repo_root, '.claude')
+    if os.path.isdir(source_claude):
+        target_claude = os.path.join(worktree_path, '.claude')
+        populate_scoped_claude_dir(target_claude, agent_name, source_claude)
+
+    return worktree_path
+
+
 def _slugify(text: str) -> str:
     """Convert text to a URL-safe slug."""
     slug = re.sub(r'[^a-zA-Z0-9]+', '-', text.lower()).strip('-')

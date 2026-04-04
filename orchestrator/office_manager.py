@@ -485,6 +485,7 @@ class OfficeManagerSession:
         import asyncio
         import tempfile
         from orchestrator.claude_runner import create_runner
+        from orchestrator.worktree import ensure_agent_worktree
 
         self.load_state()
         is_fresh_session = self.claude_session_id is None
@@ -499,6 +500,11 @@ class OfficeManagerSession:
 
         if not prompt:
             return ''
+
+        # Agent isolation: run in a worktree with a scoped .claude/.
+        effective_cwd = await ensure_agent_worktree(
+            'office-manager', cwd, self._infra_dir,
+        )
 
         stream_fd, stream_path = tempfile.mkstemp(suffix='.jsonl', prefix='om-stream-')
         os.close(stream_fd)
@@ -526,7 +532,7 @@ class OfficeManagerSession:
         try:
             runner = create_runner(
                 prompt,
-                cwd=cwd,
+                cwd=effective_cwd,
                 stream_file=stream_path,
                 backend=self._llm_backend,
                 agents_file=agents_path,

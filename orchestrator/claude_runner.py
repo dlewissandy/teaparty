@@ -84,45 +84,52 @@ def create_runner(
         raise ValueError(f"Unknown LLM backend: {backend!r}")
 
 
-def build_synthetic_claude_dir(lead: str, source_claude_dir: str) -> str:
-    """Build a temporary .claude/ directory scoped to an agent's skill allowlist.
+def populate_scoped_claude_dir(
+    target_dir: str,
+    agent_name: str,
+    source_claude_dir: str,
+) -> None:
+    """Populate a ``.claude/`` directory scoped to an agent's skill allowlist.
 
-    The synthetic directory contains only:
-    - agents/{lead}.md — the lead agent's definition (for --agent resolution)
-    - skills/{name}/ — symlinks to only the skills named in the agent's
+    Replaces *target_dir* with a fresh directory containing only:
+
+    - ``agents/{agent_name}.md`` — the lead agent's definition
+    - ``skills/{name}/`` — symlinks to only the skills named in the agent's
       ``skills:`` frontmatter (omitted entirely when the allowlist is empty)
-    - CLAUDE.md — project instructions (if present in source)
+    - ``CLAUDE.md`` — project instructions (if present in source)
 
-    Thread-safe: each call creates a unique tempdir via mkdtemp and only
-    reads from source_claude_dir (no shared mutable state).
+    Thread-safe: each call operates on its own *target_dir* path, and only
+    reads from *source_claude_dir* (no shared mutable state).
 
     Args:
-        lead: Agent name matching source_claude_dir/agents/{lead}.md.
-        source_claude_dir: Path to the source .claude/ directory to scope down.
-
-    Returns:
-        Path to the synthetic directory.  Caller is responsible for cleanup
-        via ``shutil.rmtree()``.
+        target_dir: Path to the ``.claude/`` directory to create/replace
+            (e.g. ``{worktree}/.claude/``).
+        agent_name: Agent name matching ``source_claude_dir/agents/{name}.md``.
+        source_claude_dir: Path to the canonical ``.claude/`` directory
+            containing the full set of agents and skills.
     """
     from orchestrator.config_reader import read_agent_frontmatter
 
-    synth = tempfile.mkdtemp(prefix=f'claude-config-{lead}-')
+    # Start fresh so stale content from a previous invocation is gone.
+    if os.path.exists(target_dir):
+        shutil.rmtree(target_dir)
+    os.makedirs(target_dir)
 
-    # Agent definition — needed for --agent resolution.
-    agent_src = os.path.join(source_claude_dir, 'agents', f'{lead}.md')
+    # ── Agent definition (for --agent resolution) ────────────────────────
+    agent_src = os.path.join(source_claude_dir, 'agents', f'{agent_name}.md')
     allowed_skills: list[str] = []
     if os.path.isfile(agent_src):
-        agents_dir = os.path.join(synth, 'agents')
+        agents_dir = os.path.join(target_dir, 'agents')
         os.makedirs(agents_dir)
         os.symlink(os.path.abspath(agent_src),
-                   os.path.join(agents_dir, f'{lead}.md'))
+                   os.path.join(agents_dir, f'{agent_name}.md'))
         fm = read_agent_frontmatter(agent_src)
         allowed_skills = fm.get('skills') or []
 
-    # Skills — only those in the agent's allowlist.
+    # ── Skills — only those in the agent's allowlist ─────────────────────
     source_skills = os.path.join(source_claude_dir, 'skills')
     if allowed_skills and os.path.isdir(source_skills):
-        skills_dir = os.path.join(synth, 'skills')
+        skills_dir = os.path.join(target_dir, 'skills')
         os.makedirs(skills_dir)
         for skill_name in allowed_skills:
             skill_src = os.path.join(source_skills, skill_name)
@@ -130,13 +137,11 @@ def build_synthetic_claude_dir(lead: str, source_claude_dir: str) -> str:
                 os.symlink(os.path.abspath(skill_src),
                            os.path.join(skills_dir, skill_name))
 
-    # Project instructions apply to all agents.
+    # ── Project instructions apply to all agents ─────────────────────────
     claude_md = os.path.join(source_claude_dir, 'CLAUDE.md')
     if os.path.isfile(claude_md):
         os.symlink(os.path.abspath(claude_md),
-                   os.path.join(synth, 'CLAUDE.md'))
-
-    return synth
+                   os.path.join(target_dir, 'CLAUDE.md'))
 
 
 class ClaudeRunner:
@@ -167,7 +172,6 @@ class ClaudeRunner:
         heartbeat_file: str = '',
         parent_heartbeat: str = '',
         children_file: str = '',
-        source_claude_dir: str | None = None,
     ):
         self.prompt = prompt
         self.cwd = cwd
@@ -181,8 +185,6 @@ class ClaudeRunner:
         self.env_vars = env_vars or {}
         self.mcp_config = mcp_config
         self._mcp_config_file: str | None = None
-        self.source_claude_dir = source_claude_dir
-        self._synthetic_claude_dir: str | None = None
         self.event_bus = event_bus
         self.stall_timeout = stall_timeout
         self.session_id = session_id
@@ -201,15 +203,6 @@ class ClaudeRunner:
 
     async def run(self) -> ClaudeResult:
         """Run the Claude CLI and stream output. Returns result."""
-        # Build synthetic .claude/ dir for agent isolation.
-        # Uses source_claude_dir if provided, otherwise {cwd}/.claude/.
-        if self.lead:
-            source = self.source_claude_dir or os.path.join(self.cwd, '.claude')
-            if os.path.isdir(source):
-                self._synthetic_claude_dir = build_synthetic_claude_dir(
-                    self.lead, source,
-                )
-
         # Write settings to temp file
         settings_file = None
         if self.settings:
@@ -287,9 +280,6 @@ class ClaudeRunner:
                 except OSError:
                     pass
                 self._mcp_config_file = None
-            if self._synthetic_claude_dir:
-                shutil.rmtree(self._synthetic_claude_dir, ignore_errors=True)
-                self._synthetic_claude_dir = None
 
     def _build_args(self, settings_path: str | None) -> list[str]:
         args = [
@@ -363,8 +353,6 @@ class ClaudeRunner:
                 env[key] = value
         env['CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS'] = '1'
         env['CLAUDE_CODE_MAX_OUTPUT_TOKENS'] = '128000'
-        if self._synthetic_claude_dir:
-            env['CLAUDE_CONFIG_DIR'] = self._synthetic_claude_dir
         env.update(self.env_vars)
         return env
 
