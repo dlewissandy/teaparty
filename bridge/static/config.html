@@ -411,7 +411,7 @@ async function renderGlobal() {
     var sel = ['decider','advisor','inform','none'].map(function(r) {
       return '<option value="' + r + '"' + (h.role === r ? ' selected' : '') + '>' + r + '</option>';
     }).join('');
-    participantItems.push('<div class="item"><div class="item-icon icon-member">&#9786;</div><div class="item-body"><div class="item-title">' + h.name + '</div></div><select class="role-select" onchange="setParticipantRole(\'global\',\'' + h.name + '\',this.value)">' + sel + '</select></div>');
+    participantItems.push('<div class="item"><div class="item-icon icon-member">&#9786;</div><div class="item-body"><div class="item-title"><a href="chat.html?conv=proxy:' + encodeURIComponent(h.name) + '" target="_blank" style="color:inherit;text-decoration:none" onmouseover="this.style.textDecoration=\'underline\'" onmouseout="this.style.textDecoration=\'none\'">' + h.name + '</a></div></div><select class="role-select" onchange="setParticipantRole(\'global\',\'' + h.name + '\',this.value)">' + sel + '</select></div>');
   });
 
   var orgArtifactItems = Object.keys(artifactsData).map(function(heading) {
@@ -544,7 +544,7 @@ async function renderProject(slug) {
     var sel = ['decider','advisor','inform','none'].map(function(r) {
       return '<option value="' + r + '"' + (h.role === r ? ' selected' : '') + '>' + r + '</option>';
     }).join('');
-    participantItems.push('<div class="item"><div class="item-icon icon-member">&#9786;</div><div class="item-body"><div class="item-title">' + h.name + '</div></div><select class="role-select" onchange="setParticipantRole(\'' + slug + '\',\'' + h.name + '\',this.value)">' + sel + '</select></div>');
+    participantItems.push('<div class="item"><div class="item-icon icon-member">&#9786;</div><div class="item-body"><div class="item-title"><a href="chat.html?conv=proxy:' + encodeURIComponent(h.name) + '" target="_blank" style="color:inherit;text-decoration:none" onmouseover="this.style.textDecoration=\'underline\'" onmouseout="this.style.textDecoration=\'none\'">' + h.name + '</a></div></div><select class="role-select" onchange="setParticipantRole(\'' + slug + '\',\'' + h.name + '\',this.value)">' + sel + '</select></div>');
   });
 
   var artifactItems = Object.keys(artifactsData).map(function(heading) {
@@ -670,7 +670,7 @@ async function renderWorkgroup(name, projectSlug) {
     var sel = ['decider','advisor','inform','none'].map(function(r) {
       return '<option value="' + r + '"' + (h.role === r ? ' selected' : '') + '>' + r + '</option>';
     }).join('');
-    return '<div class="item"><div class="item-icon icon-member">&#9786;</div><div class="item-body"><div class="item-title">' + h.name + '</div></div><select class="role-select" onchange="setParticipantRole(\'wg:' + name + '\',\'' + h.name + '\',this.value,\'' + (projectSlug || '') + '\')">' + sel + '</select></div>';
+    return '<div class="item"><div class="item-icon icon-member">&#9786;</div><div class="item-body"><div class="item-title"><a href="chat.html?conv=proxy:' + encodeURIComponent(h.name) + '" target="_blank" style="color:inherit;text-decoration:none" onmouseover="this.style.textDecoration=\'underline\'" onmouseout="this.style.textDecoration=\'none\'">' + h.name + '</a></div></div><select class="role-select" onchange="setParticipantRole(\'wg:' + name + '\',\'' + h.name + '\',this.value,\'' + (projectSlug || '') + '\')">' + sel + '</select></div>';
   });
 
   var artifactItems = (wgData.artifacts || []).map(function(a) {
