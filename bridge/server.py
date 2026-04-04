@@ -514,7 +514,6 @@ class TeaPartyBridge:
                 org_agents=org_agents,
                 org_catalog_agents=org_catalog_agents,
                 local_skills=local_skills,
-                registered_org_skills=org_catalog_skills,
                 org_catalog_skills=org_catalog_skills,
                 teaparty_home=self.teaparty_home,
                 project_dir=project_dir,
@@ -1663,7 +1662,8 @@ class TeaPartyBridge:
         try:
             team = load_management_team(teaparty_home=self.teaparty_home)
             for entry in discover_projects(team):
-                if os.path.basename(entry['path'].rstrip('/')) == slug:
+                if (os.path.basename(entry['path'].rstrip('/')) == slug
+                        or entry['name'] == slug):
                     return entry['path']
         except Exception:
             pass
@@ -1868,7 +1868,6 @@ class TeaPartyBridge:
         org_agents: list[str] | None = None,
         org_catalog_agents: list[str] | None = None,
         local_skills: list[str] | None = None,
-        registered_org_skills: list[str] | None = None,
         org_catalog_skills: list[str] | None = None,
         teaparty_home: str | None = None,
         project_dir: str | None = None,
@@ -1876,7 +1875,6 @@ class TeaPartyBridge:
     ) -> dict:
         org_agents_set = set(org_agents or [])
         local_skills_set = set(local_skills or [])
-        org_catalog_set = set(org_catalog_skills or [])
         home = teaparty_home or self.teaparty_home
         proj = project_dir or ''
 
@@ -1932,34 +1930,26 @@ class TeaPartyBridge:
         # Project teams dispatch to workgroups, not individual agents.
         agents_result = []
 
-        # Build merged skill list: local first, then any explicitly passed org skills.
-        # Project-level registered_org_skills no longer come from the YAML schema
-        # (removed in issue #362) but the parameter is kept for backward compatibility.
-        registered_set = set(registered_org_skills or [])
+        # Build merged skill list: local first, then shared org skills.
+        # Active state comes from the project's members.skills list.
+        active_skills_set = set(t.members_skills or [])
         skills_result = []
         seen_skills: set[str] = set()
         for name in sorted(local_skills or []):
             source = 'local'
             skills_result.append({
                 'name': name, 'source': source,
-                'file': _skill_file(name, source), 'active': name in registered_set,
+                'file': _skill_file(name, source), 'active': name in active_skills_set,
             })
             seen_skills.add(name)
-        # All org catalog skills (registered active ones first, then inactive)
-        active_org_skills = [n for n in (registered_org_skills or []) if n not in seen_skills]
-        inactive_org_skills = [n for n in (org_catalog_skills or []) if n not in seen_skills and n not in registered_set]
-        for name in active_org_skills:
-            source = 'shared' if name in org_catalog_set else 'missing'
-            skills_result.append({
-                'name': name, 'source': source,
-                'file': _skill_file(name, source), 'active': True,
-            })
-            seen_skills.add(name)
-        for name in inactive_org_skills:
+        # All org catalog skills not already shown as local
+        for name in (org_catalog_skills or []):
+            if name in seen_skills:
+                continue
             source = 'shared'
             skills_result.append({
                 'name': name, 'source': source,
-                'file': _skill_file(name, source), 'active': False,
+                'file': _skill_file(name, source), 'active': name in active_skills_set,
             })
             seen_skills.add(name)
 

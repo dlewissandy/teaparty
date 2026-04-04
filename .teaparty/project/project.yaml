@@ -5,9 +5,9 @@ humans:
   decider: darrell
 workgroups:
 - name: Coding
-  config: .teaparty/workgroups/coding.yaml
+  config: workgroups/coding.yaml
 - name: Configuration
-  config: .teaparty/workgroups/configuration.yaml
+  config: workgroups/configuration.yaml
 members:
   workgroups:
   - Coding
@@ -15,5 +15,3 @@ members:
 artifact_pins:
 - path: docs/
   label: docs
-- path: triage/
-  label: triage
