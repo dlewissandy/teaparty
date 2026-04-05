@@ -510,28 +510,43 @@ class AgentSpawner:
         with open(scope_file, 'w') as f:
             f.write(tool_scope)
 
-        # Read agent settings from the composed worktree and pass via
-        # --settings so we get permissions without --setting-sources project
-        # (which would also load all agents/skills into the prompt).
+        # Read agent settings from the composed worktree.
         settings_path = os.path.join(worktree, '.claude', 'settings.json')
-        settings_json = None
+        settings_dict = {}
         if os.path.isfile(settings_path):
             with open(settings_path) as f:
-                settings_json = f.read()
+                import json as _json
+                try:
+                    settings_dict = _json.loads(f.read())
+                except (ValueError, _json.JSONDecodeError):
+                    pass
 
-        # user: OAuth auth only.  NOT project — that loads agents/skills
-        # from .claude/ into the prompt, doubling response time.
-        # --tools "" disables builtin tools (Read, Bash, etc.) so only MCP
-        # tools remain.  Dispatching agents use Send, not filesystem tools.
-        # Leaf agents don't have MCP, so they keep default builtins.
+        # --bare: skip hooks, LSP, plugins, CLAUDE.md discovery, OAuth,
+        # auto-memory, prefetches.  Auth via apiKeyHelper script.
+        # Up to 10x faster startup (4.3s → ~1s).
+        api_key_helper = os.path.join(
+            os.path.dirname(self.teaparty_home), 'scripts', 'get-api-key.sh',
+        )
+        use_bare = os.path.isfile(api_key_helper)
+
+        if use_bare:
+            settings_dict['apiKeyHelper'] = api_key_helper
+
+        # --tools "" disables builtin tools for dispatching agents (they
+        # only need MCP Send).  Leaf agents keep defaults for filesystem.
         builtin_tools = '' if agents_json else 'default'
+
         cmd = [self.claude_cmd, '-p', '--output-format', 'json',
-               '--setting-sources', 'user',
                '--tools', builtin_tools,
                '--agent', role]
 
-        if settings_json:
-            cmd += ['--settings', settings_json]
+        if use_bare:
+            cmd.append('--bare')
+        else:
+            cmd += ['--setting-sources', 'user']
+
+        if settings_dict:
+            cmd += ['--settings', json.dumps(settings_dict)]
 
         if agents_json:
             cmd += ['--agents', json.dumps(agents_json)]
