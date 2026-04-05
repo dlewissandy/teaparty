@@ -17,9 +17,9 @@
 <div id="content" class="app-pane active" style="overflow-y:auto;flex:1;min-width:0"></div>
 </div>
 <div class="blade" id="blade">
-  <div class="blade-tab" onclick="toggleBlade()">Config Lead</div>
+  <div class="blade-tab" onclick="toggleBlade()">Manager</div>
   <div class="blade-body">
-    <div class="blade-header"><span class="blade-title" id="blade-title">Config Lead</span><button class="blade-close" onclick="toggleBlade()">&#215;</button></div>
+    <div class="blade-header"><span class="blade-title" id="blade-title">Manager</span><button class="blade-close" onclick="toggleBlade()">&#215;</button></div>
     <iframe id="blade-iframe" src="about:blank" style="flex:1;width:100%;border:none;display:block;min-height:0"></iframe>
   </div>
 </div>
@@ -29,6 +29,7 @@
 // ── State ────────────────────────────────────────────────────────────────────
 var omConvId = 'om:unknown';
 var bladeConvId = '';
+var bladeContext = '';
 var _bladeOpen = false;
 var _editMode = false;
 
@@ -62,7 +63,11 @@ function toggleBlade() {
 function _updateBladeIframe() {
   if (!bladeConvId || !_bladeOpen) return;
   var iframe = document.getElementById('blade-iframe');
-  if (iframe) iframe.src = 'chat.html?conv=' + encodeURIComponent(bladeConvId) + '&minimal=1';
+  if (iframe) {
+    var url = 'chat.html?conv=' + encodeURIComponent(bladeConvId) + '&minimal=1';
+    if (bladeContext) url += '&context=' + encodeURIComponent(bladeContext);
+    iframe.src = url;
+  }
 }
 
 if (localStorage.getItem('bladeOpen') === '1') {
@@ -193,7 +198,8 @@ function cronItems(scheduled, toggleScope, projectSlug) {
 // cards: [ { title, items, opts } ]
 function renderConfigPage(spec) {
   bladeConvId = spec.bladeConvId || '';
-  document.getElementById('blade-title').textContent = spec.bladeTitle || 'Config Lead';
+  bladeContext = spec.bladeContext || '';
+  document.getElementById('blade-title').textContent = spec.bladeTitle || 'Manager';
   _updateBladeIframe();
 
   document.title = 'TeaParty \u2014 ' + (spec.title || 'Configuration');
@@ -285,8 +291,9 @@ async function loadGlobal() {
     title: 'Management Team',
     description: m.description || 'Cross-project coordination, human interaction, organizational strategy, and configuration management.',
     subtitle: subtitle,
-    bladeConvId: 'config:management',
-    bladeTitle: 'Management \u2014 Config Lead',
+    bladeConvId: omConvId,
+    bladeTitle: 'Office Manager',
+    bladeContext: 'management',
     cards: [
       { title: 'Subteams', items: subteams, opts: { addProjectBtn: true, addBtn: true, empty: 'No projects or workgroups' } },
       { title: 'Agents', items: agents, opts: { addBtn: true } },
@@ -345,8 +352,9 @@ async function loadProject(slug) {
     title: (team.name || slug) + ' Team',
     description: team.description || '',
     subtitle: 'Decider: ' + (team.decider || '') + ' &middot; Lead: ' + (team.lead || ''),
-    bladeConvId: 'config:project:' + slug,
-    bladeTitle: (team.name || slug) + ' \u2014 Config Lead',
+    bladeConvId: 'pm:' + slug + ':' + (team.decider || 'unknown'),
+    bladeTitle: (team.name || slug) + ' \u2014 Project Manager',
+    bladeContext: 'project:' + slug,
     cards: [
       { title: 'Workgroups', items: wgItems, opts: { addBtn: true, catalogBtn: true, empty: 'No workgroups' } },
       { title: 'Agents', items: agents, opts: { addBtn: true, catalogBtn: true, empty: 'No agents' } },
@@ -411,8 +419,9 @@ async function loadWorkgroup(name, projectSlug) {
     title: name,
     description: wgData.description || '',
     subtitle: 'Lead: ' + (wgData.lead || '') + ' &middot; ' + (wgData.agents_count || 0) + ' agents',
-    bladeConvId: 'config:wg:' + (projectSlug || '') + ':' + name,
-    bladeTitle: name + ' \u2014 Config Lead',
+    bladeConvId: projectSlug ? 'pm:' + projectSlug + ':' + (wgData.decider || 'unknown') : omConvId,
+    bladeTitle: projectSlug ? name + ' \u2014 Project Manager' : name + ' \u2014 Office Manager',
+    bladeContext: 'workgroup:' + name + (projectSlug ? ':' + projectSlug : ''),
     cards: [
       { title: 'Lead', items: leadItems, opts: { empty: 'No lead assigned' } },
       { title: 'Agents', items: memberItems, opts: { addBtn: true, catalogBtn: true, empty: 'No agents' } },
@@ -423,9 +432,7 @@ async function loadWorkgroup(name, projectSlug) {
   };
 }
 
-var AVAILABLE_TOOLS = ['Read', 'Glob', 'Grep', 'Bash', 'Write', 'Edit',
-  'WebSearch', 'WebFetch', 'Send', 'Reply', 'TodoRead', 'TodoWrite',
-  'NotebookRead', 'NotebookEdit'];
+var AVAILABLE_TOOLS = [];
 
 async function loadAgent(name, projectSlug) {
   var agentUrl = '/api/agents/' + encodeURIComponent(name);
@@ -442,7 +449,8 @@ async function loadAgent(name, projectSlug) {
     throw new Error(err.error || name);
   }
   var fm = await agentResp.json();
-  var catalog = catalogResp.ok ? await catalogResp.json() : {agents: [], skills: [], hooks: []};
+  var catalog = catalogResp.ok ? await catalogResp.json() : {agents: [], skills: [], hooks: [], tools: []};
+  if (catalog.tools && catalog.tools.length) AVAILABLE_TOOLS = catalog.tools;
   var pins = pinsResp.ok ? await pinsResp.json() : [];
 
   _agentCtx = {name: fm.name || name, projectSlug: projectSlug || null, fm: fm, catalog: catalog, pins: pins};
@@ -500,8 +508,9 @@ function _buildAgentSpec() {
     breadcrumb: breadcrumbBar(crumbs),
     title: name,
     description: fm.description || '',
-    bladeConvId: 'config:agent:' + (projectSlug ? projectSlug + ':' : ':') + name,
-    bladeTitle: name + ' \u2014 Config Lead',
+    bladeConvId: projectSlug ? 'pm:' + projectSlug + ':' + (fm.decider || 'unknown') : omConvId,
+    bladeTitle: projectSlug ? name + ' \u2014 Project Manager' : name + ' \u2014 Office Manager',
+    bladeContext: 'agent:' + name + (projectSlug ? ':' + projectSlug : ''),
     cards: [
       { title: 'Artifacts', items: renderPinItems(_agentCtx.pins) },
       { title: 'Settings', items: settingsItems },
@@ -842,19 +851,30 @@ async function openFileBrowser(type, name, projectSlug) {
 }
 
 // ── Boot ─────────────────────────────────────────────────────────────────────
-var urlParams = new URLSearchParams(window.location.search);
-var initAgent = urlParams.get('agent');
-var initWorkgroup = urlParams.get('workgroup');
-var initProject = urlParams.get('project');
-if (initAgent) {
-  renderScope(function() { return loadAgent(initAgent, initProject); });
-} else if (initWorkgroup) {
-  renderScope(function() { return loadWorkgroup(initWorkgroup, initProject); });
-} else if (initProject) {
-  renderScope(function() { return loadProject(initProject); });
-} else {
-  renderScope(loadGlobal);
-}
+(async function boot() {
+  // Populate the tools catalog (builtins + MCP) before rendering any view.
+  try {
+    var r = await fetch('/api/catalog/org');
+    if (r.ok) {
+      var cat = await r.json();
+      if (cat.tools && cat.tools.length) AVAILABLE_TOOLS = cat.tools;
+    }
+  } catch (e) {}
+
+  var urlParams = new URLSearchParams(window.location.search);
+  var initAgent = urlParams.get('agent');
+  var initWorkgroup = urlParams.get('workgroup');
+  var initProject = urlParams.get('project');
+  if (initAgent) {
+    renderScope(function() { return loadAgent(initAgent, initProject); });
+  } else if (initWorkgroup) {
+    renderScope(function() { return loadWorkgroup(initWorkgroup, initProject); });
+  } else if (initProject) {
+    renderScope(function() { return loadProject(initProject); });
+  } else {
+    renderScope(loadGlobal);
+  }
+})();
 </script>
 </body>
 </html>

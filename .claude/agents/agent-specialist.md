@@ -1,0 +1,1 @@
+../../.teaparty/management/agents/agent-specialist/agent.md

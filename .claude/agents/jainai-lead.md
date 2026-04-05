@@ -1,0 +1,1 @@
+../../.teaparty/management/agents/jainai-lead/agent.md

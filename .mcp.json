@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "teaparty-config": {
+      "command": "uv",
+      "args": ["run", "python3", "-m", "orchestrator.mcp_server"]
+    }
+  }
+}

@@ -1,0 +1,1 @@
+../../.teaparty/management/agents/configuration-lead/agent.md

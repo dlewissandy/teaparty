@@ -349,6 +349,9 @@ class TeaPartyBridge:
         for name, bus in self._agent_buses.items():
             if name not in self._buses:
                 bus.close()
+        # Stop OM bus event listeners so socket servers are cleaned up.
+        for session in self._om_sessions.values():
+            await session.stop()
 
     # ── State handlers ────────────────────────────────────────────────────────
 
@@ -811,6 +814,7 @@ class TeaPartyBridge:
             'agents': catalog.agents,
             'skills': catalog.skills,
             'hooks': catalog.hooks,
+            'tools': self._get_tools_catalog(),
         })
 
     async def _handle_catalog_org(self, request: web.Request) -> web.Response:
@@ -819,7 +823,21 @@ class TeaPartyBridge:
             'agents': catalog.agents,
             'skills': catalog.skills,
             'hooks': catalog.hooks,
+            'tools': self._get_tools_catalog(),
         })
+
+    def _get_tools_catalog(self) -> list[str]:
+        """Return built-in + MCP tool names for the config UI catalog."""
+        builtins = [
+            'Read', 'Glob', 'Grep', 'Bash', 'Write', 'Edit',
+            'WebSearch', 'WebFetch', 'Send', 'Reply',
+            'TodoRead', 'TodoWrite', 'NotebookRead', 'NotebookEdit',
+        ]
+        try:
+            from orchestrator.mcp_server import list_mcp_tool_names
+            return builtins + list_mcp_tool_names()
+        except Exception:
+            return builtins
 
     # ── Message handlers ──────────────────────────────────────────────────────
 

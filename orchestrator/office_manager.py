@@ -291,20 +291,17 @@ def _build_roster_agents_json(
 ) -> tuple[dict, list[str]]:
     """Build the OM's --agents roster from the management team config.
 
-    Reads teaparty.yaml and constructs agent entries for the OM's direct
-    reports: project leads (from members.projects), management workgroup
-    leads (from members.workgroups), and management agents (from
-    members.agents). Called by OfficeManagerSession.invoke() to populate
-    the --agents flag on each ClaudeRunner invocation.
+    Team membership is derived from three sources only:
+    1. Proxy agents — implied by ``humans:`` entries
+    2. Project leads — implied by ``members.projects``
+    3. Workgroup leads — implied by ``members.workgroups``
 
     Returns:
         (agents_dict, warnings) where agents_dict maps agent name → definition
         and warnings is a list of human-readable messages about degraded state.
     """
     from orchestrator.config_reader import (
-        discover_projects,
         load_management_team,
-        load_project_team,
         load_management_workgroups,
         read_agent_frontmatter,
     )
@@ -324,22 +321,27 @@ def _build_roster_agents_json(
         return agents, warnings
 
     repo_root = os.path.dirname(teaparty_home)
-    agents_dir = os.path.join(repo_root, '.claude', 'agents')
+    mgmt_agents_dir = os.path.join(
+        teaparty_home, 'management', 'agents',
+    )
 
+    # Project leads (from members.projects)
     try:
-        roster = derive_om_roster(teaparty_home, agents_dir=agents_dir)
+        roster = derive_om_roster(teaparty_home, agents_dir=mgmt_agents_dir)
         for name, info in roster.items():
             agents[name] = {'description': info.get('description', name)}
     except Exception as exc:  # noqa: BLE001
         warnings.append(f'Roster derivation failed ({exc}).')
 
-    # Add management workgroup leads
+    # Workgroup leads (from members.workgroups)
     try:
         workgroups = load_management_workgroups(team, teaparty_home=teaparty_home)
         for wg in workgroups:
             if wg.lead and wg.lead not in agents:
                 desc = ''
-                lead_path = os.path.join(agents_dir, f'{wg.lead}.md')
+                lead_path = os.path.join(
+                    mgmt_agents_dir, wg.lead, 'agent.md',
+                )
                 if os.path.isfile(lead_path):
                     fm = read_agent_frontmatter(lead_path)
                     desc = fm.get('description', '')
@@ -349,26 +351,43 @@ def _build_roster_agents_json(
     except Exception as exc:  # noqa: BLE001
         warnings.append(f'Workgroup loading failed ({exc}).')
 
+    # Proxy agents (implied by humans: entries)
+    for human in team.humans:
+        proxy_name = 'proxy-review'
+        if proxy_name not in agents:
+            desc = ''
+            proxy_path = os.path.join(
+                mgmt_agents_dir, proxy_name, 'agent.md',
+            )
+            if os.path.isfile(proxy_path):
+                fm = read_agent_frontmatter(proxy_path)
+                desc = fm.get('description', '')
+            agents[proxy_name] = {
+                'description': desc or f'Human proxy for {human.name}',
+            }
+
     return agents, warnings
 
 
 # ── MCP config ──────────────────────────────────────────────────────────────
 
-def _build_mcp_config(project_root: str) -> dict:
+def _build_mcp_config(project_root: str, mcp_env: dict | None = None) -> dict:
     """Build the mcp_config dict for the office manager's ClaudeRunner.
 
     Points at orchestrator.mcp_server (the config + escalation tool server).
-    Inherits the project_root via cwd so config tools resolve paths correctly.
+    When mcp_env is provided, socket paths (SEND_SOCKET, REPLY_SOCKET, etc.)
+    are passed to the MCP server subprocess so dispatch tools work.
     """
     venv_python = os.path.join(project_root, '.venv', 'bin', 'python3')
     if not os.path.isfile(venv_python):
         venv_python = 'python3'
-    return {
-        'teaparty-config': {
-            'command': venv_python,
-            'args': ['-m', 'orchestrator.mcp_server'],
-        },
+    config: dict = {
+        'command': venv_python,
+        'args': ['-m', 'orchestrator.mcp_server'],
     }
+    if mcp_env:
+        config['env'] = mcp_env
+    return {'teaparty-config': config}
 
 
 # ── Office manager session ──────────────────────────────────────────────────
@@ -402,6 +421,11 @@ class OfficeManagerSession:
         bus_path = om_bus_path(teaparty_home)
         os.makedirs(os.path.dirname(bus_path), exist_ok=True)
         self._bus = SqliteMessageBus(bus_path)
+
+        # Bus event listener for Send/Reply dispatch — started lazily, kept
+        # alive across --resume invocations within the same session.
+        self._bus_listener = None
+        self._bus_listener_sockets: tuple[str, str, str] | None = None
 
     def send_human_message(self, content: str) -> str:
         """Record a human message in the conversation. Returns message ID."""
@@ -472,6 +496,107 @@ class OfficeManagerSession:
                 return msg.content
         return ''
 
+    async def _ensure_bus_listener(self, cwd: str) -> dict:
+        """Start the BusEventListener if not already running.
+
+        Returns the mcp_env dict with socket paths for the MCP server.
+        The listener stays alive across --resume invocations.
+        """
+        if self._bus_listener is not None:
+            send, reply, close = self._bus_listener_sockets
+            return {
+                'SEND_SOCKET': send,
+                'REPLY_SOCKET': reply,
+                'CLOSE_CONV_SOCKET': close,
+                'AGENT_ID': 'om',
+                'PYTHONPATH': cwd,
+            }
+
+        import logging
+        from orchestrator.bus_event_listener import BusEventListener
+        from orchestrator.agent_spawner import AgentSpawner
+
+        log = logging.getLogger('orchestrator.office_manager')
+        bus_db_path = os.path.join(self._infra_dir, 'messages.db')
+        spawner = AgentSpawner(teaparty_home=self.teaparty_home)
+        repo_root = os.path.dirname(self.teaparty_home)
+
+        async def spawn_fn(member, composite, context_id):
+            import subprocess as _sp
+            safe_id = context_id.replace(':', '_').replace('/', '_')
+            agent_dir = os.path.join(self._infra_dir, 'agents', safe_id)
+            wt_result = _sp.run(
+                ['git', 'worktree', 'add', '--detach', agent_dir],
+                cwd=repo_root, capture_output=True, text=True,
+            )
+            if wt_result.returncode != 0:
+                os.makedirs(agent_dir, exist_ok=True)
+            session_id = spawner.spawn(
+                composite, worktree=agent_dir, role=member,
+                project_dir=repo_root, is_management=True,
+                extra_env={'CONTEXT_ID': context_id, 'AGENT_ID': member},
+            )
+            return (session_id, agent_dir)
+
+        async def resume_fn(member, composite, session_id, context_id):
+            agent_dir = ''
+            if os.path.exists(bus_db_path) and context_id:
+                bus = SqliteMessageBus(bus_db_path)
+                try:
+                    ctx = bus.get_agent_context(context_id)
+                    if ctx:
+                        agent_dir = ctx.get('agent_worktree_path', '')
+                finally:
+                    bus.close()
+            if not agent_dir:
+                agent_dir = repo_root
+            return spawner.spawn(
+                composite, worktree=agent_dir, role=member,
+                project_dir=repo_root, resume_session=session_id,
+                is_management=True,
+            )
+
+        async def reply_fn(context_id, session_id, message):
+            log.debug('OM reply_fn: injecting reply for context %s', context_id)
+
+        async def reinvoke_fn(context_id, session_id, message):
+            log.debug('OM reinvoke_fn: fan-in complete for context %s', context_id)
+
+        async def cleanup_fn(worktree_path):
+            import subprocess as _sp
+            if worktree_path and os.path.isdir(worktree_path):
+                _sp.run(
+                    ['git', 'worktree', 'remove', '--force', worktree_path],
+                    cwd=repo_root, capture_output=True,
+                )
+
+        self._bus_listener = BusEventListener(
+            bus_db_path=bus_db_path,
+            initiator_agent_id='om',
+            spawn_fn=spawn_fn,
+            resume_fn=resume_fn,
+            reply_fn=reply_fn,
+            reinvoke_fn=reinvoke_fn,
+            cleanup_fn=cleanup_fn,
+        )
+        sockets = await self._bus_listener.start()
+        self._bus_listener_sockets = sockets
+        send, reply, close = sockets
+        return {
+            'SEND_SOCKET': send,
+            'REPLY_SOCKET': reply,
+            'CLOSE_CONV_SOCKET': close,
+            'AGENT_ID': 'om',
+            'PYTHONPATH': cwd,
+        }
+
+    async def stop(self):
+        """Stop the bus event listener. Call on session teardown."""
+        if self._bus_listener is not None:
+            await self._bus_listener.stop()
+            self._bus_listener = None
+            self._bus_listener_sockets = None
+
     async def invoke(self, *, cwd: str) -> str:
         """Invoke the office manager agent to respond to the current conversation.
 
@@ -529,6 +654,9 @@ class OfficeManagerSession:
         except OSError:
             agents_path = None
 
+        # Start (or reuse) the bus event listener so the OM can Send/Reply.
+        mcp_env = await self._ensure_bus_listener(cwd)
+
         try:
             runner = create_runner(
                 prompt,
@@ -541,13 +669,36 @@ class OfficeManagerSession:
                 settings={
                     'permissions': {
                         'allow': [
+                            # Dispatch and escalation
+                            'mcp__teaparty-config__Send',
+                            'mcp__teaparty-config__Reply',
+                            'mcp__teaparty-config__AskQuestion',
+                            'mcp__teaparty-config__CloseConversation',
+                            # Intervention
+                            'mcp__teaparty-config__WithdrawSession',
+                            'mcp__teaparty-config__PauseDispatch',
+                            'mcp__teaparty-config__ResumeDispatch',
+                            'mcp__teaparty-config__ReprioritizeDispatch',
+                            # Config read tools
                             'mcp__teaparty-config__PinArtifact',
                             'mcp__teaparty-config__UnpinArtifact',
+                            'mcp__teaparty-config__ListProjects',
+                            'mcp__teaparty-config__GetProject',
+                            'mcp__teaparty-config__ListAgents',
+                            'mcp__teaparty-config__GetAgent',
+                            'mcp__teaparty-config__ListSkills',
+                            'mcp__teaparty-config__GetSkill',
+                            'mcp__teaparty-config__ListWorkgroups',
+                            'mcp__teaparty-config__GetWorkgroup',
+                            'mcp__teaparty-config__ListHooks',
+                            'mcp__teaparty-config__ListScheduledTasks',
+                            'mcp__teaparty-config__ListPins',
+                            'mcp__teaparty-config__ListTeamMembers',
                         ],
                     },
                 },
                 resume_session=self.claude_session_id,
-                mcp_config=_build_mcp_config(cwd),
+                mcp_config=_build_mcp_config(cwd, mcp_env=mcp_env),
             )
             result = await runner.run()
 

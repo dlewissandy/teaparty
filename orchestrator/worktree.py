@@ -235,25 +235,25 @@ async def ensure_agent_worktree(
     agent_name: str,
     repo_root: str,
     parent_dir: str,
+    *,
+    is_management: bool = True,
 ) -> str:
-    """Ensure a worktree exists for an agent, with a scoped ``.claude/``.
+    """Ensure a worktree exists for an agent, with a composed ``.claude/``.
 
     Creates a detached-HEAD worktree on first call.  On subsequent calls,
     fast-forwards to the current HEAD of *repo_root* so the agent sees
     up-to-date files.
 
-    The worktree's ``.claude/`` is populated with only the agent's allowed
-    skills and config (via :func:`populate_scoped_claude_dir`).
-
-    Thread-safe: the worktree path is deterministic per *agent_name* and
-    *parent_dir*, and ``populate_scoped_claude_dir`` replaces the directory
-    atomically.
+    The worktree's ``.claude/`` is composed from ``.teaparty/`` sources
+    (the source of truth) via :func:`compose_worktree`.
 
     Args:
         agent_name: Agent name (e.g. ``'office-manager'``).
         repo_root: Path to the main repository root.
         parent_dir: Directory under which the worktree is created
             (e.g. the agent's infra dir).
+        is_management: True for management-team agents (reads from
+            ``.teaparty/management/``), False for project agents.
 
     Returns:
         Absolute path to the worktree, for use as ``cwd``.
@@ -275,11 +275,23 @@ async def ensure_agent_worktree(
             await _run_git(repo_root, 'worktree', 'remove', '--force', worktree_path)
             await _run_git(repo_root, 'worktree', 'add', '--detach', worktree_path)
 
-    # Populate .claude/ with only this agent's allowed content.
-    source_claude = os.path.join(repo_root, '.claude')
-    if os.path.isdir(source_claude):
-        target_claude = os.path.join(worktree_path, '.claude')
-        populate_scoped_claude_dir(target_claude, agent_name, source_claude)
+    # Populate .claude/ from .teaparty/ sources (the source of truth).
+    # Management agents live under .teaparty/management/agents/{name}/agent.md.
+    teaparty_home = os.path.join(repo_root, '.teaparty')
+    if is_management:
+        agent_source = os.path.join(
+            teaparty_home, 'management', 'agents', agent_name, 'agent.md',
+        )
+    else:
+        agent_source = os.path.join(repo_root, '.claude', 'agents', f'{agent_name}.md')
+
+    if os.path.isfile(agent_source):
+        populate_scoped_claude_dir(
+            os.path.join(worktree_path, '.claude'),
+            agent_name,
+            os.path.join(repo_root, '.claude'),
+            agent_source_override=agent_source,
+        )
 
     return worktree_path
 

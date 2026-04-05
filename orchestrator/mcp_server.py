@@ -867,6 +867,93 @@ def get_project_handler(name: str, teaparty_home: str = '') -> str:
     return json.dumps({'success': True, 'project': data})
 
 
+def list_team_members_handler(teaparty_home: str = '') -> str:
+    """List the team members for the calling agent's team.
+
+    Membership is derived from config, not from agent definitions:
+    - Proxy agents implied by humans: entries
+    - Project leads implied by members.projects
+    - Workgroup leads implied by members.workgroups
+    """
+    from orchestrator.config_reader import (
+        load_management_team,
+        load_management_workgroups,
+        load_project_team,
+        read_agent_frontmatter,
+    )
+
+    home = _teaparty_home(teaparty_home)
+    try:
+        team = load_management_team(teaparty_home=home)
+    except FileNotFoundError as e:
+        return _err(str(e))
+
+    repo_root = os.path.dirname(home)
+    mgmt_agents_dir = os.path.join(home, 'management', 'agents')
+    members: list[dict] = []
+
+    def _read_desc(agent_name: str) -> str:
+        for candidate in (
+            os.path.join(mgmt_agents_dir, agent_name, 'agent.md'),
+        ):
+            if os.path.isfile(candidate):
+                fm, _ = _parse_agent_file(candidate)
+                return fm.get('description', '')
+        return ''
+
+    # Project leads
+    for project_name in team.members_projects:
+        project_entry = None
+        for p in team.projects:
+            if p.get('name') == project_name:
+                project_entry = p
+                break
+        if project_entry is None:
+            continue
+        project_path = project_entry.get('path', '')
+        if not os.path.isabs(project_path):
+            project_path = os.path.join(repo_root, project_path)
+        config_path = project_entry.get('config', '')
+        full_config = os.path.join(project_path, config_path) if config_path else None
+        try:
+            pt = load_project_team(project_path, config_path=full_config)
+        except FileNotFoundError:
+            continue
+        if pt.lead:
+            members.append({
+                'name': pt.lead,
+                'role': 'project-lead',
+                'project': project_name,
+                'description': _read_desc(pt.lead) or pt.description or project_name,
+            })
+
+    # Workgroup leads
+    try:
+        workgroups = load_management_workgroups(team, teaparty_home=home)
+        for wg in workgroups:
+            if wg.lead:
+                members.append({
+                    'name': wg.lead,
+                    'role': 'workgroup-lead',
+                    'workgroup': wg.name,
+                    'description': _read_desc(wg.lead) or wg.description or wg.name,
+                })
+    except Exception:
+        pass
+
+    # Proxy agents
+    for human in team.humans:
+        proxy_name = 'proxy-review'
+        members.append({
+            'name': proxy_name,
+            'role': 'proxy',
+            'human': human.name,
+            'description': _read_desc(proxy_name) or f'Human proxy for {human.name}',
+        })
+
+    return json.dumps({'success': True, 'members': members})
+
+
 def list_agents_handler(project_root: str = '') -> str:
     """List all agent definitions with summary info."""
     root = _project_root(project_root)
@@ -1434,6 +1521,21 @@ def remove_scheduled_task_handler(name: str, teaparty_home: str = '') -> str:
     return _ok(f"Scheduled task '{name}' removed")
 
 
+MCP_SERVER_NAME = 'teaparty-config'
+
+
+def list_mcp_tool_names() -> list[str]:
+    """Return the namespaced tool names exposed by the teaparty-config MCP server.
+
+    Used by the bridge catalog API so the config UI can display all
+    available tools without hardcoding them.  The names use Claude Code's
+    ``mcp__{server}__{tool}`` convention.
+    """
+    server = create_server()
+    prefix = f'mcp__{MCP_SERVER_NAME}__'
+    return [prefix + name for name in sorted(server._tool_manager._tools)]
+
+
 def create_server() -> FastMCP:
     """Create the MCP server with escalation, dispatch, intervention, and config tools."""
     server = FastMCP('teaparty-escalation')
@@ -1603,11 +1705,25 @@ def create_server() -> FastMCP:
         return get_project_handler(name=name, teaparty_home=teaparty_home)
 
     @server.tool()
+    async def ListTeamMembers(teaparty_home: str = '') -> str:
+        """List the members of your team.
+
+        Returns your direct reports derived from the team config:
+        project leads, workgroup leads, and proxy agents. This is
+        your team — use it to answer "who is on my team?".
+
+        Args:
+            teaparty_home: Override for .teaparty/ directory path.
+        """
+        return list_team_members_handler(teaparty_home=teaparty_home)
+
+    @server.tool()
     async def ListAgents(project_root: str = '') -> str:
         """List all agent definitions with summary info.
 
         Returns name, description, and model for each agent found in
-        the agents/ directory.
+        the agents/ directory. Note: this lists all definitions across
+        the hierarchy, not just your team members.
 
         Args:
             project_root: Override for project root directory.

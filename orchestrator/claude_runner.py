@@ -88,6 +88,8 @@ def populate_scoped_claude_dir(
     target_dir: str,
     agent_name: str,
     source_claude_dir: str,
+    *,
+    agent_source_override: str = '',
 ) -> None:
     """Populate a ``.claude/`` directory scoped to an agent's skill allowlist.
 
@@ -107,6 +109,10 @@ def populate_scoped_claude_dir(
         agent_name: Agent name matching ``source_claude_dir/agents/{name}.md``.
         source_claude_dir: Path to the canonical ``.claude/`` directory
             containing the full set of agents and skills.
+        agent_source_override: If set, use this path as the agent definition
+            instead of ``source_claude_dir/agents/{name}.md``.  Allows
+            reading from ``.teaparty/`` while placing the result as a
+            ``.claude/agents/{name}.md`` file for Claude Code resolution.
     """
     from orchestrator.config_reader import read_agent_frontmatter
 
@@ -116,13 +122,20 @@ def populate_scoped_claude_dir(
     os.makedirs(target_dir)
 
     # ── Agent definition (for --agent resolution) ────────────────────────
-    agent_src = os.path.join(source_claude_dir, 'agents', f'{agent_name}.md')
+    agent_src = agent_source_override or os.path.join(
+        source_claude_dir, 'agents', f'{agent_name}.md',
+    )
     allowed_skills: list[str] = []
     if os.path.isfile(agent_src):
         agents_dir = os.path.join(target_dir, 'agents')
         os.makedirs(agents_dir)
-        os.symlink(os.path.abspath(agent_src),
-                   os.path.join(agents_dir, f'{agent_name}.md'))
+        # Copy (not symlink) when using an override source so Claude Code
+        # finds a regular .md file at the expected path regardless of origin.
+        dest = os.path.join(agents_dir, f'{agent_name}.md')
+        if agent_source_override:
+            shutil.copy2(agent_src, dest)
+        else:
+            os.symlink(os.path.abspath(agent_src), dest)
         fm = read_agent_frontmatter(agent_src)
         allowed_skills = fm.get('skills') or []
 

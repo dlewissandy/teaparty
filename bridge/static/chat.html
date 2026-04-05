@@ -46,6 +46,7 @@ var convId = params.get('conv') || '';
 var convProjectName = params.get('name') || '';
 var selectedItem = params.get('task') || params.get('session') || null;
 var seedMessage = params.get('seed') || '';
+var entityContext = params.get('context') || '';
 var minimal = params.get('minimal') === '1';
 
 // ── Determine chat type from conv ID prefix ───────────────────────────────────
@@ -188,6 +189,11 @@ function fetchAll() {
 }
 
 // ── Markdown to HTML ──────────────────────────────────────────────────────────
+// Strip [Viewing: ...] prefix from human messages for display.
+function stripViewingPrefix(text) {
+  return text.replace(/^\[Viewing: [^\]]*\]\n?/, '');
+}
+
 function renderMarkdown(text) {
   var html = text
     .replace(/&/g, '&amp;').replace(/</g, '&lt;')
@@ -241,7 +247,9 @@ function renderMessages(messages) {
   var filtered = filterMessages(messages);
   return filtered.map(function(m) {
     var isHuman = (m.sender || '') === 'human';
-    var rendered = renderMarkdown(m.content || m.text || '');
+    var raw = m.content || m.text || '';
+    if (isHuman) raw = stripViewingPrefix(raw);
+    var rendered = renderMarkdown(raw);
     return '<div class="msg">' +
       '<div class="msg-sender ' + (isHuman ? 'msg-sender-human' : 'msg-sender-agent') + '">' + (m.sender || '') + '</div>' +
       '<div class="msg-text">' + rendered + '</div>' +
@@ -266,17 +274,18 @@ var _pendingSent = [];
 // ── Send message ──────────────────────────────────────────────────────────────
 function sendMessage(ta) {
   if (!ta.value.trim()) return;
-  var text = ta.value;
+  var displayText = ta.value;
+  var wireText = entityContext ? '[Viewing: ' + entityContext + ']\n' + displayText : displayText;
   ta.value = '';
   ta.style.height = '24px';
   fetch('/api/conversations/' + encodeURIComponent(activeConvId()), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content: text }),
+    body: JSON.stringify({ content: wireText }),
   }).then(function() {
     // Optimistically show the message; record it so the WS echo is skipped.
-    _pendingSent.push({ content: text, expiry: Date.now() + 5000 });
-    var m = { sender: 'human', content: text };
+    _pendingSent.push({ content: wireText, expiry: Date.now() + 5000 });
+    var m = { sender: 'human', content: displayText };
     pageState.messages.push(m);
     var msgsEl = document.querySelector('.chat-messages');
     if (msgsEl) {
