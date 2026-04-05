@@ -521,8 +521,13 @@ class AgentSpawner:
 
         # user: OAuth auth only.  NOT project — that loads agents/skills
         # from .claude/ into the prompt, doubling response time.
+        # --tools "" disables builtin tools (Read, Bash, etc.) so only MCP
+        # tools remain.  Dispatching agents use Send, not filesystem tools.
+        # Leaf agents don't have MCP, so they keep default builtins.
+        builtin_tools = '' if agents_json else 'default'
         cmd = [self.claude_cmd, '-p', '--output-format', 'json',
                '--setting-sources', 'user',
+               '--tools', builtin_tools,
                '--agent', role]
 
         if settings_json:
