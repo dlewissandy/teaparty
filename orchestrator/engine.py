@@ -409,51 +409,39 @@ class Orchestrator:
                 member, exc_info=True,
             )
 
-        def spawn_in_worktree() -> tuple[str, str]:
-            # Create a git worktree so the agent has access to project files.
-            # The worktree persists after spawn so follow-up --resume calls
-            # can reuse the same directory (Issue #383).
-            wt_result = subprocess.run(
-                ['git', 'worktree', 'add', agent_dir, 'HEAD'],
-                cwd=self.project_workdir,
-                capture_output=True, text=True,
+        # Create a git worktree so the agent has access to project files.
+        # The worktree persists after spawn so follow-up --resume calls
+        # can reuse the same directory (Issue #383).
+        wt_result = subprocess.run(
+            ['git', 'worktree', 'add', agent_dir, 'HEAD'],
+            cwd=self.project_workdir,
+            capture_output=True, text=True,
+        )
+        if wt_result.returncode != 0:
+            _log.warning(
+                'git worktree add failed for %s: %s — falling back to plain directory',
+                agent_dir, wt_result.stderr.strip(),
             )
-            if wt_result.returncode != 0:
-                # Fall back to plain directory when git worktree is not available
-                _log.warning(
-                    'git worktree add failed for %s: %s — falling back to plain directory',
-                    agent_dir, wt_result.stderr.strip(),
-                )
-                os.makedirs(agent_dir, exist_ok=True)
-            session_id = spawner.spawn(
+            os.makedirs(agent_dir, exist_ok=True)
+
+        try:
+            session_id, result_text = await spawner.spawn(
                 composite,
                 worktree=agent_dir,
                 role=member,
                 project_dir=self.project_workdir,
                 mcp_config=child_mcp_config,
-                # CONTEXT_ID lets the worker include its context_id in the
-                # Reply socket message so BusEventListener can identify
-                # which context to close (Issue #358).
-                # AGENT_ID lets the worker pass its identity in CloseConversation
-                # requests so the originator-only invariant is enforced (#383).
                 extra_env={'CONTEXT_ID': context_id, 'AGENT_ID': member},
             )
-            return (session_id, agent_dir)
-
-        loop = asyncio.get_running_loop()
-        try:
-            result = await loop.run_in_executor(None, spawn_in_worktree)
         except Exception:
-            # If spawn fails, stop child listener and synthesize error Reply
             if child_listener:
                 await child_listener.stop()
             raise
         finally:
-            # Stop child listener after the spawned process exits
             if child_listener:
                 await child_listener.stop()
 
-        return result
+        return (session_id, agent_dir, result_text)
 
     async def _make_child_listener(
         self,
@@ -526,14 +514,14 @@ class Orchestrator:
             )
             if wt_result.returncode != 0:
                 os.makedirs(child_agent_dir, exist_ok=True)
-            session_id = spawner.spawn(
+            session_id, result_text = await spawner.spawn(
                 composite,
                 worktree=child_agent_dir,
                 role=child_member,
                 project_dir=self.project_workdir,
                 extra_env={'CONTEXT_ID': child_ctx_id, 'AGENT_ID': child_member},
             )
-            return (session_id, child_agent_dir)
+            return (session_id, child_agent_dir, result_text)
 
         async def child_resume_fn(
             child_member: str, composite: str, session_id: str, child_ctx_id: str,
@@ -550,13 +538,14 @@ class Orchestrator:
                     bus.close()
             if not child_agent_dir:
                 child_agent_dir = self.project_workdir
-            return spawner.spawn(
+            session_id, _result = await spawner.spawn(
                 composite,
                 worktree=child_agent_dir,
                 role=child_member,
                 project_dir=self.project_workdir,
                 resume_session=session_id,
             )
+            return session_id
 
         async def child_reinvoke_fn(
             child_ctx_id: str, session_id: str, message: str,
@@ -648,17 +637,14 @@ class Orchestrator:
 
         spawner = AgentSpawner(teaparty_home=self.poc_root)
 
-        def resume_in_worktree() -> str:
-            return spawner.spawn(
-                composite,
-                worktree=agent_dir,
-                role=member,
-                project_dir=self.project_workdir,
-                resume_session=session_id,
-            )
-
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, resume_in_worktree)
+        session_id_out, _result = await spawner.spawn(
+            composite,
+            worktree=agent_dir,
+            role=member,
+            project_dir=self.project_workdir,
+            resume_session=session_id,
+        )
+        return session_id_out
 
     async def _cleanup_bus_agent_worktree(self, worktree_path: str) -> None:
         """Remove a bus-spawned agent worktree after its conversation closes (#383).

@@ -1,5 +1,6 @@
 """Entry point: python3 -m bridge"""
 import argparse
+import logging
 import os
 import sys
 
@@ -26,6 +27,18 @@ parser.add_argument(
     help='Path to .teaparty/ config directory (default: <cwd>/.teaparty)',
 )
 args = parser.parse_args()
+
+log_fmt = '%(asctime)s %(name)s %(levelname)s %(message)s'
+logging.basicConfig(level=logging.DEBUG, format=log_fmt, stream=sys.stderr)
+
+# Persist orchestrator logs to .teaparty/logs/bridge.log so dispatch
+# activity (spawn, reply, reinvoke) is inspectable after the fact.
+log_dir = os.path.join(args.teaparty_home, 'logs')
+os.makedirs(log_dir, exist_ok=True)
+_fh = logging.FileHandler(os.path.join(log_dir, 'bridge.log'))
+_fh.setLevel(logging.DEBUG)
+_fh.setFormatter(logging.Formatter(log_fmt))
+logging.getLogger('orchestrator').addHandler(_fh)
 
 if not os.path.isdir(args.teaparty_home):
     parser.error(

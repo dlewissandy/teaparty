@@ -262,6 +262,15 @@ def _iter_stream_events(stream_path: str, agent_role: str):
                     raw = ev.get('content', '')
                     yield 'tool_result', raw if isinstance(raw, str) else json.dumps(raw)
 
+                elif ev_type == 'user':
+                    # Tool results arrive as content blocks inside user events.
+                    content = ev.get('message', {}).get('content', [])
+                    if isinstance(content, list):
+                        for block in content:
+                            if isinstance(block, dict) and block.get('type') == 'tool_result':
+                                raw = block.get('content', '')
+                                yield 'tool_result', raw if isinstance(raw, str) else json.dumps(raw)
+
                 elif ev_type == 'system':
                     yield 'system', json.dumps(ev)
 
@@ -426,6 +435,12 @@ class OfficeManagerSession:
         # alive across --resume invocations within the same session.
         self._bus_listener = None
         self._bus_listener_sockets: tuple[str, str, str] | None = None
+        # Parent context ID for the OM in the bus — children spawned via
+        # Send have this as their parent_context_id so replies route back.
+        self._bus_context_id: str = ''
+        # Effective cwd (worktree) — set during invoke(), read by reply_fn
+        # and reinvoke_fn to locate the OM's session file for injection.
+        self._effective_cwd: str = ''
 
     def send_human_message(self, content: str) -> str:
         """Record a human message in the conversation. Returns message ID."""
@@ -521,6 +536,27 @@ class OfficeManagerSession:
         spawner = AgentSpawner(teaparty_home=self.teaparty_home)
         repo_root = os.path.dirname(self.teaparty_home)
 
+        def _child_mcp_config(member: str, context_id: str) -> dict:
+            """Build MCP config with listener socket paths for a spawned agent."""
+            sockets = self._bus_listener_sockets
+            mcp_env = {
+                'SEND_SOCKET': sockets[0],
+                'REPLY_SOCKET': sockets[1],
+                'CLOSE_CONV_SOCKET': sockets[2],
+                'AGENT_ID': member,
+                'CONTEXT_ID': context_id,
+            } if sockets else {}
+            venv_python = os.path.join(repo_root, '.venv', 'bin', 'python3')
+            if not os.path.isfile(venv_python):
+                venv_python = 'python3'
+            return {
+                'teaparty-config': {
+                    'command': venv_python,
+                    'args': ['-m', 'orchestrator.mcp_server'],
+                    'env': mcp_env,
+                },
+            }
+
         async def spawn_fn(member, composite, context_id):
             import subprocess as _sp
             safe_id = context_id.replace(':', '_').replace('/', '_')
@@ -531,12 +567,14 @@ class OfficeManagerSession:
             )
             if wt_result.returncode != 0:
                 os.makedirs(agent_dir, exist_ok=True)
-            session_id = spawner.spawn(
+
+            session_id, result_text = await spawner.spawn(
                 composite, worktree=agent_dir, role=member,
                 project_dir=repo_root, is_management=True,
                 extra_env={'CONTEXT_ID': context_id, 'AGENT_ID': member},
+                mcp_config=_child_mcp_config(member, context_id),
             )
-            return (session_id, agent_dir)
+            return (session_id, agent_dir, result_text)
 
         async def resume_fn(member, composite, session_id, context_id):
             agent_dir = ''
@@ -550,17 +588,38 @@ class OfficeManagerSession:
                     bus.close()
             if not agent_dir:
                 agent_dir = repo_root
-            return spawner.spawn(
+
+            return await spawner.spawn(
                 composite, worktree=agent_dir, role=member,
                 project_dir=repo_root, resume_session=session_id,
                 is_management=True,
+                mcp_config=_child_mcp_config(member, context_id),
             )
 
         async def reply_fn(context_id, session_id, message):
-            log.debug('OM reply_fn: injecting reply for context %s', context_id)
+            """Deliver a worker reply to the OM's conversation bus.
+
+            Called for EVERY Reply from a dispatched worker.  Writes the
+            reply to the OM's message bus so it appears in the chat blade.
+            The OM will see it on its next turn.
+            """
+            log.info('OM reply_fn: delivering reply for context %s', context_id)
+            self._bus.send(
+                self.conversation_id,
+                'configuration-lead',  # TODO: derive sender from context
+                message,
+            )
 
         async def reinvoke_fn(context_id, session_id, message):
-            log.debug('OM reinvoke_fn: fan-in complete for context %s', context_id)
+            """All workers have replied — no-op for now.
+
+            The reply is already written to the bus by reply_fn and visible
+            in the chat blade.  The OM's current turn may still be running
+            (Send is non-blocking from the OM's perspective but the spawn
+            completes synchronously).  A future iteration can --resume the
+            OM here once the session lifecycle supports it.
+            """
+            log.info('OM reinvoke_fn: fan-in complete for context %s', context_id)
 
         async def cleanup_fn(worktree_path):
             import subprocess as _sp
@@ -570,9 +629,24 @@ class OfficeManagerSession:
                     cwd=repo_root, capture_output=True,
                 )
 
+        # Create a parent context record for the OM so spawned children have
+        # a valid parent_context_id.  Mirrors engine._bus_lead_context_id.
+        if not self._bus_context_id:
+            self._bus_context_id = f'agent:om:lead:{uuid.uuid4()}'
+            bus = SqliteMessageBus(bus_db_path)
+            try:
+                bus.create_agent_context(
+                    self._bus_context_id,
+                    initiator_agent_id='om',
+                    recipient_agent_id='om',
+                )
+            finally:
+                bus.close()
+
         self._bus_listener = BusEventListener(
             bus_db_path=bus_db_path,
             initiator_agent_id='om',
+            current_context_id=self._bus_context_id,
             spawn_fn=spawn_fn,
             resume_fn=resume_fn,
             reply_fn=reply_fn,
@@ -640,6 +714,7 @@ class OfficeManagerSession:
         effective_cwd = await ensure_agent_worktree(
             'office-manager', cwd, self._infra_dir,
         )
+        self._effective_cwd = effective_cwd
 
         stream_fd, stream_path = tempfile.mkstemp(suffix='.jsonl', prefix='om-stream-')
         os.close(stream_fd)
@@ -734,6 +809,17 @@ class OfficeManagerSession:
 
             if response_text and result.session_id:
                 self.claude_session_id = result.session_id
+                # Update the OM's bus context with the latest session_id so
+                # reinvoke_fn can find it when workers reply.
+                if self._bus_context_id:
+                    bus_db_path = os.path.join(self._infra_dir, 'messages.db')
+                    _bus_ctx = SqliteMessageBus(bus_db_path)
+                    try:
+                        _bus_ctx.set_agent_context_session_id(
+                            self._bus_context_id, result.session_id,
+                        )
+                    finally:
+                        _bus_ctx.close()
                 # On the first turn, capture the slug Claude auto-generates for
                 # this conversation so the UI can show a descriptive nav label.
                 if is_fresh_session and not self.conversation_title:

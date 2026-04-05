@@ -39,8 +39,8 @@ from typing import Awaitable, Callable
 _log = logging.getLogger('orchestrator.bus_event_listener')
 
 # Type aliases for the pluggable spawn and re-invocation functions.
-# spawn_fn(member, composite, context_id) -> (session_id, worktree_path)
-SpawnFn = Callable[[str, str, str], Awaitable[tuple[str, str]]]
+# spawn_fn(member, composite, context_id) -> (session_id, worktree_path, result_text)
+SpawnFn = Callable[[str, str, str], Awaitable[tuple[str, str, str]]]
 # resume_fn(member, composite, session_id, context_id) -> session_id
 ResumeFn = Callable[[str, str, str, str], Awaitable[str]]
 # reinvoke_fn(context_id, session_id, message) -> None
@@ -223,6 +223,10 @@ class BusEventListener:
             member = request.get('member', '')
             composite = request.get('composite', '')
             context_id = request.get('context_id', '')
+            _log.info(
+                'Send received: member=%r context_id=%r composite_len=%d',
+                member, context_id, len(composite),
+            )
 
             # Transport-level routing check — reject before touching the bus
             if self.dispatcher is not None:
@@ -271,16 +275,26 @@ class BusEventListener:
             if self.bus_db_path:
                 self._create_context_record(context_id, member)
 
-            # Respond immediately — caller is not blocked on spawn
-            response = {'status': 'queued', 'context_id': context_id}
+            # Spawn synchronously and return the result inline so the
+            # caller's Send tool call receives the agent's response.
+            if self.spawn_fn is not None:
+                _log.info('Spawning agent for member=%r context_id=%r', member, context_id)
+                result_text = await self._spawn_and_record(
+                    member, composite, context_id,
+                )
+                response = {
+                    'status': 'ok',
+                    'context_id': context_id,
+                    'result': result_text,
+                }
+            else:
+                _log.warning('No spawn_fn — cannot spawn agent for member=%r', member)
+                response = {'status': 'queued', 'context_id': context_id}
+
             writer.write(json.dumps(response).encode() + b'\n')
             await writer.drain()
-
-            # Spawn the recipient agent as a background task
-            if self.spawn_fn is not None:
-                asyncio.create_task(
-                    self._spawn_and_record(member, composite, context_id)
-                )
+            _log.info('Send complete: context_id=%r member=%r result_len=%d',
+                       context_id, member, len(response.get('result', '')))
 
         except Exception:
             _log.exception('Error handling Send connection')
@@ -293,17 +307,31 @@ class BusEventListener:
 
     async def _spawn_and_record(
         self, member: str, composite: str, context_id: str,
-    ) -> None:
-        """Background task: spawn recipient and record the session_id and worktree_path."""
+    ) -> str:
+        """Spawn recipient, record metadata, return result text.
+
+        Returns the agent's result_text (from --output-format json) so the
+        caller's Send tool call can return it inline.
+        """
         try:
-            session_id, worktree_path = await self.spawn_fn(member, composite, context_id)
+            _log.info('_spawn_and_record: starting spawn for member=%r context=%s', member, context_id)
+            session_id, worktree_path, result_text = await self.spawn_fn(member, composite, context_id)
+            _log.info(
+                '_spawn_and_record: spawn complete for context=%s session_id=%r '
+                'worktree=%r result_len=%d',
+                context_id, session_id, worktree_path, len(result_text),
+            )
             if self.bus_db_path:
                 if session_id:
                     self._set_session_id(context_id, session_id)
                 if worktree_path:
                     self._set_worktree_path(context_id, worktree_path)
+
+            return result_text
+
         except Exception:
             _log.exception('Error spawning agent for context %s', context_id)
+            return ''
 
     async def _resume_and_record(
         self, member: str, composite: str, context_id: str, session_id: str,
@@ -338,6 +366,10 @@ class BusEventListener:
             # (set via the CONTEXT_ID env var injected at spawn time).
             # Fall back to current_context_id for callers that predate this field.
             context_id = request.get('context_id', '') or self.current_context_id
+            _log.info(
+                'Reply received: context_id=%r message_len=%d',
+                context_id, len(message),
+            )
             parent_context_id = ''
             parent_session_id = ''
             should_reinvoke = False

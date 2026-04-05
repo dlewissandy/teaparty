@@ -735,9 +735,21 @@ def scaffold_project_yaml_handler(
 
 # ── Artifact pin tools ────────────────────────────────────────────────────────
 
+def _load_project_registry(teaparty_home: str) -> dict:
+    """Load the root teaparty.yaml (canonical project registry).
+
+    Falls back to management/teaparty.yaml if the root file doesn't exist.
+    """
+    root_yaml = os.path.join(teaparty_home, 'teaparty.yaml')
+    if os.path.exists(root_yaml):
+        with open(root_yaml) as f:
+            return yaml.safe_load(f) or {}
+    return _load_teaparty_yaml(teaparty_home)
+
+
 def _find_project_path(name: str, teaparty_home: str) -> str | None:
     """Return the project directory for a given project name, or None if not found."""
-    data = _load_teaparty_yaml(teaparty_home)
+    data = _load_project_registry(teaparty_home)
     for team in data.get('projects', []):
         if team.get('name') == name:
             return team.get('path')
@@ -842,10 +854,10 @@ def unpin_artifact_handler(
 
 
 def list_projects_handler(teaparty_home: str = '') -> str:
-    """List all registered projects."""
+    """List all registered projects from the root teaparty.yaml."""
     home = _teaparty_home(teaparty_home)
     try:
-        data = _load_teaparty_yaml(home)
+        data = _load_project_registry(home)
     except FileNotFoundError as e:
         return _err(str(e))
     projects = data.get('projects', [])
@@ -1132,9 +1144,33 @@ def create_agent_handler(
     body_text = body if body.startswith('\n') else f'\n{body}'
     _write_agent_file(path, fm, body_text)
 
+    # Write default settings.yaml with message bus dispatch permissions.
+    agent_dir = os.path.dirname(path)
+    settings_path = os.path.join(agent_dir, 'settings.yaml')
+    if not os.path.exists(settings_path):
+        import yaml as _yaml
+        default_settings = {
+            'permissions': {
+                'allow': [
+                    'mcp__teaparty-config__Send',
+                    'mcp__teaparty-config__Reply',
+                    'mcp__teaparty-config__ListAgents',
+                    'mcp__teaparty-config__GetAgent',
+                    'mcp__teaparty-config__ListSkills',
+                    'mcp__teaparty-config__GetSkill',
+                    'mcp__teaparty-config__ListWorkgroups',
+                    'mcp__teaparty-config__GetWorkgroup',
+                    'mcp__teaparty-config__ListProjects',
+                    'mcp__teaparty-config__GetProject',
+                ],
+            },
+        }
+        with open(settings_path, 'w') as f:
+            _yaml.dump(default_settings, f, default_flow_style=False)
+
     # Write default pins.yaml so every agent has prompt and settings pinned.
     from orchestrator.config_reader import write_pins
-    pins_dir = os.path.dirname(path)
+    pins_dir = agent_dir
     pins_path = os.path.join(pins_dir, 'pins.yaml')
     if not os.path.exists(pins_path):
         write_pins(pins_dir, [
@@ -2295,7 +2331,34 @@ def create_server() -> FastMCP:
 
 
 def main():
-    """Run the MCP server on stdio."""
+    """Run the MCP server on stdio.
+
+    Logging goes to a file under .teaparty/ (not stderr — stdio is the
+    MCP transport and some runtimes read stderr as protocol data).
+    """
+    import logging
+
+    teaparty_home = os.environ.get('TEAPARTY_HOME', '')
+    if not teaparty_home:
+        # Fall back: walk up from cwd looking for .teaparty/
+        d = os.getcwd()
+        while d != os.path.dirname(d):
+            candidate = os.path.join(d, '.teaparty')
+            if os.path.isdir(candidate):
+                teaparty_home = candidate
+                break
+            d = os.path.dirname(d)
+
+    if teaparty_home:
+        log_dir = os.path.join(teaparty_home, 'logs')
+        os.makedirs(log_dir, exist_ok=True)
+        log_file = os.path.join(log_dir, 'mcp-server.log')
+        logging.basicConfig(
+            level=logging.DEBUG,
+            format='%(asctime)s %(name)s %(levelname)s %(message)s',
+            filename=log_file,
+        )
+
     server = create_server()
     server.run(transport='stdio')
 

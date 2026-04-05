@@ -268,14 +268,13 @@ def _link_skills(source_dir: str, dest_dir: str, *, overwrite: bool) -> None:
         os.symlink(entry.path, dest_link)
 
 
-def _extract_session_id(output: str) -> str:
-    """Extract session_id from claude --output-format json output.
+def _parse_json_output(output: str) -> tuple[str, str]:
+    """Parse claude --output-format json output.
 
-    Scans output lines for the system/init event that carries session_id.
-    Falls back to parsing any JSON line with a 'session_id' key.
-
-    Returns empty string if not found.
+    Returns (session_id, result_text).  Both may be empty if not found.
     """
+    session_id = ''
+    result_text = ''
     for line in output.splitlines():
         line = line.strip()
         if not line:
@@ -284,13 +283,75 @@ def _extract_session_id(output: str) -> str:
             obj = json.loads(line)
         except (json.JSONDecodeError, ValueError):
             continue
-        # Stream JSON events: look for session_id at the top level
-        if 'session_id' in obj:
-            return str(obj['session_id'])
-        # Nested in system/init event
-        if obj.get('type') == 'system' and 'session_id' in obj.get('data', {}):
-            return str(obj['data']['session_id'])
-    return ''
+        if not session_id:
+            if 'session_id' in obj:
+                session_id = str(obj['session_id'])
+            elif obj.get('type') == 'system' and 'session_id' in obj.get('data', {}):
+                session_id = str(obj['data']['session_id'])
+        if not result_text and 'result' in obj:
+            result_text = str(obj['result'])
+    return session_id, result_text
+
+
+def _derive_roster(
+    role: str,
+    teaparty_home: str,
+    *,
+    project_dir: str = '',
+) -> dict[str, Any] | None:
+    """Auto-derive the --agents roster for an agent based on its position.
+
+    Checks whether the agent is a workgroup lead or project lead and builds
+    the roster dict from the corresponding YAML definition.  Returns None
+    if the agent has no sub-agents.
+    """
+    try:
+        from orchestrator.roster import (
+            derive_workgroup_roster,
+            derive_project_roster,
+        )
+        from orchestrator.config_reader import load_management_team
+
+        mgmt_agents_dir = os.path.join(teaparty_home, 'management', 'agents')
+
+        # Check workgroup lead
+        wg_dir = os.path.join(teaparty_home, 'workgroups')
+        if os.path.isdir(wg_dir):
+            for entry in os.scandir(wg_dir):
+                if not entry.name.endswith('.yaml'):
+                    continue
+                try:
+                    import yaml
+                    with open(entry.path) as f:
+                        wg = yaml.safe_load(f) or {}
+                    if wg.get('lead') == role:
+                        roster = derive_workgroup_roster(
+                            entry.path,
+                            agents_dir=mgmt_agents_dir,
+                            teaparty_home=teaparty_home,
+                        )
+                        if roster:
+                            return roster
+                except Exception:
+                    continue
+
+        # Check project lead
+        if project_dir:
+            try:
+                roster = derive_project_roster(
+                    teaparty_home,
+                    project_dir=project_dir,
+                    agents_dir=mgmt_agents_dir,
+                )
+                if roster:
+                    return roster
+            except Exception:
+                pass
+
+    except Exception:
+        _log.debug('_derive_roster failed for role=%r', role, exc_info=True)
+
+    return None
 
 
 class AgentSpawner:
@@ -299,8 +360,12 @@ class AgentSpawner:
     Each spawned agent gets:
       - A git worktree (created by the caller via git worktree add)
       - A composed .claude/ directory (CLAUDE.md, agents, skills, settings.json)
-      - --bare to suppress user-level auto-discovery
+      - --agent <role> to select the agent definition
       - --output-format json to capture session_id
+      - --setting-sources user to preserve OAuth auth
+
+    spawn() is async so the event loop stays alive during child execution,
+    enabling recursive dispatch (child agents calling Send to grandchildren).
 
     The caller is responsible for creating and cleaning up the git worktree.
     compose_worktree() and spawn() are separable so tests can exercise each
@@ -318,7 +383,7 @@ class AgentSpawner:
         self.claude_cmd = claude_cmd
         self.env_vars = env_vars or {}
 
-    def spawn(
+    async def spawn(
         self,
         task_message: str,
         *,
@@ -332,29 +397,43 @@ class AgentSpawner:
         catalog_skills: list[str] | None = None,
         agent_name: str = '',
         is_management: bool = False,
-    ) -> str:
-        """Spawn an independent claude -p process and return its session_id.
+        agents_json: dict[str, Any] | None = None,
+    ) -> tuple[str, str]:
+        """Spawn an independent claude -p process and return (session_id, result_text).
 
-        Composes .claude/ in the worktree first, then launches claude.
-        The task_message is passed as the $TASK prompt.
+        Async so the event loop stays alive during execution — this is what
+        enables recursive dispatch.  A child agent calling Send posts to the
+        parent's BusEventListener socket, which the event loop processes
+        while this coroutine awaits the child process.
+
+        Composes .claude/ in the worktree first, then launches claude with
+        --agent <role> to select the agent definition and --agents <json>
+        to provide the roster of available sub-agents.
 
         Args:
             task_message: The composite Task/Context message delivered as the prompt.
             worktree:     Path to the agent's git worktree.
-            role:         Agent role, used for skill composition.
+            role:         Agent role — used for skill composition and passed as
+                          --agent <role> so Claude Code uses the correct definition.
             project_dir:  Project directory for project-scoped sources.
-            mcp_config:   MCP server config dict written to --settings inline JSON.
+            mcp_config:   MCP server config dict.  Passed via --settings so the
+                          spawned agent's MCP server has the correct socket paths.
             resume_session: If set, passes --resume <session_id> instead of fresh start.
             extra_env:    Additional environment variables for the process.
             catalog_agents: Agent names to include in worktree (workgroup catalog).
             catalog_skills: Skill names to include in worktree (workgroup catalog).
             agent_name:   Name of dispatched agent (for agent-level settings).
             is_management: True for management-team dispatches.
+            agents_json:  Roster dict ``{name: {description: ...}}`` passed as
+                          --agents so the agent knows its available sub-agents.
+                          If None, no --agents flag is passed.
 
         Returns:
-            The claude session_id captured from --output-format json output.
-            Returns empty string if not captured (non-fatal; caller handles gracefully).
+            (session_id, result_text) from --output-format json output.
+            Either may be empty if not captured (non-fatal).
         """
+        import asyncio
+
         compose_worktree(
             worktree, self.teaparty_home, role,
             project_dir=project_dir,
@@ -364,36 +443,60 @@ class AgentSpawner:
             is_management=is_management,
         )
 
+        # Auto-derive roster if not explicitly provided.  If the agent is a
+        # workgroup or project lead, it needs to know its team members.
+        if agents_json is None:
+            agents_json = _derive_roster(
+                role, self.teaparty_home, project_dir=project_dir,
+            )
+
         env = dict(os.environ)
         env.update(self.env_vars)
         if extra_env:
             env.update(extra_env)
 
-        cmd = [self.claude_cmd, '-p', '--output-format', 'json', '--bare']
+        # user: OAuth auth.  project: .claude/settings.json in the worktree
+        # (permissions, hooks).  Not local — that's user-specific overrides.
+        cmd = [self.claude_cmd, '-p', '--output-format', 'json',
+               '--setting-sources', 'user,project',
+               '--agent', role]
+
+        if agents_json:
+            cmd += ['--agents', json.dumps(agents_json)]
 
         if resume_session:
             cmd += ['--resume', resume_session]
 
         if mcp_config:
-            cmd += ['--settings', json.dumps({'mcpServers': mcp_config})]
+            cmd += ['--mcp-config', json.dumps({'mcpServers': mcp_config}),
+                    '--strict-mcp-config']
 
         cmd.append(task_message)
 
+        _log.info(
+            'spawn: role=%r worktree=%r resume=%r mcp=%s',
+            role, worktree, bool(resume_session), bool(mcp_config),
+        )
+
         try:
-            result = subprocess.run(
-                cmd,
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
                 cwd=worktree,
-                capture_output=True,
-                text=True,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
                 env=env,
             )
+            stdout_bytes, stderr_bytes = await proc.communicate()
+            stdout = stdout_bytes.decode() if stdout_bytes else ''
+            stderr = stderr_bytes.decode() if stderr_bytes else ''
         except FileNotFoundError:
             _log.warning('claude command not found at %r; agent spawn skipped', self.claude_cmd)
-            return ''
+            return '', ''
 
-        session_id = _extract_session_id(result.stdout)
+        session_id, result_text = _parse_json_output(stdout)
         if not session_id:
-            _log.debug(
-                'Could not extract session_id from claude output (exit=%d)', result.returncode,
+            _log.warning(
+                'spawn: no session_id from claude (exit=%d) stderr=%s',
+                proc.returncode, stderr[:500] if stderr else '',
             )
-        return session_id
+        return session_id, result_text
