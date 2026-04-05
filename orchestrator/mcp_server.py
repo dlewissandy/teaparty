@@ -1911,9 +1911,13 @@ def create_server() -> FastMCP:
         return list_pins_handler(project=project, teaparty_home=teaparty_home)
 
     # ── Config tools ──────────────────────────────────────────────────────────
-    # Dispatching agents only need Send/Reply + read tools above.
-    # Skip the 25+ config CRUD tools to stay below the deferral threshold.
+    # Dispatching agents need Send + read tools only.
+    # Remove Reply/CloseConversation/intervention — result returns via stdout.
+    # Skip the 25+ config CRUD tools entirely.
     if scope == 'dispatch':
+        for name in ('Reply', 'CloseConversation', 'WithdrawSession',
+                     'PauseDispatch', 'ResumeDispatch', 'ReprioritizeDispatch'):
+            server._tool_manager._tools.pop(name, None)
         return server
 
     @server.tool()
