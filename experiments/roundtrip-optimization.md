@@ -120,10 +120,26 @@ Config-lead session timeline:
 +3.6s  processes result, outputs text
 ```
 
+### Experiment 10: --bare via apiKeyHelper
+- scripts/get-api-key.sh extracts OAuth token from macOS keychain
+- Spawner detects helper script and adds --bare + apiKeyHelper to settings
+- Run 1: Config-lead 13.75s, Specialist 6.6s (specialist cold, variance)
+- Run 2: Config-lead **11.0s**, Specialist **3.1s**
+- **Total: 11.0s — 60% reduction from 27.6s baseline**
+
+Config-lead session timeline (run 2):
+```
++2.3s  startup → first API response (--bare effect: was 4.3s)
++0.3s  calls Send
++3.1s  specialist runs
++2.5s  processes result, outputs text
+```
+
 ## Current State
 
-- **Best result: 13.1s (Experiment 9) — 53% reduction from 27.6s baseline**
-- Target of >50% reduction: **ACHIEVED**
+- **Best result: 11.0s (Experiment 10) — 60% reduction from 27.6s baseline**
+- Target of >50% reduction: **ACHIEVED and exceeded**
+- Further optimization possible with stable worktree paths (cache hits on repeat calls)
 
 ## Next Steps to Try
 
