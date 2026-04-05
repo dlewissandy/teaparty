@@ -9,8 +9,16 @@ projects:
   path: .
   config: .teaparty/project.yaml
 members:
+  agents:
+  - auditor
+  - researcher
+  - strategist
+  - proxy-review
   projects:
   - TeaParty
+  - pybayes
+  - Jainai
+  - comics
   workgroups:
   - Configuration
 workgroups:
