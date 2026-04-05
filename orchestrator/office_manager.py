@@ -711,9 +711,11 @@ class OfficeManagerSession:
         """
         import asyncio
         import tempfile
+        import time as _time
         from orchestrator.claude_runner import create_runner
         from orchestrator.worktree import ensure_agent_worktree
 
+        t_invoke_start = _time.monotonic()
         self.load_state()
 
         # Handle /clear: reset the Claude session so the next message starts fresh.
@@ -856,6 +858,11 @@ class OfficeManagerSession:
                         self.conversation_title = slug
                 self.save_state()
 
+            _log_om = logging.getLogger('orchestrator.office_manager')
+            _log_om.info(
+                'invoke_timing: total=%.2fs response_len=%d',
+                _time.monotonic() - t_invoke_start, len(response_text),
+            )
             return response_text
         finally:
             try:

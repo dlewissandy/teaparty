@@ -1079,12 +1079,18 @@ class TeaPartyBridge:
             self._om_locks[qualifier] = asyncio.Lock()
         lock = self._om_locks[qualifier]
 
+        import time as _time
         async with lock:
+            t_om_start = _time.monotonic()
             if qualifier not in self._om_sessions:
                 self._om_sessions[qualifier] = OfficeManagerSession(self.teaparty_home, qualifier, llm_backend=self._llm_backend)
             session = self._om_sessions[qualifier]
             try:
                 await session.invoke(cwd=self._repo_root)
+                _log.info(
+                    'om_round_trip: qualifier=%r total=%.2fs',
+                    qualifier, _time.monotonic() - t_om_start,
+                )
             except Exception:
                 _log.exception('OM invocation failed for qualifier %r', qualifier)
                 try:
