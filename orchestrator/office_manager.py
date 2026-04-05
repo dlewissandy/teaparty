@@ -613,6 +613,16 @@ class OfficeManagerSession:
         from orchestrator.worktree import ensure_agent_worktree
 
         self.load_state()
+
+        # Handle /clear: reset the Claude session so the next message starts fresh.
+        latest = self._latest_human_message()
+        if latest.strip() == '/clear':
+            self.claude_session_id = None
+            self.save_state()
+            msg = 'Session cleared.'
+            self._bus.send(self.conversation_id, 'office-manager', msg)
+            return msg
+
         is_fresh_session = self.claude_session_id is None
 
         # For resuming sessions, pass only the latest human message; the prior

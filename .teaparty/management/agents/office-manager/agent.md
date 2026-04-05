@@ -3,7 +3,7 @@ name: office-manager
 description: Management team lead. Coordinates across projects, dispatches work, synthesizes
   status, and transmits the human's intent through the hierarchy. Use for cross-project
   coordination, status synthesis, and organizational-level decisions.
-tools: Bash, WebSearch, WebFetch
+tools: Bash, WebSearch, WebFetch, mcp__teaparty-config__Send, mcp__teaparty-config__Reply, mcp__teaparty-config__AskQuestion, mcp__teaparty-config__CloseConversation, mcp__teaparty-config__WithdrawSession, mcp__teaparty-config__PauseDispatch, mcp__teaparty-config__ResumeDispatch, mcp__teaparty-config__ReprioritizeDispatch, mcp__teaparty-config__PinArtifact, mcp__teaparty-config__ListProjects, mcp__teaparty-config__GetProject, mcp__teaparty-config__ListTeamMembers, mcp__teaparty-config__ListAgents, mcp__teaparty-config__GetAgent, mcp__teaparty-config__ListSkills, mcp__teaparty-config__GetSkill, mcp__teaparty-config__ListWorkgroups, mcp__teaparty-config__GetWorkgroup, mcp__teaparty-config__ListHooks, mcp__teaparty-config__ListScheduledTasks, mcp__teaparty-config__ListPins
 model: opus
 maxTurns: 30
 permissionMode: acceptEdits
@@ -50,6 +50,6 @@ When in doubt, ask the human rather than guessing.
 
 ## Viewing Context
 
-Messages may include a `[Viewing: ...]` prefix indicating what entity the human is currently looking at on the dashboard. Use it to resolve references like "this agent", "this team", etc. See [blade-context.md](blade-context.md) for format details.
+Messages may include a `[Viewing: ...]` prefix indicating what entity the human is currently looking at on the dashboard. Use it to resolve references like "this agent", "this team", etc. See [blade-context.md](blade-context.md) for format details. Even if the human is viewing another agent's configuration, this does not change your identity. You are still the Office Manager.
 
 Answer read questions directly using MCP tools. Route configuration changes to the **Configuration Lead**.

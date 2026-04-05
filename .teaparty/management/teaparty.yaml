@@ -7,13 +7,8 @@ humans:
 projects:
 - name: TeaParty
   path: .
-  config: .teaparty/project.yaml
+  config: .teaparty/project/project.yaml
 members:
-  agents:
-  - auditor
-  - researcher
-  - strategist
-  - proxy-review
   projects:
   - TeaParty
   - pybayes

@@ -138,13 +138,14 @@ class TestDeriveOmRoster(unittest.TestCase):
         self.assertIn('alpha-lead', roster)
         self.assertEqual(roster['alpha-lead']['description'], 'Alpha project.')
 
-    def test_roster_includes_management_agent(self):
+    def test_roster_excludes_unlisted_agents(self):
+        """Agents in members.agents are not included — membership is derived
+        from humans, members.projects, and members.workgroups only."""
         roster = derive_om_roster(
             os.path.join(self.home, '.teaparty'),
             agents_dir=os.path.join(self.home, '.claude', 'agents'),
         )
-        self.assertIn('auditor', roster)
-        self.assertEqual(roster['auditor']['description'], 'Code audits.')
+        self.assertNotIn('auditor', roster)
 
     def test_roster_excludes_unlisted_projects(self):
         """Projects not in members.projects are excluded."""
@@ -154,7 +155,7 @@ class TestDeriveOmRoster(unittest.TestCase):
         self.assertEqual(lead_names, ['alpha-lead'])
 
     def test_empty_members_projects(self):
-        """Empty members.projects produces roster with only management agents."""
+        """Empty members.projects produces an empty roster."""
         yaml_text = textwrap.dedent(f"""\
             name: Management Team
             description: Management.
@@ -164,19 +165,12 @@ class TestDeriveOmRoster(unittest.TestCase):
                 path: {self.proj}
                 config: .teaparty/project/project.yaml
             members:
-              agents:
-                - auditor
+              projects: []
         """)
-        home = _make_teaparty_home(
-            yaml_text,
-            agent_files={'auditor.md': '---\nname: auditor\ndescription: Code audits.\n---\n'},
-        )
-        roster = derive_om_roster(
-            os.path.join(home, '.teaparty'),
-            agents_dir=os.path.join(home, '.claude', 'agents'),
-        )
+        home = _make_teaparty_home(yaml_text)
+        roster = derive_om_roster(os.path.join(home, '.teaparty'))
         self.assertNotIn('alpha-lead', roster)
-        self.assertIn('auditor', roster)
+        self.assertEqual(roster, {})
 
 
 # ── 2. derive_project_roster ────────────────────────────────────────────────

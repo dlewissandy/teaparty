@@ -21,11 +21,19 @@ from orchestrator.config_reader import (
 
 
 def _agent_description(agents_dir: str, agent_name: str) -> str:
-    """Read description from an agent's frontmatter."""
-    path = os.path.join(agents_dir, f'{agent_name}.md')
-    if os.path.exists(path):
-        fm = read_agent_frontmatter(path)
-        return fm.get('description', '')
+    """Read description from an agent's frontmatter.
+
+    Supports both layouts:
+    - .teaparty style: ``{agents_dir}/{name}/agent.md``
+    - .claude style:   ``{agents_dir}/{name}.md``
+    """
+    for candidate in (
+        os.path.join(agents_dir, agent_name, 'agent.md'),
+        os.path.join(agents_dir, f'{agent_name}.md'),
+    ):
+        if os.path.exists(candidate):
+            fm = read_agent_frontmatter(candidate)
+            return fm.get('description', '')
     return ''
 
 
@@ -86,13 +94,6 @@ def derive_om_roster(
             roster[lead_name] = {
                 'description': project_team.description or project_name,
             }
-
-    # Management-level agents from members.agents
-    for agent_name in team.members_agents:
-        desc = _agent_description(agents_dir, agent_name)
-        roster[agent_name] = {
-            'description': desc or agent_name,
-        }
 
     return roster
 
