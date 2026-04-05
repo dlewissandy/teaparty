@@ -339,10 +339,17 @@ async def send_handler(
 
 async def _default_send_post(member: str, composite: str, context_id: str) -> str:
     """Default Send transport: post via SEND_SOCKET Unix domain socket."""
+    import time as _time
+    import logging as _logging
+    _send_log = _logging.getLogger('orchestrator.mcp_server.send')
+
     socket_path = os.environ.get('SEND_SOCKET', '')
     if not socket_path:
         raise RuntimeError('SEND_SOCKET not set — cannot send to member')
+
+    t0 = _time.monotonic()
     reader, writer = await asyncio.open_unix_connection(socket_path)
+    t_connect = _time.monotonic()
     try:
         request = json.dumps({
             'type': 'send', 'member': member,
@@ -350,8 +357,18 @@ async def _default_send_post(member: str, composite: str, context_id: str) -> st
         })
         writer.write(request.encode() + b'\n')
         await writer.drain()
+        t_sent = _time.monotonic()
+
         response_line = await reader.readline()
+        t_response = _time.monotonic()
+
         response = json.loads(response_line.decode())
+        _send_log.info(
+            'send_post_timing: member=%r connect=%.3fs write=%.3fs '
+            'wait=%.2fs total=%.2fs',
+            member, t_connect - t0, t_sent - t_connect,
+            t_response - t_sent, t_response - t0,
+        )
         return json.dumps(response)
     finally:
         writer.close()
@@ -1572,9 +1589,38 @@ def list_mcp_tool_names() -> list[str]:
     return [prefix + name for name in sorted(server._tool_manager._tools)]
 
 
+def _agent_tool_scope() -> str:
+    """Determine tool scope for this MCP server instance.
+
+    Checked in order:
+    1. AGENT_TOOL_SCOPE env var (set by mcp_server_dispatch entry point)
+    2. .tool-scope file in cwd (written by compose_worktree)
+    3. '' (full tool set — interactive session)
+    """
+    scope = os.environ.get('AGENT_TOOL_SCOPE', '')
+    if scope:
+        return scope
+    scope_file = os.path.join(os.getcwd(), '.tool-scope')
+    try:
+        with open(scope_file) as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return ''
+
+
 def create_server() -> FastMCP:
-    """Create the MCP server with escalation, dispatch, intervention, and config tools."""
+    """Create the MCP server with tools scoped to the agent's role."""
+    import logging as _logging
+    _cs_log = _logging.getLogger('orchestrator.mcp_server.create')
+
     server = FastMCP('teaparty-escalation')
+    scope = _agent_tool_scope()
+    _cs_log.info('create_server: AGENT_TOOL_SCOPE=%r', scope)
+
+    # Leaf agents need no MCP tools — they just answer and exit.
+    if scope == 'leaf':
+        _cs_log.info('create_server: leaf scope — returning empty server')
+        return server
 
     @server.tool()
     async def AskQuestion(question: str, context: str = '') -> str:
@@ -1865,6 +1911,10 @@ def create_server() -> FastMCP:
         return list_pins_handler(project=project, teaparty_home=teaparty_home)
 
     # ── Config tools ──────────────────────────────────────────────────────────
+    # Dispatching agents only need Send/Reply + read tools above.
+    # Skip the 25+ config CRUD tools to stay below the deferral threshold.
+    if scope == 'dispatch':
+        return server
 
     @server.tool()
     async def AddProject(
@@ -2359,7 +2409,15 @@ def main():
             filename=log_file,
         )
 
+    _mlog = logging.getLogger('orchestrator.mcp_server')
+    _mlog.info(
+        'main: SEND_SOCKET=%r AGENT_ID=%r CONTEXT_ID=%r',
+        os.environ.get('SEND_SOCKET', ''),
+        os.environ.get('AGENT_ID', ''),
+        os.environ.get('CONTEXT_ID', ''),
+    )
     server = create_server()
+    _mlog.info('main: registered %d tools', len(server._tool_manager._tools))
     server.run(transport='stdio')
 
 

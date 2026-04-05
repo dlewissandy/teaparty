@@ -66,14 +66,25 @@ def compose_worktree(
         agent_name: Name of the dispatched agent (for agent-level settings).
         is_management: True for management-team dispatches (uses management.md).
     """
+    import time as _time
+    t0 = _time.monotonic()
     compose_claude_md(worktree, teaparty_home, project_dir=project_dir,
                       is_management=is_management)
+    t1 = _time.monotonic()
     compose_agents(worktree, teaparty_home, project_dir=project_dir,
                    catalog_agents=catalog_agents, is_management=is_management)
+    t2 = _time.monotonic()
     compose_skills(worktree, teaparty_home, role, project_dir=project_dir,
                    catalog_skills=catalog_skills)
+    t3 = _time.monotonic()
     compose_settings(worktree, teaparty_home, project_dir=project_dir,
                      agent_name=agent_name, is_management=is_management)
+    t4 = _time.monotonic()
+    _log.info(
+        'compose_worktree_timing: role=%r claude_md=%.3fs agents=%.3fs '
+        'skills=%.3fs settings=%.3fs total=%.3fs',
+        role, t1 - t0, t2 - t1, t3 - t2, t4 - t3, t4 - t0,
+    )
 
 
 def compose_claude_md(
@@ -293,6 +304,31 @@ def _parse_json_output(output: str) -> tuple[str, str]:
     return session_id, result_text
 
 
+def _read_agent_model(
+    role: str,
+    teaparty_home: str,
+    is_management: bool = False,
+) -> str:
+    """Read the model from an agent's frontmatter.
+
+    Returns the model string (e.g. 'claude-sonnet-4-5') or '' if not found.
+    """
+    try:
+        from orchestrator.config_reader import read_agent_frontmatter
+        if is_management:
+            agent_path = os.path.join(
+                teaparty_home, 'management', 'agents', role, 'agent.md',
+            )
+        else:
+            agent_path = ''
+        if agent_path and os.path.isfile(agent_path):
+            fm = read_agent_frontmatter(agent_path)
+            return fm.get('model', '')
+    except Exception:
+        pass
+    return ''
+
+
 def _derive_roster(
     role: str,
     teaparty_home: str,
@@ -433,6 +469,9 @@ class AgentSpawner:
             Either may be empty if not captured (non-fatal).
         """
         import asyncio
+        import time as _time
+
+        t_start = _time.monotonic()
 
         compose_worktree(
             worktree, self.teaparty_home, role,
@@ -442,6 +481,7 @@ class AgentSpawner:
             agent_name=agent_name,
             is_management=is_management,
         )
+        t_compose = _time.monotonic()
 
         # Auto-derive roster if not explicitly provided.  If the agent is a
         # workgroup or project lead, it needs to know its team members.
@@ -449,17 +489,44 @@ class AgentSpawner:
             agents_json = _derive_roster(
                 role, self.teaparty_home, project_dir=project_dir,
             )
+        t_roster = _time.monotonic()
 
         env = dict(os.environ)
         env.update(self.env_vars)
         if extra_env:
             env.update(extra_env)
 
-        # user: OAuth auth.  project: .claude/settings.json in the worktree
-        # (permissions, hooks).  Not local — that's user-specific overrides.
+        # Performance env vars: eliminate telemetry network calls and
+        # reduce MCP connection timeout for fast local stdio servers.
+        env.setdefault('DISABLE_NONESSENTIAL_TRAFFIC', '1')
+        env.setdefault('MCP_TIMEOUT', '5000')
+
+        # Write tool scope to worktree so the MCP server reads it at startup.
+        # File-based because Claude Code isolates the MCP server's env —
+        # neither env vars nor CLI args reliably reach the child process.
+        # The MCP server's cwd IS the worktree, so this works.
+        tool_scope = 'dispatch' if agents_json else 'leaf'
+        scope_file = os.path.join(worktree, '.tool-scope')
+        with open(scope_file, 'w') as f:
+            f.write(tool_scope)
+
+        # Read agent settings from the composed worktree and pass via
+        # --settings so we get permissions without --setting-sources project
+        # (which would also load all agents/skills into the prompt).
+        settings_path = os.path.join(worktree, '.claude', 'settings.json')
+        settings_json = None
+        if os.path.isfile(settings_path):
+            with open(settings_path) as f:
+                settings_json = f.read()
+
+        # user: OAuth auth only.  NOT project — that loads agents/skills
+        # from .claude/ into the prompt, doubling response time.
         cmd = [self.claude_cmd, '-p', '--output-format', 'json',
-               '--setting-sources', 'user,project',
+               '--setting-sources', 'user',
                '--agent', role]
+
+        if settings_json:
+            cmd += ['--settings', settings_json]
 
         if agents_json:
             cmd += ['--agents', json.dumps(agents_json)]
@@ -467,11 +534,14 @@ class AgentSpawner:
         if resume_session:
             cmd += ['--resume', resume_session]
 
-        if mcp_config:
+        # Leaf agents (no roster) skip MCP entirely — no server process,
+        # no connection overhead.  Leads get the MCP config with sockets.
+        if mcp_config and agents_json:
             cmd += ['--mcp-config', json.dumps({'mcpServers': mcp_config}),
                     '--strict-mcp-config']
 
         cmd.append(task_message)
+        t_cmd = _time.monotonic()
 
         _log.info(
             'spawn: role=%r worktree=%r resume=%r mcp=%s',
@@ -486,7 +556,11 @@ class AgentSpawner:
                 stderr=asyncio.subprocess.PIPE,
                 env=env,
             )
+            t_proc_started = _time.monotonic()
+
             stdout_bytes, stderr_bytes = await proc.communicate()
+            t_proc_done = _time.monotonic()
+
             stdout = stdout_bytes.decode() if stdout_bytes else ''
             stderr = stderr_bytes.decode() if stderr_bytes else ''
         except FileNotFoundError:
@@ -494,6 +568,21 @@ class AgentSpawner:
             return '', ''
 
         session_id, result_text = _parse_json_output(stdout)
+        t_parse = _time.monotonic()
+
+        _log.info(
+            'spawn_timing: role=%r compose=%.2fs roster=%.2fs cmd_build=%.2fs '
+            'proc_start=%.2fs proc_run=%.2fs parse=%.2fs total=%.2fs',
+            role,
+            t_compose - t_start,
+            t_roster - t_compose,
+            t_cmd - t_roster,
+            t_proc_started - t_cmd,
+            t_proc_done - t_proc_started,
+            t_parse - t_proc_done,
+            t_parse - t_start,
+        )
+
         if not session_id:
             _log.warning(
                 'spawn: no session_id from claude (exit=%d) stderr=%s',

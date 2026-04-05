@@ -215,7 +215,9 @@ class BusEventListener:
 
         The response is sent before the spawn_fn completes so the caller is not blocked.
         """
+        import time as _time
         try:
+            t_recv = _time.monotonic()
             line = await reader.readline()
             if not line:
                 return
@@ -293,8 +295,10 @@ class BusEventListener:
 
             writer.write(json.dumps(response).encode() + b'\n')
             await writer.drain()
-            _log.info('Send complete: context_id=%r member=%r result_len=%d',
-                       context_id, member, len(response.get('result', '')))
+            t_done = _time.monotonic()
+            _log.info('Send complete: context_id=%r member=%r result_len=%d e2e=%.2fs',
+                       context_id, member, len(response.get('result', '')),
+                       t_done - t_recv)
 
         except Exception:
             _log.exception('Error handling Send connection')

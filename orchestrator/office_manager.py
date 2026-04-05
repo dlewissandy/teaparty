@@ -537,7 +537,12 @@ class OfficeManagerSession:
         repo_root = os.path.dirname(self.teaparty_home)
 
         def _child_mcp_config(member: str, context_id: str) -> dict:
-            """Build MCP config with listener socket paths for a spawned agent."""
+            """Build MCP config with listener socket paths for a spawned agent.
+
+            Uses mcp_server_dispatch entry point which hardcodes the dispatch
+            tool scope (~20 tools instead of 41), staying below the deferral
+            threshold to eliminate the ToolSearch round-trip.
+            """
             sockets = self._bus_listener_sockets
             mcp_env = {
                 'SEND_SOCKET': sockets[0],
@@ -552,13 +557,16 @@ class OfficeManagerSession:
             return {
                 'teaparty-config': {
                     'command': venv_python,
-                    'args': ['-m', 'orchestrator.mcp_server'],
+                    'args': ['-m', 'orchestrator.mcp_server_dispatch'],
                     'env': mcp_env,
                 },
             }
 
         async def spawn_fn(member, composite, context_id):
             import subprocess as _sp
+            import time as _time
+            t0 = _time.monotonic()
+
             safe_id = context_id.replace(':', '_').replace('/', '_')
             agent_dir = os.path.join(self._infra_dir, 'agents', safe_id)
             wt_result = _sp.run(
@@ -567,12 +575,32 @@ class OfficeManagerSession:
             )
             if wt_result.returncode != 0:
                 os.makedirs(agent_dir, exist_ok=True)
+            t_worktree = _time.monotonic()
+
+            # Pass socket paths in extra_env so the claude -p process has
+            # them, and the MCP server child inherits them.  SEND_SOCKET
+            # also signals _agent_tool_scope() to use the dispatch scope.
+            sockets = self._bus_listener_sockets
+            child_extra_env = {
+                'CONTEXT_ID': context_id,
+                'AGENT_ID': member,
+            }
+            if sockets:
+                child_extra_env['SEND_SOCKET'] = sockets[0]
+                child_extra_env['REPLY_SOCKET'] = sockets[1]
+                child_extra_env['CLOSE_CONV_SOCKET'] = sockets[2]
 
             session_id, result_text = await spawner.spawn(
                 composite, worktree=agent_dir, role=member,
                 project_dir=repo_root, is_management=True,
-                extra_env={'CONTEXT_ID': context_id, 'AGENT_ID': member},
+                extra_env=child_extra_env,
                 mcp_config=_child_mcp_config(member, context_id),
+            )
+            t_done = _time.monotonic()
+
+            log.info(
+                'spawn_fn_timing: member=%r git_worktree=%.2fs spawner=%.2fs total=%.2fs',
+                member, t_worktree - t0, t_done - t_worktree, t_done - t0,
             )
             return (session_id, agent_dir, result_text)
 
