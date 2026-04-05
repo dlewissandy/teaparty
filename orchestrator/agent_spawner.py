@@ -522,8 +522,8 @@ class AgentSpawner:
                     pass
 
         # --bare: skip hooks, LSP, plugins, CLAUDE.md discovery, OAuth,
-        # auto-memory, prefetches.  Auth via apiKeyHelper script.
-        # Up to 10x faster startup (4.3s → ~1s).
+        # auto-memory, prefetches.  Auth via apiKeyHelper (extracts OAuth
+        # token from platform credential store).  Max accounts only.
         api_key_helper = os.path.join(
             os.path.dirname(self.teaparty_home), 'scripts', 'get-api-key.sh',
         )
