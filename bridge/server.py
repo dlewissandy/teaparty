@@ -1929,8 +1929,26 @@ class TeaPartyBridge:
             path = os.path.join(_org_skills, skill_name, 'SKILL.md')
             return path if os.path.isfile(path) else None
 
-        # Project teams dispatch to workgroups, not individual agents.
+        # Build merged agent list: local project agents first, then shared org agents.
+        all_agents_active = t.members_agents is None or len(t.members_agents) == 0
+        active_agents_set = set(t.members_agents) if t.members_agents else set()
         agents_result = []
+        seen_agents: set[str] = set()
+        local_agent_names = discover_agents(_proj_agents) if _proj_agents else []
+        for name in sorted(local_agent_names):
+            agents_result.append({
+                'name': name, 'source': 'local',
+                'active': all_agents_active or name in active_agents_set,
+            })
+            seen_agents.add(name)
+        for name in (org_catalog_agents or []):
+            if name in seen_agents:
+                continue
+            agents_result.append({
+                'name': name, 'source': 'shared',
+                'active': all_agents_active or name in active_agents_set,
+            })
+            seen_agents.add(name)
 
         # Build merged skill list: local first, then shared org skills.
         # Active state: None = all active (not configured yet), list = explicit membership.
