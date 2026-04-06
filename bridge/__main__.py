@@ -39,6 +39,7 @@ _fh = logging.FileHandler(os.path.join(log_dir, 'bridge.log'))
 _fh.setLevel(logging.DEBUG)
 _fh.setFormatter(logging.Formatter(log_fmt))
 logging.getLogger('orchestrator').addHandler(_fh)
+logging.getLogger('bridge').addHandler(_fh)
 
 if not os.path.isdir(args.teaparty_home):
     parser.error(
