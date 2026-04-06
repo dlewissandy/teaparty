@@ -995,6 +995,81 @@ def get_project_handler(name: str, teaparty_home: str = '') -> str:
     return json.dumps({'success': True, 'project': data})
 
 
+def project_status_handler(name: str, days: int = 7, teaparty_home: str = '') -> str:
+    """Generate a status summary for a project.
+
+    Returns recent git commits and in-progress sessions/jobs.
+    """
+    import subprocess
+
+    if not name or not name.strip():
+        return _err('ProjectStatus requires a non-empty project name')
+    home = _teaparty_home(teaparty_home)
+    project_dir = _find_project_path(name, home)
+    if project_dir is None:
+        return _err(f"Project '{name}' not found in registry")
+
+    # Git commits from the last N days
+    commits = []
+    try:
+        result = subprocess.run(
+            ['git', 'log', '--oneline', '--all', f'--since={days} days ago',
+             '--format=%h %ai %s'],
+            cwd=project_dir, capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode == 0:
+            for line in result.stdout.strip().splitlines():
+                if line:
+                    commits.append(line)
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+
+    # In-progress sessions
+    sessions_dir = os.path.join(project_dir, '.sessions')
+    active_sessions = []
+    if os.path.isdir(sessions_dir):
+        from scripts.cfa_state import is_globally_terminal
+        for entry in sorted(os.listdir(sessions_dir), reverse=True):
+            sess_path = os.path.join(sessions_dir, entry)
+            if not os.path.isdir(sess_path) or not entry[0].isdigit():
+                continue
+            cfa_path = os.path.join(sess_path, '.cfa-state.json')
+            cfa = {}
+            if os.path.isfile(cfa_path):
+                try:
+                    with open(cfa_path) as f:
+                        cfa = json.load(f)
+                except (json.JSONDecodeError, OSError):
+                    pass
+            state = cfa.get('state', '')
+            if state and is_globally_terminal(state):
+                continue
+            task_path = os.path.join(sess_path, 'INTENT.md')
+            task = ''
+            if os.path.isfile(task_path):
+                try:
+                    with open(task_path) as f:
+                        task = f.read(200).strip()
+                except OSError:
+                    pass
+            active_sessions.append({
+                'session_id': entry,
+                'phase': cfa.get('phase', ''),
+                'state': state or 'unknown',
+                'task': task,
+            })
+
+    return json.dumps({
+        'success': True,
+        'project': name,
+        'period_days': days,
+        'commits': commits,
+        'commit_count': len(commits),
+        'active_sessions': active_sessions,
+        'active_session_count': len(active_sessions),
+    })
+
+
 def list_team_members_handler(teaparty_home: str = '') -> str:
     """List the team members for the calling agent's team.
 
@@ -1894,6 +1969,21 @@ def create_server() -> FastMCP:
             teaparty_home: Override for .teaparty/ directory path.
         """
         return get_project_handler(name=name, teaparty_home=teaparty_home)
+
+    @server.tool()
+    async def ProjectStatus(name: str, days: int = 7, teaparty_home: str = '') -> str:
+        """Get a status summary for a project.
+
+        Returns recent git commits and in-progress sessions/jobs.
+        Use this to generate weekly status updates or check what
+        is currently happening in a project.
+
+        Args:
+            name: Project name as registered in teaparty.yaml.
+            days: Number of days of git history to include (default 7).
+            teaparty_home: Override for .teaparty/ directory path.
+        """
+        return project_status_handler(name=name, days=days, teaparty_home=teaparty_home)
 
     @server.tool()
     async def ListTeamMembers(teaparty_home: str = '') -> str:
