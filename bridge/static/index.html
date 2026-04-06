@@ -91,6 +91,16 @@
 <script>
 function openPage(url) { window.open(url, '_blank'); }
 
+function seedBlade(message) {
+  if (!pageState.omConvId) return;
+  if (!_bladeOpen) toggleBlade();
+  fetch('/api/conversations/' + encodeURIComponent(pageState.omConvId), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content: message }),
+  });
+}
+
 var _bladeOpen = false;
 
 function toggleBlade() {
@@ -294,8 +304,8 @@ function render() {
 
     projectsHtml += '<div class="project-card">';
 
-    // Header
-    projectsHtml += '<div class="pc-header">';
+    // Header — click navigates to project config
+    projectsHtml += '<div class="pc-header" style="cursor:pointer" onclick="openPage(\'config.html?project=' + p.slug + '\')">';
     projectsHtml += '<div class="pc-name">' + p.slug + '</div>';
     projectsHtml += '<span class="item-badge badge-' + status + '">' + status.toUpperCase() + '</span>';
     projectsHtml += '</div>';
@@ -347,13 +357,13 @@ function render() {
       projectsHtml += '</div>';
     }
 
-    // Action buttons — Manager opens a project manager conversation (pm:{slug}:{user})
-    var currentUser = pageState.omConvId.split(':')[1] || 'darrell';
-    var managerConv = 'pm:' + p.slug + ':' + currentUser;
+    // Action buttons
+    var pName = p.name || p.slug;
     projectsHtml += '<div class="pc-actions">';
-    projectsHtml += '<button class="pc-action" onclick="openPage(\'config.html?project=' + p.slug + '\')"><span class="pc-action-icon">&#9881;</span>Config</button>';
-    projectsHtml += '<button class="pc-action" onclick="openPage(\'artifacts.html?project=' + p.slug + '\')"><span class="pc-action-icon">&#128196;</span>Artifacts</button>';
-    projectsHtml += '<button class="pc-action" onclick="openPage(\'chat.html?conv=' + managerConv + '&name=' + encodeURIComponent(p.name) + '\')"><span class="pc-action-icon">&#9733;</span>Manager</button>';
+    projectsHtml += '<button class="pc-action" onclick="seedBlade(\'I would like to create a new job for the ' + pName + ' project.\')"><span class="pc-action-icon">&#9654;</span>New Job</button>';
+    projectsHtml += '<button class="pc-action" onclick="seedBlade(\'Please pause all running jobs for the ' + pName + ' project.\')"><span class="pc-action-icon">&#9646;&#9646;</span>Pause All</button>';
+    projectsHtml += '<button class="pc-action" onclick="seedBlade(\'Please restart all paused jobs for the ' + pName + ' project.\')"><span class="pc-action-icon">&#9654;</span>Restart All</button>';
+    projectsHtml += '<button class="pc-action" onclick="seedBlade(\'Please give me a status update for the ' + pName + ' project.\')"><span class="pc-action-icon">&#9733;</span>Status</button>';
     projectsHtml += '</div>';
 
     projectsHtml += '</div>';

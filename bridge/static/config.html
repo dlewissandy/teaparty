@@ -273,13 +273,7 @@ async function loadGlobal() {
   projects.forEach(function(p) {
     var r = rosterByProject[p.name];
     var meta = [r ? r.description : '', r ? r.name : ''].filter(Boolean).join(' · ');
-    var actions = '<div class="item-actions" onclick="event.stopPropagation()">' +
-      '<button class="action-btn" onclick="seedBlade(\'I would like to create a new job for the ' + escAttr(p.name) + ' project.\')">New Job</button>' +
-      '<button class="action-btn" onclick="seedBlade(\'Please pause all running jobs for the ' + escAttr(p.name) + ' project.\')">Pause All</button>' +
-      '<button class="action-btn" onclick="seedBlade(\'Please restart all paused jobs for the ' + escAttr(p.name) + ' project.\')">Restart All</button>' +
-      '<button class="action-btn" onclick="seedBlade(\'Please give me a status update for the ' + escAttr(p.name) + ' project.\')">Status</button>' +
-      '</div>';
-    projectItems.push(itemCard({ icon: '&#9654;', iconClass: 'icon-project', title: p.name, meta: meta, active: true, badge: 'project', badgeClass: 'badge-project', onClick: "configNav('project','" + p.name + "')", trailing: actions }));
+    projectItems.push(itemCard({ icon: '&#9654;', iconClass: 'icon-project', title: p.name, meta: meta, active: true, badge: 'project', badgeClass: 'badge-project', onClick: "configNav('project','" + p.name + "')" }));
   });
   var wgMgmtItems = [];
   (workgroupsData || []).forEach(function(w) {
@@ -309,8 +303,7 @@ async function loadGlobal() {
     bladeTitle: 'Office Manager',
     bladeContext: 'management',
     cards: [
-      { title: 'Projects', items: projectItems, opts: { addSeed: 'I would like to create a new project.', addSeed2: { label: '+ Add', seed: 'I would like to add an existing project to the management team.' }, empty: 'No projects' } },
-      { title: 'Workgroups', items: wgMgmtItems, opts: { addSeed: 'I would like to create a new workgroup for the management team.', empty: 'No workgroups' } },
+      { title: 'Workgroups', items: projectItems.concat(wgMgmtItems), opts: { addSeed: 'I would like to create a new workgroup for the management team.', addSeed2: { label: '+ Add Project', seed: 'I would like to add an existing project to the management team.' }, empty: 'No projects or workgroups' } },
       { title: 'Agents', items: agents, opts: { addSeed: 'I would like to create a new agent in the management agent catalog.' } },
       { title: 'Participants', items: participantItems(m.humans, 'global') },
       { title: 'Artifacts', items: renderPinItems(pinsData), opts: { empty: 'No organizational artifacts' } },
