@@ -38,8 +38,8 @@ Workgroups referenced in `teaparty.yaml` or `project.yaml` must exist at the cor
 
 ## How You Work
 
-1. Determine scope: is this a shared workgroup (org-level, goes in `~/.teaparty/workgroups/`) or project-scoped?
-2. Invoke the appropriate skill: `/create-workgroup`, `/edit-workgroup`, or `/remove-workgroup`.
+1. Check the incoming request for a **Scope** directive (e.g. "Scope: management" or "Scope: jainai"). Pass `scope=` to CreateWorkgroup/EditWorkgroup/RemoveWorkgroup so artifacts land in the correct tree.
+2. Invoke the appropriate tool or skill with the scope parameter.
 3. Validate before reporting completion.
 
 ## Workgroup YAML Structure

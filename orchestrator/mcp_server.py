@@ -569,6 +569,83 @@ def _proj_workgroups_dir(project_root: str) -> str:
     return os.path.join(project_root, '.teaparty', 'project', 'workgroups')
 
 
+def _resolve_scope(scope: str) -> tuple[str, bool]:
+    """Resolve a scope string to (root_path, is_management).
+
+    Args:
+        scope: Either 'management' (or empty, which defaults to management)
+            or a project name. Project names are resolved via teaparty.yaml
+            and external-projects.yaml to their absolute paths.
+
+    Returns:
+        (root_path, is_management) where root_path is the repo root for
+        the resolved scope.
+    """
+    if not scope or scope == 'management':
+        return _resolve_repo_root(), True
+
+    # Resolve project name to path via registry
+    repo_root = _resolve_repo_root()
+    teaparty_home = os.path.join(repo_root, '.teaparty')
+
+    # Check inline projects in teaparty.yaml
+    import yaml
+    ty_path = os.path.join(teaparty_home, 'management', 'teaparty.yaml')
+    if os.path.isfile(ty_path):
+        with open(ty_path) as f:
+            ty = yaml.safe_load(f) or {}
+        for proj in ty.get('projects', []):
+            if proj.get('name', '').lower() == scope.lower():
+                proj_path = proj.get('path', '')
+                if proj_path == '.':
+                    return repo_root, False
+                return os.path.abspath(os.path.join(repo_root, proj_path)), False
+
+    # Check external projects
+    ext_path = os.path.join(teaparty_home, 'management', 'external-projects.yaml')
+    if os.path.isfile(ext_path):
+        with open(ext_path) as f:
+            ext = yaml.safe_load(f) or []
+        for proj in ext:
+            if proj.get('name', '').lower() == scope.lower():
+                return proj.get('path', repo_root), False
+
+    # Scope not found — fall back to management
+    return repo_root, True
+
+
+def _scoped_agents_dir(scope: str) -> str:
+    """Resolve agents directory for the given scope."""
+    root, is_mgmt = _resolve_scope(scope)
+    if is_mgmt:
+        return _mgmt_agents_dir(os.path.join(root, '.teaparty'))
+    return _proj_agents_dir(root)
+
+
+def _scoped_skills_dir(scope: str) -> str:
+    """Resolve skills directory for the given scope."""
+    root, is_mgmt = _resolve_scope(scope)
+    if is_mgmt:
+        return _mgmt_skills_dir(os.path.join(root, '.teaparty'))
+    return _proj_skills_dir(root)
+
+
+def _scoped_workgroups_dir(scope: str) -> str:
+    """Resolve workgroups directory for the given scope."""
+    root, is_mgmt = _resolve_scope(scope)
+    if is_mgmt:
+        return _mgmt_workgroups_dir(os.path.join(root, '.teaparty'))
+    return _proj_workgroups_dir(root)
+
+
+def _scoped_settings_yaml(scope: str) -> str:
+    """Resolve settings.yaml for the given scope."""
+    root, is_mgmt = _resolve_scope(scope)
+    if is_mgmt:
+        return _mgmt_settings_yaml(os.path.join(root, '.teaparty'))
+    return _proj_settings_yaml(root)
+
+
 def _parse_agent_file(path: str) -> tuple[dict, str]:
     """Parse an agents/{name}/agent.md file.
 
@@ -1005,10 +1082,10 @@ def list_team_members_handler(teaparty_home: str = '') -> str:
     return json.dumps({'success': True, 'members': members})
 
 
-def list_agents_handler(project_root: str = '') -> str:
+def list_agents_handler(project_root: str = '', scope: str = '') -> str:
     """List all agent definitions with summary info."""
-    root = _project_root(project_root)
-    agents_dir = _mgmt_agents_dir(os.path.join(root, '.teaparty'))
+    agents_dir = _scoped_agents_dir(scope) if scope else _mgmt_agents_dir(
+        os.path.join(_project_root(project_root), '.teaparty'))
     items = []
     if os.path.isdir(agents_dir):
         for name in sorted(os.listdir(agents_dir)):
@@ -1023,12 +1100,12 @@ def list_agents_handler(project_root: str = '') -> str:
     return json.dumps({'success': True, 'agents': items})
 
 
-def get_agent_handler(name: str, project_root: str = '') -> str:
+def get_agent_handler(name: str, project_root: str = '', scope: str = '') -> str:
     """Get full details for a single agent definition."""
     if not name or not name.strip():
         return _err('GetAgent requires a non-empty name')
-    root = _project_root(project_root)
-    agents_dir = _mgmt_agents_dir(os.path.join(root, '.teaparty'))
+    agents_dir = _scoped_agents_dir(scope) if scope else _mgmt_agents_dir(
+        os.path.join(_project_root(project_root), '.teaparty'))
     path = os.path.join(agents_dir, name, 'agent.md')
     if not os.path.isfile(path):
         return _err(f"Agent '{name}' not found at {path}")
@@ -1038,10 +1115,10 @@ def get_agent_handler(name: str, project_root: str = '') -> str:
     }})
 
 
-def list_skills_handler(project_root: str = '') -> str:
+def list_skills_handler(project_root: str = '', scope: str = '') -> str:
     """List all skill definitions with summary info."""
-    root = _project_root(project_root)
-    skills_dir = _mgmt_skills_dir(os.path.join(root, '.teaparty'))
+    skills_dir = _scoped_skills_dir(scope) if scope else _mgmt_skills_dir(
+        os.path.join(_project_root(project_root), '.teaparty'))
     items = []
     if os.path.isdir(skills_dir):
         for name in sorted(os.listdir(skills_dir)):
@@ -1056,12 +1133,12 @@ def list_skills_handler(project_root: str = '') -> str:
     return json.dumps({'success': True, 'skills': items})
 
 
-def get_skill_handler(name: str, project_root: str = '') -> str:
+def get_skill_handler(name: str, project_root: str = '', scope: str = '') -> str:
     """Get full details for a single skill definition."""
     if not name or not name.strip():
         return _err('GetSkill requires a non-empty name')
-    root = _project_root(project_root)
-    skills_dir = _mgmt_skills_dir(os.path.join(root, '.teaparty'))
+    skills_dir = _scoped_skills_dir(scope) if scope else _mgmt_skills_dir(
+        os.path.join(_project_root(project_root), '.teaparty'))
     path = os.path.join(skills_dir, name, 'SKILL.md')
     if not os.path.isfile(path):
         return _err(f"Skill '{name}' not found at {path}")
@@ -1155,6 +1232,7 @@ def create_agent_handler(
     skills: str = '',
     max_turns: int = 20,
     project_root: str = '',
+    scope: str = '',
 ) -> str:
     """Create agents/{name}/agent.md with validated frontmatter."""
     if not name or not name.strip():
@@ -1164,8 +1242,8 @@ def create_agent_handler(
     if not model or not model.strip():
         return _err('CreateAgent requires a non-empty model')
 
-    root = _project_root(project_root)
-    agents_dir = _mgmt_agents_dir(os.path.join(root, '.teaparty'))
+    agents_dir = _scoped_agents_dir(scope) if scope else _mgmt_agents_dir(
+        os.path.join(_project_root(project_root), '.teaparty'))
     path = os.path.join(agents_dir, name, 'agent.md')
 
     fm: dict[str, Any] = {
@@ -1225,13 +1303,14 @@ def edit_agent_handler(
     field: str,
     value: str,
     project_root: str = '',
+    scope: str = '',
 ) -> str:
     """Edit a single frontmatter field (or body) in an existing agent definition."""
     if not name or not name.strip():
         return _err('EditAgent requires a non-empty name')
 
-    root = _project_root(project_root)
-    agents_dir = _mgmt_agents_dir(os.path.join(root, '.teaparty'))
+    agents_dir = _scoped_agents_dir(scope) if scope else _mgmt_agents_dir(
+        os.path.join(_project_root(project_root), '.teaparty'))
     path = os.path.join(agents_dir, name, 'agent.md')
     if not os.path.exists(path):
         return _err(f"Agent '{name}' not found at {path}")
@@ -1253,13 +1332,13 @@ def edit_agent_handler(
     return _ok(f"Agent '{name}' field '{field}' updated")
 
 
-def remove_agent_handler(name: str, project_root: str = '') -> str:
+def remove_agent_handler(name: str, project_root: str = '', scope: str = '') -> str:
     """Delete agents/{name}/ directory."""
     if not name or not name.strip():
         return _err('RemoveAgent requires a non-empty name')
 
-    root = _project_root(project_root)
-    agents_dir = _mgmt_agents_dir(os.path.join(root, '.teaparty'))
+    agents_dir = _scoped_agents_dir(scope) if scope else _mgmt_agents_dir(
+        os.path.join(_project_root(project_root), '.teaparty'))
     agent_dir = os.path.join(agents_dir, name)
     if not os.path.isdir(agent_dir):
         return _err(f"Agent '{name}' not found at {agent_dir}")
@@ -1278,6 +1357,7 @@ def create_skill_handler(
     argument_hint: str = '',
     user_invocable: bool = False,
     project_root: str = '',
+    scope: str = '',
 ) -> str:
     """Create skills/{name}/SKILL.md with validated frontmatter."""
     if not name or not name.strip():
@@ -1285,8 +1365,8 @@ def create_skill_handler(
     if not description or not description.strip():
         return _err('CreateSkill requires a non-empty description')
 
-    root = _project_root(project_root)
-    skills_dir = _mgmt_skills_dir(os.path.join(root, '.teaparty'))
+    skills_dir = _scoped_skills_dir(scope) if scope else _mgmt_skills_dir(
+        os.path.join(_project_root(project_root), '.teaparty'))
     skill_dir = os.path.join(skills_dir, name)
     path = os.path.join(skill_dir, 'SKILL.md')
 
@@ -1310,6 +1390,7 @@ def edit_skill_handler(
     field: str,
     value: str,
     project_root: str = '',
+    scope: str = '',
 ) -> str:
     """Edit a single frontmatter field (or body) in an existing skill's SKILL.md.
 
@@ -1319,8 +1400,8 @@ def edit_skill_handler(
     if not name or not name.strip():
         return _err('EditSkill requires a non-empty name')
 
-    root = _project_root(project_root)
-    skills_dir = _mgmt_skills_dir(os.path.join(root, '.teaparty'))
+    skills_dir = _scoped_skills_dir(scope) if scope else _mgmt_skills_dir(
+        os.path.join(_project_root(project_root), '.teaparty'))
     path = os.path.join(skills_dir, name, 'SKILL.md')
     if not os.path.exists(path):
         return _err(f"Skill '{name}' not found at {path}")
@@ -1337,13 +1418,13 @@ def edit_skill_handler(
     return _ok(f"Skill '{name}' field '{field}' updated")
 
 
-def remove_skill_handler(name: str, project_root: str = '') -> str:
+def remove_skill_handler(name: str, project_root: str = '', scope: str = '') -> str:
     """Remove skills/{name}/ directory."""
     if not name or not name.strip():
         return _err('RemoveSkill requires a non-empty name')
 
-    root = _project_root(project_root)
-    skills_dir = _mgmt_skills_dir(os.path.join(root, '.teaparty'))
+    skills_dir = _scoped_skills_dir(scope) if scope else _mgmt_skills_dir(
+        os.path.join(_project_root(project_root), '.teaparty'))
     skill_dir = os.path.join(skills_dir, name)
     if not os.path.isdir(skill_dir):
         return _err(f"Skill '{name}' not found at {skill_dir}")
@@ -1362,13 +1443,14 @@ def create_workgroup_handler(
     skills: str = '',
     norms_yaml: str = '',
     teaparty_home: str = '',
+    scope: str = '',
 ) -> str:
-    """Create a workgroup YAML in management/workgroups/{name}.yaml."""
+    """Create a workgroup YAML in workgroups/{name}.yaml."""
     if not name or not name.strip():
         return _err('CreateWorkgroup requires a non-empty name')
 
-    home = _teaparty_home(teaparty_home)
-    wg_dir = _mgmt_workgroups_dir(home)
+    wg_dir = _scoped_workgroups_dir(scope) if scope else _mgmt_workgroups_dir(
+        _teaparty_home(teaparty_home))
     os.makedirs(wg_dir, exist_ok=True)
     path = os.path.join(wg_dir, f'{name}.yaml')
 
@@ -1408,10 +1490,12 @@ def edit_workgroup_handler(
     field: str,
     value: str,
     teaparty_home: str = '',
+    scope: str = '',
 ) -> str:
     """Edit a single field in an existing workgroup YAML."""
-    home = _teaparty_home(teaparty_home)
-    path = os.path.join(_mgmt_workgroups_dir(home), f'{name}.yaml')
+    wg_dir = _scoped_workgroups_dir(scope) if scope else _mgmt_workgroups_dir(
+        _teaparty_home(teaparty_home))
+    path = os.path.join(wg_dir, f'{name}.yaml')
     if not os.path.exists(path):
         return _err(f"Workgroup '{name}' not found at {path}")
 
@@ -1432,10 +1516,11 @@ def edit_workgroup_handler(
     return _ok(f"Workgroup '{name}' field '{field}' updated")
 
 
-def remove_workgroup_handler(name: str, teaparty_home: str = '') -> str:
-    """Remove .teaparty/workgroups/{name}.yaml."""
-    home = _teaparty_home(teaparty_home)
-    path = os.path.join(_mgmt_workgroups_dir(home), f'{name}.yaml')
+def remove_workgroup_handler(name: str, teaparty_home: str = '', scope: str = '') -> str:
+    """Remove workgroups/{name}.yaml."""
+    wg_dir = _scoped_workgroups_dir(scope) if scope else _mgmt_workgroups_dir(
+        _teaparty_home(teaparty_home))
+    path = os.path.join(wg_dir, f'{name}.yaml')
     if not os.path.exists(path):
         return _err(f"Workgroup '{name}' not found at {path}")
 
@@ -1451,6 +1536,7 @@ def create_hook_handler(
     handler_type: str,
     command: str,
     project_root: str = '',
+    scope: str = '',
 ) -> str:
     """Add a hook entry to settings.yaml."""
     if not event or not event.strip():
@@ -1458,8 +1544,8 @@ def create_hook_handler(
     if not command or not command.strip():
         return _err('CreateHook requires a non-empty command')
 
-    root = _project_root(project_root)
-    settings_path = _mgmt_settings_yaml(os.path.join(root, '.teaparty'))
+    settings_path = _scoped_settings_yaml(scope) if scope else _mgmt_settings_yaml(
+        os.path.join(_project_root(project_root), '.teaparty'))
     data = _load_settings(settings_path)
     hooks = data.setdefault('hooks', {})
     event_hooks = hooks.setdefault(event, [])
@@ -1479,10 +1565,11 @@ def edit_hook_handler(
     field: str,
     value: str,
     project_root: str = '',
+    scope: str = '',
 ) -> str:
     """Edit a field in an existing hook entry."""
-    root = _project_root(project_root)
-    settings_path = _mgmt_settings_yaml(os.path.join(root, '.teaparty'))
+    settings_path = _scoped_settings_yaml(scope) if scope else _mgmt_settings_yaml(
+        os.path.join(_project_root(project_root), '.teaparty'))
     data = _load_settings(settings_path)
     event_hooks = data.get('hooks', {}).get(event, [])
 
@@ -1501,10 +1588,10 @@ def edit_hook_handler(
     return _err(f"Hook not found: {event}/{matcher}")
 
 
-def remove_hook_handler(event: str, matcher: str, project_root: str = '') -> str:
+def remove_hook_handler(event: str, matcher: str, project_root: str = '', scope: str = '') -> str:
     """Remove a hook entry from settings.yaml."""
-    root = _project_root(project_root)
-    settings_path = _mgmt_settings_yaml(os.path.join(root, '.teaparty'))
+    settings_path = _scoped_settings_yaml(scope) if scope else _mgmt_settings_yaml(
+        os.path.join(_project_root(project_root), '.teaparty'))
     data = _load_settings(settings_path)
     event_hooks = data.get('hooks', {}).get(event, [])
 
@@ -1822,7 +1909,7 @@ def create_server() -> FastMCP:
         return list_team_members_handler(teaparty_home=teaparty_home)
 
     @server.tool()
-    async def ListAgents(project_root: str = '') -> str:
+    async def ListAgents(project_root: str = '', scope: str = '') -> str:
         """List all agent definitions with summary info.
 
         Returns name, description, and model for each agent found in
@@ -1831,11 +1918,12 @@ def create_server() -> FastMCP:
 
         Args:
             project_root: Override for project root directory.
+            scope: 'management' or a project name.
         """
-        return list_agents_handler(project_root=project_root)
+        return list_agents_handler(project_root=project_root, scope=scope)
 
     @server.tool()
-    async def GetAgent(name: str, project_root: str = '') -> str:
+    async def GetAgent(name: str, project_root: str = '', scope: str = '') -> str:
         """Get full definition for a single agent.
 
         Returns all frontmatter fields (name, description, model, tools,
@@ -1844,11 +1932,12 @@ def create_server() -> FastMCP:
         Args:
             name: Agent name.
             project_root: Override for project root directory.
+            scope: 'management' or a project name.
         """
-        return get_agent_handler(name=name, project_root=project_root)
+        return get_agent_handler(name=name, project_root=project_root, scope=scope)
 
     @server.tool()
-    async def ListSkills(project_root: str = '') -> str:
+    async def ListSkills(project_root: str = '', scope: str = '') -> str:
         """List all skill definitions with summary info.
 
         Returns name, description, and user-invocable flag for each
@@ -1856,11 +1945,12 @@ def create_server() -> FastMCP:
 
         Args:
             project_root: Override for project root directory.
+            scope: 'management' or a project name.
         """
-        return list_skills_handler(project_root=project_root)
+        return list_skills_handler(project_root=project_root, scope=scope)
 
     @server.tool()
-    async def GetSkill(name: str, project_root: str = '') -> str:
+    async def GetSkill(name: str, project_root: str = '', scope: str = '') -> str:
         """Get full definition for a single skill.
 
         Returns all frontmatter fields and the body text.
@@ -1868,8 +1958,9 @@ def create_server() -> FastMCP:
         Args:
             name: Skill name.
             project_root: Override for project root directory.
+            scope: 'management' or a project name.
         """
-        return get_skill_handler(name=name, project_root=project_root)
+        return get_skill_handler(name=name, project_root=project_root, scope=scope)
 
     @server.tool()
     async def ListWorkgroups(teaparty_home: str = '') -> str:
@@ -2087,6 +2178,7 @@ def create_server() -> FastMCP:
         skills: str = '',
         max_turns: int = 20,
         project_root: str = '',
+        scope: str = '',
     ) -> str:
         """Create a new agent definition at agents/{name}/agent.md.
 
@@ -2099,11 +2191,13 @@ def create_server() -> FastMCP:
             skills: Comma-separated skill names for the skills: allowlist.
             max_turns: Maximum turns before the agent stops.
             project_root: Override for project root directory.
+            scope: 'management' or a project name. Determines where the
+                agent is created. Defaults to management.
         """
         return create_agent_handler(
             name=name, description=description, model=model,
             tools=tools, body=body, skills=skills,
-            max_turns=max_turns, project_root=project_root,
+            max_turns=max_turns, project_root=project_root, scope=scope,
         )
 
     @server.tool()
@@ -2112,6 +2206,7 @@ def create_server() -> FastMCP:
         field: str,
         value: str,
         project_root: str = '',
+        scope: str = '',
     ) -> str:
         """Edit a single field in an existing agent definition.
 
@@ -2121,20 +2216,23 @@ def create_server() -> FastMCP:
                 maxTurns, skills, body, or any other frontmatter key).
             value: New value (for skills, use comma-separated list).
             project_root: Override for project root directory.
+            scope: 'management' or a project name.
         """
         return edit_agent_handler(
-            name=name, field=field, value=value, project_root=project_root,
+            name=name, field=field, value=value,
+            project_root=project_root, scope=scope,
         )
 
     @server.tool()
-    async def RemoveAgent(name: str, project_root: str = '') -> str:
+    async def RemoveAgent(name: str, project_root: str = '', scope: str = '') -> str:
         """Delete agents/{name}/ directory.
 
         Args:
             name: Agent name.
             project_root: Override for project root directory.
+            scope: 'management' or a project name.
         """
-        return remove_agent_handler(name=name, project_root=project_root)
+        return remove_agent_handler(name=name, project_root=project_root, scope=scope)
 
     @server.tool()
     async def CreateSkill(
@@ -2145,6 +2243,7 @@ def create_server() -> FastMCP:
         argument_hint: str = '',
         user_invocable: bool = False,
         project_root: str = '',
+        scope: str = '',
     ) -> str:
         """Create a new skill at skills/{name}/SKILL.md.
 
@@ -2156,11 +2255,13 @@ def create_server() -> FastMCP:
             argument_hint: Argument syntax hint (e.g. <skill-name>).
             user_invocable: Whether the skill can be invoked with /{name}.
             project_root: Override for project root directory.
+            scope: 'management' or a project name.
         """
         return create_skill_handler(
             name=name, description=description, body=body,
             allowed_tools=allowed_tools, argument_hint=argument_hint,
             user_invocable=user_invocable, project_root=project_root,
+            scope=scope,
         )
 
     @server.tool()
@@ -2169,30 +2270,32 @@ def create_server() -> FastMCP:
         field: str,
         value: str,
         project_root: str = '',
+        scope: str = '',
     ) -> str:
         """Edit a single field of an existing skill's SKILL.md.
-
-        Use field='body' to update the skill body.  Use field='allowed-tools',
-        field='description', field='argument-hint', or field='user-invocable'
-        to update frontmatter.
 
         Args:
             name: Skill name.
             field: Field to update ('body', 'description', 'allowed-tools', etc.).
             value: New value for the field.
             project_root: Override for project root directory.
+            scope: 'management' or a project name.
         """
-        return edit_skill_handler(name=name, field=field, value=value, project_root=project_root)
+        return edit_skill_handler(
+            name=name, field=field, value=value,
+            project_root=project_root, scope=scope,
+        )
 
     @server.tool()
-    async def RemoveSkill(name: str, project_root: str = '') -> str:
+    async def RemoveSkill(name: str, project_root: str = '', scope: str = '') -> str:
         """Remove skills/{name}/ directory and all its contents.
 
         Args:
             name: Skill name.
             project_root: Override for project root directory.
+            scope: 'management' or a project name.
         """
-        return remove_skill_handler(name=name, project_root=project_root)
+        return remove_skill_handler(name=name, project_root=project_root, scope=scope)
 
     @server.tool()
     async def CreateWorkgroup(
@@ -2203,8 +2306,9 @@ def create_server() -> FastMCP:
         skills: str = '',
         norms_yaml: str = '',
         teaparty_home: str = '',
+        scope: str = '',
     ) -> str:
-        """Create a workgroup YAML at .teaparty/workgroups/{name}.yaml.
+        """Create a workgroup YAML at workgroups/{name}.yaml.
 
         Args:
             name: Workgroup name.
@@ -2214,11 +2318,12 @@ def create_server() -> FastMCP:
             skills: Comma-separated skill names for the workgroup catalog.
             norms_yaml: YAML dict of norms categories.
             teaparty_home: Override for .teaparty/ directory path.
+            scope: 'management' or a project name.
         """
         return create_workgroup_handler(
             name=name, description=description, lead=lead,
             agents_yaml=agents_yaml, skills=skills, norms_yaml=norms_yaml,
-            teaparty_home=teaparty_home,
+            teaparty_home=teaparty_home, scope=scope,
         )
 
     @server.tool()
@@ -2227,6 +2332,7 @@ def create_server() -> FastMCP:
         field: str,
         value: str,
         teaparty_home: str = '',
+        scope: str = '',
     ) -> str:
         """Edit a single field in an existing workgroup YAML.
 
@@ -2235,20 +2341,23 @@ def create_server() -> FastMCP:
             field: Field to update (name, description, lead, agents, skills, norms).
             value: New value (YAML string for list/dict fields).
             teaparty_home: Override for .teaparty/ directory path.
+            scope: 'management' or a project name.
         """
         return edit_workgroup_handler(
-            name=name, field=field, value=value, teaparty_home=teaparty_home,
+            name=name, field=field, value=value,
+            teaparty_home=teaparty_home, scope=scope,
         )
 
     @server.tool()
-    async def RemoveWorkgroup(name: str, teaparty_home: str = '') -> str:
-        """Remove .teaparty/workgroups/{name}.yaml.
+    async def RemoveWorkgroup(name: str, teaparty_home: str = '', scope: str = '') -> str:
+        """Remove workgroups/{name}.yaml.
 
         Args:
             name: Workgroup name.
             teaparty_home: Override for .teaparty/ directory path.
+            scope: 'management' or a project name.
         """
-        return remove_workgroup_handler(name=name, teaparty_home=teaparty_home)
+        return remove_workgroup_handler(name=name, teaparty_home=teaparty_home, scope=scope)
 
     @server.tool()
     async def CreateHook(
@@ -2257,6 +2366,7 @@ def create_server() -> FastMCP:
         handler_type: str,
         command: str,
         project_root: str = '',
+        scope: str = '',
     ) -> str:
         """Add a hook entry to settings.yaml.
 
@@ -2266,11 +2376,12 @@ def create_server() -> FastMCP:
             handler_type: Handler type (command, agent, prompt, http).
             command: Shell command or handler expression.
             project_root: Override for project root directory.
+            scope: 'management' or a project name.
         """
         return create_hook_handler(
             event=event, matcher=matcher,
             handler_type=handler_type, command=command,
-            project_root=project_root,
+            project_root=project_root, scope=scope,
         )
 
     @server.tool()
@@ -2280,6 +2391,7 @@ def create_server() -> FastMCP:
         field: str,
         value: str,
         project_root: str = '',
+        scope: str = '',
     ) -> str:
         """Edit a field in an existing hook entry.
 
@@ -2289,23 +2401,27 @@ def create_server() -> FastMCP:
             field: Field to update (command, type, or matcher).
             value: New value.
             project_root: Override for project root directory.
+            scope: 'management' or a project name.
         """
         return edit_hook_handler(
             event=event, matcher=matcher,
             field=field, value=value, project_root=project_root,
+            scope=scope,
         )
 
     @server.tool()
-    async def RemoveHook(event: str, matcher: str, project_root: str = '') -> str:
+    async def RemoveHook(event: str, matcher: str, project_root: str = '', scope: str = '') -> str:
         """Remove a hook entry from settings.yaml.
 
         Args:
             event: Lifecycle event of the hook to remove.
             matcher: Matcher of the hook entry to remove.
             project_root: Override for project root directory.
+            scope: 'management' or a project name.
         """
         return remove_hook_handler(
             event=event, matcher=matcher, project_root=project_root,
+            scope=scope,
         )
 
     @server.tool()

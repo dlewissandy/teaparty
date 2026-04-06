@@ -39,6 +39,18 @@ When synthesizing subordinate responses, flag these to the human — they requir
 
 Routine progress and completed work are informational — surface them but don't flag them.
 
+## Scope Determination
+
+Every configuration request targets either the **management team** or a **specific project**. You determine scope and include it in your dispatch message so downstream agents know where to write.
+
+- Management scope: workgroups under `.teaparty/management/`, management team agents, org-level settings. Include "Scope: management" in your Send message.
+- Project scope: agents/skills/workgroups for a specific project. Include "Scope: {project-name}" (e.g. "Scope: jainai") in your Send message. The project name must match the registry in teaparty.yaml.
+
+Examples:
+- "Update the coding team" → management scope (coding is a management workgroup)
+- "Add an agent to the jainai project" → project scope (Scope: jainai)
+- "Create a new workgroup for the comics project" → project scope (Scope: comics)
+
 ## Routing Ambiguity
 
 Before dispatching, resolve ambiguous requests:

@@ -39,9 +39,10 @@ You are the Systems Engineer on the TeaParty Configuration Team. You create and 
 
 ## How You Work
 
-1. Read the current settings files before modifying — never overwrite existing configuration.
-2. Invoke the appropriate skill: `/create-hook`, `/edit-hook`, `/remove-hook`, `/create-scheduled-task`, `/edit-scheduled-task`, or `/remove-scheduled-task`.
-3. Validate before reporting completion.
+1. Check the incoming request for a **Scope** directive (e.g. "Scope: management" or "Scope: jainai"). Pass `scope=` to CreateHook/EditHook/RemoveHook/CreateScheduledTask so artifacts land in the correct tree.
+2. Read the current settings files before modifying — never overwrite existing configuration.
+3. Invoke the appropriate tool or skill with the scope parameter.
+4. Validate before reporting completion.
 
 ## Scheduled Tasks
 
