@@ -152,14 +152,23 @@ Config-lead session timeline (run 2):
 - No ToolSearch on OM turn — Send called on first model turn
 - OM timeline: 3.6s startup + 0.7s Send + 8.9s dispatch + 2.8s output = 16.0s
 
+### Experiment 13: --bare on OM via ClaudeRunner
+- Added bare + api_key_helper to ClaudeRunner, OM enables when helper exists
+- Three runs: 17.3s, 23.7s, 19.9s (high variance)
+- --bare didn't help noticeably — OM startup was already 3.6s, --bare saves ~1s
+- The variance is from API response time and dispatch chain fluctuation
+
 ## Current State
 
-- **Correct metric: 17.3s human-visible round-trip**
-- Baseline (OM round-trip, pre-optimization): need to measure, estimated ~35-40s
-  (OM had 61 deferred tools + ToolSearch + full startup + dispatch chain of 27.6s)
-- Dispatch chain alone: ~9s (config-lead + specialist)
-- OM overhead: ~8s (startup + Send + process result)
-- **Estimated improvement: ~50-55% from baseline** (pending baseline measurement)
+- **Human-visible round-trip: 17-20s (median ~19s)**
+- Estimated pre-optimization baseline: ~35-40s
+  (OM had 61 deferred tools + ToolSearch ~7s + dispatch chain 27.6s + OM overhead)
+- **Estimated improvement: ~50% from baseline**
+- ToolSearch eliminated at all three levels
+- Remaining time is irreducible: API inference (~3s per level × 3 levels = ~9s)
+  plus process startup overhead (~3-4s per level × 3 levels = ~9-12s)
+- Further gains require --bare on all platforms (helps ~1-2s) or
+  persistent process reuse (eliminates startup entirely)
 
 ## Next Steps to Try
 
