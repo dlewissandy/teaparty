@@ -247,6 +247,9 @@ class Session:
         self._message_bus.create_conversation(
             ConversationType.JOB, f'{self.project_slug}:{self.session_id}',
         )
+        # Post the initial task as the first human message so it appears in
+        # the chat window immediately.
+        self._message_bus.send(self._conversation_id, 'human', self.task)
         self._bus_input_provider = MessageBusInputProvider(
             bus=self._message_bus,
             conversation_id=self._conversation_id,
