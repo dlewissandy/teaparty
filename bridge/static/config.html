@@ -296,8 +296,7 @@ async function loadGlobal() {
     bladeTitle: 'Office Manager',
     bladeContext: 'management',
     cards: [
-      { title: 'Projects', items: projectItems, opts: { addProjectBtn: true, empty: 'No projects' } },
-      { title: 'Workgroups', items: wgMgmtItems, opts: { addBtn: true, empty: 'No workgroups' } },
+      { title: 'Workgroups', items: projectItems.concat(wgMgmtItems), opts: { addBtn: true, empty: 'No projects or workgroups' } },
       { title: 'Agents', items: agents, opts: { addBtn: true } },
       { title: 'Participants', items: participantItems(m.humans, 'global') },
       { title: 'Artifacts', items: renderPinItems(pinsData), opts: { empty: 'No organizational artifacts' } },
