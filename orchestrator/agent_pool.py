@@ -17,6 +17,7 @@ import asyncio
 import json
 import logging
 import os
+import tempfile
 import time
 from typing import Any
 
@@ -222,9 +223,15 @@ class AgentPool:
         if settings:
             cmd.extend(['--settings', json.dumps(settings)])
 
+        mcp_config_file = None
         if mcp_config:
+            mcp_config_file = tempfile.NamedTemporaryFile(
+                mode='w', suffix='.json', prefix='mcp-pool-', delete=False,
+            )
+            json.dump({'mcpServers': mcp_config}, mcp_config_file)
+            mcp_config_file.close()
             cmd.extend([
-                '--mcp-config', json.dumps({'mcpServers': mcp_config}),
+                '--mcp-config', mcp_config_file.name,
                 '--strict-mcp-config',
             ])
 
