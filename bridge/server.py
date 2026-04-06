@@ -1930,8 +1930,9 @@ class TeaPartyBridge:
             return path if os.path.isfile(path) else None
 
         # Build merged agent list: local project agents first, then shared org agents.
-        all_agents_active = t.members_agents is None or len(t.members_agents) == 0
-        active_agents_set = set(t.members_agents) if t.members_agents else set()
+        _members_agents = getattr(t, 'members_agents', None)
+        all_agents_active = _members_agents is None or len(_members_agents) == 0
+        active_agents_set = set(_members_agents) if _members_agents else set()
         agents_result = []
         seen_agents: set[str] = set()
         local_agent_names = discover_agents(_proj_agents) if _proj_agents else []
