@@ -295,7 +295,7 @@ async function loadGlobal() {
   var subtitle = projects.length + ' projects &middot; ' + (workgroupsData || []).length + ' workgroups &middot; ' + (m.agents || []).length + ' agents';
 
   return {
-    breadcrumb: '',
+    breadcrumb: breadcrumbBar([{ label: 'Home', onClick: "location.href='index.html'" }]),
     title: 'Management Team',
     description: m.description || 'Cross-project coordination, human interaction, organizational strategy, and configuration management.',
     subtitle: subtitle,
@@ -354,6 +354,7 @@ async function loadProject(slug) {
 
   return {
     breadcrumb: breadcrumbBar([
+      { label: 'Home', onClick: "location.href='index.html'" },
       { label: 'Management Team', onClick: "configNav('global')" },
       { label: (team.name || slug) + ' Team' },
     ]),
@@ -418,7 +419,7 @@ async function loadWorkgroup(name, projectSlug) {
     });
   });
 
-  var crumbs = [{ label: 'Management Team', onClick: "configNav('global')" }];
+  var crumbs = [{ label: 'Home', onClick: "location.href='index.html'" }, { label: 'Management Team', onClick: "configNav('global')" }];
   if (projectSlug) crumbs.push({ label: projectSlug + ' Team', onClick: "configNav('project','" + projectSlug + "')" });
   crumbs.push({ label: name });
 
@@ -508,7 +509,7 @@ function _buildAgentSpec() {
     return '<div class="item' + cls + '"><div class="item-icon icon-member">&#9679;</div><div class="item-body"><div class="item-title">' + tool + '</div></div>' + toggle + '</div>';
   });
 
-  var crumbs = [{ label: 'Management Team', onClick: "configNav('global')" }];
+  var crumbs = [{ label: 'Home', onClick: "location.href='index.html'" }, { label: 'Management Team', onClick: "configNav('global')" }];
   if (projectSlug) crumbs.push({ label: projectSlug + ' Team', onClick: "configNav('project','" + projectSlug + "')" });
   crumbs.push({ label: name });
 

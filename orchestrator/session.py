@@ -147,6 +147,7 @@ class Session:
         poc_root: str,
         projects_dir: str | None = None,
         project_override: str | None = None,
+        session_id: str | None = None,
         skip_intent: bool = False,
         intent_file: str | None = None,
         plan_file: str | None = None,
@@ -172,6 +173,7 @@ class Session:
         self.poc_root = poc_root
         self.projects_dir = projects_dir or os.path.dirname(poc_root)
         self.project_override = project_override
+        self._preset_session_id = session_id
         self.skip_intent = skip_intent
         self.intent_file = intent_file
         self.plan_file = plan_file
@@ -203,7 +205,7 @@ class Session:
         """Execute the full session lifecycle."""
         # 1. Classify task → project slug + task mode
         self.project_slug, task_mode = self._classify_task()
-        self.session_id = datetime.now().strftime('%Y%m%d-%H%M%S')
+        self.session_id = self._preset_session_id or datetime.now().strftime('%Y%m%d-%H%M%S')
 
         # Short-circuit for conversational tasks (no orchestration needed)
         if task_mode == 'conversational':
@@ -245,13 +247,10 @@ class Session:
         self._message_bus.create_conversation(
             ConversationType.JOB, f'{self.project_slug}:{self.session_id}',
         )
-        if self.input_provider is not None:
-            self._bus_input_provider = MessageBusInputProvider(
-                bus=self._message_bus,
-                conversation_id=self._conversation_id,
-            )
-        else:
-            self._bus_input_provider = None
+        self._bus_input_provider = MessageBusInputProvider(
+            bus=self._message_bus,
+            conversation_id=self._conversation_id,
+        )
 
         # 4b. Copy pre-written artifacts into infra_dir (Issue #147).
         # Session artifacts live in the session folder, not the worktree.

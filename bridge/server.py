@@ -224,6 +224,8 @@ class TeaPartyBridge:
         self._proxy_sessions: dict[str, ProxyReviewSession] = {}
         self._config_lead_locks: dict[str, asyncio.Lock] = {}
         self._config_lead_sessions: dict[str, ConfigLeadSession] = {}
+        self._pl_locks: dict[str, asyncio.Lock] = {}
+        self._pl_sessions: dict[str, 'ProjectLeadSession'] = {}
         # StateReader uses registry-based project discovery.
         self._state_reader = StateReader(
             repo_root=self._repo_root,
@@ -278,6 +280,7 @@ class TeaPartyBridge:
         app.router.add_get('/api/file', self._handle_file)
 
         # ── Action endpoints ──────────────────────────────────────────────────
+        app.router.add_post('/api/jobs', self._handle_create_job)
         app.router.add_post('/api/withdraw/{session_id}', self._handle_withdraw)
 
         # ── Filesystem navigation endpoint ────────────────────────────────────
@@ -973,6 +976,10 @@ class TeaPartyBridge:
         elif conv_id.startswith('config:'):
             qualifier = conv_id[len('config:'):]
             bus.create_conversation(ConversationType.CONFIG_LEAD, qualifier)
+        elif conv_id.startswith('lead:'):
+            parts = conv_id.split(':', 2)
+            qualifier = parts[2] if len(parts) > 2 else ''
+            bus.create_conversation(ConversationType.PROJECT_LEAD, qualifier)
 
         try:
             msg_id = bus.send(conv_id, 'human', content)
@@ -989,6 +996,12 @@ class TeaPartyBridge:
             asyncio.create_task(self._invoke_proxy(qualifier))
         elif conv_id.startswith('config:'):
             asyncio.create_task(self._invoke_config_lead(qualifier))
+        elif conv_id.startswith('lead:'):
+            parts = conv_id.split(':', 2)
+            lead_name = parts[1] if len(parts) > 1 else ''
+            lead_qualifier = parts[2] if len(parts) > 2 else ''
+            if lead_name:
+                asyncio.create_task(self._invoke_project_lead(lead_name, lead_qualifier))
 
         return web.json_response({'id': msg_id})
 
@@ -1207,6 +1220,51 @@ class TeaPartyBridge:
                     )
                 except Exception:
                     _log.exception('Failed to write error message to config lead bus for %r', qualifier)
+
+    async def _invoke_project_lead(self, lead_name: str, qualifier: str) -> None:
+        """Invoke a project lead agent for a direct human conversation.
+
+        Runs as a fire-and-forget asyncio task. The lead agent reads the
+        conversation history and responds. MessageRelay picks up the reply
+        and broadcasts it to WebSocket clients.
+        """
+        from orchestrator.project_lead import ProjectLeadSession
+
+        key = f'{lead_name}:{qualifier}'
+        if key not in self._pl_locks:
+            self._pl_locks[key] = asyncio.Lock()
+        lock = self._pl_locks[key]
+
+        async with lock:
+            if key not in self._pl_sessions:
+                self._pl_sessions[key] = ProjectLeadSession(
+                    self.teaparty_home, lead_name, qualifier,
+                    llm_backend=self._llm_backend,
+                )
+            session = self._pl_sessions[key]
+            try:
+                # Run in the project directory if we can resolve it.
+                from orchestrator.roster import resolve_lead_project_path
+                project_path = resolve_lead_project_path(
+                    lead_name, self.teaparty_home,
+                )
+                cwd = project_path if project_path else self._repo_root
+                await session.invoke(cwd=cwd)
+            except Exception:
+                _log.exception(
+                    'Project lead invocation failed for %r qualifier %r',
+                    lead_name, qualifier,
+                )
+                try:
+                    session.send_agent_message(
+                        'Sorry, I encountered an error and could not respond. '
+                        'Please try again.'
+                    )
+                except Exception:
+                    _log.exception(
+                        'Failed to write error message to lead bus for %r',
+                        lead_name,
+                    )
 
     def _cwd_for_config_qualifier(self, qualifier: str) -> str:
         """Resolve the working directory for a config lead invocation.
@@ -1592,6 +1650,56 @@ class TeaPartyBridge:
 
         return web.json_response(response)
 
+    async def _handle_create_job(self, request: web.Request) -> web.Response:
+        """Create a new CfA session for a project.
+
+        POST /api/jobs  { "project": "pybayes", "task": "Build a ..." }
+        Returns { "session_id": "...", "conversation_id": "job:pybayes:..." }
+        """
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({'error': 'invalid JSON'}, status=400)
+
+        project_slug = body.get('project', '').strip()
+        task = body.get('task', '').strip()
+        if not project_slug or not task:
+            return web.json_response(
+                {'error': 'project and task are required'}, status=400,
+            )
+
+        # Generate session_id upfront so we can return it immediately.
+        from datetime import datetime
+        session_id = datetime.now().strftime('%Y%m%d-%H%M%S')
+        conversation_id = f'job:{project_slug}:{session_id}'
+
+        # Create and launch the CfA session as a background task.
+        from orchestrator.session import Session
+        from orchestrator.messaging import MessageBusInputProvider
+
+        session = Session(
+            task,
+            poc_root=self._repo_root,
+            project_override=project_slug,
+            session_id=session_id,
+        )
+
+        async def _run_session():
+            try:
+                await session.run()
+            except Exception:
+                _log.exception(
+                    'CfA session failed: project=%r session_id=%r',
+                    project_slug, session_id,
+                )
+
+        asyncio.create_task(_run_session())
+
+        return web.json_response({
+            'session_id': session_id,
+            'conversation_id': conversation_id,
+        })
+
     # ── Index handler ─────────────────────────────────────────────────────────
 
     async def _handle_index(self, request: web.Request) -> web.Response:
@@ -1641,6 +1749,12 @@ class TeaPartyBridge:
         Persistent agent conversations are routed by conv_id prefix.
         All other conversations are searched across active session buses.
         """
+        # Dynamic prefix: lead:{lead-name}:{qualifier}
+        if conv_id.startswith('lead:'):
+            parts = conv_id.split(':', 2)
+            if len(parts) >= 2:
+                return self._get_agent_bus(parts[1])
+
         for prefix, agent_name in self._CONV_PREFIX_TO_AGENT.items():
             if conv_id.startswith(prefix):
                 return self._get_agent_bus(agent_name)

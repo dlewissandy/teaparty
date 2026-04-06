@@ -91,6 +91,23 @@
 <script>
 function openPage(url) { window.open(url, '_blank'); }
 
+function createJob(projectSlug) {
+  var task = prompt('Describe the job:');
+  if (!task) return;
+  fetch('/api/jobs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project: projectSlug, task: task }),
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.conversation_id) {
+      location.href = 'chat.html?conv=' + encodeURIComponent(data.conversation_id);
+    }
+  })
+  .catch(function(err) { alert('Failed to create job: ' + err); });
+}
+
 function seedBlade(message) {
   if (!pageState.omConvId) return;
   if (!_bladeOpen) toggleBlade();
@@ -360,7 +377,7 @@ function render() {
     // Action buttons
     var pName = p.name || p.slug;
     projectsHtml += '<div class="pc-actions">';
-    projectsHtml += '<button class="pc-action" onclick="seedBlade(\'I would like to create a new job for the ' + pName + ' project.\')"><span class="pc-action-icon">&#9654;</span>New Job</button>';
+    projectsHtml += '<button class="pc-action" onclick="createJob(\'' + p.slug + '\')"><span class="pc-action-icon">&#9654;</span>New Job</button>';
     projectsHtml += '<button class="pc-action" onclick="seedBlade(\'Please pause all running jobs for the ' + pName + ' project.\')"><span class="pc-action-icon">&#9646;&#9646;</span>Pause All</button>';
     projectsHtml += '<button class="pc-action" onclick="seedBlade(\'Please restart all paused jobs for the ' + pName + ' project.\')"><span class="pc-action-icon">&#9654;</span>Restart All</button>';
     projectsHtml += '<button class="pc-action" onclick="seedBlade(\'Please ask the ' + pName + ' lead for a status update.\')"><span class="pc-action-icon">&#9733;</span>Status</button>';

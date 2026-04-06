@@ -26,6 +26,7 @@
 </head>
 <body>
 
+<div class="breadcrumb-bar" style="padding:6px 12px"><a href="index.html">Home</a></div>
 <div id="content" class="app-pane active"></div>
 
 <div id="withdraw-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:100;justify-content:center;align-items:center">
@@ -72,6 +73,7 @@ var CONV_TYPE_MAP = {
   'session': 'project_session',
   'team':    'subteam',
   'liaison': 'liaison',
+  'lead':    'project_lead',
 };
 
 // Map conv ID prefix to a human-readable participant name for the header.
@@ -82,6 +84,7 @@ var PARTICIPANT_NAMES = {
   'session': 'Session Manager',
   'team':    'Team',
   'liaison': 'Liaison',
+  'lead':    convId.split(':')[1] || 'Project Lead',
 };
 
 // ── Page state ────────────────────────────────────────────────────────────────
