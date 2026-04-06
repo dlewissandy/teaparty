@@ -85,6 +85,16 @@ function openChatWithSeed(convId, seed) {
   window.location.href = url;
 }
 
+function seedBlade(seed) {
+  if (!omConvId) return;
+  if (!_bladeOpen) toggleBlade();
+  fetch('/api/conversations/' + encodeURIComponent(omConvId), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content: seed }),
+  });
+}
+
 function escAttr(s) {
   return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
@@ -97,7 +107,13 @@ function sectionCard(title, items, opts) {
     buttons += '<button class="action-btn config-edit-btn" onclick="openChatWithSeed(\'om:add-project\', \'Please run the /add-project skill.\')">+ Add</button>';
     buttons += '<button class="action-btn config-edit-btn" onclick="openChatWithSeed(\'om:new-project\', \'Please run the /create-project skill.\')">+ New</button>';
   } else {
-    if (opts && opts.addBtn) buttons += '<button class="action-btn config-edit-btn" onclick="openChat(\'' + omConvId + '\')">+ New</button>';
+    if (opts && opts.addBtn) {
+      if (opts.addSeed) {
+        buttons += '<button class="action-btn config-edit-btn" onclick="seedBlade(\'' + escAttr(opts.addSeed) + '\')">+ New</button>';
+      } else {
+        buttons += '<button class="action-btn config-edit-btn" onclick="openChat(\'' + omConvId + '\')">+ New</button>';
+      }
+    }
   }
   if (opts && opts.catalogBtn) buttons += '<button class="action-btn config-edit-btn" style="background:rgba(78,204,163,0.15);color:var(--green)" onclick="openChat(\'' + omConvId + '\')">+ Catalog</button>';
   if (opts && opts.pinBtn) buttons += '<button class="action-btn config-edit-btn" onclick="openChatWithSeed(\'' + omConvId + '\', \'Please pin a path to the artifact viewer for this project.\')">+ Pin</button>';
@@ -297,7 +313,7 @@ async function loadGlobal() {
     bladeContext: 'management',
     cards: [
       { title: 'Workgroups', items: projectItems.concat(wgMgmtItems), opts: { addBtn: true, empty: 'No projects or workgroups' } },
-      { title: 'Agents', items: agents, opts: { addBtn: true } },
+      { title: 'Agents', items: agents, opts: { addBtn: true, addSeed: 'I would like to create a new agent in the management agent catalog.' } },
       { title: 'Participants', items: participantItems(m.humans, 'global') },
       { title: 'Artifacts', items: renderPinItems(pinsData), opts: { empty: 'No organizational artifacts' } },
       { title: 'Skills', items: skillItems(m.skills, 'global'), opts: { addBtn: true } },
@@ -353,12 +369,12 @@ async function loadProject(slug) {
     title: (team.name || slug) + ' Team',
     description: team.description || '',
     subtitle: 'Decider: ' + (team.decider || '') + ' &middot; Lead: ' + (team.lead || ''),
-    bladeConvId: 'pm:' + slug + ':' + (team.decider || 'unknown'),
-    bladeTitle: (team.name || slug) + ' \u2014 Project Manager',
+    bladeConvId: omConvId,
+    bladeTitle: 'Office Manager',
     bladeContext: 'project:' + slug,
     cards: [
       { title: 'Workgroups', items: wgItems, opts: { addBtn: true, catalogBtn: true, empty: 'No workgroups' } },
-      { title: 'Agents', items: agents, opts: { addBtn: true, catalogBtn: true, empty: 'No agents' } },
+      { title: 'Agents', items: agents, opts: { addBtn: true, addSeed: 'I would like to create a new agent in the ' + (team.name || slug) + ' project agent catalog.', catalogBtn: true, empty: 'No agents' } },
       { title: 'Participants', items: participantItems(team.humans, slug) },
       { title: 'Artifacts', items: renderPinItems(pinsData), opts: { addBtn: true, browseBtn: 'openFileBrowser(\'project\',\'' + slug + '\',null)', slug: slug, empty: 'No artifacts' } },
       { title: 'Skills', items: skillItems(team.skills, slug), opts: { addBtn: true, catalogBtn: true, empty: 'No skills' } },
@@ -420,8 +436,8 @@ async function loadWorkgroup(name, projectSlug) {
     title: name,
     description: wgData.description || '',
     subtitle: 'Lead: ' + (wgData.lead || '') + ' &middot; ' + (wgData.agents_count || 0) + ' agents',
-    bladeConvId: projectSlug ? 'pm:' + projectSlug + ':' + (wgData.decider || 'unknown') : omConvId,
-    bladeTitle: projectSlug ? name + ' \u2014 Project Manager' : name + ' \u2014 Office Manager',
+    bladeConvId: omConvId,
+    bladeTitle: 'Office Manager',
     bladeContext: 'workgroup:' + name + (projectSlug ? ':' + projectSlug : ''),
     cards: [
       { title: 'Lead', items: leadItems, opts: { empty: 'No lead assigned' } },
@@ -509,8 +525,8 @@ function _buildAgentSpec() {
     breadcrumb: breadcrumbBar(crumbs),
     title: name,
     description: fm.description || '',
-    bladeConvId: projectSlug ? 'pm:' + projectSlug + ':' + (fm.decider || 'unknown') : omConvId,
-    bladeTitle: projectSlug ? name + ' \u2014 Project Manager' : name + ' \u2014 Office Manager',
+    bladeConvId: omConvId,
+    bladeTitle: 'Office Manager',
     bladeContext: 'agent:' + name + (projectSlug ? ':' + projectSlug : ''),
     cards: [
       { title: 'Artifacts', items: renderPinItems(_agentCtx.pins) },
