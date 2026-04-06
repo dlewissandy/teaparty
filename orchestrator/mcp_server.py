@@ -1011,6 +1011,7 @@ def project_status_handler(name: str, days: int = 7, teaparty_home: str = '') ->
 
     # Git commits from the last N days
     commits = []
+    git_error = ''
     try:
         result = subprocess.run(
             ['git', 'log', '--oneline', '--all', f'--since={days} days ago',
@@ -1021,8 +1022,24 @@ def project_status_handler(name: str, days: int = 7, teaparty_home: str = '') ->
             for line in result.stdout.strip().splitlines():
                 if line:
                     commits.append(line)
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        pass
+        else:
+            git_error = result.stderr.strip() or f'git log exited with code {result.returncode}'
+    except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
+        git_error = str(exc)
+
+    # If no commits in the requested window, include the latest commit
+    # so the report shows when the project was last active.
+    latest_commit = ''
+    if not commits and not git_error:
+        try:
+            result = subprocess.run(
+                ['git', 'log', '-1', '--format=%h %ai %s'],
+                cwd=project_dir, capture_output=True, text=True, timeout=10,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                latest_commit = result.stdout.strip()
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
 
     # In-progress sessions
     sessions_dir = os.path.join(project_dir, '.sessions')
@@ -1059,7 +1076,7 @@ def project_status_handler(name: str, days: int = 7, teaparty_home: str = '') ->
                 'task': task,
             })
 
-    return json.dumps({
+    result_data: dict[str, object] = {
         'success': True,
         'project': name,
         'period_days': days,
@@ -1067,7 +1084,12 @@ def project_status_handler(name: str, days: int = 7, teaparty_home: str = '') ->
         'commit_count': len(commits),
         'active_sessions': active_sessions,
         'active_session_count': len(active_sessions),
-    })
+    }
+    if git_error:
+        result_data['git_error'] = git_error
+    if latest_commit:
+        result_data['latest_commit'] = latest_commit
+    return json.dumps(result_data)
 
 
 def list_team_members_handler(teaparty_home: str = '') -> str:
