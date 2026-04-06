@@ -390,13 +390,31 @@ def _build_mcp_config(project_root: str, mcp_env: dict | None = None) -> dict:
     venv_python = os.path.join(project_root, '.venv', 'bin', 'python3')
     if not os.path.isfile(venv_python):
         venv_python = 'python3'
-    config: dict = {
-        'command': venv_python,
-        'args': ['-m', 'orchestrator.mcp_server_dispatch'],
-    }
+    args = ['-m', 'orchestrator.mcp_server_dispatch']
     if mcp_env:
-        config['env'] = mcp_env
-    return {'teaparty-config': config}
+        args.extend(_mcp_env_to_args(mcp_env))
+    return {'teaparty-config': {'command': venv_python, 'args': args}}
+
+
+def _mcp_env_to_args(mcp_env: dict) -> list[str]:
+    """Convert MCP env dict to CLI args for the MCP server.
+
+    Claude Code's --mcp-config ``env`` field does not reliably deliver
+    env vars to the subprocess.  Pass them as CLI args instead.
+    """
+    mapping = {
+        'SEND_SOCKET': '--send-socket',
+        'REPLY_SOCKET': '--reply-socket',
+        'CLOSE_CONV_SOCKET': '--close-conv-socket',
+        'AGENT_ID': '--agent-id',
+        'CONTEXT_ID': '--context-id',
+    }
+    args = []
+    for env_key, flag in mapping.items():
+        val = mcp_env.get(env_key, '')
+        if val:
+            args.extend([flag, val])
+    return args
 
 
 # ── Office manager session ──────────────────────────────────────────────────
@@ -561,11 +579,12 @@ class OfficeManagerSession:
             if not os.path.isfile(venv_python):
                 venv_python = 'python3'
             module = 'orchestrator.mcp_server_dispatch' if is_lead else 'orchestrator.mcp_server'
+            args = ['-m', module]
+            args.extend(_mcp_env_to_args(mcp_env))
             return {
                 'teaparty-config': {
                     'command': venv_python,
-                    'args': ['-m', module],
-                    'env': mcp_env,
+                    'args': args,
                 },
             }
 

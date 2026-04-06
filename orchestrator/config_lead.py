@@ -38,6 +38,7 @@ from orchestrator.office_manager import (
     _build_mcp_config,
     _extract_slug,
     _iter_stream_events,
+    _mcp_env_to_args,
 )
 
 log = logging.getLogger('orchestrator.config_lead')
@@ -180,11 +181,12 @@ class ConfigLeadSession:
             if not os.path.isfile(venv_python):
                 venv_python = 'python3'
             module = 'orchestrator.mcp_server_dispatch' if is_lead else 'orchestrator.mcp_server'
+            args = ['-m', module]
+            args.extend(_mcp_env_to_args(mcp_env))
             return {
                 'teaparty-config': {
                     'command': venv_python,
-                    'args': ['-m', module],
-                    'env': mcp_env,
+                    'args': args,
                 },
             }
 

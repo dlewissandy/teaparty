@@ -2527,8 +2527,37 @@ def main():
 
     Logging goes to a file under .teaparty/ (not stderr — stdio is the
     MCP transport and some runtimes read stderr as protocol data).
+
+    CLI args (passed via MCP config ``args``) inject env vars that
+    Claude Code's ``env`` field fails to deliver to the subprocess:
+        --send-socket PATH
+        --reply-socket PATH
+        --close-conv-socket PATH
+        --agent-id ID
+        --context-id ID
     """
+    import argparse
     import logging
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--send-socket', default='')
+    parser.add_argument('--reply-socket', default='')
+    parser.add_argument('--close-conv-socket', default='')
+    parser.add_argument('--agent-id', default='')
+    parser.add_argument('--context-id', default='')
+    args, _unknown = parser.parse_known_args()
+
+    # Inject into os.environ so the rest of the server reads them.
+    if args.send_socket:
+        os.environ['SEND_SOCKET'] = args.send_socket
+    if args.reply_socket:
+        os.environ['REPLY_SOCKET'] = args.reply_socket
+    if args.close_conv_socket:
+        os.environ['CLOSE_CONV_SOCKET'] = args.close_conv_socket
+    if args.agent_id:
+        os.environ['AGENT_ID'] = args.agent_id
+    if args.context_id:
+        os.environ['CONTEXT_ID'] = args.context_id
 
     teaparty_home = os.environ.get('TEAPARTY_HOME', '')
     if not teaparty_home:
