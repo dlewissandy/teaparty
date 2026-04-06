@@ -501,11 +501,11 @@ class AgentSpawner:
         env.setdefault('DISABLE_NONESSENTIAL_TRAFFIC', '1')
         env.setdefault('MCP_TIMEOUT', '5000')
 
-        # Write tool scope to worktree so the MCP server reads it at startup.
-        # File-based because Claude Code isolates the MCP server's env —
-        # neither env vars nor CLI args reliably reach the child process.
-        # The MCP server's cwd IS the worktree, so this works.
-        tool_scope = 'dispatch' if agents_json else 'leaf'
+        # Tool scope for the MCP server:
+        # - Leads (have roster): dispatch scope (Send + read, ~14 tools)
+        # - Leaf specialists (no roster, have MCP): full tools (Create/Edit/etc.)
+        # - No MCP at all: irrelevant
+        tool_scope = 'dispatch' if agents_json else ''
         scope_file = os.path.join(worktree, '.tool-scope')
         with open(scope_file, 'w') as f:
             f.write(tool_scope)
@@ -532,8 +532,8 @@ class AgentSpawner:
         if use_bare:
             settings_dict['apiKeyHelper'] = api_key_helper
 
-        # --tools "" disables builtin tools for dispatching agents (they
-        # only need MCP Send).  Leaf agents keep defaults for filesystem.
+        # Dispatching leads only need MCP Send — no builtins.
+        # Leaf specialists need builtins (Read/Write/Edit/Bash) for real work.
         builtin_tools = '' if agents_json else 'default'
 
         cmd = [self.claude_cmd, '-p', '--output-format', 'json',
@@ -554,9 +554,9 @@ class AgentSpawner:
         if resume_session:
             cmd += ['--resume', resume_session]
 
-        # Leaf agents (no roster) skip MCP entirely — no server process,
-        # no connection overhead.  Leads get the MCP config with sockets.
-        if mcp_config and agents_json:
+        # Pass MCP config when provided.  Leads need Send; leaf specialists
+        # need CreateAgent/EditWorkgroup etc.  Only skip if no config at all.
+        if mcp_config:
             cmd += ['--mcp-config', json.dumps({'mcpServers': mcp_config}),
                     '--strict-mcp-config']
 

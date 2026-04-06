@@ -31,7 +31,9 @@ Example: `Send(member="project-specialist", message="Create a new project at ~/m
 
 Simple request (one artifact type, clear requirements) → send directly to the specialist.
 
-Complex request (multiple artifact types or cross-dependencies) → coordinate across specialists sequentially. Skills before agents. Skills before scheduled tasks.
+Complex request (multiple artifact types, no dependencies between them) → send to multiple specialists in parallel by calling Send multiple times in the same response.
+
+Dependent requests → sequence them: skills before agents, skills before scheduled tasks.
 
 ## Partial failure
 

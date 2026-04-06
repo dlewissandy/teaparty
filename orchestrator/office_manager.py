@@ -543,12 +543,11 @@ class OfficeManagerSession:
             self._agent_pool = AgentPool(teaparty_home=self.teaparty_home)
         repo_root = os.path.dirname(self.teaparty_home)
 
-        def _child_mcp_config(member: str, context_id: str) -> dict:
+        def _child_mcp_config(member: str, context_id: str, *, is_lead: bool = False) -> dict:
             """Build MCP config with listener socket paths for a spawned agent.
 
-            Uses mcp_server_dispatch entry point which hardcodes the dispatch
-            tool scope (~20 tools instead of 41), staying below the deferral
-            threshold to eliminate the ToolSearch round-trip.
+            Leads use mcp_server_dispatch (14 tools — Send + read only).
+            Leaf specialists use the full mcp_server (41 tools — Create/Edit/etc.).
             """
             sockets = self._bus_listener_sockets
             mcp_env = {
@@ -561,10 +560,11 @@ class OfficeManagerSession:
             venv_python = os.path.join(repo_root, '.venv', 'bin', 'python3')
             if not os.path.isfile(venv_python):
                 venv_python = 'python3'
+            module = 'orchestrator.mcp_server_dispatch' if is_lead else 'orchestrator.mcp_server'
             return {
                 'teaparty-config': {
                     'command': venv_python,
-                    'args': ['-m', 'orchestrator.mcp_server_dispatch'],
+                    'args': ['-m', module],
                     'env': mcp_env,
                 },
             }
@@ -602,11 +602,12 @@ class OfficeManagerSession:
                         pass
 
             agents = _derive_roster(member, self.teaparty_home)
+            is_lead = bool(agents)
 
             session_id, result_text = await self._agent_pool.dispatch(
                 member, composite,
                 worktree=agent_dir,
-                mcp_config=_child_mcp_config(member, context_id),
+                mcp_config=_child_mcp_config(member, context_id, is_lead=is_lead),
                 agents_json=agents,
                 settings_dict=settings_dict,
             )

@@ -68,7 +68,7 @@ class AgentProcess:
             session_id = self.session_id
             while True:
                 line = await asyncio.wait_for(
-                    self.proc.stdout.readline(), timeout=120,
+                    self.proc.stdout.readline(), timeout=600,
                 )
                 if not line:
                     _log.warning('agent_pool: EOF from %s process', self.role)
@@ -152,6 +152,18 @@ class AgentPool:
             _log.info('agent_pool: reusing warm process for %s', role)
             return await agent.send(message)
 
+        if agent and agent.alive and agent.busy:
+            # Process is busy — spawn a fresh one-shot process instead
+            # of waiting.  This handles parallel fan-out to the same role.
+            _log.info('agent_pool: %s busy, spawning one-shot', role)
+            from orchestrator.agent_spawner import AgentSpawner
+            spawner = AgentSpawner(teaparty_home=self.teaparty_home)
+            return await spawner.spawn(
+                message, worktree=worktree, role=role,
+                is_management=True,
+                mcp_config=mcp_config, agents_json=agents_json,
+            )
+
         if agent and not agent.alive:
             _log.info('agent_pool: process for %s died, respawning', role)
             del self._processes[role]
@@ -199,7 +211,8 @@ class AgentPool:
         else:
             cmd.extend(['--setting-sources', 'user'])
 
-        # No builtins for dispatching agents
+        # Dispatching leads: no builtins (MCP Send only).
+        # Leaf specialists: default builtins for real work.
         builtin_tools = '' if agents_json else 'default'
         cmd.extend(['--tools', builtin_tools])
 
@@ -209,7 +222,7 @@ class AgentPool:
         if settings:
             cmd.extend(['--settings', json.dumps(settings)])
 
-        if mcp_config and agents_json:
+        if mcp_config:
             cmd.extend([
                 '--mcp-config', json.dumps({'mcpServers': mcp_config}),
                 '--strict-mcp-config',
