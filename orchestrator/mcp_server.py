@@ -1000,7 +1000,10 @@ def project_status_handler(name: str, days: int = 7, teaparty_home: str = '') ->
 
     Returns recent git commits and in-progress sessions/jobs.
     """
+    import logging
     import subprocess
+    _ps_log = logging.getLogger('orchestrator.mcp_server.project_status')
+    _ps_log.info('ProjectStatus called: name=%r days=%d', name, days)
 
     if not name or not name.strip():
         return _err('ProjectStatus requires a non-empty project name')
@@ -1089,6 +1092,10 @@ def project_status_handler(name: str, days: int = 7, teaparty_home: str = '') ->
         result_data['git_error'] = git_error
     if latest_commit:
         result_data['latest_commit'] = latest_commit
+    _ps_log.info(
+        'ProjectStatus result: project=%r commits=%d git_error=%r latest_commit=%r',
+        name, len(commits), git_error, latest_commit,
+    )
     return json.dumps(result_data)
 
 
