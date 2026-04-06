@@ -62,9 +62,10 @@ class AgentProcess:
             self.proc.stdin.write(payload.encode())
             await self.proc.stdin.drain()
 
-            # Read NDJSON events until we get a result
+            # Read NDJSON events until we get a result.
+            # On the first call, the system/init event appears first.
             result_text = ''
-            session_id = ''
+            session_id = self.session_id
             while True:
                 line = await asyncio.wait_for(
                     self.proc.stdout.readline(), timeout=120,
@@ -72,7 +73,13 @@ class AgentProcess:
                 if not line:
                     _log.warning('agent_pool: EOF from %s process', self.role)
                     break
-                obj = json.loads(line.decode().strip())
+                line_str = line.decode().strip()
+                if not line_str:
+                    continue
+                try:
+                    obj = json.loads(line_str)
+                except (json.JSONDecodeError, ValueError):
+                    continue
                 event_type = obj.get('type', '')
 
                 if event_type == 'system':
@@ -86,6 +93,7 @@ class AgentProcess:
                     session_id = obj.get('session_id', session_id)
                     self.session_id = session_id
                     break
+                # Skip other events (assistant, rate_limit, etc.)
 
             elapsed = time.monotonic() - t0
             _log.info(
@@ -211,7 +219,6 @@ class AgentPool:
         env['DISABLE_NONESSENTIAL_TRAFFIC'] = '1'
         env['MCP_TIMEOUT'] = '5000'
 
-        t0 = time.monotonic()
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             cwd=worktree,
@@ -221,31 +228,7 @@ class AgentPool:
             env=env,
         )
 
-        # Wait for the system/init event
-        session_id = ''
-        try:
-            while True:
-                line = await asyncio.wait_for(proc.stdout.readline(), timeout=15)
-                if not line:
-                    stderr = await proc.stderr.read()
-                    raise RuntimeError(
-                        f'Process for {role} exited during init: {stderr.decode()[:300]}'
-                    )
-                obj = json.loads(line.decode().strip())
-                if obj.get('type') == 'system' and obj.get('subtype') == 'init':
-                    session_id = obj.get('session_id', '')
-                    break
-        except asyncio.TimeoutError:
-            proc.kill()
-            raise RuntimeError(f'Process for {role} timed out during init')
-
-        elapsed = time.monotonic() - t0
-        _log.info(
-            'agent_pool_start: role=%r cold_start=%.2fs session=%s',
-            role, elapsed, session_id[:8],
-        )
-
-        return AgentProcess(role, proc, session_id)
+        return AgentProcess(role, proc)
 
     async def stop(self) -> None:
         """Stop all processes."""
