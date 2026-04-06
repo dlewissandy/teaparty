@@ -276,7 +276,8 @@ async function loadGlobal() {
     var actions = '<div class="item-actions" onclick="event.stopPropagation()">' +
       '<button class="action-btn" onclick="seedBlade(\'I would like to create a new job for the ' + escAttr(p.name) + ' project.\')">New Job</button>' +
       '<button class="action-btn" onclick="seedBlade(\'Please pause all running jobs for the ' + escAttr(p.name) + ' project.\')">Pause All</button>' +
-      '<button class="action-btn" onclick="seedBlade(\'Please show me the status of all jobs for the ' + escAttr(p.name) + ' project.\')">Status</button>' +
+      '<button class="action-btn" onclick="seedBlade(\'Please restart all paused jobs for the ' + escAttr(p.name) + ' project.\')">Restart All</button>' +
+      '<button class="action-btn" onclick="seedBlade(\'Please give me a status update for the ' + escAttr(p.name) + ' project.\')">Status</button>' +
       '</div>';
     projectItems.push(itemCard({ icon: '&#9654;', iconClass: 'icon-project', title: p.name, meta: meta, active: true, badge: 'project', badgeClass: 'badge-project', onClick: "configNav('project','" + p.name + "')", trailing: actions }));
   });
