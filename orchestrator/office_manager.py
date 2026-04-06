@@ -441,6 +441,9 @@ class OfficeManagerSession:
         # Effective cwd (worktree) — set during invoke(), read by reply_fn
         # and reinvoke_fn to locate the OM's session file for injection.
         self._effective_cwd: str = ''
+        # Persistent process pool for agent dispatch — eliminates cold start
+        # on subsequent dispatches to the same role.
+        self._agent_pool = None
 
     def send_human_message(self, content: str) -> str:
         """Record a human message in the conversation. Returns message ID."""
@@ -530,10 +533,14 @@ class OfficeManagerSession:
         import logging
         from orchestrator.bus_event_listener import BusEventListener
         from orchestrator.agent_spawner import AgentSpawner
+        from orchestrator.agent_pool import AgentPool
 
         log = logging.getLogger('orchestrator.office_manager')
         bus_db_path = os.path.join(self._infra_dir, 'messages.db')
         spawner = AgentSpawner(teaparty_home=self.teaparty_home)
+
+        if self._agent_pool is None:
+            self._agent_pool = AgentPool(teaparty_home=self.teaparty_home)
         repo_root = os.path.dirname(self.teaparty_home)
 
         def _child_mcp_config(member: str, context_id: str) -> dict:
@@ -567,39 +574,46 @@ class OfficeManagerSession:
             import time as _time
             t0 = _time.monotonic()
 
-            safe_id = context_id.replace(':', '_').replace('/', '_')
-            agent_dir = os.path.join(self._infra_dir, 'agents', safe_id)
-            wt_result = _sp.run(
-                ['git', 'worktree', 'add', '--detach', agent_dir],
-                cwd=repo_root, capture_output=True, text=True,
-            )
-            if wt_result.returncode != 0:
-                os.makedirs(agent_dir, exist_ok=True)
+            # Stable worktree per role (not per context_id) so the pool
+            # process's cwd stays valid across dispatches.
+            agent_dir = os.path.join(self._infra_dir, 'agents', f'pool_{member}')
+            if not os.path.isdir(agent_dir):
+                wt_result = _sp.run(
+                    ['git', 'worktree', 'add', '--detach', agent_dir],
+                    cwd=repo_root, capture_output=True, text=True,
+                )
+                if wt_result.returncode != 0:
+                    os.makedirs(agent_dir, exist_ok=True)
             t_worktree = _time.monotonic()
 
-            # Pass socket paths in extra_env so the claude -p process has
-            # them, and the MCP server child inherits them.  SEND_SOCKET
-            # also signals _agent_tool_scope() to use the dispatch scope.
-            sockets = self._bus_listener_sockets
-            child_extra_env = {
-                'CONTEXT_ID': context_id,
-                'AGENT_ID': member,
-            }
-            if sockets:
-                child_extra_env['SEND_SOCKET'] = sockets[0]
-                child_extra_env['REPLY_SOCKET'] = sockets[1]
-                child_extra_env['CLOSE_CONV_SOCKET'] = sockets[2]
+            # Read agent settings from composed worktree
+            from orchestrator.agent_spawner import compose_worktree, _derive_roster
+            compose_worktree(
+                agent_dir, self.teaparty_home, member,
+                is_management=True,
+            )
+            settings_path = os.path.join(agent_dir, '.claude', 'settings.json')
+            settings_dict = {}
+            if os.path.isfile(settings_path):
+                with open(settings_path) as f:
+                    try:
+                        settings_dict = json.loads(f.read())
+                    except (ValueError, json.JSONDecodeError):
+                        pass
 
-            session_id, result_text = await spawner.spawn(
-                composite, worktree=agent_dir, role=member,
-                project_dir=repo_root, is_management=True,
-                extra_env=child_extra_env,
+            agents = _derive_roster(member, self.teaparty_home)
+
+            session_id, result_text = await self._agent_pool.dispatch(
+                member, composite,
+                worktree=agent_dir,
                 mcp_config=_child_mcp_config(member, context_id),
+                agents_json=agents,
+                settings_dict=settings_dict,
             )
             t_done = _time.monotonic()
 
             log.info(
-                'spawn_fn_timing: member=%r git_worktree=%.2fs spawner=%.2fs total=%.2fs',
+                'spawn_fn_timing: member=%r worktree=%.2fs dispatch=%.2fs total=%.2fs',
                 member, t_worktree - t0, t_done - t_worktree, t_done - t0,
             )
             return (session_id, agent_dir, result_text)
@@ -693,7 +707,10 @@ class OfficeManagerSession:
         }
 
     async def stop(self):
-        """Stop the bus event listener. Call on session teardown."""
+        """Stop the bus event listener and agent pool. Call on session teardown."""
+        if self._agent_pool is not None:
+            await self._agent_pool.stop()
+            self._agent_pool = None
         if self._bus_listener is not None:
             await self._bus_listener.stop()
             self._bus_listener = None
