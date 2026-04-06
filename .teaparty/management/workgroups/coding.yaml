@@ -15,3 +15,8 @@ artifacts:
   label: Norms
 stats:
   storage: .teaparty/stats/coding.json
+agents:
+- name: architect
+- name: developer
+- name: reviewer
+- name: test-engineer
