@@ -170,6 +170,31 @@ Config-lead session timeline (run 2):
 - Further gains require --bare on all platforms (helps ~1-2s) or
   persistent process reuse (eliminates startup entirely)
 
+### Experiment 14: Persistent process pool (--input-format stream-json)
+- AgentPool keeps long-lived claude -p processes alive per role
+- Run 1 (cold): 18.4s (config-lead 10.1s, specialist 2.9s — both cold started)
+- Run 2 (warm): 18.5s (both reused — "reusing warm process" in logs)
+- **No improvement.** Warm process time ≈ cold process time.
+- **Finding:** With --bare, process startup is already ~1-2s. The persistent
+  process saves that, but the API inference (~3s per call) is the floor.
+  The pool adds complexity without meaningful latency reduction.
+- The OM's own claude -p execution (~8s) dominates — it's not in the pool.
+
+## Final Assessment
+
+The human-visible round-trip floor is:
+- OM inference: ~3s startup + ~2s decide + ~2s output = ~7s
+- Config-lead inference: ~3s per API call
+- Specialist inference: ~3s per API call
+- Socket/overhead: ~1s
+- **Theoretical minimum: ~14s** (limited by API latency × 3 levels + OM overhead)
+- **Achieved: ~18s** (within ~4s of theoretical minimum)
+
+The remaining ~4s gap is from:
+- OM runs via ClaudeRunner (not --bare, not pooled)
+- Config-lead context accumulation on warm process
+- Run-to-run API latency variance (±3s)
+
 ## Next Steps to Try
 
 1. **Measure Experiment 7** — prompt optimization alone
