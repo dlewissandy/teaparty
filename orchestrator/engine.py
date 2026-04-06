@@ -7,6 +7,7 @@ backtracks, infrastructure failures, and review dialog loops.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import time
 from dataclasses import dataclass, field
@@ -304,6 +305,22 @@ class Orchestrator:
             mcp_env['REPLY_SOCKET'] = reply_socket
             mcp_env['CLOSE_CONV_SOCKET'] = close_socket
             mcp_env['AGENT_ID'] = lead_agent_id
+
+            # Bus-based dispatch transport: agents can use the message bus
+            # instead of Unix sockets for Send/Reply/CloseConversation.
+            dispatch_conv_id = f'dispatch:{self.session_id}'
+            from orchestrator.messaging import SqliteMessageBus as _Bus  # noqa: PLC0415
+            _dispatch_bus = _Bus(bus_db_path)
+            _dispatch_bus.create_conversation(
+                __import__('orchestrator.messaging', fromlist=['ConversationType']).ConversationType.TASK,
+                dispatch_conv_id,
+            )
+            _dispatch_bus.close()
+            mcp_env['DISPATCH_BUS_PATH'] = bus_db_path
+            mcp_env['DISPATCH_CONV_ID'] = f'task:{dispatch_conv_id}'
+            self._dispatch_poller_task = asyncio.create_task(
+                self._poll_dispatch_bus(bus_db_path, f'task:{dispatch_conv_id}'),
+            )
             # Write interjection socket path for bridge to use when human
             # posts to an agent-to-agent conversation (issue #383)
             _interjection_path_file = os.path.join(self.infra_dir, 'interjection_socket')
@@ -332,6 +349,12 @@ class Orchestrator:
                 await self._intervention_listener.stop()
             if self._bus_event_listener:
                 await self._bus_event_listener.stop()
+            if hasattr(self, '_dispatch_poller_task'):
+                self._dispatch_poller_task.cancel()
+                try:
+                    await self._dispatch_poller_task
+                except asyncio.CancelledError:
+                    pass
 
     def _build_bus_dispatcher(self) -> object | None:
         """Build a BusDispatcher from project workgroup config, or None if not available.
@@ -369,6 +392,124 @@ class Orchestrator:
         project_name = self.project_slug or os.path.basename(self.project_dir)
         routing_table = RoutingTable.from_workgroups(wg_dicts, project_name=project_name)
         return BusDispatcher(routing_table)
+
+    async def _poll_dispatch_bus(self, bus_db_path: str, dispatch_conv_id: str) -> None:
+        """Poll the dispatch conversation for Send/Reply/Close requests from agents.
+
+        This is the bus-based replacement for BusEventListener's socket servers.
+        Agents write JSON requests to the dispatch conversation; this poller reads
+        them and delegates to the same handler logic (spawn, reply, close).
+        """
+        from orchestrator.messaging import SqliteMessageBus
+        import time as _time
+        _poll_log = _log.getChild('dispatch_poll')
+        bus = SqliteMessageBus(bus_db_path)
+        since = _time.time()
+        _poll_log.info('dispatch poller started: conv=%s', dispatch_conv_id)
+        try:
+            while True:
+                messages = bus.receive(dispatch_conv_id, since_timestamp=since)
+                for msg in messages:
+                    since = max(since, msg.timestamp + 0.001)
+                    if msg.sender != 'agent':
+                        continue
+                    try:
+                        request = json.loads(msg.content)
+                    except (json.JSONDecodeError, ValueError):
+                        continue
+                    req_type = request.get('type', '')
+                    request_id = request.get('request_id', '')
+                    try:
+                        if req_type == 'send':
+                            response = await self._handle_bus_send(request)
+                        elif req_type == 'reply':
+                            response = await self._handle_bus_reply(request)
+                        elif req_type == 'close_conversation':
+                            response = await self._handle_bus_close(request)
+                        else:
+                            response = {'status': 'error', 'reason': f'unknown type: {req_type}'}
+                    except Exception as exc:
+                        _poll_log.exception('dispatch handler error for %s', req_type)
+                        response = {'status': 'error', 'reason': str(exc)}
+                    response['request_id'] = request_id
+                    bus.send(dispatch_conv_id, 'orchestrator', json.dumps(response))
+                await asyncio.sleep(0.1)
+        except asyncio.CancelledError:
+            _poll_log.info('dispatch poller stopped')
+        finally:
+            bus.close()
+
+    async def _handle_bus_send(self, request: dict) -> dict:
+        """Handle a Send request from the dispatch bus."""
+        member = request.get('member', '')
+        composite = request.get('composite', '')
+        context_id = request.get('context_id', '')
+
+        if not context_id:
+            from orchestrator.bus_event_listener import make_agent_context_id
+            context_id = make_agent_context_id(
+                self._bus_event_listener.initiator_agent_id if self._bus_event_listener else 'unknown',
+                member,
+            )
+
+        # Delegate to existing BusEventListener logic for context management
+        listener = self._bus_event_listener
+        if listener and listener.bus_db_path:
+            listener._create_context_record(context_id, member)
+
+        if listener and listener.spawn_fn is not None:
+            result_text = await listener._spawn_and_record(member, composite, context_id)
+            return {'status': 'ok', 'context_id': context_id, 'result': result_text}
+        return {'status': 'queued', 'context_id': context_id}
+
+    async def _handle_bus_reply(self, request: dict) -> dict:
+        """Handle a Reply request from the dispatch bus."""
+        message = request.get('message', '')
+        context_id = request.get('context_id', '')
+        listener = self._bus_event_listener
+        if not context_id and listener:
+            context_id = listener.current_context_id
+
+        parent_context_id = ''
+        parent_session_id = ''
+        should_reinvoke = False
+
+        if context_id and listener and listener.bus_db_path:
+            ctx = listener._get_context(context_id)
+            if ctx:
+                parent_context_id = ctx.get('parent_context_id', '')
+            listener._close_context(context_id)
+            if parent_context_id:
+                new_count = listener._decrement_parent_pending_count(parent_context_id)
+                if new_count == 0:
+                    parent_ctx = listener._get_context(parent_context_id)
+                    if parent_ctx:
+                        parent_session_id = parent_ctx.get('session_id', '')
+                    should_reinvoke = True
+
+        if listener and listener.reply_fn is not None and parent_context_id:
+            asyncio.create_task(
+                listener.reply_fn(parent_context_id, parent_session_id, message),
+            )
+
+        if listener and listener.reinvoke_fn is not None and should_reinvoke:
+            asyncio.create_task(
+                listener._locked_reinvoke(parent_context_id, parent_session_id, message),
+            )
+
+        return {'status': 'ok'}
+
+    async def _handle_bus_close(self, request: dict) -> dict:
+        """Handle a CloseConversation request from the dispatch bus."""
+        context_id = request.get('context_id', '')
+        listener = self._bus_event_listener
+        if context_id and listener and listener.bus_db_path:
+            listener._close_context(context_id)
+            if listener.cleanup_fn:
+                worktree = listener._get_worktree_path(context_id)
+                if worktree:
+                    asyncio.create_task(listener.cleanup_fn(worktree))
+        return {'status': 'ok'}
 
     async def _bus_spawn_agent(self, member: str, composite: str, context_id: str) -> tuple[str, str]:
         """Spawn a recipient agent for bus-mediated dispatch (Issue #351).

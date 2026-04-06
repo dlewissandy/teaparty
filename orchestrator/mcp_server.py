@@ -338,14 +338,52 @@ async def send_handler(
 
 
 async def _default_send_post(member: str, composite: str, context_id: str) -> str:
-    """Default Send transport: post via SEND_SOCKET Unix domain socket."""
+    """Default Send transport: bus message or SEND_SOCKET fallback."""
     import time as _time
     import logging as _logging
     _send_log = _logging.getLogger('orchestrator.mcp_server.send')
 
+    bus_path = os.environ.get('DISPATCH_BUS_PATH', '')
+    dispatch_conv = os.environ.get('DISPATCH_CONV_ID', '')
+
+    if bus_path and dispatch_conv:
+        # Bus-based transport: write request to dispatch conversation,
+        # poll for response.
+        from orchestrator.messaging import SqliteMessageBus
+        t0 = _time.monotonic()
+        bus = SqliteMessageBus(bus_path)
+        request_id = str(__import__('uuid').uuid4())
+        request = json.dumps({
+            'type': 'send', 'member': member,
+            'composite': composite, 'context_id': context_id,
+            'request_id': request_id,
+        })
+        bus.send(dispatch_conv, 'agent', request)
+
+        # Poll for response matching our request_id.
+        since = _time.time()
+        while True:
+            messages = bus.receive(dispatch_conv, since_timestamp=since)
+            for msg in messages:
+                if msg.sender == 'orchestrator':
+                    try:
+                        resp = json.loads(msg.content)
+                        if resp.get('request_id') == request_id:
+                            _send_log.info(
+                                'send_post_bus: member=%r total=%.2fs',
+                                member, _time.monotonic() - t0,
+                            )
+                            return json.dumps(resp)
+                    except (json.JSONDecodeError, ValueError):
+                        pass
+            await asyncio.sleep(0.1)
+
+    # Fallback: SEND_SOCKET
     socket_path = os.environ.get('SEND_SOCKET', '')
     if not socket_path:
-        raise RuntimeError('SEND_SOCKET not set — cannot send to member')
+        raise RuntimeError(
+            'Neither DISPATCH_BUS_PATH nor SEND_SOCKET set — cannot send',
+        )
 
     t0 = _time.monotonic()
     reader, writer = await asyncio.open_unix_connection(socket_path)
@@ -399,10 +437,42 @@ async def reply_handler(
 
 
 async def _default_reply_post(message: str) -> str:
-    """Default Reply transport: post via REPLY_SOCKET Unix domain socket."""
+    """Default Reply transport: bus message or REPLY_SOCKET fallback."""
+    bus_path = os.environ.get('DISPATCH_BUS_PATH', '')
+    dispatch_conv = os.environ.get('DISPATCH_CONV_ID', '')
+
+    if bus_path and dispatch_conv:
+        from orchestrator.messaging import SqliteMessageBus
+        bus = SqliteMessageBus(bus_path)
+        context_id = os.environ.get('CONTEXT_ID', '')
+        request_id = str(__import__('uuid').uuid4())
+        request = json.dumps({
+            'type': 'reply', 'message': message,
+            'context_id': context_id,
+            'request_id': request_id,
+        })
+        bus.send(dispatch_conv, 'agent', request)
+
+        import time as _time
+        since = _time.time()
+        while True:
+            messages = bus.receive(dispatch_conv, since_timestamp=since)
+            for msg in messages:
+                if msg.sender == 'orchestrator':
+                    try:
+                        resp = json.loads(msg.content)
+                        if resp.get('request_id') == request_id:
+                            return json.dumps(resp)
+                    except (json.JSONDecodeError, ValueError):
+                        pass
+            await asyncio.sleep(0.1)
+
+    # Fallback: REPLY_SOCKET
     socket_path = os.environ.get('REPLY_SOCKET', '')
     if not socket_path:
-        raise RuntimeError('REPLY_SOCKET not set — cannot reply')
+        raise RuntimeError(
+            'Neither DISPATCH_BUS_PATH nor REPLY_SOCKET set — cannot reply',
+        )
     reader, writer = await asyncio.open_unix_connection(socket_path)
     try:
         context_id = os.environ.get('CONTEXT_ID', '')
@@ -446,7 +516,35 @@ async def close_conversation_handler(
 
 
 async def _default_close_conv_post(context_id: str) -> str:
-    """Default CloseConversation transport: post via CLOSE_CONV_SOCKET."""
+    """Default CloseConversation transport: bus or CLOSE_CONV_SOCKET fallback."""
+    bus_path = os.environ.get('DISPATCH_BUS_PATH', '')
+    dispatch_conv = os.environ.get('DISPATCH_CONV_ID', '')
+
+    if bus_path and dispatch_conv:
+        from orchestrator.messaging import SqliteMessageBus
+        bus = SqliteMessageBus(bus_path)
+        request_id = str(__import__('uuid').uuid4())
+        request = json.dumps({
+            'type': 'close_conversation',
+            'context_id': context_id,
+            'request_id': request_id,
+        })
+        bus.send(dispatch_conv, 'agent', request)
+
+        import time as _time
+        since = _time.time()
+        while True:
+            messages = bus.receive(dispatch_conv, since_timestamp=since)
+            for msg in messages:
+                if msg.sender == 'orchestrator':
+                    try:
+                        resp = json.loads(msg.content)
+                        if resp.get('request_id') == request_id:
+                            return json.dumps(resp)
+                    except (json.JSONDecodeError, ValueError):
+                        pass
+            await asyncio.sleep(0.1)
+
     socket_path = os.environ.get('CLOSE_CONV_SOCKET', '')
     if not socket_path:
         raise RuntimeError('CLOSE_CONV_SOCKET not set — cannot close conversation')
