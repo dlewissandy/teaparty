@@ -183,12 +183,13 @@ class ConfigLeadSession:
             module = 'orchestrator.mcp_server_dispatch' if is_lead else 'orchestrator.mcp_server'
             args = ['-m', module]
             args.extend(_mcp_env_to_args(mcp_env))
-            return {
-                'teaparty-config': {
-                    'command': venv_python,
-                    'args': args,
-                },
+            config: dict = {
+                'command': venv_python,
+                'args': args,
             }
+            if mcp_env:
+                config['env'] = mcp_env
+            return {'teaparty-config': config}
 
         async def spawn_fn(member, composite, context_id):
             import subprocess as _sp
