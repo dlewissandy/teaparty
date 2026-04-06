@@ -1,7 +1,11 @@
 permissions:
   allow:
+    # Dispatch
     - mcp__teaparty-config__Send
     - mcp__teaparty-config__Reply
+    - mcp__teaparty-config__AskQuestion
+    - mcp__teaparty-config__CloseConversation
+    # Read
     - mcp__teaparty-config__ListAgents
     - mcp__teaparty-config__GetAgent
     - mcp__teaparty-config__ListSkills
@@ -10,6 +14,37 @@ permissions:
     - mcp__teaparty-config__GetWorkgroup
     - mcp__teaparty-config__ListProjects
     - mcp__teaparty-config__GetProject
+    - mcp__teaparty-config__ListHooks
+    - mcp__teaparty-config__ListScheduledTasks
+    - mcp__teaparty-config__ListPins
+    - mcp__teaparty-config__ListTeamMembers
+    # Config CRUD (for specialists)
+    - mcp__teaparty-config__CreateAgent
+    - mcp__teaparty-config__EditAgent
+    - mcp__teaparty-config__RemoveAgent
+    - mcp__teaparty-config__CreateSkill
+    - mcp__teaparty-config__EditSkill
+    - mcp__teaparty-config__RemoveSkill
+    - mcp__teaparty-config__CreateWorkgroup
+    - mcp__teaparty-config__EditWorkgroup
+    - mcp__teaparty-config__RemoveWorkgroup
+    - mcp__teaparty-config__CreateHook
+    - mcp__teaparty-config__EditHook
+    - mcp__teaparty-config__RemoveHook
+    - mcp__teaparty-config__CreateScheduledTask
+    - mcp__teaparty-config__EditScheduledTask
+    - mcp__teaparty-config__RemoveScheduledTask
+    - mcp__teaparty-config__AddProject
+    - mcp__teaparty-config__CreateProject
+    - mcp__teaparty-config__RemoveProject
+    - mcp__teaparty-config__ScaffoldProjectYaml
+    - mcp__teaparty-config__PinArtifact
+    - mcp__teaparty-config__UnpinArtifact
+    # Intervention
+    - mcp__teaparty-config__WithdrawSession
+    - mcp__teaparty-config__PauseDispatch
+    - mcp__teaparty-config__ResumeDispatch
+    - mcp__teaparty-config__ReprioritizeDispatch
 hooks:
   PreToolUse:
     - matcher: "Edit|Write"
