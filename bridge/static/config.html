@@ -103,20 +103,12 @@ function escAttr(s) {
 
 function sectionCard(title, items, opts) {
   var buttons = '';
-  if (opts && opts.addProjectBtn) {
-    buttons += '<button class="action-btn config-edit-btn" onclick="openChatWithSeed(\'om:add-project\', \'Please run the /add-project skill.\')">+ Add</button>';
-    buttons += '<button class="action-btn config-edit-btn" onclick="openChatWithSeed(\'om:new-project\', \'Please run the /create-project skill.\')">+ New</button>';
-  } else {
-    if (opts && opts.addBtn) {
-      if (opts.addSeed) {
-        buttons += '<button class="action-btn config-edit-btn" onclick="seedBlade(\'' + escAttr(opts.addSeed) + '\')">+ New</button>';
-      } else {
-        buttons += '<button class="action-btn config-edit-btn" onclick="openChat(\'' + omConvId + '\')">+ New</button>';
-      }
-    }
+  if (opts && opts.addSeed) {
+    buttons += '<button class="action-btn config-edit-btn" onclick="seedBlade(\'' + escAttr(opts.addSeed) + '\')">+ New</button>';
   }
-  if (opts && opts.catalogBtn) buttons += '<button class="action-btn config-edit-btn" style="background:rgba(78,204,163,0.15);color:var(--green)" onclick="openChat(\'' + omConvId + '\')">+ Catalog</button>';
-  if (opts && opts.pinBtn) buttons += '<button class="action-btn config-edit-btn" onclick="openChatWithSeed(\'' + omConvId + '\', \'Please pin a path to the artifact viewer for this project.\')">+ Pin</button>';
+  if (opts && opts.addSeed2) {
+    buttons += '<button class="action-btn config-edit-btn" onclick="seedBlade(\'' + escAttr(opts.addSeed2.seed) + '\')">' + (opts.addSeed2.label || '+ Add') + '</button>';
+  }
   if (opts && opts.browseBtn) buttons += '<button class="action-btn config-edit-btn" onclick="' + opts.browseBtn + '">Browse</button>';
   var body = items.length === 0 ? '<div class="empty">' + (opts && opts.empty || 'None') + '</div>' : items.join('');
   return '<div class="section"><div class="section-header">' + title + '<span style="flex:1"></span>' + buttons + '</div><div class="section-scroll">' + body + '</div></div>';
@@ -312,13 +304,14 @@ async function loadGlobal() {
     bladeTitle: 'Office Manager',
     bladeContext: 'management',
     cards: [
-      { title: 'Workgroups', items: projectItems.concat(wgMgmtItems), opts: { addBtn: true, empty: 'No projects or workgroups' } },
-      { title: 'Agents', items: agents, opts: { addBtn: true, addSeed: 'I would like to create a new agent in the management agent catalog.' } },
+      { title: 'Projects', items: projectItems, opts: { addSeed: 'I would like to create a new project.', addSeed2: { label: '+ Add', seed: 'I would like to add an existing project to the management team.' }, empty: 'No projects' } },
+      { title: 'Workgroups', items: wgMgmtItems, opts: { addSeed: 'I would like to create a new workgroup for the management team.', empty: 'No workgroups' } },
+      { title: 'Agents', items: agents, opts: { addSeed: 'I would like to create a new agent in the management agent catalog.' } },
       { title: 'Participants', items: participantItems(m.humans, 'global') },
       { title: 'Artifacts', items: renderPinItems(pinsData), opts: { empty: 'No organizational artifacts' } },
-      { title: 'Skills', items: skillItems(m.skills, 'global'), opts: { addBtn: true } },
-      { title: 'Hooks', items: hookItems(m.hooks, 'global'), opts: { addBtn: true } },
-      { title: 'Scheduled Tasks', items: cronItems(m.scheduled, 'global'), opts: { addBtn: true } },
+      { title: 'Skills', items: skillItems(m.skills, 'global'), opts: { addSeed: 'I would like to add a new skill to the management catalog.' } },
+      { title: 'Hooks', items: hookItems(m.hooks, 'global'), opts: { addSeed: 'I would like to create a new hook for the management team.' } },
+      { title: 'Scheduled Tasks', items: cronItems(m.scheduled, 'global'), opts: { addSeed: 'I would like to create a new scheduled task for the management team.' } },
     ],
   };
 }
@@ -373,13 +366,13 @@ async function loadProject(slug) {
     bladeTitle: 'Office Manager',
     bladeContext: 'project:' + slug,
     cards: [
-      { title: 'Workgroups', items: wgItems, opts: { addBtn: true, catalogBtn: true, empty: 'No workgroups' } },
-      { title: 'Agents', items: agents, opts: { addBtn: true, addSeed: 'I would like to create a new agent in the ' + (team.name || slug) + ' project agent catalog.', catalogBtn: true, empty: 'No agents' } },
+      { title: 'Workgroups', items: wgItems, opts: { addSeed: 'I would like to create a new workgroup for the ' + (team.name || slug) + ' project.', empty: 'No workgroups' } },
+      { title: 'Agents', items: agents, opts: { addSeed: 'I would like to create a new agent in the ' + (team.name || slug) + ' project agent catalog.', empty: 'No agents' } },
       { title: 'Participants', items: participantItems(team.humans, slug) },
-      { title: 'Artifacts', items: renderPinItems(pinsData), opts: { addBtn: true, browseBtn: 'openFileBrowser(\'project\',\'' + slug + '\',null)', slug: slug, empty: 'No artifacts' } },
-      { title: 'Skills', items: skillItems(team.skills, slug), opts: { addBtn: true, catalogBtn: true, empty: 'No skills' } },
-      { title: 'Hooks', items: hookItems(team.hooks, slug, slug), opts: { addBtn: true, empty: 'No project-scoped hooks' } },
-      { title: 'Scheduled Tasks', items: cronItems(team.scheduled, slug, slug), opts: { addBtn: true, empty: 'No project-scoped tasks' } },
+      { title: 'Artifacts', items: renderPinItems(pinsData), opts: { addSeed: 'I would like to pin an artifact to the ' + (team.name || slug) + ' project.', browseBtn: 'openFileBrowser(\'project\',\'' + slug + '\',null)', empty: 'No artifacts' } },
+      { title: 'Skills', items: skillItems(team.skills, slug), opts: { addSeed: 'I would like to add a new skill to the ' + (team.name || slug) + ' project catalog.', empty: 'No skills' } },
+      { title: 'Hooks', items: hookItems(team.hooks, slug, slug), opts: { addSeed: 'I would like to create a new hook for the ' + (team.name || slug) + ' project.', empty: 'No project-scoped hooks' } },
+      { title: 'Scheduled Tasks', items: cronItems(team.scheduled, slug, slug), opts: { addSeed: 'I would like to create a new scheduled task for the ' + (team.name || slug) + ' project.', empty: 'No project-scoped tasks' } },
     ],
   };
 }
@@ -441,10 +434,10 @@ async function loadWorkgroup(name, projectSlug) {
     bladeContext: 'workgroup:' + name + (projectSlug ? ':' + projectSlug : ''),
     cards: [
       { title: 'Lead', items: leadItems, opts: { empty: 'No lead assigned' } },
-      { title: 'Agents', items: memberItems, opts: { addBtn: true, catalogBtn: true, empty: 'No agents' } },
-      { title: 'Hooks', items: hooks, opts: { addBtn: true, empty: 'No hooks' } },
+      { title: 'Agents', items: memberItems, opts: { addSeed: 'I would like to add an agent to the ' + name + ' workgroup.', empty: 'No agents' } },
+      { title: 'Hooks', items: hooks, opts: { addSeed: 'I would like to create a new hook for the ' + name + ' workgroup.', empty: 'No hooks' } },
       { title: 'Humans', items: participantItems(wgData.humans, 'wg:' + name, projectSlug) },
-      { title: 'Artifacts', items: renderPinItems(wgPins), opts: { addBtn: true, browseBtn: 'openFileBrowser(\'workgroup\',\'' + name + '\',\'' + (projectSlug || '') + '\')', empty: 'No artifacts' } },
+      { title: 'Artifacts', items: renderPinItems(wgPins), opts: { addSeed: 'I would like to pin an artifact to the ' + name + ' team.', browseBtn: 'openFileBrowser(\'workgroup\',\'' + name + '\',\'' + (projectSlug || '') + '\')', empty: 'No artifacts' } },
     ],
   };
 }
