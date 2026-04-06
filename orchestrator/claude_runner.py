@@ -185,11 +185,13 @@ class ClaudeRunner:
         heartbeat_file: str = '',
         parent_heartbeat: str = '',
         children_file: str = '',
+        tools: str | None = None,
     ):
         self.prompt = prompt
         self.cwd = cwd
         self.stream_file = stream_file
         self.agents_file = agents_file
+        self.tools = tools
         self.lead = lead
         self.settings = settings or {}
         self.permission_mode = permission_mode
@@ -302,6 +304,8 @@ class ClaudeRunner:
             '--setting-sources', 'user',
         ]
         args.extend(['--permission-mode', self.permission_mode])
+        if self.tools is not None:
+            args.extend(['--tools', self.tools])
         if self.agents_file:
             # --agents takes a JSON string, not a file path.
             # Read the agents definition file and pass its contents.
