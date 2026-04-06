@@ -383,16 +383,16 @@ def _build_roster_agents_json(
 def _build_mcp_config(project_root: str, mcp_env: dict | None = None) -> dict:
     """Build the mcp_config dict for the office manager's ClaudeRunner.
 
-    Points at orchestrator.mcp_server (the config + escalation tool server).
-    When mcp_env is provided, socket paths (SEND_SOCKET, REPLY_SOCKET, etc.)
-    are passed to the MCP server subprocess so dispatch tools work.
+    Uses mcp_server_dispatch (20 tools) instead of the full mcp_server (41
+    tools) to stay below the ToolSearch deferral threshold.  The OM only
+    needs Send + read tools for dispatch — it doesn't create config artifacts.
     """
     venv_python = os.path.join(project_root, '.venv', 'bin', 'python3')
     if not os.path.isfile(venv_python):
         venv_python = 'python3'
     config: dict = {
         'command': venv_python,
-        'args': ['-m', 'orchestrator.mcp_server'],
+        'args': ['-m', 'orchestrator.mcp_server_dispatch'],
     }
     if mcp_env:
         config['env'] = mcp_env
