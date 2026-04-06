@@ -106,6 +106,16 @@ body {
 .item-catalog-active { background: rgba(78,204,163,0.06); border-left: 2px solid var(--green); padding-left: 8px; }
 .item-catalog-inactive { opacity: 0.45; }
 .item-catalog-inactive:hover { opacity: 0.8; }
+.item-actions {
+  display: flex; gap: 4px; width: 100%; margin-top: 4px; padding-left: 29px;
+}
+.item-actions .action-btn {
+  background: var(--accent2); color: var(--text-dim); border: none;
+  padding: 2px 8px; border-radius: 3px; font-size: 9px;
+  cursor: pointer; font-family: inherit;
+}
+.item-actions .action-btn:hover { color: var(--text); opacity: 0.8; }
+.item:has(.item-actions) { flex-wrap: wrap; }
 .catalog-toggle {
   width: 28px; height: 14px; background: rgba(136,136,136,0.25); border-radius: 7px;
   position: relative; cursor: pointer; flex-shrink: 0; transition: background 0.2s;
