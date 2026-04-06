@@ -858,8 +858,8 @@ class OfficeManagerSession:
                         self.conversation_title = slug
                 self.save_state()
 
-            _log_om = logging.getLogger('orchestrator.office_manager')
-            _log_om.info(
+            import logging as _logging
+            _logging.getLogger('orchestrator.office_manager').info(
                 'invoke_timing: total=%.2fs response_len=%d',
                 _time.monotonic() - t_invoke_start, len(response_text),
             )
