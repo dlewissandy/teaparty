@@ -262,15 +262,16 @@ async function loadGlobal() {
     if (r.project) rosterByProject[r.project] = r;
   });
 
-  var subteams = [];
+  var projectItems = [];
   projects.forEach(function(p) {
     var r = rosterByProject[p.name];
     var meta = [r ? r.description : '', r ? r.name : ''].filter(Boolean).join(' · ');
-    subteams.push(itemCard({ icon: '&#9654;', iconClass: 'icon-project', title: p.name, meta: meta, active: true, badge: 'project', badgeClass: 'badge-project', onClick: "configNav('project','" + p.name + "')" }));
+    projectItems.push(itemCard({ icon: '&#9654;', iconClass: 'icon-project', title: p.name, meta: meta, active: true, badge: 'project', badgeClass: 'badge-project', onClick: "configNav('project','" + p.name + "')" }));
   });
+  var wgMgmtItems = [];
   (workgroupsData || []).forEach(function(w) {
     var meta = [w.description || '', (w.lead || '') + (w.agents_count != null ? ' · ' + w.agents_count + ' agents' : '')].filter(Boolean).join(' · ');
-    subteams.push(itemCard({ icon: '&#9670;', iconClass: 'icon-workgroup', title: w.name, meta: meta, active: w.active !== false, toggleScope: 'global', toggleType: 'workgroup', toggleName: w.name, badge: 'workgroup', badgeClass: 'badge-workgroup', onClick: "configNav('workgroup','" + w.name + "')" }));
+    wgMgmtItems.push(itemCard({ icon: '&#9670;', iconClass: 'icon-workgroup', title: w.name, meta: meta, active: w.active !== false, toggleScope: 'global', toggleType: 'workgroup', toggleName: w.name, badge: 'workgroup', badgeClass: 'badge-workgroup', onClick: "configNav('workgroup','" + w.name + "')" }));
   });
 
   var agents = [];
@@ -295,7 +296,8 @@ async function loadGlobal() {
     bladeTitle: 'Office Manager',
     bladeContext: 'management',
     cards: [
-      { title: 'Subteams', items: subteams, opts: { addProjectBtn: true, addBtn: true, empty: 'No projects or workgroups' } },
+      { title: 'Projects', items: projectItems, opts: { addProjectBtn: true, empty: 'No projects' } },
+      { title: 'Workgroups', items: wgMgmtItems, opts: { addBtn: true, empty: 'No workgroups' } },
       { title: 'Agents', items: agents, opts: { addBtn: true } },
       { title: 'Participants', items: participantItems(m.humans, 'global') },
       { title: 'Artifacts', items: renderPinItems(pinsData), opts: { empty: 'No organizational artifacts' } },
@@ -385,7 +387,7 @@ async function loadWorkgroup(name, projectSlug) {
 
   var leadItems = [];
   if (wgData.lead) {
-    leadItems.push(itemCard({ icon: '&#9733;', iconClass: 'icon-member', title: wgData.lead, meta: 'workgroup lead' }));
+    leadItems.push(itemCard({ icon: '&#9733;', iconClass: 'icon-member', title: wgData.lead, meta: 'workgroup lead', badge: 'lead', badgeClass: 'badge-lead', onClick: "configNav('agent','" + wgData.lead + "','" + (projectSlug || '') + "')" }));
   }
 
   var memberItems = (wgData.agents || []).map(function(a) {
