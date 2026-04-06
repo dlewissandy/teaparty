@@ -507,12 +507,34 @@ def _err(error: str) -> str:
     return json.dumps({'success': False, 'error': error})
 
 
+def _resolve_repo_root() -> str:
+    """Resolve the main repository root, even from a git worktree.
+
+    Uses `git rev-parse --git-common-dir` which returns the main repo's
+    .git directory regardless of whether cwd is the main checkout or a
+    worktree.  This ensures config CRUD tools write to the real repo,
+    not an ephemeral worktree copy.
+    """
+    import subprocess
+    try:
+        result = subprocess.run(
+            ['git', 'rev-parse', '--git-common-dir'],
+            capture_output=True, text=True, cwd=os.getcwd(),
+        )
+        if result.returncode == 0:
+            git_dir = result.stdout.strip()
+            return os.path.dirname(os.path.abspath(git_dir))
+    except FileNotFoundError:
+        pass
+    return os.getcwd()
+
+
 def _project_root(override: str) -> str:
-    return override if override else os.getcwd()
+    return override if override else _resolve_repo_root()
 
 
 def _teaparty_home(override: str) -> str:
-    return override if override else os.path.join(os.getcwd(), '.teaparty')
+    return override if override else os.path.join(_resolve_repo_root(), '.teaparty')
 
 
 def _mgmt_agents_dir(teaparty_home: str) -> str:
