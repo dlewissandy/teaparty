@@ -135,11 +135,31 @@ Config-lead session timeline (run 2):
 +2.5s  processes result, outputs text
 ```
 
+### Experiment 11: Full human-visible round-trip measurement
+- Added om_round_trip timing to bridge, invoke_timing to OM session
+- **Result: 23.12s human-visible round-trip**
+- Breakdown:
+  - OM startup + decide to Send: ~5-6s
+  - Config-lead e2e (dispatch chain): 12.4s
+  - OM processes result + generates response: ~4-5s
+- **Previous measurements were WRONG** — only measured dispatch chain (11-13s), not the full OM turn (23s)
+- The OM's own claude -p execution adds ~11s overhead that wasn't being measured
+
+### Experiment 12: OM uses dispatch MCP + --tools ""
+- OM MCP switched to mcp_server_dispatch (14 tools)
+- ClaudeRunner gains --tools parameter; OM passes --tools "" (no builtins)
+- **Result: 17.3s human-visible round-trip (down from 23.1s)**
+- No ToolSearch on OM turn — Send called on first model turn
+- OM timeline: 3.6s startup + 0.7s Send + 8.9s dispatch + 2.8s output = 16.0s
+
 ## Current State
 
-- **Best result: 11.0s (Experiment 10) — 60% reduction from 27.6s baseline**
-- Target of >50% reduction: **ACHIEVED and exceeded**
-- Further optimization possible with stable worktree paths (cache hits on repeat calls)
+- **Correct metric: 17.3s human-visible round-trip**
+- Baseline (OM round-trip, pre-optimization): need to measure, estimated ~35-40s
+  (OM had 61 deferred tools + ToolSearch + full startup + dispatch chain of 27.6s)
+- Dispatch chain alone: ~9s (config-lead + specialist)
+- OM overhead: ~8s (startup + Send + process result)
+- **Estimated improvement: ~50-55% from baseline** (pending baseline measurement)
 
 ## Next Steps to Try
 
