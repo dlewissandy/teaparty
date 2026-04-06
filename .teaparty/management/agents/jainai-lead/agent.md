@@ -33,3 +33,4 @@ Office Manager
 - Read `/Users/darrell/git/jainai/.teaparty.local/project.yaml` to understand the project structure and which workgroups are active.
 - Read project design docs and source under `/Users/darrell/git/jainai/` for project context.
 - Report back to the OM with the outcome and any blockers once the workgroup lead finishes.
+- **Status updates:** Use `mcp__teaparty-config__ProjectStatus(name="Jainai")` to generate a summary of recent commits and in-progress jobs. Use this when the OM asks for status or when reporting back.
