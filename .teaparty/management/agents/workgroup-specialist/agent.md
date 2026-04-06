@@ -38,7 +38,7 @@ Workgroups referenced in `teaparty.yaml` or `project.yaml` must exist at the cor
 
 ## How You Work
 
-1. Check the incoming request for a **Scope** directive (e.g. "Scope: management" or "Scope: jainai"). Pass `scope=` to CreateWorkgroup/EditWorkgroup/RemoveWorkgroup so artifacts land in the correct tree.
+1. Check the incoming request for a **Scope** directive (e.g. "Scope: management" or "Scope: {project-name}"). Pass `scope=` to CreateWorkgroup/EditWorkgroup/RemoveWorkgroup so artifacts land in the correct tree.
 2. Invoke the appropriate tool or skill with the scope parameter.
 3. Validate before reporting completion.
 
