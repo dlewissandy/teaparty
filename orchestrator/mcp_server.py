@@ -2638,6 +2638,45 @@ def create_server() -> FastMCP:
             project=project, path=path, teaparty_home=teaparty_home,
         )
 
+    # Filter MCP tools to the agent's frontmatter whitelist.
+    # Frontmatter may use prefixed names (mcp__teaparty-config__Send)
+    # or bare names (Send).  FastMCP registers bare names.
+    agent_id = os.environ.get('AGENT_ID', '')
+    if agent_id:
+        agent_md = os.path.join(
+            os.getcwd(), '.claude', 'agents', f'{agent_id}.md',
+        )
+        try:
+            from orchestrator.config_reader import read_agent_frontmatter
+            fm = read_agent_frontmatter(agent_md)
+            allowed = {
+                t.strip() for t in fm.get('tools', '').split(',') if t.strip()
+            }
+            if allowed:
+                mcp_prefix = 'mcp__teaparty-config__'
+                bare_allowed = set()
+                for t in allowed:
+                    if t.startswith(mcp_prefix):
+                        bare_allowed.add(t[len(mcp_prefix):])
+                    else:
+                        bare_allowed.add(t)
+                import asyncio
+                registered = asyncio.run(server.list_tools())
+                for tool in registered:
+                    if tool.name not in bare_allowed:
+                        server.remove_tool(tool.name)
+                remaining = len(bare_allowed & {t.name for t in registered})
+                _cs_log.info(
+                    'create_server: filtered to %d MCP tools for agent %r',
+                    remaining, agent_id,
+                )
+        except FileNotFoundError:
+            pass  # No agent.md — interactive session, keep all tools
+        except Exception as exc:
+            _cs_log.warning(
+                'create_server: tool filter failed for %r: %s', agent_id, exc,
+            )
+
     return server
 
 
