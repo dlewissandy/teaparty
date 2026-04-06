@@ -22,8 +22,10 @@ Issue #371.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tempfile
+import uuid
 
 from orchestrator.messaging import (
     ConversationType,
@@ -37,6 +39,8 @@ from orchestrator.office_manager import (
     _extract_slug,
     _iter_stream_events,
 )
+
+log = logging.getLogger('orchestrator.config_lead')
 
 
 def config_lead_bus_path(teaparty_home: str) -> str:
@@ -69,6 +73,12 @@ class ConfigLeadSession:
         bus_path = config_lead_bus_path(self.teaparty_home)
         os.makedirs(os.path.dirname(bus_path), exist_ok=True)
         self._bus = SqliteMessageBus(bus_path)
+
+        # Bus event listener for dispatching to specialists via Send.
+        self._bus_listener = None
+        self._bus_listener_sockets: tuple[str, str, str] | None = None
+        self._bus_context_id: str | None = None
+        self._agent_pool = None
 
     def send_human_message(self, content: str) -> str:
         """Record a human message in the conversation. Returns message ID."""
@@ -133,6 +143,154 @@ class ConfigLeadSession:
                 return msg.content
         return ''
 
+    async def _ensure_bus_listener(self, cwd: str) -> dict:
+        """Start the BusEventListener so the config lead can dispatch via Send.
+
+        Returns the mcp_env dict with socket paths for the MCP server.
+        """
+        if self._bus_listener is not None:
+            send, reply, close = self._bus_listener_sockets
+            return {
+                'SEND_SOCKET': send,
+                'REPLY_SOCKET': reply,
+                'CLOSE_CONV_SOCKET': close,
+                'AGENT_ID': 'configuration-lead',
+                'PYTHONPATH': cwd,
+            }
+
+        from orchestrator.bus_event_listener import BusEventListener
+        from orchestrator.agent_pool import AgentPool
+
+        bus_db_path = os.path.join(self._infra_dir, 'messages.db')
+        repo_root = os.path.dirname(self.teaparty_home)
+
+        if self._agent_pool is None:
+            self._agent_pool = AgentPool(teaparty_home=self.teaparty_home)
+
+        def _child_mcp_config(member: str, context_id: str, *, is_lead: bool = False) -> dict:
+            sockets = self._bus_listener_sockets
+            mcp_env = {
+                'SEND_SOCKET': sockets[0],
+                'REPLY_SOCKET': sockets[1],
+                'CLOSE_CONV_SOCKET': sockets[2],
+                'AGENT_ID': member,
+                'CONTEXT_ID': context_id,
+            } if sockets else {}
+            venv_python = os.path.join(repo_root, '.venv', 'bin', 'python3')
+            if not os.path.isfile(venv_python):
+                venv_python = 'python3'
+            module = 'orchestrator.mcp_server_dispatch' if is_lead else 'orchestrator.mcp_server'
+            return {
+                'teaparty-config': {
+                    'command': venv_python,
+                    'args': ['-m', module],
+                    'env': mcp_env,
+                },
+            }
+
+        async def spawn_fn(member, composite, context_id):
+            import subprocess as _sp
+            import time as _time
+            t0 = _time.monotonic()
+
+            agent_dir = os.path.join(self._infra_dir, 'agents', f'pool_{member}')
+            if not os.path.isdir(agent_dir):
+                wt_result = _sp.run(
+                    ['git', 'worktree', 'add', '--detach', agent_dir],
+                    cwd=repo_root, capture_output=True, text=True,
+                )
+                if wt_result.returncode != 0:
+                    os.makedirs(agent_dir, exist_ok=True)
+            t_worktree = _time.monotonic()
+
+            from orchestrator.agent_spawner import compose_worktree, _derive_roster
+            compose_worktree(
+                agent_dir, self.teaparty_home, member,
+                is_management=True,
+            )
+            settings_path = os.path.join(agent_dir, '.claude', 'settings.json')
+            settings_dict = {}
+            if os.path.isfile(settings_path):
+                with open(settings_path) as f:
+                    try:
+                        settings_dict = json.loads(f.read())
+                    except (ValueError, json.JSONDecodeError):
+                        pass
+
+            agents = _derive_roster(member, self.teaparty_home)
+            is_lead = bool(agents)
+
+            session_id, result_text = await self._agent_pool.dispatch(
+                member, composite,
+                worktree=agent_dir,
+                mcp_config=_child_mcp_config(member, context_id, is_lead=is_lead),
+                agents_json=agents,
+                settings_dict=settings_dict,
+            )
+            t_done = _time.monotonic()
+            log.info(
+                'config_lead spawn_fn: member=%r worktree=%.2fs dispatch=%.2fs total=%.2fs',
+                member, t_worktree - t0, t_done - t_worktree, t_done - t0,
+            )
+            return (session_id, agent_dir, result_text)
+
+        async def reply_fn(context_id, session_id, message):
+            log.info('config_lead reply_fn: delivering reply for context %s', context_id)
+            self._bus.send(self.conversation_id, 'agent-specialist', message)
+
+        async def reinvoke_fn(context_id, session_id, message):
+            log.info('config_lead reinvoke_fn: fan-in complete for context %s', context_id)
+
+        async def cleanup_fn(worktree_path):
+            import subprocess as _sp
+            if worktree_path and os.path.isdir(worktree_path):
+                _sp.run(
+                    ['git', 'worktree', 'remove', '--force', worktree_path],
+                    cwd=os.path.dirname(self.teaparty_home), capture_output=True,
+                )
+
+        if not self._bus_context_id:
+            self._bus_context_id = f'agent:config-lead:lead:{uuid.uuid4()}'
+            bus = SqliteMessageBus(bus_db_path)
+            try:
+                bus.create_agent_context(
+                    self._bus_context_id,
+                    initiator_agent_id='configuration-lead',
+                    recipient_agent_id='configuration-lead',
+                )
+            finally:
+                bus.close()
+
+        self._bus_listener = BusEventListener(
+            bus_db_path=bus_db_path,
+            initiator_agent_id='configuration-lead',
+            current_context_id=self._bus_context_id,
+            spawn_fn=spawn_fn,
+            reply_fn=reply_fn,
+            reinvoke_fn=reinvoke_fn,
+            cleanup_fn=cleanup_fn,
+        )
+        sockets = await self._bus_listener.start()
+        self._bus_listener_sockets = sockets
+        send, reply, close = sockets
+        return {
+            'SEND_SOCKET': send,
+            'REPLY_SOCKET': reply,
+            'CLOSE_CONV_SOCKET': close,
+            'AGENT_ID': 'configuration-lead',
+            'PYTHONPATH': cwd,
+        }
+
+    async def stop(self):
+        """Stop the bus event listener and agent pool."""
+        if self._agent_pool is not None:
+            await self._agent_pool.stop()
+            self._agent_pool = None
+        if self._bus_listener is not None:
+            await self._bus_listener.stop()
+            self._bus_listener = None
+            self._bus_listener_sockets = None
+
     async def invoke(self, *, cwd: str) -> str:
         """Invoke the configuration-lead agent to respond to the current conversation.
 
@@ -161,6 +319,9 @@ class ConfigLeadSession:
             self.LEAD, cwd, self._infra_dir,
         )
 
+        # Start bus listener so Send dispatches to specialists.
+        mcp_env = await self._ensure_bus_listener(cwd)
+
         stream_fd, stream_path = tempfile.mkstemp(suffix='.jsonl', prefix='config-stream-')
         os.close(stream_fd)
 
@@ -175,13 +336,23 @@ class ConfigLeadSession:
                 settings={
                     'permissions': {
                         'allow': [
+                            'mcp__teaparty-config__Send',
+                            'mcp__teaparty-config__Reply',
                             'mcp__teaparty-config__PinArtifact',
                             'mcp__teaparty-config__UnpinArtifact',
+                            'mcp__teaparty-config__ListAgents',
+                            'mcp__teaparty-config__GetAgent',
+                            'mcp__teaparty-config__ListSkills',
+                            'mcp__teaparty-config__GetSkill',
+                            'mcp__teaparty-config__ListWorkgroups',
+                            'mcp__teaparty-config__GetWorkgroup',
+                            'mcp__teaparty-config__ListProjects',
+                            'mcp__teaparty-config__GetProject',
                         ],
                     },
                 },
                 resume_session=self.claude_session_id,
-                mcp_config=_build_mcp_config(cwd),
+                mcp_config=_build_mcp_config(cwd, mcp_env=mcp_env),
             )
             result = await runner.run()
 
