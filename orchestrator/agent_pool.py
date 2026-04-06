@@ -142,6 +142,7 @@ class AgentPool:
         mcp_config: dict[str, Any] | None = None,
         agents_json: dict[str, Any] | None = None,
         settings_dict: dict[str, Any] | None = None,
+        add_dirs: list[str] | None = None,
     ) -> tuple[str, str]:
         """Dispatch a message to an agent, reusing a warm process if available.
 
@@ -176,6 +177,7 @@ class AgentPool:
             mcp_config=mcp_config,
             agents_json=agents_json,
             settings_dict=settings_dict,
+            add_dirs=add_dirs,
         )
         self._processes[role] = agent
         return await agent.send(message)
@@ -188,6 +190,7 @@ class AgentPool:
         mcp_config: dict[str, Any] | None = None,
         agents_json: dict[str, Any] | None = None,
         settings_dict: dict[str, Any] | None = None,
+        add_dirs: list[str] | None = None,
     ) -> AgentProcess:
         """Start a new persistent claude -p process."""
         repo_root = os.path.dirname(self.teaparty_home)
@@ -219,6 +222,9 @@ class AgentPool:
 
         if agents_json:
             cmd.extend(['--agents', json.dumps(agents_json)])
+
+        for d in (add_dirs or []):
+            cmd.extend(['--add-dir', d])
 
         if settings:
             cmd.extend(['--settings', json.dumps(settings)])

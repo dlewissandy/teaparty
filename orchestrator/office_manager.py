@@ -626,12 +626,20 @@ class OfficeManagerSession:
             agents = _derive_roster(member, self.teaparty_home)
             is_lead = bool(agents)
 
+            # Project leads need access to their project directory.
+            add_dirs: list[str] = []
+            from orchestrator.roster import resolve_lead_project_path
+            project_path = resolve_lead_project_path(member, self.teaparty_home)
+            if project_path:
+                add_dirs.append(project_path)
+
             session_id, result_text = await self._agent_pool.dispatch(
                 member, composite,
                 worktree=agent_dir,
                 mcp_config=_child_mcp_config(member, context_id, is_lead=is_lead),
                 agents_json=agents,
                 settings_dict=settings_dict,
+                add_dirs=add_dirs,
             )
             t_done = _time.monotonic()
 

@@ -98,6 +98,41 @@ def derive_om_roster(
     return roster
 
 
+def resolve_lead_project_path(
+    lead_name: str,
+    teaparty_home: str,
+) -> str | None:
+    """Return the project directory for a given project lead, or None."""
+    team = load_management_team(teaparty_home=teaparty_home)
+    repo_root = os.path.dirname(teaparty_home)
+
+    for project_name in team.members_projects:
+        project_entry = None
+        for p in team.projects:
+            if p.get('name') == project_name:
+                project_entry = p
+                break
+        if project_entry is None:
+            continue
+
+        project_path = project_entry.get('path', '')
+        if not os.path.isabs(project_path):
+            project_path = os.path.join(repo_root, project_path)
+
+        config_path = project_entry.get('config', '')
+        full_config = os.path.join(project_path, config_path) if config_path else None
+
+        try:
+            project_team = load_project_team(project_path, config_path=full_config)
+        except FileNotFoundError:
+            continue
+
+        if project_team.lead == lead_name:
+            return project_path
+
+    return None
+
+
 def derive_project_roster(
     project_dir: str,
     teaparty_home: str,
