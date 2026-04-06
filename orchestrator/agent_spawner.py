@@ -137,12 +137,21 @@ def compose_agents(
             continue
         if catalog_agents is not None and entry.name not in catalog_agents:
             continue
-        if not os.path.exists(os.path.join(entry.path, 'agent.md')):
+        agent_md = os.path.join(entry.path, 'agent.md')
+        if not os.path.exists(agent_md):
             continue
+        # Directory symlink (for tools that read supporting files).
         dest_link = os.path.join(dest_dir, entry.name)
         if os.path.lexists(dest_link):
             os.unlink(dest_link)
         os.symlink(entry.path, dest_link)
+        # .md symlink (what Claude Code reads for agent definitions).
+        # Uses absolute path to the real .teaparty/ source so worktrees
+        # always see current content regardless of their git HEAD.
+        dest_md = os.path.join(dest_dir, entry.name + '.md')
+        if os.path.lexists(dest_md):
+            os.unlink(dest_md)
+        os.symlink(agent_md, dest_md)
 
 
 def compose_skills(
@@ -492,6 +501,7 @@ class AgentSpawner:
         t_roster = _time.monotonic()
 
         env = dict(os.environ)
+        env.pop('AGENT_TOOL_SCOPE', None)
         env.update(self.env_vars)
         if extra_env:
             env.update(extra_env)

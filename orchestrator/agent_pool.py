@@ -229,6 +229,7 @@ class AgentPool:
             ])
 
         env = dict(os.environ)
+        env.pop('AGENT_TOOL_SCOPE', None)
         env['DISABLE_NONESSENTIAL_TRAFFIC'] = '1'
         env['MCP_TIMEOUT'] = '5000'
 
