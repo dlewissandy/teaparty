@@ -186,12 +186,16 @@ class ClaudeRunner:
         parent_heartbeat: str = '',
         children_file: str = '',
         tools: str | None = None,
+        bare: bool = False,
+        api_key_helper: str = '',
     ):
         self.prompt = prompt
         self.cwd = cwd
         self.stream_file = stream_file
         self.agents_file = agents_file
         self.tools = tools
+        self.bare = bare
+        self.api_key_helper = api_key_helper
         self.lead = lead
         self.settings = settings or {}
         self.permission_mode = permission_mode
@@ -220,11 +224,14 @@ class ClaudeRunner:
         """Run the Claude CLI and stream output. Returns result."""
         # Write settings to temp file
         settings_file = None
-        if self.settings:
+        settings = dict(self.settings) if self.settings else {}
+        if self.bare and self.api_key_helper:
+            settings['apiKeyHelper'] = self.api_key_helper
+        if settings:
             settings_file = tempfile.NamedTemporaryFile(
                 mode='w', suffix='.json', delete=False,
             )
-            json.dump(self.settings, settings_file)
+            json.dump(settings, settings_file)
             settings_file.close()
 
         try:
@@ -301,8 +308,11 @@ class ClaudeRunner:
             'claude', '-p',
             '--output-format', 'stream-json',
             '--verbose',
-            '--setting-sources', 'user',
         ]
+        if self.bare:
+            args.append('--bare')
+        else:
+            args.extend(['--setting-sources', 'user'])
         args.extend(['--permission-mode', self.permission_mode])
         if self.tools is not None:
             args.extend(['--tools', self.tools])
