@@ -2002,20 +2002,27 @@ class TeaPartyBridge:
         return None
 
     def _resolve_task_infra(self, parent_dir: str, dispatch_id: str) -> str | None:
-        """Find a task_dir by dispatch_id under {parent_dir}/tasks/.
+        """Find a task_dir by dispatch_id, searching recursively.
 
-        Scans task directories matching ``task-{dispatch_id}--*``.
+        Scans task directories matching ``task-{dispatch_id}--*`` under
+        parent_dir/tasks/, then recurses into each task's own tasks/
+        subdirectory to support nested dispatches.
         """
         tasks_dir = os.path.join(parent_dir, 'tasks')
         if not os.path.isdir(tasks_dir):
             return None
         prefix = f'task-{dispatch_id}--'
         try:
-            for name in os.listdir(tasks_dir):
+            for name in sorted(os.listdir(tasks_dir)):
+                candidate = os.path.join(tasks_dir, name)
                 if name.startswith(prefix):
-                    candidate = os.path.join(tasks_dir, name)
                     if os.path.isfile(os.path.join(candidate, 'task.json')):
                         return candidate
+                # Recurse into child tasks to find nested dispatches
+                if os.path.isfile(os.path.join(candidate, 'task.json')):
+                    nested = self._resolve_task_infra(candidate, dispatch_id)
+                    if nested:
+                        return nested
         except OSError:
             pass
         return None

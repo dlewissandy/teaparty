@@ -131,6 +131,19 @@ class TestResolveTaskInfra(unittest.TestCase):
         result = bridge._resolve_task_infra(task_dir, 'ghi11111')
         self.assertEqual(result, nested_dir)
 
+    def test_finds_nested_task_from_job_root(self):
+        """Nested task is resolvable from the job_dir (recursive search)."""
+        base = _make_tmpdir(self)
+        job_dir = _make_job(base, 'abc12345')
+        task_dir = _make_task(job_dir, 'def67890')
+        nested_dir = _make_task(task_dir, 'ghi11111', team='writing')
+
+        from bridge.server import TeaPartyBridge
+        bridge = TeaPartyBridge.__new__(TeaPartyBridge)
+        # Search from job_dir should find the nested task recursively
+        result = bridge._resolve_task_infra(job_dir, 'ghi11111')
+        self.assertEqual(result, nested_dir)
+
 
 # ── Layer 2: Task bus routing ────────────────────────────────────────────────
 
