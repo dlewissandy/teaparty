@@ -71,7 +71,7 @@ The project lead creates jobs in its own project. Cross-project coordination is 
   "job_id": "job-a1b2c3d4",
   "slug": "fix-session-write-scope",
   "issue": 355,
-  "branch": "issue-355",
+  "branch": "job-a1b2c3d4--fix-session-write-scope",
   "status": "active",
   "created_at": "2026-04-07T10:00:00Z",
   "updated_at": "2026-04-07T12:30:00Z"
@@ -86,7 +86,7 @@ The project lead creates jobs in its own project. Cross-project coordination is 
   "slug": "make-targeted-edits",
   "team": "coding",
   "agent": "developer",
-  "branch": "issue-355-task-e5f6g7h8",
+  "branch": "task-e5f6g7h8--make-targeted-edits",
   "status": "complete",
   "created_at": "2026-04-07T10:05:00Z",
   "updated_at": "2026-04-07T11:45:00Z"

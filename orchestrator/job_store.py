@@ -37,9 +37,8 @@ def _slugify(text: str, max_len: int = 30) -> str:
 
 
 def _short_id() -> str:
-    """Generate a short unique ID (8 hex chars from timestamp + random)."""
-    now = datetime.now(timezone.utc).isoformat()
-    return hashlib.md5(now.encode() + os.urandom(4)).hexdigest()[:8]
+    """Generate a short unique ID (8 hex chars)."""
+    return hashlib.md5(os.urandom(16)).hexdigest()[:8]
 
 
 def _jobs_dir(project_root: str) -> str:
@@ -61,16 +60,19 @@ def _save_index(path: str, data: dict) -> None:
     """Atomically write an index file."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = path + '.tmp'
+    replaced = False
     try:
         with open(tmp, 'w') as f:
             json.dump(data, f, indent=2)
             f.write('\n')
         os.replace(tmp, path)
+        replaced = True
     finally:
-        try:
-            os.unlink(tmp)
-        except FileNotFoundError:
-            pass
+        if not replaced:
+            try:
+                os.unlink(tmp)
+            except FileNotFoundError:
+                pass
 
 
 # ── Git helpers ──────────────────────────────────────────────────────────────
@@ -175,6 +177,11 @@ async def create_task(
 
     os.makedirs(task_dir, exist_ok=True)
 
+    # Read the job's branch from job.json so the task branches from it
+    with open(os.path.join(job_dir, 'job.json')) as f:
+        job_state = json.load(f)
+    job_branch = job_state['branch']
+
     # Resolve repo root from the job's worktree
     job_worktree = os.path.join(job_dir, 'worktree')
     proc = await asyncio.create_subprocess_exec(
@@ -187,7 +194,7 @@ async def create_task(
     repo_root = os.path.dirname(stdout.decode().strip())
 
     # Create git worktree branching from the job's branch
-    await _run_git(repo_root, 'worktree', 'add', '-b', branch_name, worktree_path)
+    await _run_git(repo_root, 'worktree', 'add', '-b', branch_name, worktree_path, job_branch)
 
     # Write task state
     now = datetime.now(timezone.utc).isoformat()

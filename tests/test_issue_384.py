@@ -281,6 +281,49 @@ class TestParallelTaskIsolation(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0)
 
+    def test_task_branch_descends_from_job_branch(self):
+        """Task branches are created from the job's branch, not from repo HEAD.
+        This ensures tasks work on the job's current state."""
+        from orchestrator.job_store import create_job, create_task
+
+        job = _run(create_job(
+            project_root=self.repo_root,
+            task='Fix the bug',
+            issue=355,
+        ))
+
+        # Make a commit on the job's worktree so it diverges from repo HEAD
+        job_wt = os.path.join(job['job_dir'], 'worktree')
+        marker = os.path.join(job_wt, 'job-marker.txt')
+        with open(marker, 'w') as f:
+            f.write('job work')
+        subprocess.run(['git', 'add', 'job-marker.txt'], cwd=job_wt,
+                       check=True, capture_output=True)
+        subprocess.run(['git', 'commit', '-m', 'job work'], cwd=job_wt,
+                       check=True, capture_output=True)
+
+        task = _run(create_task(
+            job_dir=job['job_dir'],
+            task='Continue the work',
+            team='coding',
+            agent='developer',
+        ))
+
+        task_wt = os.path.join(task['task_dir'], 'worktree')
+
+        # The task worktree should have the job's marker file
+        # (because it branched from the job's branch, not from repo HEAD)
+        self.assertTrue(os.path.isfile(os.path.join(task_wt, 'job-marker.txt')))
+
+        # Verify ancestry: job branch is ancestor of task branch
+        result = subprocess.run(
+            ['git', 'merge-base', '--is-ancestor',
+             job['branch_name'], task['branch_name']],
+            cwd=self.repo_root, capture_output=True,
+        )
+        self.assertEqual(result.returncode, 0,
+                         'Task branch should descend from job branch')
+
 
 class TestJobCleanup(unittest.TestCase):
     """SC5: Removing a job directory removes all child task worktrees, state, and indexes."""
