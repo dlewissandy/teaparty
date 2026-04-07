@@ -120,6 +120,23 @@ class TestStreamEventRelay(unittest.TestCase):
         self.assertEqual(msgs[0].sender, 'tool_result')
         self.assertEqual(msgs[0].content, 'file contents here')
 
+    def test_tool_result_array_content_joined(self):
+        """tool_result with content block array is joined into a string."""
+        handler = self._get_handler()
+        handler({
+            'type': 'tool_result',
+            'tool_use_id': 'abc123',
+            'content': [
+                {'type': 'text', 'text': 'line one'},
+                {'type': 'text', 'text': 'line two'},
+            ],
+        })
+        msgs = self._messages()
+        self.assertEqual(len(msgs), 1)
+        self.assertEqual(msgs[0].sender, 'tool_result')
+        self.assertIn('line one', msgs[0].content)
+        self.assertIn('line two', msgs[0].content)
+
     # ── system → sender='system' ─────────────────────────────────────────
 
     def test_system_init_event_sent_as_system(self):

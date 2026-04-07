@@ -119,6 +119,15 @@ def _make_stream_event_handler(bus: Any, conv_id: str):
 
         elif etype == 'tool_result':
             content = event.get('content', '')
+            if isinstance(content, list):
+                # Array of content blocks — extract text parts
+                parts = []
+                for block in content:
+                    if isinstance(block, dict):
+                        parts.append(block.get('text', ''))
+                    elif isinstance(block, str):
+                        parts.append(block)
+                content = '\n'.join(p for p in parts if p)
             if isinstance(content, str) and content:
                 bus.send(conv_id, 'tool_result', content)
 
