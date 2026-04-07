@@ -231,6 +231,96 @@ class TestWithdrawSocketWiring(unittest.TestCase):
             self.assertIn('unknown', result.get('reason', ''))
 
 
+    def test_on_withdraw_callback_fires_after_successful_withdrawal(self):
+        """When withdrawal succeeds, the on_withdraw callback is called
+        with the session_id so the engine can update its in-memory state."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            session_id = 'ses-test-006'
+            teaparty_home = os.path.join(tmpdir, '.teaparty')
+            infra = _make_infra_dir(tmpdir, session_id)
+            resolver = {session_id: infra}
+
+            callback_calls: list[str] = []
+
+            listener = InterventionListener(
+                resolver=resolver,
+                teaparty_home=teaparty_home,
+                on_withdraw=lambda sid: callback_calls.append(sid),
+            )
+
+            async def run():
+                await listener.start()
+                try:
+                    sock = _well_known_path(teaparty_home, session_id)
+                    payload = json.dumps(make_intervention_request(
+                        'withdraw_session', session_id=session_id,
+                    ))
+                    reader, writer = await asyncio.open_unix_connection(sock)
+                    writer.write(payload.encode() + b'\n')
+                    await writer.drain()
+                    line = await reader.readline()
+                    writer.close()
+                    await writer.wait_closed()
+                    return json.loads(line.decode())
+                finally:
+                    await listener.stop()
+
+            loop = asyncio.new_event_loop()
+            try:
+                result = loop.run_until_complete(run())
+            finally:
+                loop.close()
+
+            self.assertEqual(result['status'], 'withdrawn')
+            self.assertEqual(callback_calls, [session_id])
+
+    def test_on_withdraw_callback_not_called_on_already_terminal(self):
+        """The callback should NOT fire if the session is already terminal."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            session_id = 'ses-test-007'
+            teaparty_home = os.path.join(tmpdir, '.teaparty')
+            infra = _make_infra_dir(tmpdir, session_id)
+            # Overwrite state to already-terminal
+            cfa_path = os.path.join(infra, '.cfa-state.json')
+            with open(cfa_path, 'w') as f:
+                json.dump({'state': 'COMPLETED_WORK', 'phase': 'terminal'}, f)
+            resolver = {session_id: infra}
+
+            callback_calls: list[str] = []
+
+            listener = InterventionListener(
+                resolver=resolver,
+                teaparty_home=teaparty_home,
+                on_withdraw=lambda sid: callback_calls.append(sid),
+            )
+
+            async def run():
+                await listener.start()
+                try:
+                    sock = _well_known_path(teaparty_home, session_id)
+                    payload = json.dumps(make_intervention_request(
+                        'withdraw_session', session_id=session_id,
+                    ))
+                    reader, writer = await asyncio.open_unix_connection(sock)
+                    writer.write(payload.encode() + b'\n')
+                    await writer.drain()
+                    line = await reader.readline()
+                    writer.close()
+                    await writer.wait_closed()
+                    return json.loads(line.decode())
+                finally:
+                    await listener.stop()
+
+            loop = asyncio.new_event_loop()
+            try:
+                result = loop.run_until_complete(run())
+            finally:
+                loop.close()
+
+            self.assertEqual(result['status'], 'already_terminal')
+            self.assertEqual(callback_calls, [])
+
+
 class TestInterventionRequest(unittest.TestCase):
     """The shared InterventionRequest type and factory function."""
 

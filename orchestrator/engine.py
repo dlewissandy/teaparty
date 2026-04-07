@@ -292,6 +292,7 @@ class Orchestrator:
             self._intervention_listener = InterventionListener(
                 resolver=self._intervention_resolver,
                 teaparty_home=os.path.join(self.poc_root, '.teaparty'),
+                on_withdraw=self._on_external_withdraw,
             )
             intervention_socket = await self._intervention_listener.start()
             mcp_env['INTERVENTION_SOCKET'] = intervention_socket
@@ -1509,6 +1510,16 @@ class Orchestrator:
             },
             session_id=self.session_id,
         ))
+
+    def _on_external_withdraw(self, session_id: str) -> None:
+        """Called by InterventionListener when a withdrawal succeeds.
+
+        Updates the in-memory CfA state so the engine's turn-boundary
+        check sees WITHDRAWN and exits.  The file has already been
+        written by withdraw_session().  Issue #386.
+        """
+        _log.info('External withdrawal received for session %s', session_id)
+        self.cfa = set_state_direct(self.cfa, 'WITHDRAWN')
 
     async def _check_context_budget(self, actor_result: ActorResult, phase_name: str) -> None:
         """Check context budget and inject /compact at turn boundary (Issue #260).

@@ -30,7 +30,7 @@ import json
 import logging
 import os
 import tempfile
-from typing import Literal, TypedDict
+from typing import Callable, Literal, TypedDict
 
 from orchestrator.office_manager_tools import (
     pause_dispatch,
@@ -109,9 +109,11 @@ class InterventionListener:
         self,
         resolver: dict[str, str],
         teaparty_home: str = '',
+        on_withdraw: 'Callable[[str], None] | None' = None,
     ):
         self._resolver = resolver
         self._teaparty_home = os.path.expanduser(teaparty_home) if teaparty_home else ''
+        self._on_withdraw = on_withdraw
         self.socket_path = ''
         self._server: asyncio.AbstractServer | None = None
         self._well_known_paths: list[str] = []
@@ -212,7 +214,10 @@ class InterventionListener:
             return {'status': 'error', 'reason': f'unknown {id_field}: {target_id}'}
 
         if req_type == 'withdraw_session':
-            return withdraw_session(infra_dir)
+            result = withdraw_session(infra_dir)
+            if result.get('status') == 'withdrawn' and self._on_withdraw:
+                self._on_withdraw(target_id)
+            return result
         elif req_type == 'pause_dispatch':
             return pause_dispatch(infra_dir)
         elif req_type == 'resume_dispatch':
