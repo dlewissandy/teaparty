@@ -279,6 +279,7 @@ class TeaPartyBridge:
         app.router.add_get('/api/artifacts/{project}/pins', self._handle_artifact_pins)
         app.router.add_patch('/api/artifacts/{project}/pins', self._handle_artifact_pins_patch)
         app.router.add_get('/api/file', self._handle_file)
+        app.router.add_get('/api/session/{session_id}/file', self._handle_session_file)
 
         # ── Action endpoints ──────────────────────────────────────────────────
         app.router.add_post('/api/jobs', self._handle_create_job)
@@ -1517,6 +1518,47 @@ class TeaPartyBridge:
                 return web.Response(text=content, content_type='text/plain')
         except FileNotFoundError:
             return web.json_response({'error': f'file not found: {path}'}, status=404)
+        except PermissionError:
+            return web.json_response({'error': 'permission denied'}, status=403)
+
+    async def _handle_session_file(self, request: web.Request) -> web.Response:
+        """GET /api/session/{session_id}/file?path=<relative> — read a file from a session's worktree."""
+        session_id = request.match_info['session_id']
+        rel_path = request.rel_url.query.get('path', '')
+        if not rel_path:
+            return web.json_response({'error': 'path parameter required'}, status=400)
+
+        infra_dir = self._resolve_session_infra(session_id)
+        if not infra_dir:
+            return web.json_response({'error': f'session not found: {session_id}'}, status=404)
+
+        # Resolve worktree from infra_dir
+        from orchestrator.session import _resolve_worktree_path, _find_repo_root_from
+        sessions_parent = os.path.dirname(infra_dir)
+        project_dir = os.path.dirname(sessions_parent)
+        worktree = _resolve_worktree_path(infra_dir, session_id, project_dir)
+        if not worktree:
+            # Fall back to project directory
+            worktree = project_dir
+
+        abs_path = os.path.normpath(os.path.join(worktree, rel_path))
+        # Security: ensure path stays within worktree or project
+        if not abs_path.startswith(worktree) and not abs_path.startswith(project_dir):
+            return web.json_response({'error': 'path escapes worktree'}, status=403)
+
+        ext = os.path.splitext(abs_path)[1].lower()
+        binary_ct = self._BINARY_CONTENT_TYPES.get(ext)
+        try:
+            if binary_ct:
+                with open(abs_path, 'rb') as f:
+                    body = f.read()
+                return web.Response(body=body, content_type=binary_ct)
+            else:
+                with open(abs_path) as f:
+                    content = f.read()
+                return web.Response(text=content, content_type='text/plain')
+        except FileNotFoundError:
+            return web.json_response({'error': f'file not found: {rel_path}'}, status=404)
         except PermissionError:
             return web.json_response({'error': 'permission denied'}, status=403)
 

@@ -205,7 +205,13 @@ function renderMarkdown(text) {
     })
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1">')
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>')
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, function(m, label, href) {
+      // For job chats, rewrite relative file paths to the session file API.
+      if (isJobChat && session_id && href && !href.match(/^https?:\/\//)) {
+        return '<a href="/api/session/' + session_id + '/file?path=' + encodeURIComponent(href) + '" target="_blank">' + label + '</a>';
+      }
+      return '<a href="' + href + '" target="_blank">' + label + '</a>';
+    })
     .replace(/\*\*([^*]+)\*\*/g, '<strong style="color:var(--text)">$1</strong>')
     .replace(/\*([^*]+)\*/g, '<em>$1</em>')
     .replace(/^### (.+)$/gm, '<h3>$1</h3>')
