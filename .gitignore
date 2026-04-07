@@ -36,6 +36,10 @@ teaparty.db-wal
 .teaparty/proxy/
 .teaparty/config/
 
+# TeaParty — agent workspaces (contain their own .git repos, not submodules)
+.teaparty/management/agents/*/**-workspace
+.teaparty/management/agents/*/agents/
+
 # TeaParty — agent runtime state (message databases, session files, memory)
 .teaparty/management/agents/*/om-messages.db
 .teaparty/management/agents/*/pm-messages.db
