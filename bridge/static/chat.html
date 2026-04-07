@@ -106,6 +106,28 @@ function activeConvId() {
   return convId;
 }
 
+// ── Task tree helpers (issue #389) ────────────────────────────────────────────
+// Flatten the recursive task tree into a list for the sidebar.
+// Each entry gets: dispatch_id, team, task, status, depth (nesting level).
+function _flattenTasks(tasks, parentId, depth) {
+  depth = depth || 0;
+  var result = [];
+  tasks.forEach(function(t) {
+    result.push({
+      id: 'task:' + convProject + ':' + session_id + ':' + t.dispatch_id,
+      dispatch_id: t.dispatch_id,
+      team: t.team,
+      task: t.task,
+      status: t.status,
+      depth: depth,
+    });
+    if (t.subtasks && t.subtasks.length > 0) {
+      result = result.concat(_flattenTasks(t.subtasks, t.dispatch_id, depth + 1));
+    }
+  });
+  return result;
+}
+
 // ── Fetch all data and render ─────────────────────────────────────────────────
 function fetchAll() {
   var fetches = [
@@ -117,17 +139,16 @@ function fetchAll() {
   ];
 
   if (isJobChat) {
-    // Discover task sub-conversations for this job's sidebar.
+    // Discover dispatched subtasks for this job's sidebar (issue #389).
     fetches.push(
-      fetch('/api/conversations?type=task')
+      fetch('/api/sessions/' + encodeURIComponent(session_id) + '/tasks?project=' + encodeURIComponent(convProject))
         .then(function(r) { return r.json(); })
-        .then(function(convs) {
-          var jobPrefix = 'task:' + convProject + ':' + session_id + ':';
-          pageState.taskConvs = (convs || []).filter(function(c) {
-            return c.id.startsWith(jobPrefix);
-          });
+        .then(function(tasks) {
+          pageState.taskTree = tasks || [];
+          // Flatten into taskConvs for backward compat with nav item rendering
+          pageState.taskConvs = _flattenTasks(tasks || [], '');
         })
-        .catch(function() { pageState.taskConvs = []; })
+        .catch(function() { pageState.taskTree = []; pageState.taskConvs = []; })
     );
 
     // Load CfA state to determine whether the Review button should be shown.
@@ -434,20 +455,35 @@ function renderJobLayout() {
   var headerTitle = convId;
   var headerScope = 'job';
   if (selectedItem) {
-    headerTitle = session_id + ' / ' + selectedItem;
-    headerScope = convId + ' > task';
+    // Find the selected task in the flat list for metadata
+    var selTask = pageState.taskConvs.filter(function(tc) {
+      return tc.dispatch_id === selectedItem;
+    })[0];
+    var teamLabel = selTask && selTask.team ? selTask.team + ' → ' : '';
+    headerTitle = teamLabel + selectedItem;
+    headerScope = selTask && selTask.task ? selTask.task.slice(0, 80) : (convId + ' > task');
   }
   document.title = 'TeaParty — ' + headerTitle;
 
-  var navHtml = '<div class="chat-nav"><div class="chat-nav-header">Tasks</div>' +
+  var navHtml = '<div class="chat-nav"><div class="chat-nav-header">Subtasks</div>' +
     '<div class="chat-nav-item ' + (!selectedItem ? 'active' : '') + '" onclick="selectJobConv()">' +
     '<span>Job conversation</span></div>';
 
   pageState.taskConvs.forEach(function(tc) {
-    var taskId = tc.id.split(':').slice(3).join(':');
+    var taskId = tc.dispatch_id || tc.id.split(':').slice(3).join(':');
+    var indent = (tc.depth || 0) * 12;
+    var statusDot = tc.status === 'active'
+      ? '<span style="color:var(--green);font-size:7px;margin-right:3px">●</span>'
+      : '<span style="color:var(--text-dim);font-size:7px;margin-right:3px">●</span>';
+    var teamLabel = tc.team ? '<span style="color:var(--purple);font-size:8px">' + tc.team + '</span> ' : '';
+    var taskDesc = tc.task
+      ? '<span style="font-size:8px;color:var(--text-dim);display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + tc.task.slice(0, 60) + '</span>'
+      : '';
     navHtml += '<div class="chat-nav-item ' + (selectedItem === taskId ? 'active' : '') +
-      '" onclick="selectItem(\'' + taskId + '\')">' +
+      '" onclick="selectItem(\'' + taskId + '\')" style="padding-left:' + (8 + indent) + 'px">' +
+      '<div style="overflow:hidden">' + statusDot + teamLabel +
       '<span style="font-size:9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + taskId + '</span>' +
+      taskDesc + '</div>' +
       (tc.awaiting_input ? '<span class="nav-badge"></span>' : '') +
       '</div>';
   });
@@ -560,7 +596,16 @@ function connectWS() {
 }
 
 function onWsMessage(ev) {
-  if (ev.conversation_id !== activeConvId()) return;
+  var active = activeConvId();
+  var match = ev.conversation_id === active;
+  // For task convs, the child's bus stores messages under job:{project}:{dispatch_id}
+  // but the active conv ID is task:{project}:{session_id}:{dispatch_id} (issue #389).
+  if (!match && active.startsWith('task:')) {
+    var parts = active.split(':');
+    var remapped = 'job:' + parts[1] + ':' + parts.slice(3).join(':');
+    match = ev.conversation_id === remapped;
+  }
+  if (!match) return;
   // Skip the WS echo of messages we already showed via optimistic append.
   if (ev.sender === 'human') {
     var now = Date.now();

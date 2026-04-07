@@ -282,6 +282,9 @@ class TeaPartyBridge:
         app.router.add_get('/api/file', self._handle_file)
         app.router.add_get('/api/session/{session_id}/file', self._handle_session_file)
 
+        # ── Task endpoints ───────────────────────────────────────────────────
+        app.router.add_get('/api/sessions/{session_id}/tasks', self._handle_session_tasks)
+
         # ── Action endpoints ──────────────────────────────────────────────────
         app.router.add_post('/api/jobs', self._handle_create_job)
         app.router.add_post('/api/withdraw/{session_id}', self._handle_withdraw)
@@ -941,7 +944,18 @@ class TeaPartyBridge:
         if bus is None:
             return web.json_response([], status=200)
 
-        messages = bus.receive(conv_id, since_timestamp=since_ts)
+        # Task conv IDs need remapping: the frontend asks for
+        # task:{project}:{session_id}:{dispatch_id} but the child's bus
+        # stores the conversation as job:{project}:{dispatch_id} (issue #389).
+        bus_conv_id = conv_id
+        if conv_id.startswith('task:'):
+            parts = conv_id.split(':')
+            if len(parts) >= 4:
+                project_slug = parts[1]
+                dispatch_id = ':'.join(parts[3:])
+                bus_conv_id = f'job:{project_slug}:{dispatch_id}'
+
+        messages = bus.receive(bus_conv_id, since_timestamp=since_ts)
         return web.json_response([self._serialize_message(m) for m in messages])
 
     async def _handle_conversation_post(self, request: web.Request) -> web.Response:
@@ -1708,6 +1722,25 @@ class TeaPartyBridge:
             return web.json_response(response, status=409)
         return web.json_response(response)
 
+    async def _handle_session_tasks(self, request: web.Request) -> web.Response:
+        """List dispatched tasks for a session (issue #389).
+
+        GET /api/sessions/{session_id}/tasks?project={slug}
+        Returns a tree of task objects with: dispatch_id, team, task,
+        status, subtasks (recursive).
+        """
+        session_id = request.match_info['session_id']
+        project_slug = request.rel_url.query.get('project', '')
+        if not project_slug:
+            return web.json_response(
+                {'error': 'project query parameter required'}, status=400)
+        project_path = self._lookup_project_path(project_slug)
+        if not project_path:
+            return web.json_response(
+                {'error': f'project not found: {project_slug}'}, status=404)
+        tasks = self._list_session_tasks(project_path, session_id)
+        return web.json_response(tasks)
+
     async def _handle_create_job(self, request: web.Request) -> web.Response:
         """Create a new CfA session for a project.
 
@@ -1878,6 +1911,30 @@ class TeaPartyBridge:
                             self._buses[session_id] = bus
                         return bus
 
+        # Task conversations live in per-task databases (issue #389).
+        # Conv ID format: task:{project}:{session_id}:{dispatch_id}
+        if conv_id.startswith('task:'):
+            parts = conv_id.split(':')
+            if len(parts) >= 4:
+                project_slug = parts[1]
+                session_id = parts[2]
+                dispatch_id = ':'.join(parts[3:])
+                project_path = self._lookup_project_path(project_slug)
+                if project_path:
+                    job_dir = self._resolve_job_infra(project_path, session_id)
+                    if job_dir:
+                        infra_dir = self._resolve_dispatch_infra(
+                            job_dir, dispatch_id)
+                        if infra_dir:
+                            bus_key = f'task:{session_id}:{dispatch_id}'
+                            bus = self._buses.get(bus_key)
+                            if bus is None:
+                                bus_path = os.path.join(infra_dir, 'messages.db')
+                                if os.path.isfile(bus_path):
+                                    bus = SqliteMessageBus(bus_path)
+                                    self._buses[bus_key] = bus
+                            return bus
+
         for prefix, agent_name in self._CONV_PREFIX_TO_AGENT.items():
             if conv_id.startswith(prefix):
                 return self._get_agent_bus(agent_name)
@@ -1916,10 +1973,211 @@ class TeaPartyBridge:
         except Exception:
             return None
         for entry in project_entries:
+            # Check new layout: .teaparty/jobs/job-{session_id}--{slug}/
+            job_dir = self._resolve_job_infra(entry['path'], session_id)
+            if job_dir:
+                return job_dir
+            # Legacy: .sessions/{session_id}/
             candidate = os.path.join(entry['path'], '.sessions', session_id)
             if os.path.isdir(candidate):
                 return candidate
         return None
+
+    def _resolve_job_infra(self, project_path: str, session_id: str) -> str | None:
+        """Find a job_dir by session_id under {project_path}/.teaparty/jobs/.
+
+        Scans job directories matching ``job-{session_id}--*``.
+        """
+        jobs_dir = os.path.join(project_path, '.teaparty', 'jobs')
+        if not os.path.isdir(jobs_dir):
+            return None
+        prefix = f'job-{session_id}--'
+        try:
+            for name in os.listdir(jobs_dir):
+                if name.startswith(prefix):
+                    candidate = os.path.join(jobs_dir, name)
+                    if os.path.isfile(os.path.join(candidate, 'job.json')):
+                        return candidate
+        except OSError:
+            pass
+        return None
+
+    def _resolve_dispatch_infra(self, job_dir: str, dispatch_id: str) -> str | None:
+        """Find the infra_dir for any dispatch type (worktree or direct model).
+
+        Checks worktree-model tasks (under tasks/) first, then falls back
+        to .children registry for direct-model dispatches.
+        """
+        # 1. Worktree-model: task-{dispatch_id}--* under tasks/
+        result = self._resolve_task_infra(job_dir, dispatch_id)
+        if result:
+            return result
+
+        # 2. Direct-model: find via .children registry
+        children_path = os.path.join(job_dir, '.children')
+        if os.path.isfile(children_path):
+            try:
+                from orchestrator.heartbeat import read_children
+                for child in read_children(children_path):
+                    hb_path = child.get('heartbeat', '')
+                    if not hb_path:
+                        continue
+                    infra_dir = os.path.dirname(hb_path)
+                    if os.path.basename(infra_dir) == dispatch_id:
+                        if os.path.isdir(infra_dir):
+                            return infra_dir
+            except (ImportError, OSError):
+                pass
+        return None
+
+    def _resolve_task_infra(self, parent_dir: str, dispatch_id: str) -> str | None:
+        """Find a task_dir by dispatch_id, searching recursively.
+
+        Scans task directories matching ``task-{dispatch_id}--*`` under
+        parent_dir/tasks/, then recurses into each task's own tasks/
+        subdirectory to support nested dispatches.
+        """
+        tasks_dir = os.path.join(parent_dir, 'tasks')
+        if not os.path.isdir(tasks_dir):
+            return None
+        prefix = f'task-{dispatch_id}--'
+        try:
+            for name in sorted(os.listdir(tasks_dir)):
+                candidate = os.path.join(tasks_dir, name)
+                if name.startswith(prefix):
+                    if os.path.isfile(os.path.join(candidate, 'task.json')):
+                        return candidate
+                # Recurse into child tasks to find nested dispatches
+                if os.path.isfile(os.path.join(candidate, 'task.json')):
+                    nested = self._resolve_task_infra(candidate, dispatch_id)
+                    if nested:
+                        return nested
+        except OSError:
+            pass
+        return None
+
+    def _list_session_tasks(self, project_path: str, session_id: str) -> list[dict]:
+        """List all tasks for a session, with recursive subtask nesting.
+
+        Returns a tree of task dicts, each with: dispatch_id, team, task,
+        status, subtasks (recursive).
+        """
+        job_dir = self._resolve_job_infra(project_path, session_id)
+        if not job_dir:
+            return []
+        return self._scan_tasks(job_dir)
+
+    def _scan_tasks(self, parent_dir: str) -> list[dict]:
+        """Scan tasks/ and .children for all dispatches under parent_dir.
+
+        Discovers both worktree-model dispatches (under tasks/) and
+        direct-model dispatches (registered in .children, stored under
+        {parent_dir}/{team}/{dispatch_id}/).
+        """
+        result = []
+        seen_infra_dirs: set[str] = set()
+
+        # 1. Worktree-model tasks from tasks/ directory
+        tasks_dir = os.path.join(parent_dir, 'tasks')
+        if os.path.isdir(tasks_dir):
+            try:
+                for name in sorted(os.listdir(tasks_dir)):
+                    task_dir = os.path.join(tasks_dir, name)
+                    task_json = os.path.join(task_dir, 'task.json')
+                    if not os.path.isfile(task_json):
+                        continue
+                    try:
+                        with open(task_json) as f:
+                            state = json.load(f)
+                    except (json.JSONDecodeError, OSError):
+                        continue
+
+                    task_id = state.get('task_id', '')
+                    dispatch_id = task_id[5:] if task_id.startswith('task-') else task_id
+                    status = self._resolve_task_status(
+                        task_dir, state.get('status', 'active'))
+
+                    task_desc = self._read_task_description(task_dir, state)
+                    subtasks = self._scan_tasks(task_dir)
+                    seen_infra_dirs.add(os.path.abspath(task_dir))
+                    result.append({
+                        'dispatch_id': dispatch_id,
+                        'team': state.get('team', ''),
+                        'task': task_desc,
+                        'status': status,
+                        'subtasks': subtasks,
+                    })
+            except OSError:
+                pass
+
+        # 2. Direct-model dispatches from .children registry
+        children_path = os.path.join(parent_dir, '.children')
+        if os.path.isfile(children_path):
+            try:
+                from orchestrator.heartbeat import read_children
+                for child in read_children(children_path):
+                    hb_path = child.get('heartbeat', '')
+                    if not hb_path:
+                        continue
+                    infra_dir = os.path.dirname(hb_path)
+                    if os.path.abspath(infra_dir) in seen_infra_dirs:
+                        continue
+                    if not os.path.isdir(infra_dir):
+                        continue
+
+                    team = child.get('team', '')
+                    dispatch_id = os.path.basename(infra_dir)
+                    status = self._resolve_task_status(infra_dir, 'active')
+                    task_desc = self._read_task_description(infra_dir, {})
+                    subtasks = self._scan_tasks(infra_dir)
+                    result.append({
+                        'dispatch_id': dispatch_id,
+                        'team': team,
+                        'task': task_desc,
+                        'status': status,
+                        'subtasks': subtasks,
+                    })
+            except (ImportError, OSError):
+                pass
+
+        return result
+
+    @staticmethod
+    def _resolve_task_status(infra_dir: str, json_status: str) -> str:
+        """Determine task status by checking heartbeat liveness.
+
+        If the heartbeat indicates terminal (completed/withdrawn) or the
+        process is dead, return 'complete'. Otherwise return the json_status.
+        """
+        from orchestrator.state_reader import (
+            _is_heartbeat_alive, _is_heartbeat_terminal,
+        )
+        if _is_heartbeat_terminal(infra_dir):
+            return 'complete'
+        if json_status == 'active' and not _is_heartbeat_alive(infra_dir):
+            # No live heartbeat — check if heartbeat file exists at all
+            hb_path = os.path.join(infra_dir, '.heartbeat')
+            if os.path.exists(hb_path):
+                return 'complete'
+        return json_status
+
+    @staticmethod
+    def _read_task_description(infra_dir: str, state: dict) -> str:
+        """Read task description from PROMPT.txt, falling back to slug."""
+        prompt_path = os.path.join(infra_dir, 'PROMPT.txt')
+        try:
+            with open(prompt_path) as f:
+                desc = f.read().strip()
+                if desc:
+                    return desc
+        except (FileNotFoundError, OSError):
+            pass
+        # Fall back to slug from task.json
+        slug = state.get('slug', '')
+        if slug:
+            return slug
+        # Fall back to team name
+        return state.get('team', '')
 
     # ── Serializers ───────────────────────────────────────────────────────────
 
