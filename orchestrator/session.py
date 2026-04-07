@@ -744,25 +744,15 @@ class Session:
                 task = f.read()
 
         # 3. Derive session_id from job.json or directory name
+        # infra_dir is .teaparty/jobs/job-{session_id}--{slug}/
         job_json_path = os.path.join(infra_dir, 'job.json')
-        if os.path.isfile(job_json_path):
-            # New layout: infra_dir is .teaparty/jobs/job-{session_id}--{slug}/
-            with open(job_json_path) as f:
-                job_state = json.load(f)
-            job_id = job_state['job_id']
-            # Extract session_id from job_id (strip 'job-' prefix)
-            session_id = job_id[4:] if job_id.startswith('job-') else job_id
-            # project_root is 3 levels up: jobs/ → .teaparty/ → {project_root}
-            jobs_dir = os.path.dirname(infra_dir)          # .teaparty/jobs/
-            teaparty_dir = os.path.dirname(jobs_dir)        # .teaparty/
-            project_dir = os.path.dirname(teaparty_dir)     # {project_root}
-            project_slug = os.path.basename(project_dir)
-        else:
-            # Legacy layout: infra_dir = {project_dir}/.sessions/{session_id}
-            session_id = os.path.basename(infra_dir)
-            sessions_parent = os.path.dirname(infra_dir)
-            project_dir = os.path.dirname(sessions_parent)
-            project_slug = os.path.basename(project_dir)
+        with open(job_json_path) as f:
+            job_state = json.load(f)
+        job_id = job_state['job_id']
+        session_id = job_id[4:] if job_id.startswith('job-') else job_id
+        from orchestrator.job_store import project_root_from_job_dir
+        project_dir = project_root_from_job_dir(infra_dir)
+        project_slug = os.path.basename(project_dir)
 
         projects_dir = projects_dir or os.path.dirname(project_dir)
 

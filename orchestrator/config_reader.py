@@ -94,7 +94,7 @@ def project_workgroups_dir(project_dir: str) -> str:
 
 
 def project_sessions_dir(project_dir: str) -> str:
-    return os.path.join(project_dir, '.sessions')
+    return os.path.join(project_dir, '.teaparty', 'jobs')
 
 
 # ── Pins ──────────────────────────────────────────────────────────────────────

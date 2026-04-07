@@ -45,6 +45,20 @@ def _jobs_dir(project_root: str) -> str:
     return os.path.join(project_root, '.teaparty', 'jobs')
 
 
+def jobs_dir(project_root: str) -> str:
+    """Public accessor for the jobs directory path."""
+    return _jobs_dir(project_root)
+
+
+def project_root_from_job_dir(job_dir: str) -> str:
+    """Derive the project root from a job_dir path.
+
+    job_dir = {project_root}/.teaparty/jobs/job-{id}--{slug}/
+    """
+    # jobs/ → .teaparty/ → {project_root}
+    return os.path.dirname(os.path.dirname(os.path.dirname(job_dir.rstrip('/'))))
+
+
 # ── Index I/O ────────────────────────────────────────────────────────────────
 
 def _load_index(path: str, key: str) -> dict:

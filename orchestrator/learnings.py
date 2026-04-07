@@ -475,7 +475,7 @@ def _promote_interventions(
 def _evaluate_promotions(*, infra_dir: str, project_dir: str) -> None:
     """Evaluate session-scope learnings for promotion to project scope.
 
-    Walks .sessions/*/tasks/ and .sessions/*/institutional.md under
+    Walks .teaparty/jobs/*/tasks/ and .teaparty/jobs/*/institutional.md under
     project_dir, finds learnings that recur across 3+ distinct sessions
     (via semantic similarity), excludes proxy learnings, and either:
     - promotes new entries to project/tasks/ with promotion metadata, or

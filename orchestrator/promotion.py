@@ -62,8 +62,8 @@ def find_recurring_learnings(
 ) -> PromotionResult:
     """Find session-scope learnings that recur across N distinct sessions.
 
-    Walks .sessions/*/tasks/*.md and .sessions/*/institutional.md under
-    project_dir, groups learnings by semantic similarity, and returns a
+    Walks .teaparty/jobs/*/tasks/*.md and .teaparty/jobs/*/institutional.md
+    under project_dir, groups learnings by semantic similarity, and returns a
     PromotionResult with:
     - to_promote: entries that recur in min_recurrences+ sessions and have
       no matching project-scope counterpart
@@ -87,7 +87,7 @@ def find_recurring_learnings(
     # Collect session learnings, excluding proxy paths
     # Each item: (session_name, entry)
     session_entries: list[tuple[str, object]] = []
-    sessions_dir = os.path.join(project_dir, '.sessions')
+    sessions_dir = os.path.join(project_dir, '.teaparty', 'jobs')
     if not os.path.isdir(sessions_dir):
         return PromotionResult()
 
