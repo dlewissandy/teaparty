@@ -218,9 +218,32 @@ function pickAndAddProject() { showProjectModal('Add Project', '/api/projects/ad
 // Bars: INTENT, PLAN, WORK, DONE. Gates (circles): INTENT_ASSERT, PLAN_ASSERT, WORK_ASSERT.
 var PHASES = ['INTENT', 'INTENT_ASSERT', 'PLAN', 'PLAN_ASSERT', 'WORK', 'WORK_ASSERT', 'DONE'];
 
-function phaseIndex(phase) {
-  var idx = PHASES.indexOf(phase);
-  return idx >= 0 ? idx : 0;
+// Map CfA states to workflow bar positions.
+var STATE_TO_PHASE_IDX = {
+  // Intent phase (bar 0)
+  'IDEA': 0, 'PROPOSAL': 0, 'INTENT_QUESTION': 0, 'INTENT_ESCALATE': 0, 'INTENT_RESPONSE': 0,
+  // Intent gate (circle 1)
+  'INTENT_ASSERT': 1,
+  // Planning phase (bar 2)
+  'INTENT': 2, 'DRAFT': 2, 'PLANNING_QUESTION': 2, 'PLANNING_ESCALATE': 2, 'PLANNING_RESPONSE': 2,
+  // Plan gate (circle 3)
+  'PLAN_ASSERT': 3,
+  // Execution phase (bar 4)
+  'PLAN': 4, 'TASK': 4, 'TASK_IN_PROGRESS': 4, 'TASK_QUESTION': 4, 'TASK_ESCALATE': 4,
+  'TASK_RESPONSE': 4, 'FAILED_TASK': 4, 'COMPLETED_TASK': 4, 'WORK_IN_PROGRESS': 4,
+  'AWAITING_REPLIES': 4,
+  // Work gate (circle 5)
+  'WORK_ASSERT': 5,
+  // Done (bar 6)
+  'COMPLETED_WORK': 6, 'WITHDRAWN': 6,
+};
+
+function phaseIndex(phase, state) {
+  // Prefer state-based lookup for precision.
+  if (state && STATE_TO_PHASE_IDX[state] !== undefined) return STATE_TO_PHASE_IDX[state];
+  // Fallback: map phase name to segment.
+  var phaseMap = { 'intent': 0, 'planning': 2, 'execution': 4 };
+  return phaseMap[phase] || 0;
 }
 
 function renderWorkflow(phaseIdx, large) {
@@ -349,7 +372,7 @@ function render() {
       projectsHtml += '<div style="border-bottom:1px solid var(--border)">';
       activeSessions.forEach(function(s) {
         var convId = 'job:' + p.slug + ':' + s.session_id;
-        var pIdx = phaseIndex(s.cfa_phase);
+        var pIdx = phaseIndex(s.cfa_phase, s.cfa_state);
         var jobName = s.task || s.session_id;
         projectsHtml += '<div class="pc-esc-item" style="padding:5px 14px;gap:6px" data-session="' + s.session_id + '" onclick="openPage(\'chat.html?conv=' + convId + '\')">';
         // Show badge from escalationConvMap (sticky) OR REST needs_input (initial load).
@@ -431,7 +454,7 @@ function onStateChanged(sessionId, phase, cfaState) {
   var barEl = row.querySelector('.workflow-bar');
   if (barEl) {
     var tmp = document.createElement('div');
-    tmp.innerHTML = renderWorkflow(phaseIndex(phase), false);
+    tmp.innerHTML = renderWorkflow(phaseIndex(phase, cfaState), false);
     var newBar = tmp.firstChild;
     if (newBar) barEl.parentNode.replaceChild(newBar, barEl);
   }
