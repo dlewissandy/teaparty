@@ -251,5 +251,109 @@ class TestStreamEventRelay(unittest.TestCase):
         self.assertEqual(len(self._messages()), 0)
 
 
+class TestIterStreamEvents(unittest.TestCase):
+    """_iter_stream_events handles all event representations with deduplication."""
+
+    def setUp(self):
+        self._tmpdir = tempfile.mkdtemp()
+        self._stream_path = os.path.join(self._tmpdir, 'stream.jsonl')
+
+    def _write_events(self, events):
+        import json
+        with open(self._stream_path, 'w') as f:
+            for ev in events:
+                f.write(json.dumps(ev) + '\n')
+
+    def _iter(self, agent_role='test-agent'):
+        from orchestrator.office_manager import _iter_stream_events
+        return list(_iter_stream_events(self._stream_path, agent_role))
+
+    # ── top-level tool_use ───────────────────────────────────────────────
+
+    def test_top_level_tool_use_yielded(self):
+        """Top-level tool_use event produces ('tool_use', ...)."""
+        self._write_events([{
+            'type': 'tool_use',
+            'tool_use_id': 'tu_top',
+            'name': 'Read',
+            'input': {'file_path': '/tmp/x.py'},
+        }])
+        results = self._iter()
+        tool_uses = [(s, c) for s, c in results if s == 'tool_use']
+        self.assertEqual(len(tool_uses), 1)
+        self.assertIn('Read', tool_uses[0][1])
+
+    def test_duplicate_tool_use_from_block_and_top_level_deduplicated(self):
+        """Same tool_use_id from content block and top-level yields once."""
+        self._write_events([
+            {'type': 'assistant', 'message': {'content': [
+                {'type': 'tool_use', 'id': 'tu_dup', 'name': 'Grep',
+                 'input': {'pattern': 'foo'}},
+            ]}},
+            {'type': 'tool_use', 'tool_use_id': 'tu_dup', 'name': 'Grep',
+             'input': {'pattern': 'foo'}},
+        ])
+        results = self._iter()
+        tool_uses = [(s, c) for s, c in results if s == 'tool_use']
+        self.assertEqual(len(tool_uses), 1)
+
+    def test_different_tool_use_ids_both_yielded(self):
+        """Different tool_use_ids from content block and top-level both yield."""
+        self._write_events([
+            {'type': 'assistant', 'message': {'content': [
+                {'type': 'tool_use', 'id': 'tu_1', 'name': 'Read',
+                 'input': {}},
+            ]}},
+            {'type': 'tool_use', 'tool_use_id': 'tu_2', 'name': 'Write',
+             'input': {}},
+        ])
+        results = self._iter()
+        tool_uses = [(s, c) for s, c in results if s == 'tool_use']
+        self.assertEqual(len(tool_uses), 2)
+
+    # ── tool_result deduplication ────────────────────────────────────────
+
+    def test_duplicate_tool_result_from_top_level_and_user_deduplicated(self):
+        """Same tool_use_id from top-level tool_result and user event yields once."""
+        self._write_events([
+            {'type': 'tool_result', 'tool_use_id': 'tr_dup',
+             'content': 'result text'},
+            {'type': 'user', 'message': {'content': [
+                {'type': 'tool_result', 'tool_use_id': 'tr_dup',
+                 'content': 'result text'},
+            ]}},
+        ])
+        results = self._iter()
+        tool_results = [(s, c) for s, c in results if s == 'tool_result']
+        self.assertEqual(len(tool_results), 1)
+
+    # ── existing behavior preserved ──────────────────────────────────────
+
+    def test_thinking_block_yielded(self):
+        """Thinking content block produces ('thinking', text)."""
+        self._write_events([{'type': 'assistant', 'message': {'content': [
+            {'type': 'thinking', 'thinking': 'Let me think...'},
+        ]}}])
+        results = self._iter()
+        self.assertEqual(results, [('thinking', 'Let me think...')])
+
+    def test_text_block_yielded_with_agent_role(self):
+        """Text content block produces (agent_role, text)."""
+        self._write_events([{'type': 'assistant', 'message': {'content': [
+            {'type': 'text', 'text': 'Hello'},
+        ]}}])
+        results = self._iter(agent_role='office-manager')
+        self.assertEqual(results, [('office-manager', 'Hello')])
+
+    def test_system_event_yielded(self):
+        """System event produces ('system', json)."""
+        self._write_events([{
+            'type': 'system', 'subtype': 'init', 'session_id': 's1',
+        }])
+        results = self._iter()
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0][0], 'system')
+
+
 if __name__ == '__main__':
     unittest.main()

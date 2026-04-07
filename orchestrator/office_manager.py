@@ -225,6 +225,8 @@ def _iter_stream_events(stream_path: str, agent_role: str):
     Yields events in stream order. Unknown event types are skipped; unknown
     block types within assistant events are written rather than dropped.
     """
+    seen_tool_use: set[str] = set()
+    seen_tool_result: set[str] = set()
     try:
         with open(stream_path) as f:
             for line in f:
@@ -251,16 +253,33 @@ def _iter_stream_events(stream_path: str, agent_role: str):
                             if text:
                                 yield agent_role, text
                         elif block_type == 'tool_use':
-                            yield 'tool_use', json.dumps({
-                                'name': block.get('name', ''),
-                                'input': block.get('input', {}),
-                            })
+                            tid = block.get('id', '')
+                            if tid and tid not in seen_tool_use:
+                                seen_tool_use.add(tid)
+                                yield 'tool_use', json.dumps({
+                                    'name': block.get('name', ''),
+                                    'input': block.get('input', {}),
+                                })
                         else:
                             yield f'unknown:{block_type}', json.dumps(block)
 
+                elif ev_type == 'tool_use':
+                    tid = ev.get('tool_use_id', '')
+                    if not tid or tid not in seen_tool_use:
+                        if tid:
+                            seen_tool_use.add(tid)
+                        yield 'tool_use', json.dumps({
+                            'name': ev.get('name', ''),
+                            'input': ev.get('input', {}),
+                        })
+
                 elif ev_type == 'tool_result':
-                    raw = ev.get('content', '')
-                    yield 'tool_result', raw if isinstance(raw, str) else json.dumps(raw)
+                    tid = ev.get('tool_use_id', '')
+                    if not tid or tid not in seen_tool_result:
+                        if tid:
+                            seen_tool_result.add(tid)
+                        raw = ev.get('content', '')
+                        yield 'tool_result', raw if isinstance(raw, str) else json.dumps(raw)
 
                 elif ev_type == 'user':
                     # Tool results arrive as content blocks inside user events.
@@ -268,8 +287,12 @@ def _iter_stream_events(stream_path: str, agent_role: str):
                     if isinstance(content, list):
                         for block in content:
                             if isinstance(block, dict) and block.get('type') == 'tool_result':
-                                raw = block.get('content', '')
-                                yield 'tool_result', raw if isinstance(raw, str) else json.dumps(raw)
+                                tid = block.get('tool_use_id', '')
+                                if not tid or tid not in seen_tool_result:
+                                    if tid:
+                                        seen_tool_result.add(tid)
+                                    raw = block.get('content', '')
+                                    yield 'tool_result', raw if isinstance(raw, str) else json.dumps(raw)
 
                 elif ev_type == 'system':
                     yield 'system', json.dumps(ev)
