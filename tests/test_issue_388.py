@@ -162,6 +162,80 @@ class TestStreamEventRelay(unittest.TestCase):
         self.assertEqual(msgs[0].sender, 'agent')
         self.assertEqual(msgs[0].content, 'Final output')
 
+    # ── tool_use as content block within assistant ─────────────────────
+
+    def test_tool_use_content_block_sent_as_tool_use(self):
+        """tool_use block within assistant content produces sender='tool_use'."""
+        handler = self._get_handler()
+        handler({'type': 'assistant', 'message': {
+            'content': [
+                {'type': 'text', 'text': 'I will read the file'},
+                {'type': 'tool_use', 'id': 'tu_001', 'name': 'Read',
+                 'input': {'file_path': '/tmp/x.py'}},
+            ],
+        }})
+        msgs = self._messages()
+        senders = [(m.sender, m.content) for m in msgs]
+        self.assertEqual(len(msgs), 2)
+        self.assertEqual(senders[0], ('agent', 'I will read the file'))
+        self.assertEqual(senders[1][0], 'tool_use')
+        self.assertIn('Read', senders[1][1])
+
+    def test_duplicate_tool_use_deduplicated(self):
+        """Same tool_use_id from content block and top-level event produces one message."""
+        handler = self._get_handler()
+        # First: assistant event with tool_use content block
+        handler({'type': 'assistant', 'message': {
+            'content': [
+                {'type': 'tool_use', 'id': 'tu_dup', 'name': 'Grep',
+                 'input': {'pattern': 'foo'}},
+            ],
+        }})
+        # Then: top-level tool_use event with the same ID
+        handler({
+            'type': 'tool_use',
+            'tool_use_id': 'tu_dup',
+            'name': 'Grep',
+            'input': {'pattern': 'foo'},
+        })
+        msgs = [m for m in self._messages() if m.sender == 'tool_use']
+        self.assertEqual(len(msgs), 1)
+
+    # ── tool_result inside user event ────────────────────────────────────
+
+    def test_tool_result_in_user_event_sent_as_tool_result(self):
+        """tool_result block within a user event produces sender='tool_result'."""
+        handler = self._get_handler()
+        handler({'type': 'user', 'message': {
+            'content': [
+                {'type': 'tool_result', 'tool_use_id': 'tr_001',
+                 'content': 'result from tool'},
+            ],
+        }})
+        msgs = self._messages()
+        self.assertEqual(len(msgs), 1)
+        self.assertEqual(msgs[0].sender, 'tool_result')
+        self.assertEqual(msgs[0].content, 'result from tool')
+
+    def test_duplicate_tool_result_deduplicated(self):
+        """Same tool_use_id from user event and top-level event produces one message."""
+        handler = self._get_handler()
+        # First: top-level tool_result
+        handler({
+            'type': 'tool_result',
+            'tool_use_id': 'tr_dup',
+            'content': 'first occurrence',
+        })
+        # Then: user event with same tool_result
+        handler({'type': 'user', 'message': {
+            'content': [
+                {'type': 'tool_result', 'tool_use_id': 'tr_dup',
+                 'content': 'first occurrence'},
+            ],
+        }})
+        msgs = [m for m in self._messages() if m.sender == 'tool_result']
+        self.assertEqual(len(msgs), 1)
+
     # ── Edge cases ───────────────────────────────────────────────────────
 
     def test_empty_assistant_content_not_sent(self):
