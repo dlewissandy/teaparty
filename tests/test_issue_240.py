@@ -115,9 +115,9 @@ class TestDispatchSkipsWorktreeForDirect(unittest.TestCase):
         mock_result.backtrack_count = 0
         mock_result.escalation_type = ''
 
-        with patch('orchestrator.dispatch_cli.create_dispatch_worktree') as mock_create, \
+        with patch('orchestrator.dispatch_cli.create_task') as mock_create, \
              patch('orchestrator.dispatch_cli.Orchestrator') as mock_orch, \
-             patch('orchestrator.dispatch_cli.cleanup_worktree', new_callable=AsyncMock), \
+             patch('orchestrator.dispatch_cli.release_worktree', new_callable=AsyncMock), \
              patch('orchestrator.dispatch_cli.load_state', return_value=MagicMock()), \
              patch('orchestrator.dispatch_cli.make_child_state', return_value=MagicMock()), \
              patch('orchestrator.dispatch_cli.save_state'), \
@@ -169,10 +169,10 @@ class TestDispatchSkipsMergeForDirect(unittest.TestCase):
         mock_result.backtrack_count = 0
         mock_result.escalation_type = ''
 
-        with patch('orchestrator.dispatch_cli.create_dispatch_worktree') as mock_create, \
+        with patch('orchestrator.dispatch_cli.create_task') as mock_create, \
              patch('orchestrator.dispatch_cli.squash_merge') as mock_merge, \
              patch('orchestrator.dispatch_cli.Orchestrator') as mock_orch, \
-             patch('orchestrator.dispatch_cli.cleanup_worktree', new_callable=AsyncMock), \
+             patch('orchestrator.dispatch_cli.release_worktree', new_callable=AsyncMock), \
              patch('orchestrator.dispatch_cli.load_state', return_value=MagicMock()), \
              patch('orchestrator.dispatch_cli.make_child_state', return_value=MagicMock()), \
              patch('orchestrator.dispatch_cli.save_state'), \

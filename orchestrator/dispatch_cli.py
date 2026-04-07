@@ -26,10 +26,7 @@ from orchestrator.config_reader import (
 )
 from orchestrator.cost_tracker import CostTracker
 from orchestrator.phase_config import PhaseConfig
-from orchestrator.worktree import (
-    create_dispatch_worktree,
-    cleanup_worktree,
-)
+from orchestrator.job_store import create_task, release_worktree
 from scripts.cfa_state import (
     make_child_state,
     load_state,
@@ -287,20 +284,22 @@ async def dispatch(
         )
         save_state(cfa, os.path.join(dispatch_infra, '.cfa-state.json'))
     else:
-        # Worktree-isolated execution model: create a child worktree,
+        # Worktree-isolated execution model: create a task under the job,
         # run orchestrator there, squash-merge results back.
         try:
-            dispatch_info = await create_dispatch_worktree(
-                team=team,
+            from datetime import datetime
+            dispatch_id = datetime.now().strftime('%Y%m%d-%H%M%S-%f')
+            task_info = await create_task(
+                job_dir=infra_dir,
                 task=task,
-                session_worktree=session_worktree,
-                infra_dir=infra_dir,
+                team=team,
+                dispatch_id=dispatch_id,
             )
         except Exception as e:
             return {'status': 'failed', 'reason': f'worktree creation failed: {e}'}
 
-        worktree_path = dispatch_info['worktree_path']
-        dispatch_infra = dispatch_info['infra_dir']
+        worktree_path = task_info['worktree_path']
+        dispatch_infra = task_info['task_dir']
 
         # Register child in parent's .children registry (issue #149).
         # Optimistic registration: the watchdog can find this child's heartbeat
@@ -318,7 +317,7 @@ async def dispatch(
         # Initialize CfA state for the child — use make_child_state for correct parent linkage
         cfa = make_child_state(
             parent_cfa, team,
-            task_id=f'dispatch-{team}-{dispatch_info["dispatch_id"]}',
+            task_id=f'dispatch-{team}-{dispatch_id}',
         )
         save_state(cfa, os.path.join(dispatch_infra, '.cfa-state.json'))
 
@@ -342,7 +341,7 @@ async def dispatch(
         # Extract prior Claude session ID from stream files for --resume continuity
         resume_session_id = _extract_session_id_from_streams(dispatch_infra)
     elif not direct_model:
-        dispatch_id = dispatch_info['dispatch_id']
+        # dispatch_id already set before create_task call above
         resume_session_id = ''
     else:
         # dispatch_id already set in direct model branch above
@@ -438,9 +437,9 @@ async def dispatch(
     if result and result.terminal_state == 'COMPLETED_WORK' and not merge_failed:
         _write_dispatch_memory(dispatch_infra, team, task, result)
 
-    # Clean up worktree — skip for direct model (no child worktree to remove)
+    # Release worktree — skip for direct model (no child worktree to remove)
     if not direct_model:
-        await cleanup_worktree(worktree_path)
+        await release_worktree(worktree_path)
 
     # Finalize heartbeat with terminal status (issue #149)
     from orchestrator.heartbeat import finalize_heartbeat

@@ -56,9 +56,10 @@ def _make_mock_orchestrator_result(terminal_state: str = 'COMPLETED_WORK') -> Ma
 
 def _make_mock_dispatch_info(infra_dir: str, dispatch_id: str = 'disp-001') -> dict:
     return {
+        'task_id': f'task-{dispatch_id}',
+        'task_dir': infra_dir,
         'worktree_path': '/tmp/worktree',
-        'infra_dir': infra_dir,
-        'dispatch_id': dispatch_id,
+        'branch_name': f'task-{dispatch_id}--mock',
     }
 
 
@@ -81,9 +82,9 @@ def _standard_patches(dispatch_infra, mock_result, squash_merge_side_effect=None
 
     return {
         'config_cls': patch('orchestrator.dispatch_cli.PhaseConfig'),
-        'create_wt': patch('orchestrator.dispatch_cli.create_dispatch_worktree',
+        'create_wt': patch('orchestrator.dispatch_cli.create_task',
                            new=AsyncMock(return_value=mock_dispatch_info)),
-        'cleanup_wt': patch('orchestrator.dispatch_cli.cleanup_worktree',
+        'cleanup_wt': patch('orchestrator.dispatch_cli.release_worktree',
                             new=AsyncMock()),
         'squash': patch('orchestrator.dispatch_cli.squash_merge',
                         new=squash_mock),
@@ -258,9 +259,9 @@ class TestDispatchCleanupAfterMergeFailure(unittest.TestCase):
         cleanup_mock = AsyncMock()
 
         with patch('orchestrator.dispatch_cli.PhaseConfig') as cfg_cls, \
-             patch('orchestrator.dispatch_cli.create_dispatch_worktree',
+             patch('orchestrator.dispatch_cli.create_task',
                    new=AsyncMock(return_value=mock_dispatch_info)), \
-             patch('orchestrator.dispatch_cli.cleanup_worktree',
+             patch('orchestrator.dispatch_cli.release_worktree',
                    new=cleanup_mock), \
              patch('orchestrator.dispatch_cli.squash_merge',
                    new=AsyncMock(side_effect=RuntimeError('merge boom'))), \

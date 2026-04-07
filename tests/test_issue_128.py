@@ -360,9 +360,10 @@ class TestDispatchWritesMemory(unittest.TestCase):
 
         # Minimal mock returns
         fake_dispatch_info = {
+            'task_id': 'task-20260314-120000',
+            'task_dir': dispatch_infra,
             'worktree_path': worktree_path,
-            'infra_dir': dispatch_infra,
-            'dispatch_id': '20260314-120000',
+            'branch_name': 'task-20260314-120000--test',
             'worktree_name': 'coding-120000--test-task',
             'branch_name': 'coding-120000--test-task',
         }
@@ -379,7 +380,7 @@ class TestDispatchWritesMemory(unittest.TestCase):
             'POC_SESSION_DIR': session_infra,
             'POC_PROJECT': 'test-project',
         }), \
-            patch('orchestrator.dispatch_cli.create_dispatch_worktree',
+            patch('orchestrator.dispatch_cli.create_task',
                   new=AsyncMock(return_value=fake_dispatch_info)), \
             patch('orchestrator.dispatch_cli.load_state',
                   return_value={'state': 'TASK', 'task_id': 'p', 'history': [],
@@ -396,7 +397,7 @@ class TestDispatchWritesMemory(unittest.TestCase):
                   new=AsyncMock(return_value='')), \
             patch('orchestrator.dispatch_cli.generate_async',
                   new=AsyncMock(return_value='test commit')), \
-            patch('orchestrator.dispatch_cli.cleanup_worktree',
+            patch('orchestrator.dispatch_cli.release_worktree',
                   new=AsyncMock()):
             result = _run(dispatch(team='coding', task='Test task'))
 

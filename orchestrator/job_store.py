@@ -99,12 +99,21 @@ async def create_job(
     project_root: str,
     task: str,
     issue: int | None = None,
+    session_id: str = '',
 ) -> dict:
     """Create a new job with a git worktree under {project_root}/.teaparty/jobs/.
 
+    The job_dir serves as the infra directory — CfA state, message bus,
+    heartbeat, and artifacts all live here alongside the worktree and tasks.
+
+    Args:
+        session_id: Optional caller-provided ID (e.g., timestamp-based).
+            If empty, a random short ID is generated.
+
     Returns dict with: job_id, job_dir, worktree_path, branch_name.
     """
-    job_id = f'job-{_short_id()}'
+    short = session_id or _short_id()
+    job_id = f'job-{short}'
     slug = _slugify(task)
     dir_name = f'{job_id}--{slug}'
     job_dir = os.path.join(_jobs_dir(project_root), dir_name)
@@ -162,12 +171,20 @@ async def create_task(
     task: str,
     team: str,
     agent: str = '',
+    dispatch_id: str = '',
 ) -> dict:
     """Create a new task with a git worktree under the parent job.
 
+    The task_dir serves as the dispatch infra directory — CfA state,
+    heartbeat, and events all live here alongside the task worktree.
+
+    Args:
+        dispatch_id: Optional caller-provided ID.  If empty, generated.
+
     Returns dict with: task_id, task_dir, worktree_path, branch_name.
     """
-    task_id = f'task-{_short_id()}'
+    short = dispatch_id or _short_id()
+    task_id = f'task-{short}'
     slug = _slugify(task)
     dir_name = f'{task_id}--{slug}'
     tasks_dir = os.path.join(job_dir, 'tasks')
@@ -231,6 +248,28 @@ async def create_task(
 
 
 # ── Cleanup ──────────────────────────────────────────────────────────────────
+
+async def release_worktree(worktree_path: str) -> None:
+    """Remove a git worktree without deleting the parent directory.
+
+    Used at session/dispatch completion to free the git checkout while
+    preserving the job/task directory for the dashboard and GC.
+    """
+    if not os.path.isdir(worktree_path):
+        return
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            'git', 'rev-parse', '--path-format=absolute', '--git-common-dir',
+            cwd=worktree_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        stdout, _ = await proc.communicate()
+        repo_root = os.path.dirname(stdout.decode().strip())
+        await _run_git(repo_root, 'worktree', 'remove', '--force', worktree_path)
+    except Exception:
+        log.warning('release_worktree: failed to remove %s', worktree_path)
+
 
 async def cleanup_job(
     *,

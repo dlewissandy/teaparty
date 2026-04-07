@@ -161,16 +161,15 @@ class TestSessionCleansUpWorktree(unittest.TestCase):
         cleanup_mock = AsyncMock()
 
         session_info = {
+            'job_id': 'job-test-session',
+            'job_dir': infra_dir,
             'worktree_path': worktree_path,
-            'infra_dir': infra_dir,
             'branch_name': 'session-test',
-            'session_id': 'test-session',
-            'worktree_name': 'session-test',
         }
 
-        with patch('orchestrator.session.create_session_worktree',
+        with patch('orchestrator.session.create_job',
                    new=AsyncMock(return_value=session_info)), \
-             patch('orchestrator.session.cleanup_worktree',
+             patch('orchestrator.session.release_worktree',
                    new=cleanup_mock), \
              patch('orchestrator.session.commit_deliverables',
                    new=AsyncMock(return_value='abc123')), \
