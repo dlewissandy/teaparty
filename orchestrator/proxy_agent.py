@@ -90,18 +90,6 @@ async def consult_proxy(
         resolve_team_model_path,
         retrieve_similar_interactions,
     )
-    from orchestrator.actors import MIN_EXECUTION_SECONDS
-
-    # Elapsed-time guard for execution states
-    if state in ('TASK_ASSERT', 'WORK_ASSERT') and phase_start_time > 0:
-        import time
-        elapsed = time.monotonic() - phase_start_time
-        if elapsed < MIN_EXECUTION_SECONDS:
-            _log.info(
-                'Elapsed-time guard: %s after %.0fs (min %ds) — escalating',
-                state, elapsed, MIN_EXECUTION_SECONDS,
-            )
-            return ProxyResult(text='', confidence=0.0, from_agent=False)
 
     # Gather learning context (patterns, similar interactions) for the agent.
     learned_patterns = ''

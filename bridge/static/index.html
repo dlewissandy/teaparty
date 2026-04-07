@@ -246,13 +246,30 @@ function phaseIndex(phase, state) {
   return phaseMap[phase] || 0;
 }
 
-function renderWorkflow(phaseIdx, large) {
+function renderWorkflow(phaseIdx, large, needsInput) {
+  // Find the gate index at or just after phaseIdx (the next ASSERT segment).
+  var activeGate = -1;
+  if (needsInput) {
+    for (var g = phaseIdx; g < PHASES.length; g++) {
+      if (PHASES[g].indexOf('ASSERT') !== -1) { activeGate = g; break; }
+    }
+  }
   var cls = large ? 'workflow-bar large' : 'workflow-bar';
   var html = '<div class="' + cls + '">';
   for (var i = 0; i < PHASES.length; i++) {
     var ph = PHASES[i];
     var isGate = ph.indexOf('ASSERT') !== -1;
-    var state = i < phaseIdx ? 'complete' : i === phaseIdx ? 'active' : '';
+    var isDone = phaseIdx >= PHASES.length - 1;
+    var state;
+    if (i === activeGate) {
+      state = 'active';
+    } else if (i < phaseIdx || (isDone && i === phaseIdx)) {
+      state = 'complete';
+    } else if (i === phaseIdx) {
+      state = 'active';
+    } else {
+      state = '';
+    }
     if (isGate) {
       html += '<div class="wf-gate ' + state + '" title="' + ph + '"></div>';
     } else {
@@ -390,8 +407,9 @@ function render() {
           projectsHtml += '<span style="width:6px"></span>';
         }
         projectsHtml += '<span style="flex-shrink:0;width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;color:var(--text)">' + jobName + '</span>';
-        projectsHtml += '<span style="flex:1">' + renderWorkflow(pIdx, false) + '</span>';
-        projectsHtml += '<span class="item-badge badge-' + s.status + '" style="flex-shrink:0">' + s.status + '</span>';
+        projectsHtml += '<span style="flex:1">' + renderWorkflow(pIdx, false, s.needs_input || !!stickyConvId) + '</span>';
+        var liveness = s.heartbeat_status === 'alive' ? 'active' : 'idle';
+        projectsHtml += '<span class="item-badge badge-' + liveness + '" style="flex-shrink:0">' + liveness + '</span>';
         projectsHtml += '</div>';
       });
       projectsHtml += '</div>';
@@ -454,14 +472,15 @@ function onStateChanged(sessionId, phase, cfaState) {
   var barEl = row.querySelector('.workflow-bar');
   if (barEl) {
     var tmp = document.createElement('div');
-    tmp.innerHTML = renderWorkflow(phaseIndex(phase, cfaState), false);
+    var hasEsc = !!pageState.escalationConvMap[sessionId];
+    tmp.innerHTML = renderWorkflow(phaseIndex(phase, cfaState), false, hasEsc);
     var newBar = tmp.firstChild;
     if (newBar) barEl.parentNode.replaceChild(newBar, barEl);
   }
   // Update status badge in-place
   var badge = row.querySelector('.item-badge');
   if (badge) {
-    var newStatus = (cfaState === 'COMPLETED_WORK' || cfaState === 'WITHDRAWN') ? 'complete' : 'active';
+    var newStatus = (cfaState === 'COMPLETED_WORK' || cfaState === 'WITHDRAWN') ? 'idle' : 'active';
     badge.className = 'item-badge badge-' + newStatus;
     badge.textContent = newStatus;
   }

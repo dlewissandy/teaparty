@@ -852,6 +852,22 @@ class Session:
         if role_enforcer:
             intervention_queue.role_enforcer = role_enforcer
 
+        # Seed intervention queue with any human messages that arrived while
+        # the session was dead.  These are trailing human messages in the bus
+        # that no agent has responded to — the "kick" that triggered resume.
+        try:
+            all_msgs = message_bus.receive(conversation_id)
+            # Find trailing human messages (after the last non-human message).
+            last_agent_idx = -1
+            for i, m in enumerate(all_msgs):
+                if m.sender != 'human':
+                    last_agent_idx = i
+            for m in all_msgs[last_agent_idx + 1:]:
+                if m.sender == 'human':
+                    intervention_queue.enqueue(m.content, sender=m.sender)
+        except Exception:
+            pass
+
         orchestrator = Orchestrator(
             cfa_state=cfa,
             phase_config=config,

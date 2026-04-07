@@ -884,7 +884,12 @@ class Orchestrator:
             return False
         bus = SqliteMessageBus(bus_db_path)
         try:
-            return bool(bus.open_agent_contexts())
+            contexts = bus.open_agent_contexts()
+            # Exclude the lead's own context — it's always open and is not a worker.
+            return any(
+                c['context_id'] != self._bus_lead_context_id
+                for c in contexts
+            )
         finally:
             bus.close()
 

@@ -144,11 +144,6 @@ _NEGATIVE_ACTIONS = frozenset({
     'refine-intent', 'revise-plan',
 })
 
-# Minimum seconds an execution phase must run before the proxy can auto-approve.
-# If TASK_ASSERT or WORK_ASSERT fires faster than this, always escalate — the
-# elapsed time is too short relative to any non-trivial plan.  (Issue #122)
-MIN_EXECUTION_SECONDS = 120
-
 
 class AgentRunner:
     """Invokes Claude CLI as a subprocess, streams output."""
