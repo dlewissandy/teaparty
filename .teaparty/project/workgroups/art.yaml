@@ -1,0 +1,7 @@
+name: art
+lead: art-lead
+members:
+  agents:
+  - svg-artist
+  - graphviz-artist
+  - tikz-artist

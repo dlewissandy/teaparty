@@ -1,0 +1,7 @@
+name: coding
+lead: coding-lead
+members:
+  agents:
+  - architect
+  - developer
+  - reviewer

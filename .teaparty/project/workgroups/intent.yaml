@@ -1,0 +1,5 @@
+name: intent
+lead: intent-lead
+members:
+  agents:
+  - research-liaison

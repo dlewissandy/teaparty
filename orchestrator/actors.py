@@ -188,8 +188,17 @@ class AgentRunner:
                 + prompt
             )
 
-        # Resolve agent definition file
-        agents_path = os.path.join(ctx.poc_root, ctx.phase_spec.agent_file)
+        # Resolve agent definitions — try .teaparty/ workgroup format first
+        from orchestrator.phase_config import PhaseConfig
+        agents_json = ''
+        agents_path = ''
+        wg_name = ctx.phase_spec.agent_file
+        wg_yaml = os.path.join(ctx.poc_root, '.teaparty', 'project', 'workgroups', f'{wg_name}.yaml')
+        if os.path.isfile(wg_yaml):
+            config = PhaseConfig(ctx.poc_root)
+            agents_json = config.resolve_agents_json(wg_name)
+        if not agents_json:
+            agents_path = os.path.join(ctx.poc_root, ctx.phase_spec.agent_file)
 
         # Build settings — do NOT inject env_vars into settings env.
         # Issue #150: absolute paths in settings leak into agent context,
@@ -217,7 +226,8 @@ class AgentRunner:
             cwd=ctx.session_worktree,
             stream_file=os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file),
             backend=self.llm_backend,
-            agents_file=agents_path,
+            agents_file=agents_path or None,
+            agents_json=agents_json or None,
             lead=ctx.phase_spec.lead,
             settings=settings,
             permission_mode=ctx.phase_spec.permission_mode,

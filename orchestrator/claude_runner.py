@@ -172,6 +172,7 @@ class ClaudeRunner:
         cwd: str,
         stream_file: str,
         agents_file: str | None = None,
+        agents_json: str | None = None,
         lead: str | None = None,
         settings: dict[str, Any] | None = None,
         permission_mode: str = 'default',
@@ -194,6 +195,7 @@ class ClaudeRunner:
         self.cwd = cwd
         self.stream_file = stream_file
         self.agents_file = agents_file
+        self.agents_json = agents_json
         self.tools = tools
         self.bare = bare
         self.api_key_helper = api_key_helper
@@ -318,13 +320,21 @@ class ClaudeRunner:
         args.extend(['--permission-mode', self.permission_mode])
         if self.tools is not None:
             args.extend(['--tools', self.tools])
-        if self.agents_file:
-            # --agents takes a JSON string, not a file path.
-            # Read the agents definition file and pass its contents.
+        if self.agents_json:
+            # Pre-composed JSON string from PhaseConfig
+            agents_str = self.agents_json
+            poc_root = self.env_vars.get('SCRIPT_DIR', '')
+            session_dir = self.env_vars.get('POC_SESSION_DIR', '')
+            if poc_root:
+                agents_str = agents_str.replace('__POC_DIR__', poc_root)
+            if session_dir:
+                agents_str = agents_str.replace('__SESSION_DIR__', session_dir)
+            args.extend(['--agents', agents_str])
+        elif self.agents_file:
+            # Legacy path: read agents from a JSON file
             try:
                 with open(self.agents_file) as f:
                     agents_json = f.read()
-                # Apply placeholder substitution for agent definitions
                 poc_root = self.env_vars.get('SCRIPT_DIR', '')
                 session_dir = self.env_vars.get('POC_SESSION_DIR', '')
                 if poc_root:
@@ -333,7 +343,7 @@ class ClaudeRunner:
                     agents_json = agents_json.replace('__SESSION_DIR__', session_dir)
                 args.extend(['--agents', agents_json])
             except OSError:
-                pass  # File not found — skip agents flag
+                pass
         if self.lead:
             args.extend(['--agent', self.lead])
         if settings_path:

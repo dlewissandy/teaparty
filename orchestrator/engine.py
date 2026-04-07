@@ -2044,11 +2044,11 @@ class Orchestrator:
         # --flat: swap the project team for a flat team where the lead
         # recruits agents dynamically via the Agent tool.
         # Only affects phases that use uber-team.json (planning, execution).
-        if self.flat and 'uber-team' in base.agent_file:
+        if self.flat and base.agent_file == 'uber':
             from orchestrator.phase_config import PhaseSpec
             return PhaseSpec(
                 name=base.name,
-                agent_file='agents/flat-team.json',
+                agent_file='flat',
                 lead='project-lead',
                 permission_mode=base.permission_mode,
                 stream_file=base.stream_file,
