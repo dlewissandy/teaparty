@@ -16,7 +16,11 @@ import os
 import tempfile
 import unittest
 
-from orchestrator.intervention_listener import InterventionListener
+from orchestrator.intervention_listener import (
+    InterventionListener,
+    InterventionRequest,
+    make_intervention_request,
+)
 
 
 def _make_infra_dir(tmpdir: str, session_id: str) -> str:
@@ -183,6 +187,76 @@ class TestWithdrawSocketWiring(unittest.TestCase):
                 loop.close()
 
             self.assertEqual(result['status'], 'withdrawn')
+
+
+    def test_unknown_session_id_returns_error(self):
+        """When the bridge sends a session_id not in the resolver, the
+        listener returns an error response (not a crash or hang)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            session_id = 'ses-test-005'
+            teaparty_home = os.path.join(tmpdir, '.teaparty')
+            infra = _make_infra_dir(tmpdir, session_id)
+            resolver = {session_id: infra}
+
+            listener = InterventionListener(
+                resolver=resolver,
+                teaparty_home=teaparty_home,
+            )
+
+            async def run():
+                await listener.start()
+                try:
+                    sock = _well_known_path(teaparty_home, session_id)
+                    # Send a withdraw for a session_id NOT in the resolver.
+                    payload = json.dumps(make_intervention_request(
+                        'withdraw_session', session_id='unknown-session',
+                    ))
+                    reader, writer = await asyncio.open_unix_connection(sock)
+                    writer.write(payload.encode() + b'\n')
+                    await writer.drain()
+                    line = await reader.readline()
+                    writer.close()
+                    await writer.wait_closed()
+                    return json.loads(line.decode())
+                finally:
+                    await listener.stop()
+
+            loop = asyncio.new_event_loop()
+            try:
+                result = loop.run_until_complete(run())
+            finally:
+                loop.close()
+
+            self.assertEqual(result['status'], 'error')
+            self.assertIn('unknown', result.get('reason', ''))
+
+
+class TestInterventionRequest(unittest.TestCase):
+    """The shared InterventionRequest type and factory function."""
+
+    def test_make_intervention_request_withdraw(self):
+        req = make_intervention_request(
+            'withdraw_session', session_id='ses-abc',
+        )
+        self.assertEqual(req['type'], 'withdraw_session')
+        self.assertEqual(req['session_id'], 'ses-abc')
+
+    def test_make_intervention_request_reprioritize(self):
+        req = make_intervention_request(
+            'reprioritize_dispatch',
+            dispatch_id='d-1',
+            priority='high',
+        )
+        self.assertEqual(req['type'], 'reprioritize_dispatch')
+        self.assertEqual(req['dispatch_id'], 'd-1')
+        self.assertEqual(req['priority'], 'high')
+
+    def test_intervention_request_is_json_serializable(self):
+        req = make_intervention_request(
+            'pause_dispatch', dispatch_id='d-2',
+        )
+        roundtripped = json.loads(json.dumps(req))
+        self.assertEqual(roundtripped, req)
 
 
 if __name__ == '__main__':

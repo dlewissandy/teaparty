@@ -30,6 +30,7 @@ import json
 import logging
 import os
 import tempfile
+from typing import Literal, TypedDict
 
 from orchestrator.office_manager_tools import (
     pause_dispatch,
@@ -40,8 +41,41 @@ from orchestrator.office_manager_tools import (
 
 _log = logging.getLogger('orchestrator.intervention')
 
+
+# ── Shared wire format ────────────────────────────────────────────────────────
+# Defined here, imported by both the bridge and the MCP server to prevent
+# protocol drift.  See cfa-extensions proposal and bridge-api.md.
+
+RequestType = Literal[
+    'withdraw_session',
+    'pause_dispatch',
+    'resume_dispatch',
+    'reprioritize_dispatch',
+]
+
+
+class InterventionRequest(TypedDict, total=False):
+    """Wire format for intervention socket messages.
+
+    Required: ``type`` plus the relevant ID field (``session_id`` or
+    ``dispatch_id``).  Optional: ``priority`` (for reprioritize only).
+    """
+    type: RequestType
+    session_id: str
+    dispatch_id: str
+    priority: str
+
+
+def make_intervention_request(
+    request_type: RequestType,
+    **kwargs: str,
+) -> InterventionRequest:
+    """Build an InterventionRequest dict, ready for JSON serialization."""
+    return InterventionRequest(type=request_type, **kwargs)
+
+
 # Maps request type to the ID field name used in the request
-_ID_FIELD = {
+_ID_FIELD: dict[RequestType, str] = {
     'withdraw_session': 'session_id',
     'pause_dispatch': 'dispatch_id',
     'resume_dispatch': 'dispatch_id',

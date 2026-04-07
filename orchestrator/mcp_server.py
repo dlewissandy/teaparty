@@ -584,7 +584,8 @@ async def intervention_handler(request_type: str, **kwargs) -> str:
         )
     reader, writer = await asyncio.open_unix_connection(socket_path)
     try:
-        request = json.dumps({'type': request_type, **kwargs})
+        from orchestrator.intervention_listener import make_intervention_request
+        request = json.dumps(make_intervention_request(request_type, **kwargs))
         writer.write(request.encode() + b'\n')
         await writer.drain()
         response_line = await reader.readline()
