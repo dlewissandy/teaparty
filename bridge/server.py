@@ -1002,6 +1002,13 @@ class TeaPartyBridge:
             lead_qualifier = parts[2] if len(parts) > 2 else ''
             if lead_name:
                 asyncio.create_task(self._invoke_project_lead(lead_name, lead_qualifier))
+        elif conv_id.startswith('job:'):
+            # Resume the CfA session so the orchestrator processes the human's message.
+            parts = conv_id.split(':')
+            if len(parts) >= 3:
+                project_slug = parts[1]
+                session_id = parts[2]
+                asyncio.create_task(self._resume_job_session(project_slug, session_id))
 
         return web.json_response({'id': msg_id})
 
@@ -1693,12 +1700,65 @@ class TeaPartyBridge:
                     project_slug, session_id,
                 )
 
-        asyncio.create_task(_run_session())
+        task = asyncio.create_task(_run_session())
+        if not hasattr(self, '_active_job_tasks'):
+            self._active_job_tasks: dict[str, asyncio.Task] = {}
+        self._active_job_tasks[f'{project_slug}:{session_id}'] = task
 
         return web.json_response({
             'session_id': session_id,
             'conversation_id': conversation_id,
         })
+
+    async def _resume_job_session(self, project_slug: str, session_id: str) -> None:
+        """Resume a CfA session when the human posts to a job conversation.
+
+        If the session is already running (an active asyncio task exists),
+        the message was already written to the bus and the running
+        MessageBusInputProvider will pick it up — nothing to do.
+
+        If the session is NOT running (process exited, bridge restarted),
+        call Session.resume_from_disk to restart orchestration.
+        """
+        key = f'{project_slug}:{session_id}'
+
+        # Already running — the bus input provider will pick up the message.
+        if key in self._active_job_tasks and not self._active_job_tasks[key].done():
+            return
+
+        # Find infra_dir for this session.
+        infra_dir = self._resolve_session_infra(session_id)
+        if not infra_dir:
+            _log.warning('Cannot resume session %s: infra_dir not found', session_id)
+            return
+
+        # Check if session is terminal — don't resume completed/withdrawn sessions.
+        from scripts.cfa_state import load_state as _load_cfa, is_globally_terminal
+        cfa_path = os.path.join(infra_dir, '.cfa-state.json')
+        if os.path.isfile(cfa_path):
+            cfa = _load_cfa(cfa_path)
+            if is_globally_terminal(cfa.state):
+                _log.info('Session %s is terminal (%s), not resuming', session_id, cfa.state)
+                return
+
+        from orchestrator.session import Session
+
+        async def _run_resume():
+            try:
+                await Session.resume_from_disk(
+                    infra_dir,
+                    poc_root=self._repo_root,
+                )
+            except Exception:
+                _log.exception(
+                    'CfA session resume failed: project=%r session_id=%r',
+                    project_slug, session_id,
+                )
+
+        task = asyncio.create_task(_run_resume())
+        if not hasattr(self, '_active_job_tasks'):
+            self._active_job_tasks: dict[str, asyncio.Task] = {}
+        self._active_job_tasks[key] = task
 
     # ── Index handler ─────────────────────────────────────────────────────────
 
@@ -1754,6 +1814,22 @@ class TeaPartyBridge:
             parts = conv_id.split(':', 2)
             if len(parts) >= 2:
                 return self._get_agent_bus(parts[1])
+
+        # Job conversations live in per-session databases.
+        # Open the bus on demand so the human can post to any session.
+        if conv_id.startswith('job:'):
+            parts = conv_id.split(':')
+            if len(parts) >= 3:
+                session_id = parts[2]
+                infra_dir = self._resolve_session_infra(session_id)
+                if infra_dir:
+                    bus_path = os.path.join(infra_dir, 'messages.db')
+                    if os.path.isfile(bus_path):
+                        bus = self._buses.get(session_id)
+                        if bus is None:
+                            bus = SqliteMessageBus(bus_path)
+                            self._buses[session_id] = bus
+                        return bus
 
         for prefix, agent_name in self._CONV_PREFIX_TO_AGENT.items():
             if conv_id.startswith(prefix):

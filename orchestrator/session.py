@@ -777,13 +777,10 @@ class Session:
             ConversationType.JOB, f'{project_slug}:{session_id}',
         )
         message_bus.create_conversation(ConversationType.JOB, f'{project_slug}:{session_id}')
-        if input_provider is not None:
-            bus_input_provider = MessageBusInputProvider(
-                bus=message_bus,
-                conversation_id=conversation_id,
-            )
-        else:
-            bus_input_provider = None
+        bus_input_provider = MessageBusInputProvider(
+            bus=message_bus,
+            conversation_id=conversation_id,
+        )
 
         # 6. Start state writer + publish SESSION_STARTED with resumed flag
         # Note: don't delete .running first — _write_running() overwrites it
