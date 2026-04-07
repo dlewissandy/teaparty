@@ -77,6 +77,68 @@ PLAN_ESCALATION_STATES = frozenset({'INTENT_ESCALATE', 'PLANNING_ESCALATE'})
 WORK_ESCALATION_STATES = frozenset({'TASK_ESCALATE'})
 
 
+def _make_stream_event_handler(bus: Any, conv_id: str):
+    """Return a callback that relays Claude CLI stream events to the message bus.
+
+    Each event type maps to a sender value that the chat.html filter bar
+    can match:
+
+      assistant (text blocks) → 'agent'
+      assistant (thinking)    → 'thinking'
+      tool_use                → 'tool_use'
+      tool_result             → 'tool_result'
+      system                  → 'system'
+      result                  → 'agent'
+    """
+
+    def handler(event: dict) -> None:
+        etype = event.get('type', '')
+
+        if etype == 'assistant':
+            message = event.get('message', {})
+            content = message.get('content', '') if isinstance(message, dict) else ''
+            if isinstance(content, str) and content:
+                bus.send(conv_id, 'agent', content)
+            elif isinstance(content, list):
+                for block in content:
+                    if not isinstance(block, dict):
+                        continue
+                    btype = block.get('type', '')
+                    if btype == 'text':
+                        text = block.get('text', '')
+                        if text:
+                            bus.send(conv_id, 'agent', text)
+                    elif btype == 'thinking':
+                        thinking = block.get('thinking', '')
+                        if thinking:
+                            bus.send(conv_id, 'thinking', thinking)
+
+        elif etype == 'tool_use':
+            name = event.get('name', 'tool')
+            bus.send(conv_id, 'tool_use', name)
+
+        elif etype == 'tool_result':
+            content = event.get('content', '')
+            if isinstance(content, str) and content:
+                bus.send(conv_id, 'tool_result', content)
+
+        elif etype == 'system':
+            subtype = event.get('subtype', '')
+            session = event.get('session_id', '')
+            msg = subtype
+            if session:
+                msg += f': {session}'
+            if msg:
+                bus.send(conv_id, 'system', msg)
+
+        elif etype == 'result':
+            result_text = event.get('result', '')
+            if result_text:
+                bus.send(conv_id, 'agent', result_text)
+
+    return handler
+
+
 @dataclass
 class OrchestratorResult:
     """Final outcome of the full session orchestration."""
@@ -180,24 +242,11 @@ class Orchestrator:
             self._stream_bus = _StreamBus(bus_path)
             self._stream_conv_id = f'job:{project_slug}:{session_id}'
 
-        def _on_stream_event(event: dict) -> None:
-            if not self._stream_bus or not self._stream_conv_id:
-                return
-            etype = event.get('type', '')
-            if etype == 'assistant':
-                content = event.get('message', {})
-                if isinstance(content, dict):
-                    content = content.get('content', '')
-                if isinstance(content, str) and content:
-                    self._stream_bus.send(
-                        self._stream_conv_id, 'agent', content,
-                    )
-            elif etype == 'result':
-                result_text = event.get('result', '')
-                if result_text:
-                    self._stream_bus.send(
-                        self._stream_conv_id, 'agent', result_text,
-                    )
+        _on_stream_event = (
+            _make_stream_event_handler(self._stream_bus, self._stream_conv_id)
+            if self._stream_bus
+            else None
+        )
 
         # Agent runners
         self._agent_runner = AgentRunner(
