@@ -17,7 +17,7 @@ import os
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Callable, Protocol
 
 from orchestrator.claude_runner import ClaudeResult, create_runner
 from orchestrator.events import (
@@ -153,9 +153,11 @@ MIN_EXECUTION_SECONDS = 120
 class AgentRunner:
     """Invokes Claude CLI as a subprocess, streams output."""
 
-    def __init__(self, stall_timeout: int = 1800, llm_backend: str = 'claude'):
+    def __init__(self, stall_timeout: int = 1800, llm_backend: str = 'claude',
+                 on_stream_event: Callable[[dict], None] | None = None):
         self.stall_timeout = stall_timeout
         self.llm_backend = llm_backend
+        self.on_stream_event = on_stream_event
 
     async def run(self, ctx: ActorContext) -> ActorResult:
         """Run a Claude agent turn and interpret the result."""
@@ -234,6 +236,7 @@ class AgentRunner:
             heartbeat_file=ctx.heartbeat_file,
             parent_heartbeat=ctx.parent_heartbeat,
             children_file=ctx.children_file,
+            on_stream_event=self.on_stream_event,
         )
 
         result = await runner.run()

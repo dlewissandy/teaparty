@@ -170,10 +170,40 @@ class Orchestrator:
         self._scratch_model = ScratchModel(job=task, phase='')
         self._scratch_writer = ScratchWriter(session_worktree)
 
+        # Stream-to-bus callback: write agent output events to the job
+        # conversation so the chat UI can display them in real time.
+        self._stream_bus: Any = None
+        self._stream_conv_id = ''
+        bus_path = os.path.join(infra_dir, 'messages.db')
+        if os.path.exists(bus_path) and project_slug and session_id:
+            from orchestrator.messaging import SqliteMessageBus as _StreamBus
+            self._stream_bus = _StreamBus(bus_path)
+            self._stream_conv_id = f'job:{project_slug}:{session_id}'
+
+        def _on_stream_event(event: dict) -> None:
+            if not self._stream_bus or not self._stream_conv_id:
+                return
+            etype = event.get('type', '')
+            if etype == 'assistant':
+                content = event.get('message', {})
+                if isinstance(content, dict):
+                    content = content.get('content', '')
+                if isinstance(content, str) and content:
+                    self._stream_bus.send(
+                        self._stream_conv_id, 'agent', content,
+                    )
+            elif etype == 'result':
+                result_text = event.get('result', '')
+                if result_text:
+                    self._stream_bus.send(
+                        self._stream_conv_id, 'agent', result_text,
+                    )
+
         # Agent runners
         self._agent_runner = AgentRunner(
             stall_timeout=phase_config.stall_timeout,
             llm_backend=llm_backend,
+            on_stream_event=_on_stream_event,
         )
         self._approval_gate = ApprovalGate(
             proxy_model_path=proxy_model_path,

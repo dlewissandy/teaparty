@@ -14,7 +14,7 @@ import signal
 import tempfile
 import time
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
 from orchestrator.context_budget import ContextBudget
 from orchestrator.events import Event, EventBus, EventType
@@ -188,6 +188,7 @@ class ClaudeRunner:
         tools: str | None = None,
         bare: bool = False,
         api_key_helper: str = '',
+        on_stream_event: Callable[[dict], None] | None = None,
     ):
         self.prompt = prompt
         self.cwd = cwd
@@ -196,6 +197,7 @@ class ClaudeRunner:
         self.tools = tools
         self.bare = bare
         self.api_key_helper = api_key_helper
+        self.on_stream_event = on_stream_event
         self.lead = lead
         self.settings = settings or {}
         self.permission_mode = permission_mode
@@ -424,6 +426,11 @@ class ClaudeRunner:
 
                     try:
                         event_data = json.loads(line_str)
+                        if self.on_stream_event is not None:
+                            try:
+                                self.on_stream_event(event_data)
+                            except Exception:
+                                pass
                         self._maybe_extract_session_id(event_data)
                         self._maybe_extract_cost(event_data)
 
