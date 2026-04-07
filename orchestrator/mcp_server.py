@@ -1142,14 +1142,14 @@ def project_status_handler(name: str, days: int = 7, teaparty_home: str = '') ->
         except (subprocess.TimeoutExpired, FileNotFoundError):
             pass
 
-    # In-progress sessions
-    sessions_dir = os.path.join(project_dir, '.sessions')
+    # In-progress sessions (scan .teaparty/jobs/)
+    jobs_dir = os.path.join(project_dir, '.teaparty', 'jobs')
     active_sessions = []
-    if os.path.isdir(sessions_dir):
+    if os.path.isdir(jobs_dir):
         from scripts.cfa_state import is_globally_terminal
-        for entry in sorted(os.listdir(sessions_dir), reverse=True):
-            sess_path = os.path.join(sessions_dir, entry)
-            if not os.path.isdir(sess_path) or not entry[0].isdigit():
+        for entry in sorted(os.listdir(jobs_dir), reverse=True):
+            sess_path = os.path.join(jobs_dir, entry)
+            if not os.path.isdir(sess_path) or not os.path.isfile(os.path.join(sess_path, 'job.json')):
                 continue
             cfa_path = os.path.join(sess_path, '.cfa-state.json')
             cfa = {}
@@ -1170,8 +1170,16 @@ def project_status_handler(name: str, days: int = 7, teaparty_home: str = '') ->
                         task = f.read(200).strip()
                 except OSError:
                     pass
+            # Extract session_id from job.json
+            try:
+                with open(os.path.join(sess_path, 'job.json')) as f:
+                    job_state = json.load(f)
+                job_id = job_state.get('job_id', entry)
+                session_id = job_id[4:] if job_id.startswith('job-') else job_id
+            except (json.JSONDecodeError, OSError):
+                session_id = entry
             active_sessions.append({
-                'session_id': entry,
+                'session_id': session_id,
                 'phase': cfa.get('phase', ''),
                 'state': state or 'unknown',
                 'task': task,

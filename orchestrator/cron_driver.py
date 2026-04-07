@@ -104,7 +104,7 @@ class CronDriver:
 
         if state_dir is None:
             import os
-            state_dir = os.path.join(project_dir, '.sessions')
+            state_dir = os.path.join(project_dir, '.teaparty', 'jobs')
             os.makedirs(state_dir, exist_ok=True)
 
         return cls(

@@ -184,9 +184,10 @@ def _record_withdrawal_memory_chunk(session: SessionState, phase: str) -> None:
             MemoryChunk, open_proxy_db, store_chunk,
         )
 
-        # infra_dir = {projects_dir}/{project}/.sessions/{ts}/
-        # project_dir = {projects_dir}/{project}/
-        project_dir = os.path.dirname(os.path.dirname(session.infra_dir.rstrip('/')))
+        # infra_dir = {project_root}/.teaparty/jobs/job-{id}--{slug}/
+        # project_root is 3 levels up from job_dir
+        from orchestrator.job_store import project_root_from_job_dir
+        project_dir = project_root_from_job_dir(session.infra_dir)
         db_path = os.path.join(project_dir, '.proxy-memory.db')
         if not os.path.isfile(db_path):
             return

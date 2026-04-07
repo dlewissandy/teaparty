@@ -1177,9 +1177,9 @@ class TestRecurrenceDetection(unittest.TestCase):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def _make_session_dir(self, session_name: str) -> str:
-        """Create a session directory with a tasks/ subdirectory."""
+        """Create a job directory with a tasks/ subdirectory."""
         session_dir = os.path.join(
-            self.project_dir, '.sessions', session_name,
+            self.project_dir, '.teaparty', 'jobs', session_name,
         )
         os.makedirs(os.path.join(session_dir, 'tasks'), exist_ok=True)
         return session_dir

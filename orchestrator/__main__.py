@@ -159,18 +159,23 @@ def resolve_infra_dir(session_ref: str, poc_root: str, projects_dir: str) -> str
     """Resolve a session reference to an absolute infra_dir path.
 
     session_ref can be:
-      - An absolute path to an infra_dir (e.g., /path/to/project/.sessions/20260312-101816)
+      - An absolute path to an infra_dir (e.g., /path/to/.teaparty/jobs/job-xxx/)
       - A session ID (e.g., 20260312-101816) — searches all projects
     """
     # If it's an absolute path that exists, use it directly
     if os.path.isabs(session_ref) and os.path.isdir(session_ref):
         return session_ref
 
-    # Search all projects for {project}/.sessions/{session_ref}
+    # Search .teaparty/jobs/ in all projects for a matching job_id
+    from orchestrator.job_store import list_jobs
     for name in os.listdir(projects_dir):
-        candidate = os.path.join(projects_dir, name, '.sessions', session_ref)
-        if os.path.isdir(candidate):
-            return candidate
+        proj_root = os.path.join(projects_dir, name)
+        for job in list_jobs(proj_root):
+            job_id = job.get('job_id', '')
+            # Match on session_id (strip 'job-' prefix) or full job_id
+            sid = job_id[4:] if job_id.startswith('job-') else job_id
+            if sid == session_ref or job_id == session_ref:
+                return job['_job_dir']
 
     raise FileNotFoundError(
         f'Could not resolve session {session_ref!r}. '

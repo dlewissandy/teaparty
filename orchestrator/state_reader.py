@@ -193,8 +193,6 @@ class StateReader:
         self.poc_root = repo_root  # backward-compat alias
         self.projects_dir = projects_dir
         self.teaparty_home = teaparty_home
-        # Legacy manifest path — used only for fallback when .teaparty/jobs/ is absent
-        self.manifest_path = os.path.join(repo_root, 'worktrees.json')
         self._projects: list[ProjectState] = []
         self._in_process_checker = in_process_checker
 
@@ -227,9 +225,7 @@ class StateReader:
             try:
                 for slug in sorted(os.listdir(self.projects_dir)):
                     proj_path = os.path.join(self.projects_dir, slug)
-                    # Accept projects with .teaparty/jobs/ or legacy .sessions/
-                    if (os.path.isdir(os.path.join(proj_path, '.teaparty', 'jobs'))
-                            or os.path.isdir(os.path.join(proj_path, '.sessions'))):
+                    if os.path.isdir(os.path.join(proj_path, '.teaparty', 'jobs')):
                         project_paths.append((slug, proj_path, slug))
             except OSError:
                 pass
@@ -242,22 +238,6 @@ class StateReader:
         projects = []
         for slug, proj_path, name in project_paths:
             proj_sessions = self._scan_project_jobs(slug, proj_path, now)
-
-            # Fallback: also scan legacy .sessions/ for not-yet-migrated data
-            if not proj_sessions:
-                sessions_dir = os.path.join(proj_path, '.sessions')
-                manifest = self._load_manifest()
-                session_entries = {}
-                dispatch_by_sid = {}
-                for entry in manifest.get('worktrees', []):
-                    sid = entry.get('session_id', '')
-                    if entry.get('type') == 'session':
-                        session_entries[sid] = entry
-                    elif entry.get('type') == 'dispatch':
-                        dispatch_by_sid[sid] = entry
-                proj_sessions = self._scan_project_sessions(
-                    slug, sessions_dir, session_entries, dispatch_by_sid, now,
-                )
 
             active = sum(1 for s in proj_sessions if s.status == 'active')
             attention = sum(s.escalation_count for s in proj_sessions)
