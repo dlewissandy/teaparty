@@ -427,6 +427,33 @@ class TestDirectModelDispatches(unittest.TestCase):
         self.assertEqual(teams, {'coding', 'configuration'})
 
 
+class TestDirectModelBusRouting(unittest.TestCase):
+    """Clicking a direct-model dispatch must open its messages.db."""
+
+    def test_direct_dispatch_bus_routing(self):
+        base = _make_tmpdir(self)
+        session_id = 'abc12345'
+        job_dir = _make_job(base, session_id)
+        dispatch_id = '20260407-120000-000001'
+        _make_direct_dispatch(job_dir, 'configuration', dispatch_id)
+
+        from bridge.server import TeaPartyBridge
+        bridge = TeaPartyBridge.__new__(TeaPartyBridge)
+        bridge._buses = {}
+        bridge._project_path_cache = {'proj': base}
+        bridge.teaparty_home = os.path.join(base, '.teaparty')
+
+        conv_id = f'task:proj:{session_id}:{dispatch_id}'
+        bus = bridge._bus_for_conversation(conv_id)
+        self.assertIsNotNone(bus, 'Expected a bus for the direct-model dispatch')
+
+        # Verify messages are readable via the remapped conv_id
+        child_conv_id = make_conversation_id(ConversationType.JOB, f'proj:{dispatch_id}')
+        messages = bus.receive(child_conv_id)
+        self.assertEqual(len(messages), 2)
+        self.assertIn('Direct dispatch', messages[0].content)
+
+
 class TestDescriptionFallback(unittest.TestCase):
     """Task description should fall back to slug when PROMPT.txt is missing."""
 

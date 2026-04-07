@@ -1923,12 +1923,13 @@ class TeaPartyBridge:
                 if project_path:
                     job_dir = self._resolve_job_infra(project_path, session_id)
                     if job_dir:
-                        task_dir = self._resolve_task_infra(job_dir, dispatch_id)
-                        if task_dir:
+                        infra_dir = self._resolve_dispatch_infra(
+                            job_dir, dispatch_id)
+                        if infra_dir:
                             bus_key = f'task:{session_id}:{dispatch_id}'
                             bus = self._buses.get(bus_key)
                             if bus is None:
-                                bus_path = os.path.join(task_dir, 'messages.db')
+                                bus_path = os.path.join(infra_dir, 'messages.db')
                                 if os.path.isfile(bus_path):
                                     bus = SqliteMessageBus(bus_path)
                                     self._buses[bus_key] = bus
@@ -1999,6 +2000,34 @@ class TeaPartyBridge:
                         return candidate
         except OSError:
             pass
+        return None
+
+    def _resolve_dispatch_infra(self, job_dir: str, dispatch_id: str) -> str | None:
+        """Find the infra_dir for any dispatch type (worktree or direct model).
+
+        Checks worktree-model tasks (under tasks/) first, then falls back
+        to .children registry for direct-model dispatches.
+        """
+        # 1. Worktree-model: task-{dispatch_id}--* under tasks/
+        result = self._resolve_task_infra(job_dir, dispatch_id)
+        if result:
+            return result
+
+        # 2. Direct-model: find via .children registry
+        children_path = os.path.join(job_dir, '.children')
+        if os.path.isfile(children_path):
+            try:
+                from orchestrator.heartbeat import read_children
+                for child in read_children(children_path):
+                    hb_path = child.get('heartbeat', '')
+                    if not hb_path:
+                        continue
+                    infra_dir = os.path.dirname(hb_path)
+                    if os.path.basename(infra_dir) == dispatch_id:
+                        if os.path.isdir(infra_dir):
+                            return infra_dir
+            except (ImportError, OSError):
+                pass
         return None
 
     def _resolve_task_infra(self, parent_dir: str, dispatch_id: str) -> str | None:
