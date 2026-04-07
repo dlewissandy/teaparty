@@ -179,7 +179,7 @@ class StateReader:
     """Reads all project state files and produces unified project/session list.
 
     Args:
-        repo_root: Path to the repo root containing worktrees.json.
+        repo_root: Path to the repo root.
         projects_dir: Optional path to scan for project subdirs (test/legacy use).
             When None, uses registry-based discovery from teaparty_home.
         teaparty_home: Path to .teaparty config dir for registry-based discovery.
@@ -190,7 +190,6 @@ class StateReader:
                  teaparty_home: str | None = None,
                  in_process_checker=None):
         self.repo_root = repo_root
-        self.poc_root = repo_root  # backward-compat alias
         self.projects_dir = projects_dir
         self.teaparty_home = teaparty_home
         self._projects: list[ProjectState] = []
@@ -350,90 +349,6 @@ class StateReader:
 
         return matched
 
-    def _scan_project_sessions(self, slug: str, sessions_dir: str,
-                                session_entries: dict,
-                                dispatch_by_sid: dict,
-                                now: float) -> list[SessionState]:
-        """Scan .sessions/ for a single project and build SessionState list."""
-        sessions = []
-        try:
-            ts_dirs = sorted(os.listdir(sessions_dir), reverse=True)
-        except OSError:
-            return sessions
-
-        for ts_dir in ts_dirs:
-            sess_path = os.path.join(sessions_dir, ts_dir)
-            if not os.path.isdir(sess_path) or not ts_dir[0].isdigit():
-                continue
-
-            # Try to find matching worktree entry
-            entry = session_entries.get(ts_dir, {})
-
-            dispatches = self._find_dispatches_for_session(
-                sess_path, dispatch_by_sid,
-            )
-            sess = self._build_session(slug, ts_dir, sess_path, entry, dispatches, now)
-            sessions.append(sess)
-
-        return sessions
-
-    def _find_dispatches_for_session(self, sess_dir: str,
-                                      dispatch_by_sid: dict) -> list[dict]:
-        """Find dispatch entries within a session directory.
-
-        Scans {sess_dir}/{team}/{dispatch_ts}/ dirs and matches
-        dispatch timestamps back to worktrees.json entries.
-        """
-        matched = []
-        from orchestrator.phase_config import get_team_names
-        teams = get_team_names(self.poc_root)
-
-        for team in teams:
-            team_dir = os.path.join(sess_dir, team)
-            if not os.path.isdir(team_dir):
-                continue
-            try:
-                for dispatch_ts in sorted(os.listdir(team_dir)):
-                    dispatch_dir = os.path.join(team_dir, dispatch_ts)
-                    if not os.path.isdir(dispatch_dir) or not dispatch_ts[0].isdigit():
-                        continue
-
-                    # Check dispatch liveness via heartbeat (issue #149),
-                    # falling back to .running for backward compatibility.
-                    dispatch_alive = _is_heartbeat_alive(dispatch_dir)
-
-                    entry = dispatch_by_sid.get(dispatch_ts)
-                    if entry:
-                        entry = dict(entry)
-                        entry['_infra_dir'] = dispatch_dir
-                        # Override manifest status if process is dead
-                        if entry.get('status') == 'active' and not dispatch_alive:
-                            entry['status'] = 'complete'
-                        matched.append(entry)
-                    else:
-                        # Synthetic entry for dir without manifest record
-                        matched.append({
-                            'name': f'{team}-{dispatch_ts}',
-                            'path': '',
-                            'type': 'dispatch',
-                            'team': team,
-                            'task': '',
-                            'session_id': dispatch_ts,
-                            'status': 'active' if dispatch_alive else 'complete',
-                            '_infra_dir': dispatch_dir,
-                        })
-            except OSError:
-                continue
-
-        return matched
-
-    def _load_manifest(self) -> dict:
-        try:
-            with open(self.manifest_path) as f:
-                return json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            return {'worktrees': []}
-
     def _build_session(self, project: str, session_id: str,
                         infra_dir: str, entry: dict,
                         dispatches: list, now: float) -> SessionState:
@@ -520,7 +435,7 @@ class StateReader:
             duration = -1
 
         # Task: prefer PROMPT.txt (canonical full prompt), fall back to
-        # worktrees.json, then INTENT.md title
+        # entry dict, then INTENT.md title
         task = self._read_prompt(infra_dir) or entry.get('task', '')
         if not task:
             task = self._read_intent(infra_dir)
