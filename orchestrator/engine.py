@@ -934,9 +934,12 @@ class Orchestrator:
             save_state(self.cfa, os.path.join(self.infra_dir, '.cfa-state.json'))
         except InvalidTransition:
             _log.warning(
-                'send-and-wait transition failed from state=%s — fan-in proceeding',
+                'send-and-wait transition failed from state=%s — skipping fan-in',
                 self.cfa.state,
             )
+            # Invalid transition means we're not in a dispatch state.
+            # Skip the fan-in wait — there's nothing to wait for.
+            return await self._invoke_actor(spec, phase_name, phase_start_time)
 
         self._fan_in_event = asyncio.Event()
         _log.info(
