@@ -179,7 +179,7 @@ class StateReader:
     """Reads all project state files and produces unified project/session list.
 
     Args:
-        repo_root: Path to the repo root containing worktrees.json.
+        repo_root: Path to the repo root.
         projects_dir: Optional path to scan for project subdirs (test/legacy use).
             When None, uses registry-based discovery from teaparty_home.
         teaparty_home: Path to .teaparty config dir for registry-based discovery.
@@ -382,7 +382,7 @@ class StateReader:
         """Find dispatch entries within a session directory.
 
         Scans {sess_dir}/{team}/{dispatch_ts}/ dirs and matches
-        dispatch timestamps back to worktrees.json entries.
+        dispatch timestamps back to dispatch entries.
         """
         matched = []
         from orchestrator.phase_config import get_team_names
@@ -426,13 +426,6 @@ class StateReader:
                 continue
 
         return matched
-
-    def _load_manifest(self) -> dict:
-        try:
-            with open(self.manifest_path) as f:
-                return json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            return {'worktrees': []}
 
     def _build_session(self, project: str, session_id: str,
                         infra_dir: str, entry: dict,
@@ -520,7 +513,7 @@ class StateReader:
             duration = -1
 
         # Task: prefer PROMPT.txt (canonical full prompt), fall back to
-        # worktrees.json, then INTENT.md title
+        # entry dict, then INTENT.md title
         task = self._read_prompt(infra_dir) or entry.get('task', '')
         if not task:
             task = self._read_intent(infra_dir)
