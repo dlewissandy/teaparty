@@ -317,6 +317,8 @@ class Orchestrator:
                         initiator_agent_id=lead_agent_id,
                         recipient_agent_id=lead_agent_id,
                     )
+                except Exception:
+                    pass  # Already exists from prior run — idempotent
                 finally:
                     _bus.close()
             self._bus_event_listener = BusEventListener(
