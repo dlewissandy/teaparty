@@ -27,6 +27,7 @@ import yaml
 
 from aiohttp import web
 
+from orchestrator.intervention_listener import make_intervention_request
 from orchestrator.messaging import ConversationType, SqliteMessageBus, agent_bus_path
 from orchestrator.office_manager import OfficeManagerSession, read_om_session_title
 from orchestrator.project_manager import ProjectManagerSession, read_pm_session_title
@@ -1686,7 +1687,9 @@ class TeaPartyBridge:
                 status=503,
             )
 
-        payload = json.dumps({'type': 'withdraw_session', 'session_id': session_id})
+        payload = json.dumps(make_intervention_request(
+            'withdraw_session', session_id=session_id,
+        ))
         try:
             reader, writer = await asyncio.open_unix_connection(sock_path)
             writer.write(payload.encode() + b'\n')
@@ -1698,6 +1701,11 @@ class TeaPartyBridge:
         except Exception as exc:
             return web.json_response({'error': str(exc)}, status=502)
 
+        status = response.get('status', '')
+        if status == 'error':
+            return web.json_response(response, status=502)
+        if status == 'already_terminal':
+            return web.json_response(response, status=409)
         return web.json_response(response)
 
     async def _handle_create_job(self, request: web.Request) -> web.Response:
