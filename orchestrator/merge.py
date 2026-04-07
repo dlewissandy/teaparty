@@ -64,7 +64,11 @@ _MERGE_EXCLUDE = frozenset({
     'INTENT.md',
     'PLAN.md',
     'OBSERVATIONS.md',
-    'worktrees.json',
+    'worktrees.json',  # legacy
+    'job.json',
+    'task.json',
+    'jobs.json',
+    'tasks.json',
 })
 
 

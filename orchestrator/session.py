@@ -44,9 +44,7 @@ from orchestrator.intervention import InterventionQueue
 from orchestrator.phase_config import PhaseConfig
 from orchestrator.role_enforcer import RoleEnforcer
 from orchestrator.state_writer import StateWriter
-from orchestrator.worktree import (
-    create_session_worktree, cleanup_worktree,
-)
+from orchestrator.job_store import create_job, release_worktree
 
 _log = logging.getLogger('orchestrator')
 
@@ -214,7 +212,6 @@ class Session:
         # 2. Ensure project directory exists
         project_dir = os.path.join(self.projects_dir, self.project_slug)
         os.makedirs(project_dir, exist_ok=True)
-        os.makedirs(os.path.join(project_dir, '.sessions'), exist_ok=True)
 
         # 2b. Re-create config with project-scoped overrides (issue #10)
         self.config = PhaseConfig(self.poc_root, project_dir=project_dir)
@@ -222,16 +219,14 @@ class Session:
         # 3. Find repo root (project may have its own .git)
         repo_root = self._find_repo_root(project_dir)
 
-        # 4. Create session worktree
-        self.session_info = await create_session_worktree(
-            project_slug=self.project_slug,
+        # 4. Create job worktree — job_dir serves as infra_dir
+        self.session_info = await create_job(
+            project_root=repo_root,
             task=self.task,
-            repo_root=repo_root,
-            projects_dir=self.projects_dir,
             session_id=self.session_id,
         )
 
-        infra_dir = self.session_info['infra_dir']
+        infra_dir = self.session_info['job_dir']
         worktree_path = self.session_info['worktree_path']
 
         # 4a. Create message bus for persistent human-agent communication (Issue #200).
@@ -422,7 +417,7 @@ class Session:
             )
 
         # 14. Clean up session worktree (after learnings, before publish)
-        await cleanup_worktree(worktree_path)
+        await release_worktree(worktree_path)
 
         # 15. Publish session complete
         await self.event_bus.publish(Event(
@@ -748,15 +743,26 @@ class Session:
             with open(prompt_path) as f:
                 task = f.read()
 
-        # 3. Derive session_id from directory name
-        #    infra_dir = {projects_dir}/{slug}/.sessions/{session_id}
-        session_id = os.path.basename(infra_dir)
-
-        # 4. Derive project_slug from path
-        #    .../projects/{slug}/.sessions/{id}
-        sessions_parent = os.path.dirname(infra_dir)        # .sessions/
-        project_dir = os.path.dirname(sessions_parent)       # projects/{slug}
-        project_slug = os.path.basename(project_dir)
+        # 3. Derive session_id from job.json or directory name
+        job_json_path = os.path.join(infra_dir, 'job.json')
+        if os.path.isfile(job_json_path):
+            # New layout: infra_dir is .teaparty/jobs/job-{session_id}--{slug}/
+            with open(job_json_path) as f:
+                job_state = json.load(f)
+            job_id = job_state['job_id']
+            # Extract session_id from job_id (strip 'job-' prefix)
+            session_id = job_id[4:] if job_id.startswith('job-') else job_id
+            # project_root is 3 levels up: jobs/ → .teaparty/ → {project_root}
+            jobs_dir = os.path.dirname(infra_dir)          # .teaparty/jobs/
+            teaparty_dir = os.path.dirname(jobs_dir)        # .teaparty/
+            project_dir = os.path.dirname(teaparty_dir)     # {project_root}
+            project_slug = os.path.basename(project_dir)
+        else:
+            # Legacy layout: infra_dir = {project_dir}/.sessions/{session_id}
+            session_id = os.path.basename(infra_dir)
+            sessions_parent = os.path.dirname(infra_dir)
+            project_dir = os.path.dirname(sessions_parent)
+            project_slug = os.path.basename(project_dir)
 
         projects_dir = projects_dir or os.path.dirname(project_dir)
 
@@ -934,7 +940,7 @@ class Session:
 
         # Clean up session worktree (after learnings extraction)
         if worktree_path:
-            await cleanup_worktree(worktree_path)
+            await release_worktree(worktree_path)
 
         # 15. Publish session complete + stop writer
         await event_bus.publish(Event(
@@ -1145,39 +1151,23 @@ def _resolve_worktree_path(
 ) -> str:
     """Resolve the git worktree path for a session.
 
-    Strategy:
-    1. Check worktrees.json manifest in repo root for a matching session_id.
-    2. Scan {project_dir}/.worktrees/ for directories starting with
-       ``session-{short_id}--``.
+    In the job store layout, infra_dir IS the job_dir, and the worktree
+    is at {job_dir}/worktree/.  Falls back to scanning .teaparty/jobs/
+    by session_id prefix.
     """
-    # Strategy 1: worktrees.json manifest
-    repo_root = _find_repo_root_from(project_dir)
-    manifest_path = os.path.join(repo_root, 'worktrees.json')
-    if os.path.exists(manifest_path):
-        try:
-            with open(manifest_path) as f:
-                manifest = json.load(f)
-            for entry in manifest.get('worktrees', []):
-                if entry.get('session_id') == session_id:
-                    wt_path = entry.get('path', '')
-                    if wt_path and os.path.isdir(wt_path):
-                        return wt_path
-        except (OSError, json.JSONDecodeError):
-            pass
+    # Strategy 1: job_dir/worktree/ (infra_dir is the job_dir)
+    candidate = os.path.join(infra_dir, 'worktree')
+    if os.path.isdir(candidate):
+        return candidate
 
-    # Strategy 2: scan .worktrees/ directory
-    short_id = session_id[-6:]
-    worktrees_dir = os.path.join(project_dir, '.worktrees')
-    if os.path.isdir(worktrees_dir):
-        prefix = f'session-{short_id}--'
-        try:
-            for name in os.listdir(worktrees_dir):
-                if name.startswith(prefix):
-                    candidate = os.path.join(worktrees_dir, name)
-                    if os.path.isdir(candidate):
-                        return candidate
-        except OSError:
-            pass
+    # Strategy 2: scan .teaparty/jobs/ for matching job_id
+    repo_root = _find_repo_root_from(project_dir)
+    from orchestrator.job_store import find_job
+    job = find_job(repo_root, job_id=f'job-{session_id}')
+    if job and '_job_dir' in job:
+        candidate = os.path.join(job['_job_dir'], 'worktree')
+        if os.path.isdir(candidate):
+            return candidate
 
     return ''
 

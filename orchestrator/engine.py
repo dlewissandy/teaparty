@@ -2596,29 +2596,11 @@ class Orchestrator:
     def _find_dispatch_worktree(self, child_infra: str) -> str:
         """Find the worktree path for a dispatch given its infra dir.
 
-        Searches worktrees.json manifest for a matching session_id.
+        In the job store layout, child_infra is the task_dir and the
+        worktree is at {task_dir}/worktree/.
         """
-        import json
-        dispatch_id = os.path.basename(child_infra)
-
-        # Try to find repo root
-        try:
-            from orchestrator.worktree import _run_git_output
-            import asyncio
-            git_common = asyncio.get_event_loop().run_until_complete(
-                _run_git_output(self.session_worktree, 'rev-parse', '--path-format=absolute', '--git-common-dir')
-            ).strip()
-            repo_root = os.path.dirname(git_common)
-        except Exception:
-            return ''
-
-        manifest_path = os.path.join(repo_root, 'worktrees.json')
-        try:
-            with open(manifest_path) as f:
-                manifest = json.load(f)
-            for entry in manifest.get('worktrees', []):
-                if entry.get('session_id') == dispatch_id:
-                    return entry.get('path', '')
-        except (FileNotFoundError, json.JSONDecodeError):
-            pass
+        # New layout: task_dir/worktree/
+        candidate = os.path.join(child_infra, 'worktree')
+        if os.path.isdir(candidate):
+            return candidate
         return ''

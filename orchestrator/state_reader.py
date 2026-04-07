@@ -193,12 +193,9 @@ class StateReader:
         self.poc_root = repo_root  # backward-compat alias
         self.projects_dir = projects_dir
         self.teaparty_home = teaparty_home
+        # Legacy manifest path — used only for fallback when .teaparty/jobs/ is absent
         self.manifest_path = os.path.join(repo_root, 'worktrees.json')
         self._projects: list[ProjectState] = []
-        # Optional callback: (session_id) -> bool.  Returns True if the session
-        # is actively running as an in-process async task.  Used by orphan
-        # detection to distinguish "alive + orchestrator alive" from
-        # "alive + orchestrator coroutine crashed".
         self._in_process_checker = in_process_checker
 
     @property
@@ -215,23 +212,11 @@ class StateReader:
 
     def reload(self) -> list[ProjectState]:
         """Read all state files and produce unified project/session list."""
-        manifest = self._load_manifest()
         now = time.time()
-
-        # Index worktree entries by session_id
-        session_entries = {}
-        dispatch_by_sid = {}
-        for entry in manifest.get('worktrees', []):
-            sid = entry.get('session_id', '')
-            if entry.get('type') == 'session':
-                session_entries[sid] = entry
-            elif entry.get('type') == 'dispatch':
-                dispatch_by_sid[sid] = entry
 
         # Collect (slug, proj_path, name) tuples from registry or directory scan
         project_paths: list[tuple[str, str, str]] = []
         if self.teaparty_home:
-            # Registry-based: all registered projects, regardless of session state.
             from orchestrator.config_reader import load_management_team, discover_projects
             team = load_management_team(teaparty_home=self.teaparty_home)
             for entry in discover_projects(team):
@@ -239,13 +224,12 @@ class StateReader:
                 project_paths.append((slug, entry['path'], entry.get('name', slug)))
             project_paths.sort(key=lambda t: t[0])
         elif self.projects_dir is not None:
-            # Directory scan (used in tests and legacy contexts).
-            # Only include dirs that have a .sessions/ subdirectory — that is
-            # the signal that a directory is an active project in scan mode.
             try:
                 for slug in sorted(os.listdir(self.projects_dir)):
                     proj_path = os.path.join(self.projects_dir, slug)
-                    if os.path.isdir(os.path.join(proj_path, '.sessions')):
+                    # Accept projects with .teaparty/jobs/ or legacy .sessions/
+                    if (os.path.isdir(os.path.join(proj_path, '.teaparty', 'jobs'))
+                            or os.path.isdir(os.path.join(proj_path, '.sessions'))):
                         project_paths.append((slug, proj_path, slug))
             except OSError:
                 pass
@@ -257,30 +241,25 @@ class StateReader:
 
         projects = []
         for slug, proj_path, name in project_paths:
-            sessions_dir = os.path.join(proj_path, '.sessions')
+            proj_sessions = self._scan_project_jobs(slug, proj_path, now)
 
-            # Projects with their own .git write worktrees.json locally —
-            # merge those entries so the bridge can resolve worktree paths.
-            proj_manifest_path = os.path.join(proj_path, 'worktrees.json')
-            if proj_manifest_path != self.manifest_path:
-                try:
-                    with open(proj_manifest_path) as f:
-                        proj_manifest = json.load(f)
-                    for entry in proj_manifest.get('worktrees', []):
-                        sid = entry.get('session_id', '')
-                        if entry.get('type') == 'session' and sid not in session_entries:
-                            session_entries[sid] = entry
-                        elif entry.get('type') == 'dispatch' and sid not in dispatch_by_sid:
-                            dispatch_by_sid[sid] = entry
-                except (FileNotFoundError, json.JSONDecodeError):
-                    pass
-
-            proj_sessions = self._scan_project_sessions(
-                slug, sessions_dir, session_entries, dispatch_by_sid, now,
-            )
+            # Fallback: also scan legacy .sessions/ for not-yet-migrated data
+            if not proj_sessions:
+                sessions_dir = os.path.join(proj_path, '.sessions')
+                manifest = self._load_manifest()
+                session_entries = {}
+                dispatch_by_sid = {}
+                for entry in manifest.get('worktrees', []):
+                    sid = entry.get('session_id', '')
+                    if entry.get('type') == 'session':
+                        session_entries[sid] = entry
+                    elif entry.get('type') == 'dispatch':
+                        dispatch_by_sid[sid] = entry
+                proj_sessions = self._scan_project_sessions(
+                    slug, sessions_dir, session_entries, dispatch_by_sid, now,
+                )
 
             active = sum(1 for s in proj_sessions if s.status == 'active')
-            # Issue #254: attention_count includes dispatch-level escalations
             attention = sum(s.escalation_count for s in proj_sessions)
 
             projects.append(ProjectState(
@@ -292,7 +271,7 @@ class StateReader:
                 attention_count=attention,
             ))
 
-        # Sort: most recently active projects first (youngest session timestamp)
+        # Sort: most recently active projects first
         def _newest_session_ts(p):
             if p.sessions:
                 return max(s.session_id for s in p.sessions)
@@ -301,6 +280,95 @@ class StateReader:
 
         self._projects = projects
         return projects
+
+    def _scan_project_jobs(self, slug: str, proj_path: str,
+                           now: float) -> list[SessionState]:
+        """Scan .teaparty/jobs/ for a project and build SessionState list."""
+        jobs_dir = os.path.join(proj_path, '.teaparty', 'jobs')
+        if not os.path.isdir(jobs_dir):
+            return []
+
+        sessions = []
+        try:
+            job_dirs = sorted(os.listdir(jobs_dir), reverse=True)
+        except OSError:
+            return sessions
+
+        for job_name in job_dirs:
+            job_dir = os.path.join(jobs_dir, job_name)
+            job_json = os.path.join(job_dir, 'job.json')
+            if not os.path.isfile(job_json):
+                continue
+
+            try:
+                with open(job_json) as f:
+                    job_state = json.load(f)
+            except (json.JSONDecodeError, OSError):
+                continue
+
+            job_id = job_state.get('job_id', '')
+            session_id = job_id[4:] if job_id.startswith('job-') else job_id
+
+            # Build worktree entry from job state
+            worktree_path = os.path.join(job_dir, 'worktree')
+            entry = {
+                'name': job_name,
+                'path': worktree_path if os.path.isdir(worktree_path) else '',
+                'type': 'session',
+                'status': job_state.get('status', 'active'),
+                'task': '',
+            }
+
+            # Find tasks (dispatches) under the job
+            dispatches = self._find_job_tasks(job_dir, now)
+
+            sess = self._build_session(slug, session_id, job_dir, entry, dispatches, now)
+            sessions.append(sess)
+
+        return sessions
+
+    def _find_job_tasks(self, job_dir: str, now: float) -> list[dict]:
+        """Find task entries within a job directory."""
+        tasks_dir = os.path.join(job_dir, 'tasks')
+        if not os.path.isdir(tasks_dir):
+            return []
+
+        matched = []
+        try:
+            for task_name in sorted(os.listdir(tasks_dir)):
+                task_dir = os.path.join(tasks_dir, task_name)
+                task_json = os.path.join(task_dir, 'task.json')
+                if not os.path.isfile(task_json):
+                    continue
+
+                try:
+                    with open(task_json) as f:
+                        task_state = json.load(f)
+                except (json.JSONDecodeError, OSError):
+                    continue
+
+                task_id = task_state.get('task_id', '')
+                dispatch_id = task_id[5:] if task_id.startswith('task-') else task_id
+
+                dispatch_alive = _is_heartbeat_alive(task_dir)
+                status = task_state.get('status', 'active')
+                if status == 'active' and not dispatch_alive:
+                    status = 'complete'
+
+                matched.append({
+                    'name': task_name,
+                    'path': os.path.join(task_dir, 'worktree'),
+                    'type': 'dispatch',
+                    'team': task_state.get('team', ''),
+                    'task': '',
+                    'session_id': dispatch_id,
+                    'status': status,
+                    '_infra_dir': task_dir,
+                })
+        except OSError:
+            pass
+
+        return matched
 
     def _scan_project_sessions(self, slug: str, sessions_dir: str,
                                 session_entries: dict,

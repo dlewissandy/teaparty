@@ -60,9 +60,10 @@ def _make_mock_orchestrator_result(terminal_state: str = 'COMPLETED_WORK') -> Ma
 
 def _make_mock_dispatch_info(infra_dir: str, dispatch_id: str = 'disp-001') -> dict:
     return {
+        'task_id': f'task-{dispatch_id}',
+        'task_dir': infra_dir,
         'worktree_path': '/tmp/worktree',
-        'infra_dir': infra_dir,
-        'dispatch_id': dispatch_id,
+        'branch_name': f'task-{dispatch_id}--mock',
     }
 
 
@@ -88,9 +89,9 @@ class TestDispatchUsesMakeChildState(unittest.TestCase):
         mock_dispatch_info = _make_mock_dispatch_info(self.dispatch_infra)
 
         with patch('orchestrator.dispatch_cli.PhaseConfig') as mock_config_cls, \
-             patch('orchestrator.dispatch_cli.create_dispatch_worktree',
+             patch('orchestrator.dispatch_cli.create_task',
                    new=AsyncMock(return_value=mock_dispatch_info)), \
-             patch('orchestrator.dispatch_cli.cleanup_worktree',
+             patch('orchestrator.dispatch_cli.release_worktree',
                    new=AsyncMock()), \
              patch('orchestrator.dispatch_cli.squash_merge',
                    new=AsyncMock()), \
@@ -166,14 +167,15 @@ class TestDispatchUsesMakeChildState(unittest.TestCase):
         child = load_state(saved_cfa_path)
         self.assertEqual(child.depth, 1)
 
-    def test_child_task_id_includes_dispatch_id(self):
-        """Child task_id must include the dispatch_id for traceability."""
+    def test_child_task_id_includes_team_and_dispatch_id(self):
+        """Child task_id must include the team name and a dispatch ID for traceability."""
         parent_path = _make_parent_state_file(self.tmpdir)
         _, saved_cfa_path = self._run_dispatch(parent_path)
 
         child = load_state(saved_cfa_path)
-        self.assertIn('disp-001', child.task_id)
         self.assertIn('coding', child.task_id)
+        # dispatch_id is a timestamp like 20260407-100036-829688
+        self.assertRegex(child.task_id, r'dispatch-coding-\d{8}-\d{6}')
 
 
 class TestDispatchParentStateFallback(unittest.TestCase):
@@ -194,9 +196,9 @@ class TestDispatchParentStateFallback(unittest.TestCase):
         mock_dispatch_info = _make_mock_dispatch_info(self.dispatch_infra)
 
         with patch('orchestrator.dispatch_cli.PhaseConfig') as mock_config_cls, \
-             patch('orchestrator.dispatch_cli.create_dispatch_worktree',
+             patch('orchestrator.dispatch_cli.create_task',
                    new=AsyncMock(return_value=mock_dispatch_info)), \
-             patch('orchestrator.dispatch_cli.cleanup_worktree',
+             patch('orchestrator.dispatch_cli.release_worktree',
                    new=AsyncMock()), \
              patch('orchestrator.dispatch_cli.squash_merge',
                    new=AsyncMock()), \
@@ -335,9 +337,9 @@ class TestDispatchReturnShape(unittest.TestCase):
         mock_dispatch_info = _make_mock_dispatch_info(self.dispatch_infra)
 
         with patch('orchestrator.dispatch_cli.PhaseConfig') as mock_config_cls, \
-             patch('orchestrator.dispatch_cli.create_dispatch_worktree',
+             patch('orchestrator.dispatch_cli.create_task',
                    new=AsyncMock(return_value=mock_dispatch_info)), \
-             patch('orchestrator.dispatch_cli.cleanup_worktree',
+             patch('orchestrator.dispatch_cli.release_worktree',
                    new=AsyncMock()), \
              patch('orchestrator.dispatch_cli.squash_merge',
                    new=AsyncMock()), \
