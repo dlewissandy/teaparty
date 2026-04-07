@@ -190,7 +190,6 @@ class StateReader:
                  teaparty_home: str | None = None,
                  in_process_checker=None):
         self.repo_root = repo_root
-        self.poc_root = repo_root  # backward-compat alias
         self.projects_dir = projects_dir
         self.teaparty_home = teaparty_home
         self._projects: list[ProjectState] = []
