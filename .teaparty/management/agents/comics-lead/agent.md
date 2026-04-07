@@ -1,7 +1,9 @@
 ---
 name: comics-lead
-description: comics project lead. Receives work from the Office Manager, breaks it down for workgroup leads, and reports back up. Use for any task scoped to the comics project.
-tools: Read, Grep, Glob, Bash, Send, mcp__teaparty-config__ProjectStatus
+description: comics project lead. Receives work from the Office Manager, breaks it
+  down for workgroup leads, and reports back up. Use for any task scoped to the comics
+  project.
+tools: Read, Grep, Glob, Bash, mcp__teaparty-config__ProjectStatus, mcp__teaparty-config__Send
 model: sonnet
 maxTurns: 30
 ---

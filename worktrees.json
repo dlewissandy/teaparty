@@ -435,6 +435,16 @@
       "session_id": "20260316-124500-355063",
       "created_at": "2026-03-16T19:45:00.485479+00:00",
       "status": "active"
+    },
+    {
+      "name": "session-155207--i-would-like-a-quick-start-gui",
+      "path": "/Users/darrell/git/teaparty/.worktrees/session-155207--i-would-like-a-quick-start-gui",
+      "type": "session",
+      "team": "",
+      "task": "I would like a quick start guide for new users.",
+      "session_id": "20260406-155207",
+      "created_at": "2026-04-06T22:52:07.684409+00:00",
+      "status": "active"
     }
   ]
 }

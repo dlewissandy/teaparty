@@ -1,7 +1,10 @@
 ---
 name: teaparty-lead
-description: TeaParty project lead. Receives work from the Office Manager, breaks it down for workgroup leads, and reports back up. Use for any task scoped to the TeaParty project — dispatch to Coding, Configuration, or other registered workgroups.
-tools: Read, Grep, Glob, Bash, Send, mcp__teaparty-config__ProjectStatus
+description: "TeaParty project lead. Receives work from the Office Manager, breaks\
+  \ it down for workgroup leads, and reports back up. Use for any task scoped to the\
+  \ TeaParty project \u2014 dispatch to Coding, Configuration, or other registered\
+  \ workgroups."
+tools: Read, Grep, Glob, Bash, mcp__teaparty-config__ProjectStatus, mcp__teaparty-config__Send
 model: sonnet
 maxTurns: 30
 ---

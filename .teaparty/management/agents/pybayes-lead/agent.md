@@ -1,7 +1,9 @@
 ---
 name: pybayes-lead
-description: pybayes project lead. Receives work from the Office Manager, breaks it down for workgroup leads, and reports back up. Use for any task scoped to the pybayes project.
-tools: Read, Grep, Glob, Bash, Send, mcp__teaparty-config__ProjectStatus
+description: pybayes project lead. Receives work from the Office Manager, breaks it
+  down for workgroup leads, and reports back up. Use for any task scoped to the pybayes
+  project.
+tools: mcp__teaparty-config__ProjectStatus, mcp__teaparty-config__Send, mcp__teaparty-config__Reply
 model: sonnet
 maxTurns: 30
 ---

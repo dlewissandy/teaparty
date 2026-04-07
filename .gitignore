@@ -16,6 +16,7 @@ teaparty.db-shm
 teaparty.db-wal
 
 # SQLite temporary files (WAL, shared memory) at any level
+*.db
 *.db-shm
 *.db-wal
 *.db-journal
