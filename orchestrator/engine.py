@@ -291,6 +291,7 @@ class Orchestrator:
             self._intervention_resolver[self.session_id] = self.infra_dir
             self._intervention_listener = InterventionListener(
                 resolver=self._intervention_resolver,
+                teaparty_home=self.poc_root,
             )
             intervention_socket = await self._intervention_listener.start()
             mcp_env['INTERVENTION_SOCKET'] = intervention_socket

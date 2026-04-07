@@ -56,17 +56,31 @@ class InterventionListener:
     The orchestrator populates this at construction time from its knowledge
     of active sessions and dispatches.
 
+    When ``teaparty_home`` is provided, per-session symlinks are created at
+    ``{teaparty_home}/sockets/{session_id}.sock`` pointing to the listener's
+    socket.  This allows the bridge to reach the listener at a well-known
+    path without needing the random temp path.  Issue #386.
+
     Lifecycle:
-      listener = InterventionListener(resolver={'ses-1': '/path/to/infra'})
+      listener = InterventionListener(
+          resolver={'ses-1': '/path/to/infra'},
+          teaparty_home='~/.teaparty',
+      )
       await listener.start()
       # ... run office manager with INTERVENTION_SOCKET=listener.socket_path ...
       await listener.stop()
     """
 
-    def __init__(self, resolver: dict[str, str]):
+    def __init__(
+        self,
+        resolver: dict[str, str],
+        teaparty_home: str = '',
+    ):
         self._resolver = resolver
+        self._teaparty_home = os.path.expanduser(teaparty_home) if teaparty_home else ''
         self.socket_path = ''
         self._server: asyncio.AbstractServer | None = None
+        self._well_known_links: list[str] = []
 
     async def start(self) -> str:
         """Start listening. Returns the socket path."""
@@ -77,7 +91,24 @@ class InterventionListener:
             self._handle_connection, path=self.socket_path,
         )
         _log.info('Intervention listener started at %s', self.socket_path)
+
+        # Create well-known symlinks so the bridge can find us.
+        if self._teaparty_home:
+            self._create_well_known_links()
+
         return self.socket_path
+
+    def _create_well_known_links(self) -> None:
+        """Create per-session symlinks at the well-known socket path."""
+        sockets_dir = os.path.join(self._teaparty_home, 'sockets')
+        os.makedirs(sockets_dir, exist_ok=True)
+        for session_id in self._resolver:
+            link_path = os.path.join(sockets_dir, f'{session_id}.sock')
+            try:
+                os.symlink(self.socket_path, link_path)
+                self._well_known_links.append(link_path)
+            except OSError:
+                _log.warning('Could not create symlink at %s', link_path)
 
     async def stop(self) -> None:
         """Stop listening and clean up."""
@@ -85,6 +116,13 @@ class InterventionListener:
             self._server.close()
             await self._server.wait_closed()
             self._server = None
+        # Remove well-known symlinks before removing the actual socket.
+        for link_path in self._well_known_links:
+            try:
+                os.unlink(link_path)
+            except OSError:
+                pass
+        self._well_known_links.clear()
         if self.socket_path:
             try:
                 os.unlink(self.socket_path)
