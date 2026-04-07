@@ -226,6 +226,7 @@ class TeaPartyBridge:
         self._config_lead_sessions: dict[str, ConfigLeadSession] = {}
         self._pl_locks: dict[str, asyncio.Lock] = {}
         self._pl_sessions: dict[str, 'ProjectLeadSession'] = {}
+        self._active_job_tasks: dict[str, asyncio.Task] = {}
         # StateReader uses registry-based project discovery.
         self._state_reader = StateReader(
             repo_root=self._repo_root,
@@ -1701,8 +1702,6 @@ class TeaPartyBridge:
                 )
 
         task = asyncio.create_task(_run_session())
-        if not hasattr(self, '_active_job_tasks'):
-            self._active_job_tasks: dict[str, asyncio.Task] = {}
         self._active_job_tasks[f'{project_slug}:{session_id}'] = task
 
         return web.json_response({
@@ -1756,8 +1755,6 @@ class TeaPartyBridge:
                 )
 
         task = asyncio.create_task(_run_resume())
-        if not hasattr(self, '_active_job_tasks'):
-            self._active_job_tasks: dict[str, asyncio.Task] = {}
         self._active_job_tasks[key] = task
 
     # ── Index handler ─────────────────────────────────────────────────────────
