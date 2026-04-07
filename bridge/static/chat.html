@@ -596,7 +596,16 @@ function connectWS() {
 }
 
 function onWsMessage(ev) {
-  if (ev.conversation_id !== activeConvId()) return;
+  var active = activeConvId();
+  var match = ev.conversation_id === active;
+  // For task convs, the child's bus stores messages under job:{project}:{dispatch_id}
+  // but the active conv ID is task:{project}:{session_id}:{dispatch_id} (issue #389).
+  if (!match && active.startsWith('task:')) {
+    var parts = active.split(':');
+    var remapped = 'job:' + parts[1] + ':' + parts.slice(3).join(':');
+    match = ev.conversation_id === remapped;
+  }
+  if (!match) return;
   // Skip the WS echo of messages we already showed via optimistic append.
   if (ev.sender === 'human') {
     var now = Date.now();

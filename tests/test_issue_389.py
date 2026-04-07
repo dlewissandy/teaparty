@@ -308,5 +308,146 @@ class TestRecursiveSubtasks(unittest.TestCase):
         self.assertEqual(level3['team'], 'writing')
 
 
+# ── Layer 5: Edge cases ──────────────────────────────────────────────────────
+
+
+def _write_heartbeat(path: str, status: str = 'active', pid: int = 99999) -> None:
+    """Write a minimal .heartbeat JSON file."""
+    import time
+    with open(path, 'w') as f:
+        json.dump({
+            'pid': pid,
+            'status': status,
+            'timestamp': time.time(),
+            'role': 'test',
+        }, f)
+
+
+def _make_direct_dispatch(job_dir: str, team: str, dispatch_id: str,
+                          project: str = 'proj') -> str:
+    """Create a direct-model dispatch (not under tasks/). Returns dispatch_infra."""
+    dispatch_infra = os.path.join(job_dir, team, dispatch_id)
+    os.makedirs(dispatch_infra, exist_ok=True)
+
+    # Write .heartbeat
+    _write_heartbeat(os.path.join(dispatch_infra, '.heartbeat'), status='completed')
+
+    # Write .cfa-state.json
+    with open(os.path.join(dispatch_infra, '.cfa-state.json'), 'w') as f:
+        json.dump({'state': 'COMPLETED_WORK', 'phase': 'execution'}, f)
+
+    # Register in .children
+    children_path = os.path.join(job_dir, '.children')
+    entry = {
+        'heartbeat': os.path.join(dispatch_infra, '.heartbeat'),
+        'team': team,
+        'task_id': None,
+        'status': 'active',
+    }
+    with open(children_path, 'a') as f:
+        f.write(json.dumps(entry) + '\n')
+
+    # Create messages.db
+    bus = SqliteMessageBus(os.path.join(dispatch_infra, 'messages.db'))
+    conv_id = make_conversation_id(ConversationType.JOB, f'{project}:{dispatch_id}')
+    bus.create_conversation(ConversationType.JOB, f'{project}:{dispatch_id}')
+    bus.send(conv_id, 'human', f'Direct dispatch to {team}')
+    bus.send(conv_id, 'agent', f'Config applied by {team}')
+    bus.close()
+    return dispatch_infra
+
+
+class TestTaskStatusHeartbeat(unittest.TestCase):
+    """Task status must reflect heartbeat liveness, not just task.json."""
+
+    def test_dead_task_shows_complete(self):
+        """A task whose heartbeat is terminal should show status=complete."""
+        base = _make_tmpdir(self)
+        job_dir = _make_job(base, 'abc12345')
+        task_dir = _make_task(job_dir, 'def67890', team='coding')
+        # Write a terminal heartbeat
+        _write_heartbeat(os.path.join(task_dir, '.heartbeat'), status='completed')
+
+        from bridge.server import TeaPartyBridge
+        bridge = TeaPartyBridge.__new__(TeaPartyBridge)
+        bridge._buses = {}
+        bridge.teaparty_home = os.path.join(base, '.teaparty')
+
+        tasks = bridge._list_session_tasks(base, 'abc12345')
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0]['status'], 'complete')
+
+    def test_active_task_without_heartbeat_stays_active(self):
+        """A task with no heartbeat file retains its task.json status."""
+        base = _make_tmpdir(self)
+        job_dir = _make_job(base, 'abc12345')
+        _make_task(job_dir, 'def67890', team='coding')
+        # No heartbeat written — _make_task doesn't create one
+
+        from bridge.server import TeaPartyBridge
+        bridge = TeaPartyBridge.__new__(TeaPartyBridge)
+        bridge._buses = {}
+        bridge.teaparty_home = os.path.join(base, '.teaparty')
+
+        tasks = bridge._list_session_tasks(base, 'abc12345')
+        self.assertEqual(tasks[0]['status'], 'active')
+
+
+class TestDirectModelDispatches(unittest.TestCase):
+    """Direct-model dispatches (not under tasks/) must appear in task list."""
+
+    def test_direct_dispatch_discovered(self):
+        base = _make_tmpdir(self)
+        job_dir = _make_job(base, 'abc12345')
+        _make_direct_dispatch(job_dir, 'configuration', '20260407-120000-000001')
+
+        from bridge.server import TeaPartyBridge
+        bridge = TeaPartyBridge.__new__(TeaPartyBridge)
+        bridge._buses = {}
+        bridge.teaparty_home = os.path.join(base, '.teaparty')
+
+        tasks = bridge._list_session_tasks(base, 'abc12345')
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0]['team'], 'configuration')
+
+    def test_direct_and_worktree_dispatches_combined(self):
+        """Both direct-model and worktree-model dispatches appear."""
+        base = _make_tmpdir(self)
+        job_dir = _make_job(base, 'abc12345')
+        _make_task(job_dir, 'def67890', team='coding')
+        _make_direct_dispatch(job_dir, 'configuration', '20260407-120000-000001')
+
+        from bridge.server import TeaPartyBridge
+        bridge = TeaPartyBridge.__new__(TeaPartyBridge)
+        bridge._buses = {}
+        bridge.teaparty_home = os.path.join(base, '.teaparty')
+
+        tasks = bridge._list_session_tasks(base, 'abc12345')
+        teams = {t['team'] for t in tasks}
+        self.assertEqual(teams, {'coding', 'configuration'})
+
+
+class TestDescriptionFallback(unittest.TestCase):
+    """Task description should fall back to slug when PROMPT.txt is missing."""
+
+    def test_no_prompt_falls_back_to_slug(self):
+        base = _make_tmpdir(self)
+        job_dir = _make_job(base, 'abc12345')
+        task_dir = _make_task(job_dir, 'def67890', team='coding', slug='my-feature')
+        # Remove PROMPT.txt
+        os.remove(os.path.join(task_dir, 'PROMPT.txt'))
+
+        from bridge.server import TeaPartyBridge
+        bridge = TeaPartyBridge.__new__(TeaPartyBridge)
+        bridge._buses = {}
+        bridge.teaparty_home = os.path.join(base, '.teaparty')
+
+        tasks = bridge._list_session_tasks(base, 'abc12345')
+        self.assertEqual(len(tasks), 1)
+        # Should fall back to slug, not empty string
+        self.assertTrue(len(tasks[0]['task']) > 0, 'Task description should not be empty')
+        self.assertIn('my-feature', tasks[0]['task'])
+
+
 if __name__ == '__main__':
     unittest.main()

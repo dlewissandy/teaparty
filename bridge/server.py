@@ -2039,46 +2039,116 @@ class TeaPartyBridge:
         return self._scan_tasks(job_dir)
 
     def _scan_tasks(self, parent_dir: str) -> list[dict]:
-        """Recursively scan tasks/ under parent_dir."""
-        tasks_dir = os.path.join(parent_dir, 'tasks')
-        if not os.path.isdir(tasks_dir):
-            return []
+        """Scan tasks/ and .children for all dispatches under parent_dir.
+
+        Discovers both worktree-model dispatches (under tasks/) and
+        direct-model dispatches (registered in .children, stored under
+        {parent_dir}/{team}/{dispatch_id}/).
+        """
         result = []
-        try:
-            for name in sorted(os.listdir(tasks_dir)):
-                task_dir = os.path.join(tasks_dir, name)
-                task_json = os.path.join(task_dir, 'task.json')
-                if not os.path.isfile(task_json):
-                    continue
-                try:
-                    with open(task_json) as f:
-                        state = json.load(f)
-                except (json.JSONDecodeError, OSError):
-                    continue
+        seen_infra_dirs: set[str] = set()
 
-                task_id = state.get('task_id', '')
-                dispatch_id = task_id[5:] if task_id.startswith('task-') else task_id
+        # 1. Worktree-model tasks from tasks/ directory
+        tasks_dir = os.path.join(parent_dir, 'tasks')
+        if os.path.isdir(tasks_dir):
+            try:
+                for name in sorted(os.listdir(tasks_dir)):
+                    task_dir = os.path.join(tasks_dir, name)
+                    task_json = os.path.join(task_dir, 'task.json')
+                    if not os.path.isfile(task_json):
+                        continue
+                    try:
+                        with open(task_json) as f:
+                            state = json.load(f)
+                    except (json.JSONDecodeError, OSError):
+                        continue
 
-                # Read task description from PROMPT.txt
-                task_desc = ''
-                prompt_path = os.path.join(task_dir, 'PROMPT.txt')
-                try:
-                    with open(prompt_path) as f:
-                        task_desc = f.read().strip()
-                except (FileNotFoundError, OSError):
-                    pass
+                    task_id = state.get('task_id', '')
+                    dispatch_id = task_id[5:] if task_id.startswith('task-') else task_id
+                    status = self._resolve_task_status(
+                        task_dir, state.get('status', 'active'))
 
-                subtasks = self._scan_tasks(task_dir)
-                result.append({
-                    'dispatch_id': dispatch_id,
-                    'team': state.get('team', ''),
-                    'task': task_desc,
-                    'status': state.get('status', 'active'),
-                    'subtasks': subtasks,
-                })
-        except OSError:
-            pass
+                    task_desc = self._read_task_description(task_dir, state)
+                    subtasks = self._scan_tasks(task_dir)
+                    seen_infra_dirs.add(os.path.abspath(task_dir))
+                    result.append({
+                        'dispatch_id': dispatch_id,
+                        'team': state.get('team', ''),
+                        'task': task_desc,
+                        'status': status,
+                        'subtasks': subtasks,
+                    })
+            except OSError:
+                pass
+
+        # 2. Direct-model dispatches from .children registry
+        children_path = os.path.join(parent_dir, '.children')
+        if os.path.isfile(children_path):
+            try:
+                from orchestrator.heartbeat import read_children
+                for child in read_children(children_path):
+                    hb_path = child.get('heartbeat', '')
+                    if not hb_path:
+                        continue
+                    infra_dir = os.path.dirname(hb_path)
+                    if os.path.abspath(infra_dir) in seen_infra_dirs:
+                        continue
+                    if not os.path.isdir(infra_dir):
+                        continue
+
+                    team = child.get('team', '')
+                    dispatch_id = os.path.basename(infra_dir)
+                    status = self._resolve_task_status(infra_dir, 'active')
+                    task_desc = self._read_task_description(infra_dir, {})
+                    subtasks = self._scan_tasks(infra_dir)
+                    result.append({
+                        'dispatch_id': dispatch_id,
+                        'team': team,
+                        'task': task_desc,
+                        'status': status,
+                        'subtasks': subtasks,
+                    })
+            except (ImportError, OSError):
+                pass
+
         return result
+
+    @staticmethod
+    def _resolve_task_status(infra_dir: str, json_status: str) -> str:
+        """Determine task status by checking heartbeat liveness.
+
+        If the heartbeat indicates terminal (completed/withdrawn) or the
+        process is dead, return 'complete'. Otherwise return the json_status.
+        """
+        from orchestrator.state_reader import (
+            _is_heartbeat_alive, _is_heartbeat_terminal,
+        )
+        if _is_heartbeat_terminal(infra_dir):
+            return 'complete'
+        if json_status == 'active' and not _is_heartbeat_alive(infra_dir):
+            # No live heartbeat — check if heartbeat file exists at all
+            hb_path = os.path.join(infra_dir, '.heartbeat')
+            if os.path.exists(hb_path):
+                return 'complete'
+        return json_status
+
+    @staticmethod
+    def _read_task_description(infra_dir: str, state: dict) -> str:
+        """Read task description from PROMPT.txt, falling back to slug."""
+        prompt_path = os.path.join(infra_dir, 'PROMPT.txt')
+        try:
+            with open(prompt_path) as f:
+                desc = f.read().strip()
+                if desc:
+                    return desc
+        except (FileNotFoundError, OSError):
+            pass
+        # Fall back to slug from task.json
+        slug = state.get('slug', '')
+        if slug:
+            return slug
+        # Fall back to team name
+        return state.get('team', '')
 
     # ── Serializers ───────────────────────────────────────────────────────────
 
