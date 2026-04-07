@@ -174,6 +174,24 @@ class TestTaskBusRouting(unittest.TestCase):
         self.assertEqual(messages[0].sender, 'human')
         self.assertIn('Dispatch to coding', messages[0].content)
 
+    def test_task_conv_id_remapping(self):
+        """_handle_conversation_get remaps task: conv IDs to the child's job: conv ID."""
+        bridge, base, sid = self._make_bridge_with_job()
+        conv_id = f'task:proj:{sid}:def67890'
+        bus = bridge._bus_for_conversation(conv_id)
+        self.assertIsNotNone(bus)
+
+        # Verify the remapping logic: task:proj:sessid:dispid -> job:proj:dispid
+        parts = conv_id.split(':')
+        project_slug = parts[1]
+        dispatch_id = ':'.join(parts[3:])
+        remapped = f'job:{project_slug}:{dispatch_id}'
+        messages = bus.receive(remapped)
+        self.assertEqual(len(messages), 3)
+        # Verify the original task: conv_id does NOT exist in the bus
+        direct = bus.receive(conv_id)
+        self.assertEqual(len(direct), 0)
+
 
 # ── Layer 3: Task list API ───────────────────────────────────────────────────
 
