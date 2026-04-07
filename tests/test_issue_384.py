@@ -34,7 +34,11 @@ def _make_git_repo(path: str) -> str:
 
 def _run(coro):
     """Run an async function synchronously."""
-    return asyncio.get_event_loop().run_until_complete(coro)
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
 
 
 class TestJobCreation(unittest.TestCase):
@@ -385,3 +389,74 @@ class TestJobTaskFullPath(unittest.TestCase):
         self.assertEqual(parts[3], 'tasks')
         self.assertTrue(parts[4].startswith('task-'))
         self.assertEqual(parts[5], 'worktree')
+
+
+class TestGarbageCollection(unittest.TestCase):
+    """SC7: GC can walk jobs/ and clean up by status without chasing external references."""
+
+    def setUp(self):
+        self._tmpdir = tempfile.mkdtemp()
+        self.repo_root = _make_git_repo(os.path.join(self._tmpdir, 'repo'))
+
+    def tearDown(self):
+        subprocess.run(['git', 'worktree', 'prune'], cwd=self.repo_root,
+                       capture_output=True)
+        import shutil
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    def test_gc_removes_completed_jobs_leaves_active(self):
+        """GC removes jobs in terminal states and leaves active jobs alone."""
+        from orchestrator.job_store import create_job, create_task, gc_jobs
+
+        # Create two jobs
+        active_job = _run(create_job(
+            project_root=self.repo_root,
+            task='Active work',
+            issue=1,
+        ))
+        done_job = _run(create_job(
+            project_root=self.repo_root,
+            task='Finished work',
+            issue=2,
+        ))
+        _run(create_task(
+            job_dir=done_job['job_dir'],
+            task='Some task',
+            team='coding',
+        ))
+
+        # Mark done_job as complete by editing its job.json
+        job_json = os.path.join(done_job['job_dir'], 'job.json')
+        with open(job_json) as f:
+            state = json.load(f)
+        state['status'] = 'complete'
+        with open(job_json, 'w') as f:
+            json.dump(state, f)
+
+        # Run GC
+        removed = _run(gc_jobs(self.repo_root))
+
+        # Done job is removed
+        self.assertIn(done_job['job_id'], removed)
+        self.assertFalse(os.path.isdir(done_job['job_dir']))
+
+        # Active job is untouched
+        self.assertTrue(os.path.isdir(active_job['job_dir']))
+
+    def test_list_jobs_walks_directory_not_index(self):
+        """list_jobs reads job.json files directly, not the jobs.json index."""
+        from orchestrator.job_store import create_job, list_jobs
+
+        _run(create_job(
+            project_root=self.repo_root,
+            task='Test job',
+            issue=42,
+        ))
+
+        # Delete the index to prove list_jobs doesn't depend on it
+        index_path = os.path.join(self.repo_root, '.teaparty', 'jobs', 'jobs.json')
+        os.remove(index_path)
+
+        jobs = list_jobs(self.repo_root)
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual(jobs[0]['issue'], 42)
