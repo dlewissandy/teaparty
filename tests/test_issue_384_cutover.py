@@ -73,3 +73,18 @@ class TestWorktreeModuleCutover(unittest.TestCase):
             source = f.read()
         self.assertNotIn('worktrees.json', source,
                          'merge.py still references worktrees.json')
+
+    def test_worktrees_json_file_removed(self):
+        """worktrees.json must not exist at repo root (SC6)."""
+        filepath = os.path.join(_repo_root(), 'worktrees.json')
+        self.assertFalse(os.path.exists(filepath),
+                         'worktrees.json still exists at repo root')
+
+    def test_dead_session_scan_methods_removed_from_state_reader(self):
+        """Legacy .sessions/-based scan methods must not exist in state_reader.py."""
+        filepath = os.path.join(_repo_root(), 'orchestrator', 'state_reader.py')
+        names = _module_function_names(filepath)
+        dead = {'_scan_project_sessions', '_find_dispatches_for_session'}
+        found = dead & names
+        self.assertEqual(found, set(),
+                         f'Dead session scan methods still present: {found}')
