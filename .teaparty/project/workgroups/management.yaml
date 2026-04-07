@@ -1,0 +1,6 @@
+name: management
+lead: office-manager
+members:
+  agents:
+  - project-liaison
+  - config-workgroup-liaison

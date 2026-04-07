@@ -54,7 +54,7 @@ claude -p \
 ```
 
 Key parameters:
-- **`--agents`** — team definition JSON (read from `agents/*.json`, with placeholder substitution for `__POC_DIR__` and `__SESSION_DIR__`)
+- **`--agents`** — team definition JSON (composed from `.teaparty/project/agents/` and `.teaparty/project/workgroups/`, with placeholder substitution for `__POC_DIR__` and `__SESSION_DIR__`)
 - **`--agent`** — which agent to start with (the team lead)
 - **`--permission-mode`** — per-phase permission level (`acceptEdits`, `plan`, `default`)
 - **`--settings`** — overlay for allowed/disallowed tools

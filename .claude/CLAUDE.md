@@ -34,7 +34,8 @@ Key packages at repo root:
   - `phase_config.py` -- Per-phase Claude Code configuration
 - `bridge/` -- HTML dashboard + bridge server
 - `scripts/` -- CfA state machine, proxy model, learning utilities
-- `agents/` -- Team and workgroup definitions
+- `.teaparty/project/agents/` -- Agent definitions (markdown with YAML frontmatter)
+- `.teaparty/project/workgroups/` -- Workgroup definitions (team rosters)
 - `cfa-state-machine.json` -- State machine definition
 
 Dashboard: `bridge/` (HTML dashboard + bridge server)

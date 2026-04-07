@@ -222,7 +222,7 @@ The membership guard logic currently in `dispatch_cli.py:163-193` (checking work
 | `dispatch_cli.py` child Orchestrator model | Replaced by recursive bus listeners. See behavior disposition below. |
 | `office_manager.py` liaison generation | `_build_liaison_agents_json()`, `_make_project_liaison_def()`, `_make_configuration_liaison_def()` are removed. OM uses bus Send/Reply. |
 | `uber-team.json` project-lead | Converged with `.claude/agents/teaparty-lead.md`. One identity per project lead. |
-| `agents/*.json` team files | Workgroup agent definitions move to `.teaparty/` YAML + `.claude/agents/` markdown. The JSON team files are an intermediate format that duplicates what the config tree already defines. |
+| `agents/*.json` team files | Retired (#385). Workgroup agent definitions now live in `.teaparty/project/agents/` (markdown) and `.teaparty/project/workgroups/` (YAML). |
 | `phase-config.json` teams section | Team listings move to project.yaml `members.workgroups`. The phase-config retains phase definitions (intent, planning, execution) but not team rosters. |
 
 ### dispatch_cli.py Behavior Disposition

@@ -1,0 +1,7 @@
+name: research
+lead: research-lead
+members:
+  agents:
+  - web-researcher
+  - arxiv-researcher
+  - image-analyst

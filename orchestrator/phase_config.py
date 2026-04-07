@@ -150,19 +150,105 @@ class PhaseConfig:
             pass
 
     def _load_org_agents(self, team_name: str) -> dict[str, Any]:
-        """Load the org-level agent definitions for a team."""
+        """Load org-level agent definitions for a team from .teaparty/ format.
+
+        Reads the workgroup YAML to get lead + member agents, then reads
+        each agent's agent.md to compose a dict matching the --agents JSON
+        format: {name: {description, prompt, model, maxTurns, disallowedTools}}.
+        """
         if team_name in self._org_agents:
             return self._org_agents[team_name]
+
         team_spec = self._teams.get(team_name)
         if not team_spec:
             return {}
-        agent_path = os.path.join(self.poc_root, team_spec.agent_file)
-        if not os.path.exists(agent_path):
+
+        # Try .teaparty/project/agents/ format first
+        agents = self._load_agents_from_teaparty(team_name, team_spec)
+        if agents:
+            self._org_agents[team_name] = agents
+            return agents
+
+        # Fallback: legacy agents/*.json (for backward compat during migration)
+        if team_spec.agent_file:
+            agent_path = os.path.join(self.poc_root, team_spec.agent_file)
+            if os.path.exists(agent_path):
+                with open(agent_path) as f:
+                    agents = json.load(f)
+                self._org_agents[team_name] = agents
+                return agents
+
+        return {}
+
+    def _load_agents_from_teaparty(self, team_name: str, team_spec: 'TeamSpec') -> dict[str, Any]:
+        """Load agent definitions from .teaparty/project/ format."""
+        import yaml
+
+        wg_path = os.path.join(
+            self.poc_root, '.teaparty', 'project', 'workgroups', f'{team_name}.yaml',
+        )
+        if not os.path.isfile(wg_path):
             return {}
-        with open(agent_path) as f:
-            agents = json.load(f)
-        self._org_agents[team_name] = agents
+
+        with open(wg_path) as f:
+            wg = yaml.safe_load(f)
+        if not wg:
+            return {}
+
+        # Collect agent names: lead + members
+        agent_names = []
+        lead = wg.get('lead', '')
+        if lead:
+            agent_names.append(lead)
+        members = wg.get('members', {})
+        agent_names.extend(members.get('agents', []))
+
+        agents_base = os.path.join(self.poc_root, '.teaparty', 'project', 'agents')
+        agents: dict[str, Any] = {}
+        for name in agent_names:
+            agent_md = os.path.join(agents_base, name, 'agent.md')
+            if not os.path.isfile(agent_md):
+                continue
+            agent_def = self._parse_agent_md(agent_md)
+            if agent_def:
+                agents[name] = agent_def
+
         return agents
+
+    @staticmethod
+    def _parse_agent_md(path: str) -> dict[str, Any] | None:
+        """Parse an agent.md file into the --agents JSON format."""
+        import yaml
+
+        with open(path) as f:
+            content = f.read()
+
+        if not content.startswith('---'):
+            return None
+
+        parts = content.split('---', 2)
+        if len(parts) < 3:
+            return None
+
+        fm = yaml.safe_load(parts[1])
+        if not fm:
+            return None
+
+        prompt = parts[2].strip()
+
+        result: dict[str, Any] = {
+            'description': fm.get('description', ''),
+            'prompt': prompt,
+            'model': fm.get('model', 'sonnet'),
+        }
+        if 'maxTurns' in fm:
+            result['maxTurns'] = fm['maxTurns']
+        if 'timeout' in fm:
+            result['timeout'] = fm['timeout']
+        if 'disallowedTools' in fm:
+            result['disallowedTools'] = fm['disallowedTools']
+
+        return result
 
     @property
     def project_teams(self) -> dict[str, TeamSpec]:
@@ -201,6 +287,13 @@ class PhaseConfig:
         if 'planning_permission_mode' in team_overrides:
             result.planning_permission_mode = team_overrides['planning_permission_mode']
         return result
+
+    def resolve_agents_json(self, team_name: str) -> str:
+        """Produce the JSON string for a team's agents, suitable for --agents."""
+        agents = self.resolve_team_agents(team_name)
+        if not agents:
+            return ''
+        return json.dumps(agents)
 
     def resolve_phase(self, phase_name: str) -> PhaseSpec:
         """Resolve a PhaseSpec with project overrides applied.

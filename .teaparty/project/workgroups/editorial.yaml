@@ -1,0 +1,6 @@
+name: editorial
+lead: editorial-lead
+members:
+  agents:
+  - copy-editor
+  - fact-checker
