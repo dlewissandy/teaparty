@@ -56,10 +56,10 @@ class InterventionListener:
     The orchestrator populates this at construction time from its knowledge
     of active sessions and dispatches.
 
-    When ``teaparty_home`` is provided, per-session symlinks are created at
-    ``{teaparty_home}/sockets/{session_id}.sock`` pointing to the listener's
-    socket.  This allows the bridge to reach the listener at a well-known
-    path without needing the random temp path.  Issue #386.
+    When ``teaparty_home`` is provided, the listener binds directly at the
+    well-known path ``{teaparty_home}/sockets/{session_id}.sock`` so the
+    bridge can reach it.  Uses unlink-before-bind to handle stale sockets
+    from crashed sessions.  Issue #386, per cfa-extensions proposal.
 
     Lifecycle:
       listener = InterventionListener(
@@ -80,35 +80,37 @@ class InterventionListener:
         self._teaparty_home = os.path.expanduser(teaparty_home) if teaparty_home else ''
         self.socket_path = ''
         self._server: asyncio.AbstractServer | None = None
-        self._well_known_links: list[str] = []
+        self._well_known_paths: list[str] = []
 
     async def start(self) -> str:
-        """Start listening. Returns the socket path."""
-        sock_dir = tempfile.mkdtemp(prefix='teaparty-intervention-')
-        self.socket_path = os.path.join(sock_dir, 'intervention.sock')
+        """Start listening. Returns the socket path.
+
+        When teaparty_home is set, binds at the well-known per-session path
+        so the bridge can find the socket by session ID alone.  Falls back
+        to a temp directory when teaparty_home is not provided.
+        """
+        if self._teaparty_home and self._resolver:
+            # Bind at the well-known path per the cfa-extensions spec.
+            # Use the first session ID (one session per engine run).
+            session_id = next(iter(self._resolver))
+            sockets_dir = os.path.join(self._teaparty_home, 'sockets')
+            os.makedirs(sockets_dir, exist_ok=True)
+            self.socket_path = os.path.join(sockets_dir, f'{session_id}.sock')
+            self._well_known_paths.append(self.socket_path)
+            # Unlink-before-bind: remove stale socket from crashed session.
+            try:
+                os.unlink(self.socket_path)
+            except FileNotFoundError:
+                pass
+        else:
+            sock_dir = tempfile.mkdtemp(prefix='teaparty-intervention-')
+            self.socket_path = os.path.join(sock_dir, 'intervention.sock')
 
         self._server = await asyncio.start_unix_server(
             self._handle_connection, path=self.socket_path,
         )
         _log.info('Intervention listener started at %s', self.socket_path)
-
-        # Create well-known symlinks so the bridge can find us.
-        if self._teaparty_home:
-            self._create_well_known_links()
-
         return self.socket_path
-
-    def _create_well_known_links(self) -> None:
-        """Create per-session symlinks at the well-known socket path."""
-        sockets_dir = os.path.join(self._teaparty_home, 'sockets')
-        os.makedirs(sockets_dir, exist_ok=True)
-        for session_id in self._resolver:
-            link_path = os.path.join(sockets_dir, f'{session_id}.sock')
-            try:
-                os.symlink(self.socket_path, link_path)
-                self._well_known_links.append(link_path)
-            except OSError:
-                _log.warning('Could not create symlink at %s', link_path)
 
     async def stop(self) -> None:
         """Stop listening and clean up."""
@@ -116,20 +118,19 @@ class InterventionListener:
             self._server.close()
             await self._server.wait_closed()
             self._server = None
-        # Remove well-known symlinks before removing the actual socket.
-        for link_path in self._well_known_links:
-            try:
-                os.unlink(link_path)
-            except OSError:
-                pass
-        self._well_known_links.clear()
         if self.socket_path:
             try:
                 os.unlink(self.socket_path)
-                os.rmdir(os.path.dirname(self.socket_path))
             except OSError:
                 pass
+            # Only remove parent dir if we created a temp directory.
+            if self.socket_path not in self._well_known_paths:
+                try:
+                    os.rmdir(os.path.dirname(self.socket_path))
+                except OSError:
+                    pass
             self.socket_path = ''
+        self._well_known_paths.clear()
 
     async def _handle_connection(
         self,
