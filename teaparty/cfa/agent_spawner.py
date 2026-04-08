@@ -80,11 +80,35 @@ def compose_worktree(
     compose_settings(worktree, teaparty_home, project_dir=project_dir,
                      agent_name=agent_name, is_management=is_management)
     t4 = _time.monotonic()
+    compose_mcp_config(worktree, role)
+    t5 = _time.monotonic()
     _log.info(
         'compose_worktree_timing: role=%r claude_md=%.3fs agents=%.3fs '
-        'skills=%.3fs settings=%.3fs total=%.3fs',
-        role, t1 - t0, t2 - t1, t3 - t2, t4 - t3, t4 - t0,
+        'skills=%.3fs settings=%.3fs mcp=%.3fs total=%.3fs',
+        role, t1 - t0, t2 - t1, t3 - t2, t4 - t3, t5 - t4, t5 - t0,
     )
+
+
+def compose_mcp_config(worktree: str, agent_name: str) -> None:
+    """Write a per-agent .mcp.json to the worktree.
+
+    The MCP server runs as a stdio subprocess filtered to this agent's
+    allowed tools via --agent. The agent sees only the tools its
+    frontmatter declares.
+    """
+    import json as _json
+    mcp_config = {
+        'mcpServers': {
+            'teaparty-config': {
+                'command': 'uv',
+                'args': ['run', 'python3', '-m', 'teaparty.mcp.server.main',
+                         '--agent', agent_name],
+            },
+        },
+    }
+    mcp_path = os.path.join(worktree, '.mcp.json')
+    with open(mcp_path, 'w') as f:
+        _json.dump(mcp_config, f, indent=2)
 
 
 def compose_claude_md(

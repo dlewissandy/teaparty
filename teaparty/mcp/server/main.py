@@ -85,17 +85,18 @@ def list_mcp_tool_names() -> list[str]:
 
 
 
-def create_server() -> FastMCP:
-    """Create the MCP server with all tools registered.
+def create_server(agent_tools: set[str] | None = None) -> FastMCP:
+    """Create the MCP server, optionally filtered to a set of tool names.
 
-    Tool filtering per agent is handled by Claude Code's --settings
-    permissions allowlist, not by the MCP server. One server instance
-    serves all agents.
+    Args:
+        agent_tools: If provided, only register tools whose names are in
+            this set. When None, all tools are registered (interactive session).
     """
     import logging as _logging
     _cs_log = _logging.getLogger('teaparty.mcp.server.main.create')
 
     server = FastMCP('teaparty-config')
+
 
     @server.tool()
     async def AskQuestion(question: str, context: str = '') -> str:
@@ -890,15 +891,68 @@ def create_server() -> FastMCP:
             project=project, path=path, teaparty_home=teaparty_home,
         )
 
+    # Filter to agent's allowed tools when specified.
+    if agent_tools is not None:
+        import asyncio
+        registered = asyncio.run(server.list_tools())
+        mcp_prefix = 'mcp__teaparty-config__'
+        bare_names = set()
+        for t in agent_tools:
+            bare_names.add(t[len(mcp_prefix):] if t.startswith(mcp_prefix) else t)
+        for tool in registered:
+            if tool.name not in bare_names:
+                server.remove_tool(tool.name)
+        _cs_log.info('create_server: filtered to %d/%d tools', len(bare_names & {t.name for t in registered}), len(registered))
+
     return server
 
 
-def main():
-    """Run the MCP server on stdio (legacy) or HTTP.
+def _load_agent_tools(agent_id: str) -> set[str] | None:
+    """Read the allowed MCP tools from an agent's frontmatter.
 
-    Usage:
-        python -m teaparty.mcp.server.main                    # stdio (interactive)
-        python -m teaparty.mcp.server.main --http --port 8082  # HTTP (shared)
+    Returns the set of tool names, or None if the agent has no
+    tools restriction (all tools available).
+    """
+    from teaparty.config.config_reader import read_agent_frontmatter
+
+    # Search management agents dir
+    teaparty_home = os.environ.get('TEAPARTY_HOME', '')
+    if not teaparty_home:
+        d = os.getcwd()
+        while d != os.path.dirname(d):
+            candidate = os.path.join(d, '.teaparty')
+            if os.path.isdir(candidate):
+                teaparty_home = candidate
+                break
+            d = os.path.dirname(d)
+
+    if not teaparty_home:
+        return None
+
+    agent_md = os.path.join(teaparty_home, 'management', 'agents', agent_id, 'agent.md')
+    if not os.path.isfile(agent_md):
+        # Try .claude/agents/ in cwd
+        agent_md = os.path.join(os.getcwd(), '.claude', 'agents', f'{agent_id}.md')
+
+    try:
+        fm = read_agent_frontmatter(agent_md)
+        tools_str = fm.get('tools', '')
+        if tools_str:
+            return {t.strip() for t in tools_str.split(',') if t.strip()}
+    except (FileNotFoundError, Exception):
+        pass
+
+    return None
+
+
+def main():
+    """Run the MCP server on stdio or HTTP.
+
+    Stdio mode (per-agent, filtered):
+        python -m teaparty.mcp.server.main --agent office-manager
+
+    HTTP mode (shared, all tools):
+        python -m teaparty.mcp.server.main --http --port 8082
     """
     import argparse
     import logging
@@ -908,9 +962,11 @@ def main():
     parser.add_argument('--reply-socket', default='')
     parser.add_argument('--close-conv-socket', default='')
     parser.add_argument('--agent-id', default='')
+    parser.add_argument('--agent', default='',
+                        help='Agent name — filters tools to this agent\'s frontmatter allowlist')
     parser.add_argument('--context-id', default='')
     parser.add_argument('--http', action='store_true',
-                        help='Run as HTTP server (shared, multi-client)')
+                        help='Run as HTTP server (shared, all tools)')
     parser.add_argument('--port', type=int, default=8082,
                         help='HTTP server port (default: 8082)')
     args, _unknown = parser.parse_known_args()
@@ -947,7 +1003,15 @@ def main():
         )
 
     _mlog = logging.getLogger('teaparty.mcp.server.main')
-    server = create_server()
+
+    # Load agent tool filter if --agent specified
+    agent_tools = None
+    if args.agent:
+        agent_tools = _load_agent_tools(args.agent)
+        _mlog.info('main: agent=%r tools=%s', args.agent,
+                    f'{len(agent_tools)} filtered' if agent_tools else 'all (no filter)')
+
+    server = create_server(agent_tools=agent_tools)
     _mlog.info('main: registered %d tools', len(server._tool_manager._tools))
 
     if args.http:
@@ -955,11 +1019,6 @@ def main():
         server.settings.port = args.port
         server.run(transport='streamable-http')
     else:
-        _mlog.info(
-            'main: stdio mode SEND_SOCKET=%r AGENT_ID=%r',
-            os.environ.get('SEND_SOCKET', ''),
-            os.environ.get('AGENT_ID', ''),
-        )
         server.run(transport='stdio')
 
 
