@@ -411,7 +411,9 @@ def _build_mcp_config(project_root: str, mcp_env: dict | None = None) -> dict:
     needs Send + read tools for dispatch — it doesn't create config artifacts.
     """
     args = ['run', 'python3', '-m', 'teaparty.mcp.server.dispatch']
-    config: dict = {'command': 'uv', 'args': args}
+    import shutil
+    uv_path = shutil.which('uv') or 'uv'
+    config: dict = {'command': uv_path, 'args': args}
     if mcp_env:
         args.extend(_mcp_env_to_args(mcp_env))
         config['env'] = mcp_env
@@ -600,8 +602,10 @@ class OfficeManagerSession:
             module = 'teaparty.mcp.server.dispatch' if is_lead else 'teaparty.mcp.server.main'
             args = ['run', 'python3', '-m', module]
             args.extend(_mcp_env_to_args(mcp_env))
+            import shutil as _shutil
+            _uv = _shutil.which('uv') or 'uv'
             config: dict = {
-                'command': 'uv',
+                'command': _uv,
                 'args': args,
             }
             if mcp_env:
