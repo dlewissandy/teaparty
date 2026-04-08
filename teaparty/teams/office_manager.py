@@ -881,10 +881,14 @@ class OfficeManagerSession:
                 resume_session=self.claude_session_id,
                 mcp_config=_build_mcp_config(cwd, mcp_env=mcp_env),
             )
-            result = await runner.run()
-
             import logging as _log_mod
             _om_dbg = _log_mod.getLogger('teaparty.teams.office_manager')
+            _om_dbg.info('OM args: %s', ' '.join(runner._build_args(None)))
+            _om_dbg.info('OM cwd: %s', runner.cwd)
+            _om_dbg.info('OM mcp_config: %r', runner.mcp_config)
+
+            result = await runner.run()
+
             if result.stderr_lines:
                 _om_dbg.warning('OM stderr (%d lines): %s', len(result.stderr_lines),
                                 '\n'.join(result.stderr_lines[-10:]))
