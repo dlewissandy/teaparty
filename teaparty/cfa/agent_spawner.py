@@ -80,12 +80,10 @@ def compose_worktree(
     compose_settings(worktree, teaparty_home, project_dir=project_dir,
                      agent_name=agent_name, is_management=is_management)
     t4 = _time.monotonic()
-    compose_mcp_config(worktree, role)
-    t5 = _time.monotonic()
     _log.info(
         'compose_worktree_timing: role=%r claude_md=%.3fs agents=%.3fs '
-        'skills=%.3fs settings=%.3fs mcp=%.3fs total=%.3fs',
-        role, t1 - t0, t2 - t1, t3 - t2, t4 - t3, t5 - t4, t5 - t0,
+        'skills=%.3fs settings=%.3fs total=%.3fs',
+        role, t1 - t0, t2 - t1, t3 - t2, t4 - t3, t4 - t0,
     )
 
 

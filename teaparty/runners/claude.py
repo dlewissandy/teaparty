@@ -222,6 +222,11 @@ class ClaudeRunner:
 
     async def run(self) -> ClaudeResult:
         """Run the Claude CLI and stream output. Returns result."""
+        # Write per-agent .mcp.json so the agent sees only its allowed tools.
+        if self.lead and self.cwd:
+            from teaparty.cfa.agent_spawner import compose_mcp_config
+            compose_mcp_config(self.cwd, self.lead)
+
         # Write settings to temp file
         settings_file = None
         settings = dict(self.settings) if self.settings else {}
