@@ -838,6 +838,9 @@ class OfficeManagerSession:
         mcp_env = await self._ensure_bus_listener(cwd)
 
         try:
+            # Pass socket paths as env vars so the workspace .mcp.json MCP
+            # server (started by Claude Code natively) can reach the bus
+            # listener. No --mcp-config override needed.
             runner = create_runner(
                 prompt,
                 cwd=effective_cwd,
@@ -847,6 +850,7 @@ class OfficeManagerSession:
                 lead='office-manager',
                 permission_mode='default',
                 tools='',  # No builtins — OM dispatches via MCP Send only
+                env_vars=mcp_env,
                 settings={
                     'permissions': {
                         'allow': [
@@ -879,11 +883,7 @@ class OfficeManagerSession:
                     },
                 },
                 resume_session=self.claude_session_id,
-                mcp_config=_build_mcp_config(cwd, mcp_env=mcp_env),
             )
-            import logging as _log_mod
-            _om_dbg = _log_mod.getLogger('teaparty.teams.office_manager')
-            _om_dbg.warning('OM ABOUT TO RUN: cwd=%s mcp=%r', runner.cwd, bool(runner.mcp_config))
 
             result = await runner.run()
 
