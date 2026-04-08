@@ -207,12 +207,13 @@ class TestWithdrawKillsProcesses(unittest.TestCase):
         from orchestrator.job_store import withdraw_job
         _run(withdraw_job(project_root=self.repo_root, job_dir=job_dir))
 
-        # Process should be dead
+        # Process should be dead — wait with timeout to reap
         try:
-            os.kill(proc.pid, 0)
-            self.fail('Process should have been killed')
-        except ProcessLookupError:
-            pass  # expected — process is dead
+            proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            self.fail('Process should have been killed by withdrawal')
+        self.assertNotEqual(proc.returncode, None)
 
 
 class TestBridgeWithdrawEndpoint(unittest.TestCase):

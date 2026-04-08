@@ -368,10 +368,22 @@ function confirmWithdraw() {
   if (!session_id) return;
   fetch('/api/withdraw/' + encodeURIComponent(session_id), { method: 'POST' })
     .then(function(r) {
+      return r.json().then(function(body) { return {ok: r.ok, body: body}; });
+    })
+    .then(function(resp) {
       var msgsEl = document.querySelector('.chat-messages');
       if (!msgsEl) return;
-      var text  = r.ok ? 'Job withdrawn.' : 'Withdrawal unavailable for this session.';
-      var color = r.ok ? 'var(--red)' : 'var(--text-dim)';
+      var text, color;
+      if (resp.ok) {
+        text = 'Job withdrawn — processes killed, worktrees removed.';
+        color = 'var(--red)';
+      } else if (resp.body && resp.body.status === 'already_terminal') {
+        text = 'Job already ' + (resp.body.state || 'terminal') + '.';
+        color = 'var(--text-dim)';
+      } else {
+        text = 'Withdrawal failed: ' + (resp.body && resp.body.error || 'unknown error');
+        color = 'var(--text-dim)';
+      }
       msgsEl.innerHTML += '<div class="msg"><div class="msg-sender" style="color:var(--red)">SYSTEM</div>' +
         '<div class="msg-text" style="color:' + color + '"><p>' + text + '</p></div></div>';
       msgsEl.scrollTop = msgsEl.scrollHeight;
@@ -681,10 +693,20 @@ function onSessionCompleted(ev) {
   if (session_id && ev.session_id !== session_id) return;
   var msgsEl = document.querySelector('.chat-messages');
   if (!msgsEl) return;
+  var label = ev.terminal_state || 'DONE';
   msgsEl.innerHTML += '<div class="msg"><div class="msg-sender" style="color:var(--text-dim)">SYSTEM</div>' +
-    '<div class="msg-text" style="color:var(--text-dim)"><p>Session completed: ' +
-    (ev.terminal_state || 'DONE') + '</p></div></div>';
+    '<div class="msg-text" style="color:var(--text-dim)"><p>Session ' +
+    (label === 'WITHDRAWN' ? 'withdrawn' : 'completed: ' + label) +
+    '</p></div></div>';
   msgsEl.scrollTop = msgsEl.scrollHeight;
+
+  // Disable input and actions for terminal sessions
+  var inputEl = document.querySelector('.chat-input textarea');
+  if (inputEl) inputEl.disabled = true;
+  var sendBtn = document.querySelector('.chat-input button');
+  if (sendBtn) sendBtn.disabled = true;
+  var actionsEl = document.querySelector('.chat-header-actions');
+  if (actionsEl) actionsEl.innerHTML = '<span style="color:var(--text-dim);font-size:9px">' + label + '</span>';
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
