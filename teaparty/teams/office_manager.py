@@ -886,8 +886,29 @@ class OfficeManagerSession:
             events = list(_iter_stream_events(stream_path, 'office-manager'))
             response_text = '\n'.join(c for s, c in events if s == 'office-manager')
 
+            # Detect MCP failure: if the system init shows MCP "failed",
+            # the session is poisoned — don't save it for --resume.
+            mcp_failed = False
+            for sender, content in events:
+                if sender == 'system':
+                    try:
+                        sys_data = json.loads(content)
+                        for srv in sys_data.get('mcp_servers', []):
+                            if srv.get('status') == 'failed':
+                                mcp_failed = True
+                    except (ValueError, json.JSONDecodeError):
+                        pass
+
             for sender, content in events:
                 self._bus.send(self.conversation_id, sender, content)
+
+            if mcp_failed:
+                import logging as _log_mod
+                _log_mod.getLogger('teaparty.teams.office_manager').warning(
+                    'MCP server failed to start — clearing session to prevent poisoned --resume'
+                )
+                self.claude_session_id = None
+                self.save_state()
 
             if not response_text:
                 # Runner completed but produced no assistant text. Clear the
