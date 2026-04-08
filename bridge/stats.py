@@ -14,6 +14,14 @@ import os
 
 _TERMINAL_STATES = frozenset({'COMPLETED_WORK', 'WITHDRAWN'})
 
+# States where the agent escalated to a human (questions and escalations,
+# not approval gates which are scheduled checkpoints).
+_ESCALATION_STATES = frozenset({
+    'INTENT_ESCALATE', 'INTENT_QUESTION',
+    'PLANNING_ESCALATE', 'PLANNING_QUESTION',
+    'TASK_ESCALATE', 'TASK_QUESTION',
+})
+
 
 def _day_label(dt: datetime.date) -> str:
     """Return 'Mon D' label for a date (e.g. 'Mar 5', 'Mar 29')."""
@@ -154,6 +162,31 @@ def _cost_by_day(sessions: list, day_labels: list[str]) -> dict[str, float]:
     return totals
 
 
+def _count_historical_escalations(sessions: list) -> int:
+    """Count total escalation events across all session CfA histories.
+
+    An escalation is a transition INTO a state where the agent contacted
+    a human (ESCALATE or QUESTION states). This is a historical sum,
+    not a point-in-time snapshot.
+    """
+    count = 0
+    for session in sessions:
+        if not session.infra_dir:
+            continue
+        cfa_path = os.path.join(session.infra_dir, '.cfa-state.json')
+        if not os.path.exists(cfa_path):
+            continue
+        try:
+            with open(cfa_path) as f:
+                data = json.load(f)
+            for entry in data.get('history', []):
+                if entry.get('state') in _ESCALATION_STATES:
+                    count += 1
+        except (OSError, ValueError):
+            pass
+    return count
+
+
 def _phase_escalations(sessions: list) -> list[dict]:
     """Return list of {phase, count} for sessions currently awaiting human input.
 
@@ -204,7 +237,14 @@ def compute_stats(teaparty_home: str, projects_dir: str | None = None) -> dict:
     _bridge_dir = os.path.dirname(os.path.abspath(__file__))
     repo_root = os.path.dirname(_bridge_dir)
 
+    from orchestrator.job_store import migrate_legacy_sessions
+
     if projects_dir is not None:
+        # Migrate legacy .sessions/ data before scanning
+        for slug in sorted(os.listdir(projects_dir)):
+            proj_path = os.path.join(projects_dir, slug)
+            if os.path.isdir(proj_path):
+                migrate_legacy_sessions(proj_path)
         reader = StateReader(repo_root=repo_root, projects_dir=projects_dir)
         project_dirs = [
             os.path.join(projects_dir, slug)
@@ -213,12 +253,15 @@ def compute_stats(teaparty_home: str, projects_dir: str | None = None) -> dict:
         ]
     else:
         reader = StateReader(repo_root=repo_root, teaparty_home=teaparty_home)
-        # Get project paths for skill counting
+        # Get project paths for skill counting and migration
         try:
             mgmt_team = load_management_team(teaparty_home=teaparty_home)
             project_dirs = [e['path'] for e in _discover(mgmt_team)]
         except Exception:
             project_dirs = []
+        # Migrate legacy .sessions/ data before scanning
+        for proj_path in project_dirs:
+            migrate_legacy_sessions(proj_path)
     all_projects = reader.reload()
 
     all_sessions = [s for p in all_projects for s in p.sessions]
@@ -229,7 +272,7 @@ def compute_stats(teaparty_home: str, projects_dir: str | None = None) -> dict:
     active_jobs = sum(1 for s in all_sessions if s.cfa_state not in _TERMINAL_STATES)
     backtracks  = sum(s.backtrack_count for s in all_sessions)
     total_cost  = sum(s.total_cost_usd for s in all_sessions)
-    escalations = sum(1 for s in all_sessions if s.needs_input)
+    escalations = _count_historical_escalations(all_sessions)
     tasks_done  = _count_completed_tasks(all_sessions)
     skills      = _count_skills(project_dirs)
 
