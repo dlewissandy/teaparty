@@ -409,7 +409,9 @@ class StateReader:
 
         # Infer status from CfA or entry
         status = entry.get('status', '')
-        if not status:
+        if status == 'withdrawn':
+            status = 'complete'
+        elif not status:
             if cfa_state in ('COMPLETED_WORK', 'WITHDRAWN'):
                 status = 'complete'
             elif cfa_state:
