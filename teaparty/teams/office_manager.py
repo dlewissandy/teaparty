@@ -786,7 +786,6 @@ class OfficeManagerSession:
                 agents_file=agents_path,
                 lead='office-manager',
                 permission_mode='default',
-                tools='',  # No builtins — OM dispatches via MCP Send only
                 env_vars=mcp_env,
                 settings={
                     'permissions': {
