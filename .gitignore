@@ -21,6 +21,9 @@ teaparty.db-wal
 *.db-wal
 *.db-journal
 
+# Log files
+*.log
+
 # OS files
 .DS_Store
 
