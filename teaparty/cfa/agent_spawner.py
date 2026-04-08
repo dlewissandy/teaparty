@@ -555,20 +555,16 @@ class AgentSpawner:
                 except (ValueError, _json.JSONDecodeError):
                     pass
 
-        # Dispatching leads only need MCP Send — no builtins.
-        # Leaf specialists need builtins (Read/Write/Edit/Bash) for real work.
-        builtin_tools = '' if agents_json else 'default'
-
+        # All agents use default builtin tools. MCP tool filtering is
+        # handled per-agent by compose_mcp_config (--agent flag in .mcp.json).
+        # Never pass --agents — it enables Claude Code's builtin SendMessage
+        # which bypasses the TeaParty bus listener.
         cmd = [self.claude_cmd, '-p', '--output-format', 'json',
-               '--tools', builtin_tools,
                '--agent', role,
                '--setting-sources', 'user']
 
         if settings_dict:
             cmd += ['--settings', json.dumps(settings_dict)]
-
-        if agents_json:
-            cmd += ['--agents', json.dumps(agents_json)]
 
         if resume_session:
             cmd += ['--resume', resume_session]

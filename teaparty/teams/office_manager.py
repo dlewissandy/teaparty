@@ -592,7 +592,6 @@ class OfficeManagerSession:
             session_id, result_text = await self._agent_pool.dispatch(
                 member, composite,
                 worktree=agent_dir,
-                                agents_json=agents,
                 settings_dict=settings_dict,
                 add_dirs=add_dirs,
             )
@@ -778,12 +777,14 @@ class OfficeManagerSession:
             # Pass socket paths as env vars so the workspace .mcp.json MCP
             # server (started by Claude Code natively) can reach the bus
             # listener. No --mcp-config override needed.
+            # Don't pass agents_file — it enables Claude Code's builtin
+            # SendMessage which bypasses our bus listener. The OM discovers
+            # its team via mcp__teaparty-config__ListTeamMembers instead.
             runner = create_runner(
                 prompt,
                 cwd=effective_cwd,
                 stream_file=stream_path,
                 backend=self._llm_backend,
-                agents_file=agents_path,
                 lead='office-manager',
                 permission_mode='default',
                 env_vars=mcp_env,

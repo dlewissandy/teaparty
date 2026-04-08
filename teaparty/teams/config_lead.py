@@ -201,7 +201,6 @@ class ConfigLeadSession:
             session_id, result_text = await self._agent_pool.dispatch(
                 member, composite,
                 worktree=agent_dir,
-                agents_json=agents,
                 settings_dict=settings_dict,
             )
             t_done = _time.monotonic()

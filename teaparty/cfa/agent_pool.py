@@ -204,13 +204,6 @@ class AgentPool:
             '--setting-sources', 'user',
         ]
 
-        # Dispatching leads: no builtins (MCP Send only).
-        # Leaf specialists: default builtins for real work.
-        builtin_tools = '' if agents_json else 'default'
-        cmd.extend(['--tools', builtin_tools])
-
-        if agents_json:
-            cmd.extend(['--agents', json.dumps(agents_json)])
 
         for d in (add_dirs or []):
             cmd.extend(['--add-dir', d])
