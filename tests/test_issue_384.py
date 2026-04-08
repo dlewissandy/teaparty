@@ -58,7 +58,7 @@ class TestJobCreation(unittest.TestCase):
     def test_create_job_produces_worktree_under_teaparty_jobs(self):
         """A new job creates a directory under .teaparty/jobs/ containing a
         git worktree checkout and a job.json state file."""
-        from orchestrator.job_store import create_job
+        from teaparty.workspace.job_store import create_job
 
         result = _run(create_job(
             project_root=self.repo_root,
@@ -93,7 +93,7 @@ class TestJobCreation(unittest.TestCase):
 
     def test_create_job_updates_jobs_index(self):
         """Creating a job adds an entry to jobs.json."""
-        from orchestrator.job_store import create_job
+        from teaparty.workspace.job_store import create_job
 
         result = _run(create_job(
             project_root=self.repo_root,
@@ -125,7 +125,7 @@ class TestTaskCreation(unittest.TestCase):
     def test_create_task_produces_worktree_under_parent_job(self):
         """A task is created under its parent job's tasks/ directory with
         its own git worktree and task.json state file."""
-        from orchestrator.job_store import create_job, create_task
+        from teaparty.workspace.job_store import create_job, create_task
 
         job = _run(create_job(
             project_root=self.repo_root,
@@ -162,7 +162,7 @@ class TestTaskCreation(unittest.TestCase):
 
     def test_create_task_updates_tasks_index(self):
         """Creating a task adds an entry to the job's tasks/tasks.json."""
-        from orchestrator.job_store import create_job, create_task
+        from teaparty.workspace.job_store import create_job, create_task
 
         job = _run(create_job(
             project_root=self.repo_root,
@@ -203,7 +203,7 @@ class TestProjectScoping(unittest.TestCase):
     def test_jobs_are_isolated_per_project(self):
         """Jobs created for different projects live in their respective
         .teaparty/jobs/ directories, not in a shared pool."""
-        from orchestrator.job_store import create_job
+        from teaparty.workspace.job_store import create_job
 
         job_a = _run(create_job(
             project_root=self.project_a,
@@ -246,7 +246,7 @@ class TestParallelTaskIsolation(unittest.TestCase):
     def test_parallel_tasks_have_distinct_worktrees(self):
         """Two tasks under the same job have different worktree paths and
         independent git checkouts (different .git references)."""
-        from orchestrator.job_store import create_job, create_task
+        from teaparty.workspace.job_store import create_job, create_task
 
         job = _run(create_job(
             project_root=self.repo_root,
@@ -284,7 +284,7 @@ class TestParallelTaskIsolation(unittest.TestCase):
     def test_task_branch_descends_from_job_branch(self):
         """Task branches are created from the job's branch, not from repo HEAD.
         This ensures tasks work on the job's current state."""
-        from orchestrator.job_store import create_job, create_task
+        from teaparty.workspace.job_store import create_job, create_task
 
         job = _run(create_job(
             project_root=self.repo_root,
@@ -341,7 +341,7 @@ class TestJobCleanup(unittest.TestCase):
     def test_cleanup_job_removes_job_and_all_tasks(self):
         """Cleaning up a job removes its directory, worktree, all child task
         worktrees, and deregisters from the jobs index."""
-        from orchestrator.job_store import create_job, create_task, cleanup_job
+        from teaparty.workspace.job_store import create_job, create_task, cleanup_job
 
         job = _run(create_job(
             project_root=self.repo_root,
@@ -406,7 +406,7 @@ class TestJobTaskFullPath(unittest.TestCase):
     def test_full_path_job_to_task_worktree(self):
         """The full directory path from project root to task worktree matches
         the proposal layout: .teaparty/jobs/job-{id}/tasks/task-{id}/worktree/"""
-        from orchestrator.job_store import create_job, create_task
+        from teaparty.workspace.job_store import create_job, create_task
 
         job = _run(create_job(
             project_root=self.repo_root,
@@ -449,7 +449,7 @@ class TestGarbageCollection(unittest.TestCase):
 
     def test_gc_removes_completed_jobs_leaves_active(self):
         """GC removes jobs in terminal states and leaves active jobs alone."""
-        from orchestrator.job_store import create_job, create_task, gc_jobs
+        from teaparty.workspace.job_store import create_job, create_task, gc_jobs
 
         # Create two jobs
         active_job = _run(create_job(
@@ -488,7 +488,7 @@ class TestGarbageCollection(unittest.TestCase):
 
     def test_list_jobs_walks_directory_not_index(self):
         """list_jobs reads job.json files directly, not the jobs.json index."""
-        from orchestrator.job_store import create_job, list_jobs
+        from teaparty.workspace.job_store import create_job, list_jobs
 
         _run(create_job(
             project_root=self.repo_root,

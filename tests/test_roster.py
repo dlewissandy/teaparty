@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for orchestrator.roster — roster derivation for recursive bus dispatch.
+"""Tests for teaparty.config.roster — roster derivation for recursive bus dispatch.
 
 Covers:
  1. derive_om_roster — OM roster from teaparty.yaml members.projects + members.agents
@@ -18,14 +18,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from orchestrator.roster import (
+from teaparty.config.roster import (
     derive_om_roster,
     derive_project_roster,
     derive_workgroup_roster,
     has_sub_roster,
     agent_id_map,
 )
-from orchestrator.bus_dispatcher import RoutingTable
+from teaparty.messaging.dispatcher import RoutingTable
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────

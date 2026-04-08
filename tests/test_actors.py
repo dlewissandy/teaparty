@@ -23,17 +23,17 @@ from unittest.mock import AsyncMock, MagicMock, patch
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from orchestrator.actors import (
+from teaparty.cfa.actors import (
     ActorContext,
     ActorResult,
     AgentRunner,
     ApprovalGate,
     _relocate_plan_file,
 )
-from orchestrator.claude_runner import ClaudeResult
-from orchestrator.events import EventBus
-from orchestrator.phase_config import PhaseSpec
-from orchestrator.proxy_agent import ProxyResult
+from teaparty.runners.claude import ClaudeResult
+from teaparty.messaging.bus import EventBus
+from teaparty.cfa.phase_config import PhaseSpec
+from teaparty.proxy.agent import ProxyResult
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -241,7 +241,7 @@ class TestApprovalGateMissingArtifact(unittest.TestCase):
         ctx = self._make_approval_ctx('INTENT_ASSERT')
 
         # Proxy returns low confidence (escalate path) — human must be asked.
-        with patch('orchestrator.proxy_agent.consult_proxy',
+        with patch('teaparty.proxy.agent.consult_proxy',
                    new=AsyncMock(return_value=ProxyResult(text='', confidence=0.0, from_agent=False))), \
              patch.object(gate, '_classify_review', return_value=('correct', 'Please produce INTENT.md')):
             _run(gate.run(ctx))
@@ -256,7 +256,7 @@ class TestApprovalGateMissingArtifact(unittest.TestCase):
 
         # Proxy is consulted even when artifact is missing — the agent will
         # see the missing file and respond appropriately.
-        with patch('orchestrator.proxy_agent.consult_proxy',
+        with patch('teaparty.proxy.agent.consult_proxy',
                    new=AsyncMock(return_value=ProxyResult(text='', confidence=0.0, from_agent=False))) as mock_cp, \
              patch.object(gate, '_classify_review', return_value=('correct', '')):
             _run(gate.run(ctx))
@@ -275,7 +275,7 @@ class TestApprovalGateMissingArtifact(unittest.TestCase):
 
         # Proxy returns high confidence — agent text is used directly.
         mock_consult = AsyncMock(return_value=ProxyResult(text='Approved.', confidence=0.95, from_agent=True))
-        with patch('orchestrator.proxy_agent.consult_proxy', new=mock_consult), \
+        with patch('teaparty.proxy.agent.consult_proxy', new=mock_consult), \
              patch.object(gate, '_classify_review', return_value=('approve', '')), \
              patch.object(gate, '_proxy_record'):
             result = _run(gate.run(ctx))
@@ -333,7 +333,7 @@ class TestPhaseConfigArtifacts(unittest.TestCase):
     """Verify phase-config.json artifact fields are correctly set for approval gates."""
 
     def _load_config(self) -> dict:
-        config_path = Path(__file__).parent.parent / 'orchestrator' / 'phase-config.json'
+        config_path = Path(__file__).parent.parent / 'teaparty' / 'cfa' / 'phase-config.json'
         with open(config_path) as f:
             import json
             return json.load(f)
@@ -448,14 +448,14 @@ class TestRelocatePlanFile(unittest.TestCase):
 
         target = os.path.join(self.tmpdir, 'PLAN.md')
 
-        with patch('orchestrator.actors.Path.home',
+        with patch('teaparty.cfa.actors.Path.home',
                    return_value=Path(self.fake_plans_dir).parent):
             # We need to mock Path.home() so ~/.claude/plans/ points to our fake dir
             # Instead, let's call the function directly with a patched plans_dir
             pass
 
         # Directly test the function by patching the plans_dir lookup
-        with patch('orchestrator.actors.Path.home') as mock_home:
+        with patch('teaparty.cfa.actors.Path.home') as mock_home:
             mock_home.return_value = Path(self.tmpdir) / 'fakehome'
             plans_dir = Path(self.tmpdir) / 'fakehome' / '.claude' / 'plans'
             plans_dir.mkdir(parents=True)
@@ -472,7 +472,7 @@ class TestRelocatePlanFile(unittest.TestCase):
         """Plan files older than start_time are not relocated."""
         import time
 
-        with patch('orchestrator.actors.Path.home') as mock_home:
+        with patch('teaparty.cfa.actors.Path.home') as mock_home:
             mock_home.return_value = Path(self.tmpdir) / 'fakehome'
             plans_dir = Path(self.tmpdir) / 'fakehome' / '.claude' / 'plans'
             plans_dir.mkdir(parents=True)
@@ -492,7 +492,7 @@ class TestRelocatePlanFile(unittest.TestCase):
         import time
         start = time.time() - 2
 
-        with patch('orchestrator.actors.Path.home') as mock_home:
+        with patch('teaparty.cfa.actors.Path.home') as mock_home:
             mock_home.return_value = Path(self.tmpdir) / 'fakehome'
             plans_dir = Path(self.tmpdir) / 'fakehome' / '.claude' / 'plans'
             plans_dir.mkdir(parents=True)
@@ -513,7 +513,7 @@ class TestRelocatePlanFile(unittest.TestCase):
 
     def test_no_plans_dir_returns_false(self):
         """If ~/.claude/plans/ doesn't exist, return False gracefully."""
-        with patch('orchestrator.actors.Path.home') as mock_home:
+        with patch('teaparty.cfa.actors.Path.home') as mock_home:
             mock_home.return_value = Path(self.tmpdir) / 'empty-home'
 
             target = os.path.join(self.tmpdir, 'PLAN.md')
@@ -523,7 +523,7 @@ class TestRelocatePlanFile(unittest.TestCase):
 
     def test_empty_plans_dir_returns_false(self):
         """If ~/.claude/plans/ exists but is empty, return False."""
-        with patch('orchestrator.actors.Path.home') as mock_home:
+        with patch('teaparty.cfa.actors.Path.home') as mock_home:
             mock_home.return_value = Path(self.tmpdir) / 'fakehome'
             plans_dir = Path(self.tmpdir) / 'fakehome' / '.claude' / 'plans'
             plans_dir.mkdir(parents=True)
@@ -537,7 +537,7 @@ class TestRelocatePlanFile(unittest.TestCase):
         """Non-.md files in plans dir are skipped."""
         import time
 
-        with patch('orchestrator.actors.Path.home') as mock_home:
+        with patch('teaparty.cfa.actors.Path.home') as mock_home:
             mock_home.return_value = Path(self.tmpdir) / 'fakehome'
             plans_dir = Path(self.tmpdir) / 'fakehome' / '.claude' / 'plans'
             plans_dir.mkdir(parents=True)
@@ -561,19 +561,19 @@ class TestApprovalGateImports(unittest.TestCase):
     """actors.py must import from approval_gate.py, not human_proxy.py."""
 
     def test_generate_response_importable(self):
-        from scripts.approval_gate import generate_response
+        from teaparty.proxy.approval_gate import generate_response
         self.assertTrue(callable(generate_response))
 
     def test_resolve_team_model_path_importable(self):
-        from scripts.approval_gate import resolve_team_model_path
+        from teaparty.proxy.approval_gate import resolve_team_model_path
         self.assertTrue(callable(resolve_team_model_path))
 
     def test_extract_question_patterns_importable(self):
-        from scripts.approval_gate import _extract_question_patterns
+        from teaparty.proxy.approval_gate import _extract_question_patterns
         self.assertTrue(callable(_extract_question_patterns))
 
     def test_generative_response_importable(self):
-        from scripts.approval_gate import GenerativeResponse
+        from teaparty.proxy.approval_gate import GenerativeResponse
         self.assertTrue(GenerativeResponse is not None)
 
 
@@ -603,7 +603,7 @@ class TestTeamScopedProxyModel(unittest.TestCase):
         ctx.env_vars = {'POC_TEAM': 'coding', 'POC_PROJECT': 'default'}
 
         mock_consult = AsyncMock(return_value=ProxyResult(text='', confidence=0.0, from_agent=False))
-        with patch('orchestrator.proxy_agent.consult_proxy', new=mock_consult), \
+        with patch('teaparty.proxy.agent.consult_proxy', new=mock_consult), \
              patch.object(gate, '_classify_review', return_value=('approve', '')), \
              patch.object(gate, '_proxy_record'):
             _run(gate.run(ctx))
@@ -612,10 +612,10 @@ class TestTeamScopedProxyModel(unittest.TestCase):
         call_kwargs = mock_consult.call_args
         self.assertEqual(call_kwargs.kwargs.get('team'), 'coding')
 
-    @patch('orchestrator.actors.save_model')
-    @patch('orchestrator.actors.record_outcome')
-    @patch('orchestrator.actors.load_model')
-    @patch('orchestrator.actors.resolve_team_model_path')
+    @patch('teaparty.cfa.actors.save_model')
+    @patch('teaparty.cfa.actors.record_outcome')
+    @patch('teaparty.cfa.actors.load_model')
+    @patch('teaparty.cfa.actors.resolve_team_model_path')
     def test_proxy_record_resolves_team_path(self, mock_resolve, mock_load, mock_record, mock_save):
         gate = self._make_gate()
         mock_resolve.return_value = '/tmp/scoped.json'
@@ -648,11 +648,11 @@ class TestQuestionPatternExtraction(unittest.TestCase):
             poc_root=self.tmpdir,
         )
 
-    @patch('orchestrator.actors.save_model')
-    @patch('orchestrator.actors.record_outcome')
-    @patch('orchestrator.actors.load_model')
-    @patch('orchestrator.actors.resolve_team_model_path', side_effect=lambda b, t: b)
-    @patch('orchestrator.actors._extract_question_patterns')
+    @patch('teaparty.cfa.actors.save_model')
+    @patch('teaparty.cfa.actors.record_outcome')
+    @patch('teaparty.cfa.actors.load_model')
+    @patch('teaparty.cfa.actors.resolve_team_model_path', side_effect=lambda b, t: b)
+    @patch('teaparty.cfa.actors._extract_question_patterns')
     def test_record_passes_question_patterns(self, mock_extract, mock_resolve, mock_load, mock_record, mock_save):
         gate = self._make_gate()
         mock_extract.return_value = [{'question': 'Why?', 'concern': 'scope'}]
@@ -717,7 +717,7 @@ class TestEscalationGenerativeResponse(unittest.TestCase):
         # Write PLAN.md directly (agent wrote it to CWD)
         Path(os.path.join(self.tmpdir, 'PLAN.md')).write_text('# Direct Plan')
 
-        with patch('orchestrator.actors._relocate_plan_file') as mock_relocate:
+        with patch('teaparty.cfa.actors._relocate_plan_file') as mock_relocate:
             mock_result = ClaudeResult(exit_code=0, session_id='s1', start_time=1000.0)
             # Simulate run()'s artifact check
             artifact_path = os.path.join(self.tmpdir, spec.artifact)
@@ -753,7 +753,7 @@ class TestClassifyReviewFallbackOnException(unittest.TestCase):
     def test_import_error_returns_fallback_not_approve(self):
         """If classify_review cannot be imported, must NOT auto-approve."""
         gate = self._make_gate()
-        with patch('scripts.classify_review.classify',
+        with patch('teaparty.scripts.classify_review.classify',
                    side_effect=ImportError('module not found')):
             action, feedback = gate._classify_review('PLAN_ASSERT', 'looks good')
         self.assertEqual(action, '__fallback__')
@@ -762,7 +762,7 @@ class TestClassifyReviewFallbackOnException(unittest.TestCase):
     def test_runtime_error_returns_fallback_not_approve(self):
         """If classify() raises RuntimeError, must NOT auto-approve."""
         gate = self._make_gate()
-        with patch('scripts.classify_review.classify',
+        with patch('teaparty.scripts.classify_review.classify',
                    side_effect=RuntimeError('subprocess crashed')):
             action, feedback = gate._classify_review('PLAN_ASSERT', 'the plan is great')
         self.assertEqual(action, '__fallback__')
@@ -771,7 +771,7 @@ class TestClassifyReviewFallbackOnException(unittest.TestCase):
         """If classify() times out, must NOT auto-approve."""
         gate = self._make_gate()
         import subprocess
-        with patch('scripts.classify_review.classify',
+        with patch('teaparty.scripts.classify_review.classify',
                    side_effect=subprocess.TimeoutExpired('claude', 30)):
             action, feedback = gate._classify_review('WORK_ASSERT', 'approve this')
         self.assertEqual(action, '__fallback__')
@@ -779,7 +779,7 @@ class TestClassifyReviewFallbackOnException(unittest.TestCase):
     def test_normal_classification_still_works(self):
         """Sanity check: normal classify output is parsed correctly."""
         gate = self._make_gate()
-        with patch('scripts.classify_review.classify',
+        with patch('teaparty.scripts.classify_review.classify',
                    return_value='correct\tFix the tests'):
             action, feedback = gate._classify_review('PLAN_ASSERT', 'fix the tests')
         self.assertEqual(action, 'correct')
@@ -823,7 +823,7 @@ class TestDialogLoopsBackThroughProxy(unittest.TestCase):
             ('approve', ''),
         ])
 
-        with patch('orchestrator.proxy_agent.consult_proxy',
+        with patch('teaparty.proxy.agent.consult_proxy',
                    new=AsyncMock(return_value=ProxyResult(text='', confidence=0.0, from_agent=False))), \
              patch.object(gate, '_classify_review', side_effect=lambda *a, **kw: next(classify_returns)), \
              patch.object(gate, '_proxy_record'):
@@ -835,7 +835,7 @@ class TestDialogLoopsBackThroughProxy(unittest.TestCase):
         self.assertEqual(result.action, 'correct')
 
 
-from orchestrator.events import EventType
+from teaparty.messaging.bus import EventType
 
 
 # ── Stderr surfacing ─────────────────────────────────────────────────────────
@@ -874,7 +874,7 @@ class TestStderrInActorResult(unittest.TestCase):
 
     def test_agent_runner_run_propagates_stderr_on_nonzero_exit(self):
         """AgentRunner.run() includes stderr_lines in the failed ActorResult when exit_code != 0."""
-        from orchestrator.claude_runner import ClaudeRunner
+        from teaparty.runners.claude import ClaudeRunner
         runner = AgentRunner()
         ctx = _make_ctx()
 
@@ -897,7 +897,7 @@ class TestStderrInActorResult(unittest.TestCase):
 
     def test_agent_runner_run_propagates_stderr_on_stall_killed(self):
         """AgentRunner.run() includes stderr_lines in the failed ActorResult when stall_killed."""
-        from orchestrator.claude_runner import ClaudeRunner
+        from teaparty.runners.claude import ClaudeRunner
         runner = AgentRunner()
         ctx = _make_ctx()
 
@@ -960,7 +960,7 @@ class TestGenerateWorkSummary(unittest.TestCase):
         _run_sync('git', 'commit', '--allow-empty', '-m', message, cwd=self.tmpdir)
 
     def test_creates_summary_from_dispatch_commits(self):
-        from orchestrator.actors import _generate_work_summary
+        from teaparty.cfa.actors import _generate_work_summary
         self._add_dispatch_commit('coding: implement API endpoint\n\nAdds REST API for users.')
         self._add_dispatch_commit('art: create logo assets\n\nPixel art sprites for all entities.')
 
@@ -974,7 +974,7 @@ class TestGenerateWorkSummary(unittest.TestCase):
 
     def test_includes_all_rounds_on_regeneration(self):
         """After correction, re-generation includes both old and new commits."""
-        from orchestrator.actors import _generate_work_summary
+        from teaparty.cfa.actors import _generate_work_summary
         self._add_dispatch_commit('coding: first pass')
 
         _run(_generate_work_summary(self.tmpdir))
@@ -991,7 +991,7 @@ class TestGenerateWorkSummary(unittest.TestCase):
 
     def test_filters_wip_commits(self):
         """WIP infrastructure commits from merge.py should not appear."""
-        from orchestrator.actors import _generate_work_summary
+        from teaparty.cfa.actors import _generate_work_summary
         _run_sync('git', 'commit', '--allow-empty', '-m',
                   'WIP: [coding] some task', cwd=self.tmpdir)
         self._add_dispatch_commit('coding: real work')
@@ -1004,7 +1004,7 @@ class TestGenerateWorkSummary(unittest.TestCase):
 
     def test_placeholder_when_no_work(self):
         """Empty git log still creates a summary file for the artifact check."""
-        from orchestrator.actors import _generate_work_summary
+        from teaparty.cfa.actors import _generate_work_summary
         # Only the initial commit exists — filtered because no dispatch commits
         _run(_generate_work_summary(self.tmpdir))
 
@@ -1015,7 +1015,7 @@ class TestGenerateWorkSummary(unittest.TestCase):
 
     def test_excludes_main_history(self):
         """Work summary must not include commits from main (Issue #127)."""
-        from orchestrator.actors import _generate_work_summary
+        from teaparty.cfa.actors import _generate_work_summary
         self._add_dispatch_commit('coding: session work')
 
         _run(_generate_work_summary(self.tmpdir))
@@ -1112,7 +1112,7 @@ class TestRelocateMisplacedArtifact(unittest.TestCase):
 
     def test_relocates_artifact_found_via_stream(self):
         """INTENT.md written to arbitrary path is moved to worktree root."""
-        from orchestrator.actors import _relocate_misplaced_artifact
+        from teaparty.cfa.actors import _relocate_misplaced_artifact
 
         # Agent wrote to some random absolute path
         wrong_dir = tempfile.mkdtemp()
@@ -1133,7 +1133,7 @@ class TestRelocateMisplacedArtifact(unittest.TestCase):
 
     def test_relocates_from_repo_root(self):
         """INTENT.md written to repo root (real failure case) is relocated."""
-        from orchestrator.actors import _relocate_misplaced_artifact
+        from teaparty.cfa.actors import _relocate_misplaced_artifact
 
         repo_root = tempfile.mkdtemp()
         misplaced = os.path.join(repo_root, 'INTENT.md')
@@ -1153,7 +1153,7 @@ class TestRelocateMisplacedArtifact(unittest.TestCase):
 
     def test_relocates_from_project_dir(self):
         """INTENT.md written to project dir (other real failure case) is relocated."""
-        from orchestrator.actors import _relocate_misplaced_artifact
+        from teaparty.cfa.actors import _relocate_misplaced_artifact
 
         project_dir = tempfile.mkdtemp()
         misplaced = os.path.join(project_dir, 'INTENT.md')
@@ -1171,7 +1171,7 @@ class TestRelocateMisplacedArtifact(unittest.TestCase):
 
     def test_no_op_when_artifact_already_in_worktree(self):
         """If artifact is already in the worktree, nothing is moved."""
-        from orchestrator.actors import _relocate_misplaced_artifact
+        from teaparty.cfa.actors import _relocate_misplaced_artifact
 
         correct = os.path.join(self.worktree, 'INTENT.md')
         Path(correct).write_text('# Intent\nCorrect location')
@@ -1185,7 +1185,7 @@ class TestRelocateMisplacedArtifact(unittest.TestCase):
 
     def test_no_op_when_no_write_in_stream(self):
         """If stream has no Write calls for the artifact, returns False."""
-        from orchestrator.actors import _relocate_misplaced_artifact
+        from teaparty.cfa.actors import _relocate_misplaced_artifact
 
         # Empty stream
         with open(self.stream_file, 'w') as f:
@@ -1199,7 +1199,7 @@ class TestRelocateMisplacedArtifact(unittest.TestCase):
 
     def test_no_op_when_stream_file_missing(self):
         """If stream file doesn't exist, returns False."""
-        from orchestrator.actors import _relocate_misplaced_artifact
+        from teaparty.cfa.actors import _relocate_misplaced_artifact
 
         result = _relocate_misplaced_artifact(
             self.worktree, '/nonexistent/stream.jsonl', 'INTENT.md',
@@ -1209,7 +1209,7 @@ class TestRelocateMisplacedArtifact(unittest.TestCase):
 
     def test_works_for_plan_artifact(self):
         """Relocation works for PLAN.md too."""
-        from orchestrator.actors import _relocate_misplaced_artifact
+        from teaparty.cfa.actors import _relocate_misplaced_artifact
 
         wrong_dir = tempfile.mkdtemp()
         misplaced = os.path.join(wrong_dir, 'PLAN.md')
@@ -1227,7 +1227,7 @@ class TestRelocateMisplacedArtifact(unittest.TestCase):
 
     def test_end_to_end_relocate_then_interpret(self):
         """End-to-end: misplaced artifact is relocated, then _interpret_output finds it."""
-        from orchestrator.actors import _relocate_misplaced_artifact
+        from teaparty.cfa.actors import _relocate_misplaced_artifact
 
         wrong_dir = tempfile.mkdtemp()
         misplaced = os.path.join(wrong_dir, 'INTENT.md')

@@ -18,8 +18,8 @@ from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from scripts.memory_entry import make_entry, parse_memory_file, serialize_memory_file, MemoryEntry
-from scripts.track_reinforcement import reinforce_entries, load_ids
+from teaparty.learning.episodic.entry import make_entry, parse_memory_file, serialize_memory_file, MemoryEntry
+from teaparty.learning.episodic.reinforce import reinforce_entries, load_ids
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -179,7 +179,7 @@ class TestReinforcementFileRoundTrip(unittest.TestCase):
 
     def test_track_reinforcement_main_updates_file(self):
         """track_reinforcement.py main() updates MEMORY.md correctly."""
-        from track_reinforcement import main as track_main
+        from teaparty.learning.episodic.reinforce import main as track_main
 
         e = _make_entry(importance=0.6)
         Path(self.mem_path).write_text(serialize_memory_file([e]))
@@ -198,7 +198,7 @@ class TestReinforcementFileRoundTrip(unittest.TestCase):
     def test_prominence_increases_after_reinforcement(self):
         """After reinforcement, prominence is higher than before (reinforcement_count boost)."""
         import math
-        from memory_indexer import compute_prominence
+        from teaparty.learning.episodic.indexer import compute_prominence
 
         e = _make_entry(importance=0.5)
         today = date.today()

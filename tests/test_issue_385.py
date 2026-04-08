@@ -129,7 +129,7 @@ class TestPhaseConfigReadsFromTeaparty(unittest.TestCase):
     def test_phase_config_loads_agents_from_teaparty(self):
         """PhaseConfig.resolve_team_agents() must return agent dicts
         loaded from .teaparty/project/agents/, not from agents/*.json."""
-        from orchestrator.phase_config import PhaseConfig
+        from teaparty.cfa.phase_config import PhaseConfig
         config = PhaseConfig(REPO_ROOT)
 
         agents = config.resolve_team_agents('coding')
@@ -146,7 +146,7 @@ class TestAgentsJsonRetired(unittest.TestCase):
 
     def test_no_agent_file_in_phase_config(self):
         """phase-config.json must not have agent_file fields pointing to agents/*.json."""
-        config_path = os.path.join(REPO_ROOT, 'orchestrator', 'phase-config.json')
+        config_path = os.path.join(REPO_ROOT, 'teaparty', 'cfa', 'phase-config.json')
         with open(config_path) as f:
             raw = json.load(f)
 
@@ -170,7 +170,7 @@ class TestBehaviorUnchanged(unittest.TestCase):
     def test_coding_team_agents_match_original(self):
         """The coding team agents loaded from .teaparty/ must have the same
         names, models, and prompt content as the original agents/coding-team.json."""
-        from orchestrator.phase_config import PhaseConfig
+        from teaparty.cfa.phase_config import PhaseConfig
         config = PhaseConfig(REPO_ROOT)
 
         agents = config.resolve_team_agents('coding')

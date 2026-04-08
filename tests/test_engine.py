@@ -25,11 +25,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from orchestrator.actors import ActorContext, ActorResult, AgentRunner, ApprovalGate
-from orchestrator.engine import Orchestrator
-from orchestrator.events import EventBus
-from orchestrator.phase_config import PhaseConfig, PhaseSpec
-from scripts.cfa_state import CfaState
+from teaparty.cfa.actors import ActorContext, ActorResult, AgentRunner, ApprovalGate
+from teaparty.cfa.engine import Orchestrator
+from teaparty.messaging.bus import EventBus
+from teaparty.cfa.phase_config import PhaseConfig, PhaseSpec
+from teaparty.cfa.statemachine.cfa_state import CfaState
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -471,7 +471,7 @@ class TestTransitionStoresFeedbackInLastActorData(unittest.TestCase):
             cfa_state=_make_cfa_state(state='PROPOSAL'),
         )
         # Patch save_state and commit so _transition does not touch the filesystem
-        with patch('orchestrator.engine.save_state'), \
+        with patch('teaparty.cfa.engine.save_state'), \
              patch.object(orch, '_commit_artifacts', new=AsyncMock()), \
              patch.object(orch, '_detect_and_retire_stage'):
             result = ActorResult(
@@ -492,7 +492,7 @@ class TestTransitionStoresFeedbackInLastActorData(unittest.TestCase):
             cfa_state=_make_cfa_state(state='PROPOSAL'),
         )
         dialog = "Human: Narrow scope.\nProxy: Auth only?\nHuman: Yes."
-        with patch('orchestrator.engine.save_state'), \
+        with patch('teaparty.cfa.engine.save_state'), \
              patch.object(orch, '_commit_artifacts', new=AsyncMock()), \
              patch.object(orch, '_detect_and_retire_stage'):
             result = ActorResult(
@@ -509,7 +509,7 @@ class TestTransitionStoresFeedbackInLastActorData(unittest.TestCase):
         orch = _make_orchestrator(
             cfa_state=_make_cfa_state(state='PROPOSAL'),
         )
-        with patch('orchestrator.engine.save_state'), \
+        with patch('teaparty.cfa.engine.save_state'), \
              patch.object(orch, '_commit_artifacts', new=AsyncMock()), \
              patch.object(orch, '_detect_and_retire_stage'):
             result = ActorResult(
@@ -528,7 +528,7 @@ class TestTransitionStoresFeedbackInLastActorData(unittest.TestCase):
         orch = _make_orchestrator(
             cfa_state=_make_cfa_state(state='PROPOSAL'),
         )
-        with patch('orchestrator.engine.save_state'), \
+        with patch('teaparty.cfa.engine.save_state'), \
              patch.object(orch, '_commit_artifacts', new=AsyncMock()), \
              patch.object(orch, '_detect_and_retire_stage'):
             result = ActorResult(

@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-import scripts.generate_review_bridge as mod
+import teaparty.scripts.generate_review_bridge as mod
 
 
 class TestStateConfig(unittest.TestCase):

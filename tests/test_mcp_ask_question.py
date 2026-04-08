@@ -28,7 +28,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from orchestrator.events import EventBus
+from teaparty.messaging.bus import EventBus
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -56,12 +56,12 @@ class TestAskQuestionHandler(unittest.TestCase):
 
     def test_handler_exists_and_is_callable(self):
         """The ask_question handler must exist and be async-callable."""
-        from orchestrator.mcp_server import ask_question_handler
+        from teaparty.mcp.server.main import ask_question_handler
         self.assertTrue(callable(ask_question_handler))
 
     def test_handler_returns_string_answer(self):
         """The handler must return a string answer, not None or a dict."""
-        from orchestrator.mcp_server import ask_question_handler
+        from teaparty.mcp.server.main import ask_question_handler
 
         # Provide a mock proxy that is confident
         async def mock_proxy(question, context):
@@ -77,7 +77,7 @@ class TestAskQuestionHandler(unittest.TestCase):
 
     def test_handler_requires_question(self):
         """Calling with an empty question should raise ValueError."""
-        from orchestrator.mcp_server import ask_question_handler
+        from teaparty.mcp.server.main import ask_question_handler
 
         async def mock_proxy(question, context):
             return {'confident': True, 'answer': 'Yes', 'prediction': 'Yes'}
@@ -104,7 +104,7 @@ class TestProxyRouting(unittest.TestCase):
 
     def test_confident_proxy_returns_answer_without_human(self):
         """When the proxy is confident, the human is never consulted."""
-        from orchestrator.mcp_server import ask_question_handler
+        from teaparty.mcp.server.main import ask_question_handler
 
         human_called = []
 
@@ -126,7 +126,7 @@ class TestProxyRouting(unittest.TestCase):
 
     def test_not_confident_proxy_escalates_to_human(self):
         """When the proxy is not confident, the human's answer is returned."""
-        from orchestrator.mcp_server import ask_question_handler
+        from teaparty.mcp.server.main import ask_question_handler
 
         human_called = []
 
@@ -150,7 +150,7 @@ class TestProxyRouting(unittest.TestCase):
     def test_proxy_always_generates_prediction(self):
         """Per issue #138: the proxy must ALWAYS generate a prediction,
         even when not confident.  The prediction is stored for differential learning."""
-        from orchestrator.mcp_server import ask_question_handler
+        from teaparty.mcp.server.main import ask_question_handler
 
         predictions_recorded = []
 
@@ -198,7 +198,7 @@ class TestDifferentialRecording(unittest.TestCase):
     def test_no_differential_when_proxy_is_confident(self):
         """When the proxy answers directly, no differential is recorded
         (there is no human response to compare against)."""
-        from orchestrator.mcp_server import ask_question_handler
+        from teaparty.mcp.server.main import ask_question_handler
 
         differentials = []
 
@@ -220,7 +220,7 @@ class TestDifferentialRecording(unittest.TestCase):
     def test_differential_includes_question_and_context(self):
         """The differential record must include the question and context
         so the learning system can scope it properly."""
-        from orchestrator.mcp_server import ask_question_handler
+        from teaparty.mcp.server.main import ask_question_handler
 
         differentials = []
 
@@ -257,7 +257,7 @@ class TestMCPServerRegistration(unittest.TestCase):
 
     def test_server_has_ask_question_tool(self):
         """The MCP server must expose an 'AskQuestion' tool."""
-        from orchestrator.mcp_server import create_server
+        from teaparty.mcp.server.main import create_server
         server = create_server()
         tools = _run(server.list_tools())
         tool_names = [t.name for t in tools]
@@ -272,7 +272,7 @@ class TestClaudeRunnerMCPIntegration(unittest.TestCase):
     def test_mcp_server_config_in_build_args(self):
         """When mcp_config is provided, ClaudeRunner must include
         --mcp-config in the CLI args pointing to a temp file."""
-        from orchestrator.claude_runner import ClaudeRunner
+        from teaparty.runners.claude import ClaudeRunner
 
         runner = ClaudeRunner(
             prompt='test',
@@ -280,7 +280,7 @@ class TestClaudeRunnerMCPIntegration(unittest.TestCase):
             stream_file='/tmp/stream.jsonl',
             mcp_config={'ask-question': {
                 'command': 'python',
-                'args': ['-m', 'orchestrator.mcp_server'],
+                'args': ['-m', 'teaparty.mcp.server.main'],
             }},
         )
         args = runner._build_args(None)
@@ -294,7 +294,7 @@ class TestClaudeRunnerMCPIntegration(unittest.TestCase):
 
     def test_no_mcp_config_when_not_provided(self):
         """When mcp_config is not provided, --mcp-config should not appear."""
-        from orchestrator.claude_runner import ClaudeRunner
+        from teaparty.runners.claude import ClaudeRunner
 
         runner = ClaudeRunner(
             prompt='test',
@@ -318,7 +318,7 @@ class TestEscalationListener(unittest.TestCase):
 
     def test_listener_starts_and_creates_socket(self):
         """After start(), the socket path exists."""
-        from orchestrator.escalation_listener import EscalationListener
+        from teaparty.cfa.gates.escalation import EscalationListener
 
         bus = _make_event_bus()
         listener = EscalationListener(
@@ -337,7 +337,7 @@ class TestEscalationListener(unittest.TestCase):
     def test_cold_start_escalates_to_human(self):
         """With no proxy model (cold start), questions go to the human."""
         import json as _json
-        from orchestrator.escalation_listener import EscalationListener
+        from teaparty.cfa.gates.escalation import EscalationListener
 
         bus = _make_event_bus()
         human_called = []
@@ -377,7 +377,7 @@ class TestEscalationListener(unittest.TestCase):
         """On cold start, the differential (empty prediction vs. human answer)
         is recorded in the proxy model for learning."""
         import json as _json
-        from orchestrator.escalation_listener import EscalationListener
+        from teaparty.cfa.gates.escalation import EscalationListener
 
         bus = _make_event_bus()
         proxy_path = os.path.join(self.tmpdir, '.proxy.json')
@@ -414,8 +414,8 @@ class TestEscalationListener(unittest.TestCase):
     def test_confident_proxy_returns_without_human(self):
         """When the proxy is confident, the human is never consulted."""
         import json as _json
-        from orchestrator.escalation_listener import EscalationListener
-        from orchestrator.proxy_agent import ProxyResult
+        from teaparty.cfa.gates.escalation import EscalationListener
+        from teaparty.proxy.agent import ProxyResult
 
         bus = _make_event_bus()
         human_called = []
@@ -432,7 +432,7 @@ class TestEscalationListener(unittest.TestCase):
 
         async def _test():
             with patch(
-                'orchestrator.proxy_agent.consult_proxy',
+                'teaparty.proxy.agent.consult_proxy',
                 new=AsyncMock(return_value=ProxyResult(
                     text='Use PostgreSQL', confidence=0.95, from_agent=True,
                 )),

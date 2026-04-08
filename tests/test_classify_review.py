@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-import scripts.classify_review as mod
+import teaparty.scripts.classify_review as mod
 
 
 class TestStateActions(unittest.TestCase):
@@ -69,7 +69,7 @@ class TestStateActions(unittest.TestCase):
         # state machine edge for that state
         import json
         machine_path = os.path.join(
-            os.path.dirname(__file__), '..', 'cfa-state-machine.json')
+            os.path.dirname(__file__), '..', 'teaparty', 'cfa', 'statemachine', 'cfa-state-machine.json')
         with open(machine_path) as f:
             machine = json.load(f)
         for state, actions in mod.STATE_ACTIONS.items():

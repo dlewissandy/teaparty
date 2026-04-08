@@ -121,7 +121,7 @@ class TestLegacyMigration(unittest.TestCase):
         _make_legacy_session(self.project_dir, '20260401-120000',
                              cfa_state='COMPLETED_WORK', prompt='Fix the bug')
 
-        from orchestrator.job_store import migrate_legacy_sessions
+        from teaparty.workspace.job_store import migrate_legacy_sessions
         migrated = migrate_legacy_sessions(self.project_dir)
 
         self.assertEqual(migrated, ['20260401-120000'])
@@ -146,7 +146,7 @@ class TestLegacyMigration(unittest.TestCase):
         _make_legacy_session(self.project_dir, '20260401-120000',
                              cfa_state='COMPLETED_WORK', backtrack_count=3)
 
-        from orchestrator.job_store import migrate_legacy_sessions
+        from teaparty.workspace.job_store import migrate_legacy_sessions
         migrate_legacy_sessions(self.project_dir)
 
         # .sessions/ directory removed
@@ -154,7 +154,7 @@ class TestLegacyMigration(unittest.TestCase):
             os.path.join(self.project_dir, '.sessions')))
 
         # CfA state in new location
-        from orchestrator.job_store import find_job
+        from teaparty.workspace.job_store import find_job
         job = find_job(self.project_dir, job_id='job-20260401-120000')
         self.assertIsNotNone(job)
         cfa_path = os.path.join(job['_job_dir'], '.cfa-state.json')
@@ -166,7 +166,7 @@ class TestLegacyMigration(unittest.TestCase):
         """Sessions that already have a job entry are not re-migrated."""
         _make_legacy_session(self.project_dir, '20260401-120000')
 
-        from orchestrator.job_store import migrate_legacy_sessions
+        from teaparty.workspace.job_store import migrate_legacy_sessions
         migrate_legacy_sessions(self.project_dir)
         # Second call should find nothing to migrate
         migrated = migrate_legacy_sessions(self.project_dir)
@@ -177,10 +177,10 @@ class TestLegacyMigration(unittest.TestCase):
         _make_legacy_session(self.project_dir, '20260401-120000',
                              cfa_state='COMPLETED_WORK')
 
-        from orchestrator.job_store import migrate_legacy_sessions
+        from teaparty.workspace.job_store import migrate_legacy_sessions
         migrate_legacy_sessions(self.project_dir)
 
-        from bridge.stats import compute_stats
+        from teaparty.bridge.stats import compute_stats
         stats = compute_stats(teaparty_home='', projects_dir=self._tmpdir)
 
         self.assertEqual(stats['summary']['jobs_done'], 1)
@@ -202,7 +202,7 @@ class TestStatsFromJobs(unittest.TestCase):
         _make_job(self.project_dir, '20260403-120000',
                   cfa_state='WITHDRAWN')
 
-        from bridge.stats import compute_stats
+        from teaparty.bridge.stats import compute_stats
         stats = compute_stats(teaparty_home='', projects_dir=self._tmpdir)
         self.assertEqual(stats['summary']['jobs_done'], 2)
 
@@ -212,7 +212,7 @@ class TestStatsFromJobs(unittest.TestCase):
         _make_job(self.project_dir, '20260402-120000',
                   cfa_state='WITHDRAWN')
 
-        from bridge.stats import compute_stats
+        from teaparty.bridge.stats import compute_stats
         stats = compute_stats(teaparty_home='', projects_dir=self._tmpdir)
         self.assertEqual(stats['summary']['withdrawals'], 1)
 
@@ -222,7 +222,7 @@ class TestStatsFromJobs(unittest.TestCase):
         _make_job(self.project_dir, '20260402-120000',
                   cfa_state='COMPLETED_WORK', backtrack_count=5)
 
-        from bridge.stats import compute_stats
+        from teaparty.bridge.stats import compute_stats
         stats = compute_stats(teaparty_home='', projects_dir=self._tmpdir)
         self.assertEqual(stats['summary']['backtracks'], 7)
 
@@ -238,7 +238,7 @@ class TestStatsFromJobs(unittest.TestCase):
         _make_job(self.project_dir, '20260401-120000',
                   cfa_state='COMPLETED_WORK', history=history)
 
-        from bridge.stats import compute_stats
+        from teaparty.bridge.stats import compute_stats
         stats = compute_stats(teaparty_home='', projects_dir=self._tmpdir)
         self.assertEqual(stats['summary']['tasks_done'], 2)
 
@@ -266,7 +266,7 @@ class TestHistoricalEscalations(unittest.TestCase):
         _make_job(self.project_dir, '20260401-120000',
                   cfa_state='COMPLETED_WORK', history=history)
 
-        from bridge.stats import compute_stats
+        from teaparty.bridge.stats import compute_stats
         stats = compute_stats(teaparty_home='', projects_dir=self._tmpdir)
         # 3 escalation events, not 0 (session is complete)
         self.assertEqual(stats['summary']['escalations'], 3)
@@ -287,7 +287,7 @@ class TestHistoricalEscalations(unittest.TestCase):
         _make_job(self.project_dir, '20260402-120000',
                   cfa_state='COMPLETED_WORK', history=history2)
 
-        from bridge.stats import compute_stats
+        from teaparty.bridge.stats import compute_stats
         stats = compute_stats(teaparty_home='', projects_dir=self._tmpdir)
         self.assertEqual(stats['summary']['escalations'], 3)
 
@@ -313,7 +313,7 @@ class TestDailyCharts(unittest.TestCase):
         _make_job(self.project_dir, session_id,
                   cfa_state='COMPLETED_WORK', history=history)
 
-        from bridge.stats import compute_stats
+        from teaparty.bridge.stats import compute_stats
         stats = compute_stats(teaparty_home='', projects_dir=self._tmpdir)
 
         daily_tasks = [d['tasks'] for d in stats['daily']]
@@ -353,7 +353,7 @@ class TestRegistryModeStats(unittest.TestCase):
         _make_job(self.project_dir, '20260402-120000',
                   cfa_state='WITHDRAWN')
 
-        from bridge.stats import compute_stats
+        from teaparty.bridge.stats import compute_stats
         stats = compute_stats(teaparty_home=self.teaparty_home)
 
         self.assertEqual(stats['summary']['jobs_done'], 1)
@@ -370,7 +370,7 @@ class TestRegistryModeStats(unittest.TestCase):
         _make_job(self.project_dir, '20260401-120000',
                   cfa_state='COMPLETED_WORK', history=history)
 
-        from bridge.stats import compute_stats
+        from teaparty.bridge.stats import compute_stats
         stats = compute_stats(teaparty_home=self.teaparty_home)
 
         self.assertEqual(stats['summary']['escalations'], 2)
@@ -388,7 +388,7 @@ class TestRegistryModeStats(unittest.TestCase):
         _make_job(self.project_dir, '20260401-120000',
                   cfa_state='COMPLETED_WORK', history=history)
 
-        from bridge.stats import compute_stats
+        from teaparty.bridge.stats import compute_stats
         stats = compute_stats(teaparty_home=self.teaparty_home)
 
         chart_total = sum(e['count'] for e in stats['phase_escalations'])

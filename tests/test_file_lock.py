@@ -11,7 +11,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from scripts.file_lock import (
+from teaparty.util.file_lock import (
     locked_open, locked_append, locked_read_json, locked_write_json,
     LOCK_SUFFIX,
 )

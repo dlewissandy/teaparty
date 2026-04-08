@@ -17,7 +17,7 @@ from unittest.mock import MagicMock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from orchestrator.messaging import SqliteMessageBus
+from teaparty.messaging.conversations import SqliteMessageBus
 
 
 class TestStreamEventRelay(unittest.TestCase):
@@ -34,7 +34,7 @@ class TestStreamEventRelay(unittest.TestCase):
 
     def _get_handler(self):
         """Return the stream event relay function under test."""
-        from orchestrator.engine import _make_stream_event_handler
+        from teaparty.cfa.engine import _make_stream_event_handler
         return _make_stream_event_handler(self._bus, self._conv_id)
 
     def _messages(self):
@@ -265,7 +265,7 @@ class TestIterStreamEvents(unittest.TestCase):
                 f.write(json.dumps(ev) + '\n')
 
     def _iter(self, agent_role='test-agent'):
-        from orchestrator.office_manager import _iter_stream_events
+        from teaparty.teams.office_manager import _iter_stream_events
         return list(_iter_stream_events(self._stream_path, agent_role))
 
     # ── top-level tool_use ───────────────────────────────────────────────

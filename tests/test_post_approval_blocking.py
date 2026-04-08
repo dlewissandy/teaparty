@@ -15,8 +15,8 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from orchestrator.events import Event, EventBus, EventType
-from orchestrator.learnings import extract_learnings
+from teaparty.messaging.bus import Event, EventBus, EventType
+from teaparty.learning.extract import extract_learnings
 
 
 def _run(coro):
@@ -49,14 +49,14 @@ class TestExtractLearningsMustNotBlockEventLoop(unittest.TestCase):
 
             ticks_before = len(ticks)
 
-            with patch('orchestrator.learnings._run_summarize') as mock_sum, \
-                 patch('orchestrator.learnings._promote_team') as m1, \
-                 patch('orchestrator.learnings._promote_session') as m2, \
-                 patch('orchestrator.learnings._promote_project') as m3, \
-                 patch('orchestrator.learnings._promote_global') as m4, \
-                 patch('orchestrator.learnings._promote_prospective') as m5, \
-                 patch('orchestrator.learnings._promote_in_flight') as m6, \
-                 patch('orchestrator.learnings._promote_corrective') as m7:
+            with patch('teaparty.learning.extract._run_summarize') as mock_sum, \
+                 patch('teaparty.learning.extract._promote_team') as m1, \
+                 patch('teaparty.learning.extract._promote_session') as m2, \
+                 patch('teaparty.learning.extract._promote_project') as m3, \
+                 patch('teaparty.learning.extract._promote_global') as m4, \
+                 patch('teaparty.learning.extract._promote_prospective') as m5, \
+                 patch('teaparty.learning.extract._promote_in_flight') as m6, \
+                 patch('teaparty.learning.extract._promote_corrective') as m7:
 
                 # Simulate blocking work (as production code does today)
                 mock_sum.side_effect = lambda *a, **kw: time.sleep(0.15)

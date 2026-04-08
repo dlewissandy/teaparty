@@ -20,8 +20,8 @@ from unittest.mock import patch
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from scripts.summarize_session import promote
-from orchestrator.learnings import (
+from teaparty.learning.episodic.summarize import promote
+from teaparty.learning.extract import (
     _promote_team,
     _promote_session,
     _promote_project,
@@ -88,7 +88,7 @@ class TestPromoteTeam(unittest.TestCase):
             calls.append({'scope': scope, 'output': output, 'ctx': ctx})
             return 0
 
-        with patch('scripts.summarize_session.summarize', side_effect=fake_summarize):
+        with patch('teaparty.learning.episodic.summarize.summarize', side_effect=fake_summarize):
             result = promote('team', self.session_dir, '', '')
 
         self.assertEqual(result, 0)
@@ -106,7 +106,7 @@ class TestPromoteTeam(unittest.TestCase):
             outputs.append(output)
             return 0
 
-        with patch('scripts.summarize_session.summarize', side_effect=fake_summarize):
+        with patch('teaparty.learning.episodic.summarize.summarize', side_effect=fake_summarize):
             promote('team', self.session_dir, '', '')
 
         inst_outputs = [o for o in outputs if o.endswith('institutional.md')]
@@ -124,7 +124,7 @@ class TestPromoteTeam(unittest.TestCase):
             calls.append(output)
             return 0
 
-        with patch('scripts.summarize_session.summarize', side_effect=fake_summarize):
+        with patch('teaparty.learning.episodic.summarize.summarize', side_effect=fake_summarize):
             promote('team', self.session_dir, '', '')
 
         # art, writing, editorial, research should not appear in outputs
@@ -172,7 +172,7 @@ class TestPromoteSession(unittest.TestCase):
             contexts_used.extend(ctx)
             return 0
 
-        with patch('scripts.summarize_session.summarize', side_effect=fake_summarize):
+        with patch('teaparty.learning.episodic.summarize.summarize', side_effect=fake_summarize):
             promote('session', self.session_dir, '', '')
 
         self.assertIn(inst_path, contexts_used)
@@ -190,7 +190,7 @@ class TestPromoteSession(unittest.TestCase):
             contexts_used.extend(ctx)
             return 0
 
-        with patch('scripts.summarize_session.summarize', side_effect=fake_summarize):
+        with patch('teaparty.learning.episodic.summarize.summarize', side_effect=fake_summarize):
             promote('session', self.session_dir, '', '')
 
         self.assertIn(legacy_path, contexts_used)
@@ -206,8 +206,8 @@ class TestPromoteSession(unittest.TestCase):
             scopes.append(scope)
             return 0
 
-        with patch('scripts.summarize_session.summarize', side_effect=fake_summarize):
-            with patch('scripts.summarize_session._try_compact'):
+        with patch('teaparty.learning.episodic.summarize.summarize', side_effect=fake_summarize):
+            with patch('teaparty.learning.episodic.summarize._try_compact'):
                 promote('session', self.session_dir, '', '')
 
         self.assertIn('session-institutional', scopes)
@@ -223,8 +223,8 @@ class TestPromoteSession(unittest.TestCase):
             outputs.append(output)
             return 0
 
-        with patch('scripts.summarize_session.summarize', side_effect=fake_summarize):
-            with patch('scripts.summarize_session._try_compact'):
+        with patch('teaparty.learning.episodic.summarize.summarize', side_effect=fake_summarize):
+            with patch('teaparty.learning.episodic.summarize._try_compact'):
                 promote('session', self.session_dir, '', '')
 
         tasks_outputs = [o for o in outputs if 'tasks' in o]
@@ -239,8 +239,8 @@ class TestPromoteSession(unittest.TestCase):
 
         compact_calls = []
 
-        with patch('scripts.summarize_session.summarize', return_value=0):
-            with patch('scripts.summarize_session._try_compact',
+        with patch('teaparty.learning.episodic.summarize.summarize', return_value=0):
+            with patch('teaparty.learning.episodic.summarize._try_compact',
                        side_effect=compact_calls.append):
                 promote('session', self.session_dir, '', '')
 
@@ -278,8 +278,8 @@ class TestPromoteProject(unittest.TestCase):
             contexts.extend(ctx)
             return 0
 
-        with patch('scripts.summarize_session.summarize', side_effect=fake_summarize):
-            with patch('scripts.summarize_session._try_compact'):
+        with patch('teaparty.learning.episodic.summarize.summarize', side_effect=fake_summarize):
+            with patch('teaparty.learning.episodic.summarize._try_compact'):
                 promote('project', self.session_dir, self.project_dir, '')
 
         self.assertIn(inst_path, contexts)
@@ -293,8 +293,8 @@ class TestPromoteProject(unittest.TestCase):
             outputs.append(output)
             return 0
 
-        with patch('scripts.summarize_session.summarize', side_effect=fake_summarize):
-            with patch('scripts.summarize_session._try_compact'):
+        with patch('teaparty.learning.episodic.summarize.summarize', side_effect=fake_summarize):
+            with patch('teaparty.learning.episodic.summarize._try_compact'):
                 promote('project', self.session_dir, self.project_dir, '')
 
         self.assertTrue(
@@ -311,8 +311,8 @@ class TestPromoteProject(unittest.TestCase):
             scopes.append(scope)
             return 0
 
-        with patch('scripts.summarize_session.summarize', side_effect=fake_summarize):
-            with patch('scripts.summarize_session._try_compact'):
+        with patch('teaparty.learning.episodic.summarize.summarize', side_effect=fake_summarize):
+            with patch('teaparty.learning.episodic.summarize._try_compact'):
                 promote('project', self.session_dir, self.project_dir, '')
 
         self.assertIn('project-institutional', scopes)
@@ -323,8 +323,8 @@ class TestPromoteProject(unittest.TestCase):
 
         compact_calls = []
 
-        with patch('scripts.summarize_session.summarize', return_value=0):
-            with patch('scripts.summarize_session._try_compact',
+        with patch('teaparty.learning.episodic.summarize.summarize', return_value=0):
+            with patch('teaparty.learning.episodic.summarize._try_compact',
                        side_effect=compact_calls.append):
                 promote('project', self.session_dir, self.project_dir, '')
 
@@ -361,8 +361,8 @@ class TestPromoteGlobal(unittest.TestCase):
             contexts.extend(ctx)
             return 0
 
-        with patch('scripts.summarize_session.summarize', side_effect=fake_summarize):
-            with patch('scripts.summarize_session._try_compact'):
+        with patch('teaparty.learning.episodic.summarize.summarize', side_effect=fake_summarize):
+            with patch('teaparty.learning.episodic.summarize._try_compact'):
                 promote('global', '', self.project_dir, self.projects_dir)
 
         self.assertIn(inst_path, contexts)
@@ -376,8 +376,8 @@ class TestPromoteGlobal(unittest.TestCase):
             outputs.append(output)
             return 0
 
-        with patch('scripts.summarize_session.summarize', side_effect=fake_summarize):
-            with patch('scripts.summarize_session._try_compact'):
+        with patch('teaparty.learning.episodic.summarize.summarize', side_effect=fake_summarize):
+            with patch('teaparty.learning.episodic.summarize._try_compact'):
                 promote('global', '', self.project_dir, self.projects_dir)
 
         self.assertTrue(
@@ -394,8 +394,8 @@ class TestPromoteGlobal(unittest.TestCase):
             scopes.append(scope)
             return 0
 
-        with patch('scripts.summarize_session.summarize', side_effect=fake_summarize):
-            with patch('scripts.summarize_session._try_compact'):
+        with patch('teaparty.learning.episodic.summarize.summarize', side_effect=fake_summarize):
+            with patch('teaparty.learning.episodic.summarize._try_compact'):
                 promote('global', '', self.project_dir, self.projects_dir)
 
         self.assertIn('global-institutional', scopes)
@@ -411,8 +411,8 @@ class TestPromoteGlobal(unittest.TestCase):
             outputs.append(output)
             return 0
 
-        with patch('scripts.summarize_session.summarize', side_effect=fake_summarize):
-            with patch('scripts.summarize_session._try_compact'):
+        with patch('teaparty.learning.episodic.summarize.summarize', side_effect=fake_summarize):
+            with patch('teaparty.learning.episodic.summarize._try_compact'):
                 # output_dir is empty — should derive from project_dir
                 promote('global', '', self.project_dir, '')
 
@@ -458,7 +458,7 @@ class TestPromoteProspective(unittest.TestCase):
             calls.append({'scope': scope, 'ctx': ctx, 'output': output})
             return 0
 
-        with patch('scripts.summarize_session.summarize', side_effect=fake_summarize):
+        with patch('teaparty.learning.episodic.summarize.summarize', side_effect=fake_summarize):
             promote('prospective', self.session_dir, self.project_dir, '')
 
         self.assertEqual(len(calls), 1)
@@ -475,7 +475,7 @@ class TestPromoteProspective(unittest.TestCase):
             calls.append(ctx)
             return 0
 
-        with patch('scripts.summarize_session.summarize', side_effect=fake_summarize):
+        with patch('teaparty.learning.episodic.summarize.summarize', side_effect=fake_summarize):
             promote('prospective', self.session_dir, self.project_dir, '',
                     premortem_file=custom)
 
@@ -490,7 +490,7 @@ class TestPromoteProspective(unittest.TestCase):
             outputs.append(output)
             return 0
 
-        with patch('scripts.summarize_session.summarize', side_effect=fake_summarize):
+        with patch('teaparty.learning.episodic.summarize.summarize', side_effect=fake_summarize):
             promote('prospective', self.session_dir, self.project_dir, '')
 
         self.assertTrue(
@@ -507,7 +507,7 @@ class TestPromoteProspective(unittest.TestCase):
             outputs.append(output)
             return 0
 
-        with patch('scripts.summarize_session.summarize', side_effect=fake_summarize):
+        with patch('teaparty.learning.episodic.summarize.summarize', side_effect=fake_summarize):
             promote('prospective', self.session_dir, self.project_dir, '')
 
         tasks_dir = os.path.join(self.project_dir, 'tasks')
@@ -548,7 +548,7 @@ class TestPromoteInFlight(unittest.TestCase):
             calls.append({'scope': scope, 'ctx': ctx})
             return 0
 
-        with patch('scripts.summarize_session.summarize', side_effect=fake_summarize):
+        with patch('teaparty.learning.episodic.summarize.summarize', side_effect=fake_summarize):
             promote('in-flight', self.session_dir, self.project_dir, '')
 
         self.assertEqual(len(calls), 1)
@@ -565,7 +565,7 @@ class TestPromoteInFlight(unittest.TestCase):
             calls.append(ctx)
             return 0
 
-        with patch('scripts.summarize_session.summarize', side_effect=fake_summarize):
+        with patch('teaparty.learning.episodic.summarize.summarize', side_effect=fake_summarize):
             promote('in-flight', self.session_dir, self.project_dir, '',
                     assumptions_file=custom)
 
@@ -580,7 +580,7 @@ class TestPromoteInFlight(unittest.TestCase):
             outputs.append(output)
             return 0
 
-        with patch('scripts.summarize_session.summarize', side_effect=fake_summarize):
+        with patch('teaparty.learning.episodic.summarize.summarize', side_effect=fake_summarize):
             promote('in-flight', self.session_dir, self.project_dir, '')
 
         self.assertTrue(
@@ -597,7 +597,7 @@ class TestPromoteInFlight(unittest.TestCase):
             outputs.append(output)
             return 0
 
-        with patch('scripts.summarize_session.summarize', side_effect=fake_summarize):
+        with patch('teaparty.learning.episodic.summarize.summarize', side_effect=fake_summarize):
             promote('in-flight', self.session_dir, self.project_dir, '')
 
         tasks_dir = os.path.join(self.project_dir, 'tasks')
@@ -637,7 +637,7 @@ class TestPromoteCorrective(unittest.TestCase):
             calls.append({'scope': scope, 'stream': stream})
             return 0
 
-        with patch('scripts.summarize_session.summarize', side_effect=fake_summarize):
+        with patch('teaparty.learning.episodic.summarize.summarize', side_effect=fake_summarize):
             promote('corrective', self.session_dir, self.project_dir, '')
 
         self.assertEqual(len(calls), 1)
@@ -653,7 +653,7 @@ class TestPromoteCorrective(unittest.TestCase):
             outputs.append(output)
             return 0
 
-        with patch('scripts.summarize_session.summarize', side_effect=fake_summarize):
+        with patch('teaparty.learning.episodic.summarize.summarize', side_effect=fake_summarize):
             promote('corrective', self.session_dir, self.project_dir, '')
 
         self.assertTrue(
@@ -670,7 +670,7 @@ class TestPromoteCorrective(unittest.TestCase):
             outputs.append(output)
             return 0
 
-        with patch('scripts.summarize_session.summarize', side_effect=fake_summarize):
+        with patch('teaparty.learning.episodic.summarize.summarize', side_effect=fake_summarize):
             promote('corrective', self.session_dir, self.project_dir, '')
 
         tasks_dir = os.path.join(self.project_dir, 'tasks')
@@ -690,7 +690,7 @@ class TestPromoteCorrective(unittest.TestCase):
             calls.append(stream)
             return 0
 
-        with patch('scripts.summarize_session.summarize', side_effect=fake_summarize):
+        with patch('teaparty.learning.episodic.summarize.summarize', side_effect=fake_summarize):
             promote('corrective', self.session_dir, self.project_dir, '',
                     stream_path=custom_stream)
 
@@ -718,7 +718,7 @@ class TestLearningsHelpers(unittest.TestCase):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def _patch_call_promote(self):
-        return patch('orchestrator.learnings._call_promote')
+        return patch('teaparty.learning.extract._call_promote')
 
     def test_promote_team_calls_team_scope(self):
         with self._patch_call_promote() as mock:
@@ -810,8 +810,8 @@ class TestExtractLearningsIntegration(unittest.TestCase):
 
     def test_extract_learnings_runs_without_raising(self):
         """extract_learnings completes without raising even when all inputs are absent."""
-        with patch('orchestrator.learnings._run_summarize') as mock_run, \
-             patch('orchestrator.learnings._call_promote') as mock_promote:
+        with patch('teaparty.learning.extract._run_summarize') as mock_run, \
+             patch('teaparty.learning.extract._call_promote') as mock_promote:
             _run(extract_learnings(
                 infra_dir=self.infra_dir,
                 project_dir=self.project_dir,
@@ -838,8 +838,8 @@ class TestExtractLearningsIntegration(unittest.TestCase):
 
     def test_extract_learnings_calls_all_10_scopes(self):
         """All 10 scopes are triggered — 3 via _run_summarize, 7 via _call_promote."""
-        with patch('orchestrator.learnings._run_summarize') as mock_run, \
-             patch('orchestrator.learnings._call_promote') as mock_promote:
+        with patch('teaparty.learning.extract._run_summarize') as mock_run, \
+             patch('teaparty.learning.extract._call_promote') as mock_promote:
             _run(extract_learnings(
                 infra_dir=self.infra_dir,
                 project_dir=self.project_dir,
@@ -868,7 +868,7 @@ class TestCompactFileWiring(unittest.TestCase):
         self.tmpdir = tempfile.mkdtemp()
         # POC scripts directory: tests/ -> orchestrator/ -> POC/ -> scripts/
         self.scripts_dir = str(
-            Path(__file__).parent.parent / 'scripts'
+            Path(__file__).parent.parent / 'teaparty' / 'learning' / 'episodic'
         )
         self._sys_path_before = sys.path[:]
 
@@ -892,11 +892,11 @@ class TestCompactFileWiring(unittest.TestCase):
         # Always reload to ensure we get the real module with all attributes
         import importlib.util
         spec = importlib.util.spec_from_file_location(
-            'summarize_session',
-            os.path.join(self.scripts_dir, 'summarize_session.py'),
+            'summarize',
+            os.path.join(self.scripts_dir, 'summarize.py'),
         )
         mod = importlib.util.module_from_spec(spec)
-        sys.modules['summarize_session'] = mod
+        sys.modules['summarize'] = mod
         spec.loader.exec_module(mod)
         return mod
 
@@ -916,7 +916,7 @@ class TestCompactFileWiring(unittest.TestCase):
             os.makedirs(team_dir)
             _nonempty(os.path.join(team_dir, 'institutional.md'))
 
-            from orchestrator.learnings import _call_promote
+            from teaparty.learning.extract import _call_promote
             _call_promote(self.scripts_dir, 'session',
                           session_dir=self.tmpdir, project_dir='', output_dir='')
 
@@ -944,7 +944,7 @@ class TestCompactFileWiring(unittest.TestCase):
             os.makedirs(project_dir)
             _nonempty(os.path.join(session_dir, 'institutional.md'))
 
-            from orchestrator.learnings import _call_promote
+            from teaparty.learning.extract import _call_promote
             _call_promote(self.scripts_dir, 'project',
                           session_dir=session_dir, project_dir=project_dir, output_dir='')
 
@@ -971,7 +971,7 @@ class TestCompactFileWiring(unittest.TestCase):
             os.makedirs(project_dir)
             _nonempty(os.path.join(project_dir, 'institutional.md'))
 
-            from orchestrator.learnings import _call_promote
+            from teaparty.learning.extract import _call_promote
             _call_promote(self.scripts_dir, 'global',
                           session_dir='', project_dir=project_dir,
                           output_dir=projects_dir)
@@ -999,7 +999,7 @@ class TestCompactFileWiring(unittest.TestCase):
             os.makedirs(dispatch_dir)
             _nonempty(os.path.join(dispatch_dir, 'MEMORY.md'))
 
-            from orchestrator.learnings import _call_promote
+            from teaparty.learning.extract import _call_promote
             _call_promote(self.scripts_dir, 'team',
                           session_dir=self.tmpdir, project_dir='', output_dir='')
 
@@ -1019,7 +1019,7 @@ class TestCallPromoteImportPath(unittest.TestCase):
         self.tmpdir = tempfile.mkdtemp()
         # Use the actual scripts directory from the project
         self.scripts_dir = str(
-            Path(__file__).parent.parent / 'scripts'
+            Path(__file__).parent.parent / 'teaparty' / 'learning' / 'episodic'
         )
 
     def tearDown(self):
@@ -1031,19 +1031,19 @@ class TestCallPromoteImportPath(unittest.TestCase):
         real scripts_dir path (not mocked). This verifies the sys.path
         manipulation works end-to-end.
         """
-        from orchestrator.learnings import _call_promote
+        from teaparty.learning.extract import _call_promote
         # Team scope with empty session_dir returns 1 (missing session_dir)
         # but the important thing is it doesn't raise an ImportError.
         # We patch summarize to avoid real LLM calls.
-        with patch('scripts.summarize_session.summarize', return_value=0):
+        with patch('teaparty.learning.episodic.summarize.summarize', return_value=0):
             _call_promote(self.scripts_dir, 'team', session_dir='', project_dir='', output_dir='')
 
     def test_call_promote_invokes_all_seven_scopes_without_import_error(self):
         """Each of the 7 promote scopes can be imported and dispatched."""
-        from orchestrator.learnings import _call_promote
+        from teaparty.learning.extract import _call_promote
         scopes = ['team', 'session', 'project', 'global',
                   'prospective', 'in-flight', 'corrective']
-        with patch('scripts.summarize_session.summarize', return_value=0):
+        with patch('teaparty.learning.episodic.summarize.summarize', return_value=0):
             for scope in scopes:
                 with self.subTest(scope=scope):
                     # Should not raise ImportError or AttributeError
@@ -1056,9 +1056,9 @@ class TestCallPromoteImportPath(unittest.TestCase):
 
     def test_call_promote_cleans_up_sys_path(self):
         """_call_promote must not leave scripts_dir permanently added to sys.path."""
-        from orchestrator.learnings import _call_promote
+        from teaparty.learning.extract import _call_promote
         before_count = sys.path.count(self.scripts_dir)
-        with patch('scripts.summarize_session.summarize', return_value=0):
+        with patch('teaparty.learning.episodic.summarize.summarize', return_value=0):
             _call_promote(self.scripts_dir, 'team', session_dir='', project_dir='', output_dir='')
         after_count = sys.path.count(self.scripts_dir)
         self.assertEqual(after_count, before_count,
@@ -1097,10 +1097,10 @@ class TestRunSummarize(unittest.TestCase):
             calls.append({'stream': stream_path, 'scope': scope})
             return 0
 
-        with patch.dict('sys.modules', {'summarize_session': type(sys)('summarize_session')}):
+        with patch.dict('sys.modules', {'summarize': type(sys)('summarize')}):
             import sys as _sys
-            _sys.modules['summarize_session'].summarize = fake_summarize
-            from orchestrator.learnings import _run_summarize
+            _sys.modules['summarize'].summarize = fake_summarize
+            from teaparty.learning.extract import _run_summarize
             _run_summarize(self.scripts_dir, self.infra_dir,
                            scope='observations', output='/tmp/out.md')
 
@@ -1117,9 +1117,9 @@ class TestRunSummarize(unittest.TestCase):
             calls.append({'stream': stream_path, 'scope': scope})
             return 0
 
-        with patch.dict('sys.modules', {'summarize_session': type(sys)('summarize_session')}):
-            sys.modules['summarize_session'].summarize = fake_summarize
-            from orchestrator.learnings import _run_summarize
+        with patch.dict('sys.modules', {'summarize': type(sys)('summarize')}):
+            sys.modules['summarize'].summarize = fake_summarize
+            from teaparty.learning.extract import _run_summarize
             _run_summarize(self.scripts_dir, self.infra_dir,
                            scope='intent-alignment', output='/tmp/out.md')
 
@@ -1135,9 +1135,9 @@ class TestRunSummarize(unittest.TestCase):
             calls.append(scope)
             return 0
 
-        with patch.dict('sys.modules', {'summarize_session': type(sys)('summarize_session')}):
-            sys.modules['summarize_session'].summarize = fake_summarize
-            from orchestrator.learnings import _run_summarize
+        with patch.dict('sys.modules', {'summarize': type(sys)('summarize')}):
+            sys.modules['summarize'].summarize = fake_summarize
+            from teaparty.learning.extract import _run_summarize
             _run_summarize(self.scripts_dir, self.infra_dir,
                            scope='observations', output='/tmp/out.md')
 
@@ -1150,12 +1150,12 @@ class TestRunSummarize(unittest.TestCase):
         def boom(*a, **kw):
             raise RuntimeError('test explosion')
 
-        with patch.dict('sys.modules', {'summarize_session': type(sys)('summarize_session')}):
-            sys.modules['summarize_session'].summarize = boom
-            from orchestrator.learnings import _run_summarize
+        with patch.dict('sys.modules', {'summarize': type(sys)('summarize')}):
+            sys.modules['summarize'].summarize = boom
+            from teaparty.learning.extract import _run_summarize
 
             import logging
-            with self.assertLogs('orchestrator.learnings', level='WARNING') as cm:
+            with self.assertLogs('teaparty.learning.extract', level='WARNING') as cm:
                 _run_summarize(self.scripts_dir, self.infra_dir,
                                scope='observations', output='/tmp/out.md')
 
@@ -1186,7 +1186,7 @@ class TestRecurrenceDetection(unittest.TestCase):
 
     def _make_session_learning(self, session_dir: str, content: str) -> str:
         """Write a learning entry to a session's tasks/ directory."""
-        from scripts.memory_entry import make_entry, serialize_entry
+        from teaparty.learning.episodic.entry import make_entry, serialize_entry
         entry = make_entry(content, type='procedural', domain='task')
         fname = f'{entry.id}.md'
         fpath = os.path.join(session_dir, 'tasks', fname)
@@ -1195,7 +1195,7 @@ class TestRecurrenceDetection(unittest.TestCase):
 
     def test_learning_below_threshold_not_promoted(self):
         """A learning seen in only 1 session is not promoted to project scope."""
-        from orchestrator.promotion import find_recurring_learnings
+        from teaparty.learning.promotion import find_recurring_learnings
 
         s1 = self._make_session_dir('session-20260301-100000')
         self._make_session_learning(s1, 'Always run lint before committing code.')
@@ -1207,7 +1207,7 @@ class TestRecurrenceDetection(unittest.TestCase):
 
     def test_learning_at_threshold_is_promoted(self):
         """A learning seen in 3 distinct sessions qualifies for promotion."""
-        from orchestrator.promotion import find_recurring_learnings
+        from teaparty.learning.promotion import find_recurring_learnings
 
         for i in range(3):
             s = self._make_session_dir(f'session-2026030{i+1}-100000')
@@ -1221,7 +1221,7 @@ class TestRecurrenceDetection(unittest.TestCase):
 
     def test_recurrence_uses_similarity_not_exact_match(self):
         """Semantically similar learnings across sessions count as recurrences."""
-        from orchestrator.promotion import find_recurring_learnings
+        from teaparty.learning.promotion import find_recurring_learnings
 
         variations = [
             'Always run lint before committing code.',
@@ -1243,7 +1243,7 @@ class TestRecurrenceDetection(unittest.TestCase):
 
     def test_distinct_learnings_not_conflated(self):
         """Learnings on different topics don't count toward each other's recurrence."""
-        from orchestrator.promotion import find_recurring_learnings
+        from teaparty.learning.promotion import find_recurring_learnings
 
         for i in range(3):
             s = self._make_session_dir(f'session-2026030{i+1}-100000')
@@ -1261,8 +1261,8 @@ class TestRecurrenceDetection(unittest.TestCase):
 
     def test_already_promoted_learnings_not_re_promoted(self):
         """Learnings that already exist at project scope are not duplicated."""
-        from orchestrator.promotion import find_recurring_learnings
-        from scripts.memory_entry import make_entry, serialize_entry
+        from teaparty.learning.promotion import find_recurring_learnings
+        from teaparty.learning.episodic.entry import make_entry, serialize_entry
 
         # Create 3 sessions with same learning
         for i in range(3):
@@ -1284,8 +1284,8 @@ class TestRecurrenceDetection(unittest.TestCase):
 
     def test_matching_project_entries_are_reinforced(self):
         """When session learnings match existing project entries, reinforce the project entry."""
-        from orchestrator.promotion import find_recurring_learnings
-        from scripts.memory_entry import make_entry, serialize_entry
+        from teaparty.learning.promotion import find_recurring_learnings
+        from teaparty.learning.episodic.entry import make_entry, serialize_entry
 
         # Create 3 sessions with same learning
         for i in range(3):
@@ -1310,8 +1310,8 @@ class TestRecurrenceDetection(unittest.TestCase):
 
     def test_institutional_learnings_scanned_for_recurrence(self):
         """Session institutional.md entries are also scanned for recurrence."""
-        from orchestrator.promotion import find_recurring_learnings
-        from scripts.memory_entry import make_entry, serialize_entry
+        from teaparty.learning.promotion import find_recurring_learnings
+        from teaparty.learning.episodic.entry import make_entry, serialize_entry
 
         for i in range(3):
             s = self._make_session_dir(f'session-2026030{i+1}-100000')
@@ -1350,29 +1350,29 @@ class TestProxyExclusion(unittest.TestCase):
 
     def test_proxy_md_excluded_from_promotion(self):
         """Learnings from proxy.md are excluded from session→project promotion."""
-        from orchestrator.promotion import is_proxy_learning
+        from teaparty.learning.promotion import is_proxy_learning
 
         self.assertTrue(is_proxy_learning('/some/path/proxy.md'))
         self.assertTrue(is_proxy_learning('/project/proxy.md'))
 
     def test_proxy_tasks_excluded_from_promotion(self):
         """Learnings from proxy-tasks/ are excluded from promotion."""
-        from orchestrator.promotion import is_proxy_learning
+        from teaparty.learning.promotion import is_proxy_learning
 
         self.assertTrue(is_proxy_learning('/project/proxy-tasks/correction-abc.md'))
         self.assertTrue(is_proxy_learning('/project/proxy-tasks/pattern-xyz.md'))
 
     def test_non_proxy_not_excluded(self):
         """Regular task and institutional learnings are not excluded."""
-        from orchestrator.promotion import is_proxy_learning
+        from teaparty.learning.promotion import is_proxy_learning
 
         self.assertFalse(is_proxy_learning('/project/tasks/20260301.md'))
         self.assertFalse(is_proxy_learning('/project/institutional.md'))
 
     def test_recurring_proxy_learnings_not_promoted(self):
         """Even if proxy learnings recur across sessions, they don't promote."""
-        from orchestrator.promotion import find_recurring_learnings
-        from scripts.memory_entry import make_entry, serialize_entry
+        from teaparty.learning.promotion import find_recurring_learnings
+        from teaparty.learning.episodic.entry import make_entry, serialize_entry
 
         for i in range(3):
             session_dir = self._make_session_dir(f'session-2026030{i+1}-100000')
@@ -1404,7 +1404,7 @@ class TestProjectAgnosticFiltering(unittest.TestCase):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def _make_project_learning(self, content: str) -> str:
-        from scripts.memory_entry import make_entry, serialize_entry
+        from teaparty.learning.episodic.entry import make_entry, serialize_entry
         entry = make_entry(content, type='procedural', domain='task')
         fpath = os.path.join(self.project_dir, 'tasks', f'{entry.id}.md')
         Path(fpath).write_text(serialize_entry(entry))
@@ -1412,7 +1412,7 @@ class TestProjectAgnosticFiltering(unittest.TestCase):
 
     def test_project_specific_learning_not_promoted_to_global(self):
         """A learning tied to a specific codebase does not promote to global."""
-        from orchestrator.promotion import filter_project_agnostic
+        from teaparty.learning.promotion import filter_project_agnostic
 
         learnings_with_judgment = [
             ('Use SQLAlchemy for the TeaParty database layer.', False),
@@ -1425,7 +1425,7 @@ class TestProjectAgnosticFiltering(unittest.TestCase):
             return False
 
         self._make_project_learning(learnings_with_judgment[0][0])
-        from scripts.memory_entry import make_entry
+        from teaparty.learning.episodic.entry import make_entry
         entry = make_entry(learnings_with_judgment[0][0])
 
         result = filter_project_agnostic([entry], judge_fn=mock_judge)
@@ -1433,12 +1433,12 @@ class TestProjectAgnosticFiltering(unittest.TestCase):
 
     def test_project_agnostic_learning_promoted_to_global(self):
         """A generalizable learning passes the filter for global promotion."""
-        from orchestrator.promotion import filter_project_agnostic
+        from teaparty.learning.promotion import filter_project_agnostic
 
         def mock_judge(content: str) -> bool:
             return True  # judge says it's generalizable
 
-        from scripts.memory_entry import make_entry
+        from teaparty.learning.episodic.entry import make_entry
         entry = make_entry('Always run tests before merging to main.')
 
         result = filter_project_agnostic([entry], judge_fn=mock_judge)
@@ -1446,12 +1446,12 @@ class TestProjectAgnosticFiltering(unittest.TestCase):
 
     def test_llm_failure_defaults_to_not_promoting(self):
         """If the LLM judge fails, the learning is NOT promoted (conservative)."""
-        from orchestrator.promotion import filter_project_agnostic
+        from teaparty.learning.promotion import filter_project_agnostic
 
         def failing_judge(content: str) -> bool:
             raise RuntimeError('LLM call failed')
 
-        from scripts.memory_entry import make_entry
+        from teaparty.learning.episodic.entry import make_entry
         entry = make_entry('Always run tests before merging.')
 
         result = filter_project_agnostic([entry], judge_fn=failing_judge)
@@ -1465,7 +1465,7 @@ class TestPromotionMetadata(unittest.TestCase):
 
     def test_entry_has_promoted_from_field(self):
         """MemoryEntry has a promoted_from field defaulting to empty string."""
-        from scripts.memory_entry import MemoryEntry
+        from teaparty.learning.episodic.entry import MemoryEntry
         entry = MemoryEntry(
             id='test-id', type='procedural', domain='task',
             importance=0.5, phase='unknown', status='active',
@@ -1476,7 +1476,7 @@ class TestPromotionMetadata(unittest.TestCase):
 
     def test_entry_has_promoted_at_field(self):
         """MemoryEntry has a promoted_at field defaulting to empty string."""
-        from scripts.memory_entry import MemoryEntry
+        from teaparty.learning.episodic.entry import MemoryEntry
         entry = MemoryEntry(
             id='test-id', type='procedural', domain='task',
             importance=0.5, phase='unknown', status='active',
@@ -1487,7 +1487,7 @@ class TestPromotionMetadata(unittest.TestCase):
 
     def test_serialize_includes_promotion_metadata(self):
         """Serialization includes promoted_from and promoted_at when non-empty."""
-        from scripts.memory_entry import MemoryEntry, serialize_entry
+        from teaparty.learning.episodic.entry import MemoryEntry, serialize_entry
         entry = MemoryEntry(
             id='test-id', type='procedural', domain='task',
             importance=0.5, phase='unknown', status='active',
@@ -1501,7 +1501,7 @@ class TestPromotionMetadata(unittest.TestCase):
 
     def test_parse_entry_with_promotion_metadata(self):
         """Entries with promotion metadata round-trip through parse/serialize."""
-        from scripts.memory_entry import parse_entry
+        from teaparty.learning.episodic.entry import parse_entry
 
         text = """---
 id: abc-123
@@ -1523,7 +1523,7 @@ Always run lint before committing."""
 
     def test_parse_entry_without_promotion_metadata_defaults(self):
         """Existing entries without promotion fields parse with empty defaults."""
-        from scripts.memory_entry import parse_entry
+        from teaparty.learning.episodic.entry import parse_entry
 
         text = """---
 id: abc-123
@@ -1566,9 +1566,9 @@ class TestPromotionIntegration(unittest.TestCase):
         async def tracking_run_scope(scope_name, fn, *args, **kwargs):
             scopes_run.append(scope_name)
 
-        with patch('orchestrator.learnings._run_summarize'), \
-             patch('orchestrator.learnings._call_promote'):
-            with patch('orchestrator.learnings._evaluate_promotions') as mock_eval:
+        with patch('teaparty.learning.extract._run_summarize'), \
+             patch('teaparty.learning.extract._call_promote'):
+            with patch('teaparty.learning.extract._evaluate_promotions') as mock_eval:
                 _run(extract_learnings(
                     infra_dir=self.infra_dir,
                     project_dir=self.project_dir,

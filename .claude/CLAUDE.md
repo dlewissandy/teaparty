@@ -7,7 +7,7 @@ A research platform for durable, scalable agent coordination.
 ```bash
 uv sync
 ./teaparty.sh                                                    # HTML dashboard (bridge server, localhost:8081)
-uv run python -m orchestrator "Your task"                        # CLI session
+uv run python -m teaparty "Your task"                            # CLI session
 uv run pytest tests/ --tb=short -q                               # tests
 uv run mkdocs serve                                              # docs at localhost:8000
 ```
@@ -22,23 +22,27 @@ uv run mkdocs serve                                              # docs at local
 
 ## Codebase
 
-Key packages at repo root:
+All source code lives under `teaparty/`:
 
-- `orchestrator/` -- CfA engine, actors, session lifecycle
-  - `session.py` -- Session lifecycle, worktree creation, phase orchestration
-  - `engine.py` -- CfA state machine execution, approval gates
-  - `actors.py` -- Actor definitions (human, proxy, intent team, uber team)
-  - `claude_runner.py` -- Claude Code CLI integration, stream-json parsing
-  - `dispatch_cli.py` -- Hierarchical dispatch to subteams via worktrees
-  - `learnings.py` -- Post-session learning extraction
-  - `phase_config.py` -- Per-phase Claude Code configuration
-- `bridge/` -- HTML dashboard + bridge server
-- `scripts/` -- CfA state machine, proxy model, learning utilities
-- `.teaparty/project/agents/` -- Agent definitions (markdown with YAML frontmatter)
-- `.teaparty/project/workgroups/` -- Workgroup definitions (team rosters)
-- `cfa-state-machine.json` -- State machine definition
+- `teaparty/cfa/` -- CfA protocol engine, actors, session, dispatch, state machine, gates
+- `teaparty/proxy/` -- Human proxy system (independent of CfA)
+- `teaparty/learning/` -- Hierarchical memory and learning (independent of CfA)
+  - `episodic/` -- Session entries, indexing, compaction, reinforcement
+  - `procedural/` -- Skill and pattern acquisition
+  - `research/` -- PDF extraction, arXiv, Semantic Scholar
+- `teaparty/bridge/` -- HTML dashboard + bridge server
+  - `state/` -- State reader/writer, heartbeat, dashboard stats, navigation
+- `teaparty/mcp/` -- MCP server (config CRUD, escalation, messaging, intervention)
+- `teaparty/runners/` -- LLM execution backends (Claude CLI, Ollama, deterministic)
+- `teaparty/messaging/` -- Event bus, conversations, routing, IPC
+- `teaparty/teams/` -- Multi-turn team coordination (office manager, project lead/manager)
+- `teaparty/workspace/` -- Git worktree and job lifecycle
+- `teaparty/config/` -- Runtime config loading
+- `teaparty/scheduling/` -- Cron execution
+- `teaparty/scripts/` -- LLM-powered utility scripts
+- `teaparty/util/` -- Shared utilities
 
-Dashboard: `bridge/` (HTML dashboard + bridge server)
+Config: `.teaparty/` (agents, workgroups, project settings)
 Tests: `tests/`
 
 ## Docs

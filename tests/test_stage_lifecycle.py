@@ -18,9 +18,9 @@ from dataclasses import replace
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from scripts.memory_entry import make_entry, parse_memory_file, serialize_memory_file, MemoryEntry
-from scripts.retire_stage import retire_stage_entries
-from scripts.detect_stage import detect_stage_from_content, STAGES
+from teaparty.learning.episodic.entry import make_entry, parse_memory_file, serialize_memory_file, MemoryEntry
+from teaparty.learning.episodic.retire_stage import retire_stage_entries
+from teaparty.learning.episodic.detect_stage import detect_stage_from_content, STAGES
 
 
 # ── retire_stage_entries ──────────────────────────────────────────────────────

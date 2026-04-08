@@ -15,13 +15,13 @@ from datetime import date, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from scripts.memory_indexer import (
+from teaparty.learning.episodic.indexer import (
     compute_prominence,
     HALF_LIFE_DAYS,
 )
 # DECAY_FLOOR may not exist yet — that's one of the things we're testing
 try:
-    from memory_indexer import DECAY_FLOOR
+    from teaparty.learning.episodic.indexer import DECAY_FLOOR
 except ImportError:
     DECAY_FLOOR = None
 

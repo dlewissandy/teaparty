@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from scripts.human_proxy import (
+from teaparty.proxy.human_proxy import (
     COLD_START_THRESHOLD,
     MAX_ARTIFACT_CHARS,
     MAX_ARTIFACT_LENGTHS_PER_ENTRY,

@@ -13,7 +13,7 @@ import tempfile
 import time
 import unittest
 
-from orchestrator.messaging import (
+from teaparty.messaging.conversations import (
     ConversationState,
     ConversationType,
     Message,

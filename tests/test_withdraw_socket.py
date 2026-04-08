@@ -16,7 +16,7 @@ import os
 import tempfile
 import unittest
 
-from orchestrator.intervention_listener import (
+from teaparty.cfa.gates.intervention_listener import (
     InterventionListener,
     InterventionRequest,
     make_intervention_request,

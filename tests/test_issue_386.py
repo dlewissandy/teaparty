@@ -46,7 +46,7 @@ def _make_git_repo(path: str) -> str:
 def _make_job_with_worktree(repo_root: str, session_id: str, *,
                             cfa_state: str = 'TASK_IN_PROGRESS') -> dict:
     """Create a job with a real git worktree and CfA state."""
-    from orchestrator.job_store import create_job
+    from teaparty.workspace.job_store import create_job
     result = _run(create_job(
         project_root=repo_root,
         task=f'Test task for {session_id}',
@@ -94,7 +94,7 @@ class TestWithdrawJob(unittest.TestCase):
         worktree = result['worktree_path']
         self.assertTrue(os.path.isdir(worktree))
 
-        from orchestrator.job_store import withdraw_job
+        from teaparty.workspace.job_store import withdraw_job
         _run(withdraw_job(project_root=self.repo_root,
                           job_dir=result['job_dir']))
 
@@ -104,7 +104,7 @@ class TestWithdrawJob(unittest.TestCase):
         """Withdrawn job is removed from jobs.json."""
         result = _make_job_with_worktree(self.repo_root, 'test-001')
 
-        from orchestrator.job_store import withdraw_job, _jobs_dir, _load_index
+        from teaparty.workspace.job_store import withdraw_job, _jobs_dir, _load_index
         jobs_index = os.path.join(_jobs_dir(self.repo_root), 'jobs.json')
         before = _load_index(jobs_index, 'jobs')
         self.assertEqual(len(before['jobs']), 1)
@@ -120,7 +120,7 @@ class TestWithdrawJob(unittest.TestCase):
         result = _make_job_with_worktree(self.repo_root, 'test-001')
         job_dir = result['job_dir']
 
-        from orchestrator.job_store import withdraw_job
+        from teaparty.workspace.job_store import withdraw_job
         _run(withdraw_job(project_root=self.repo_root, job_dir=job_dir))
 
         # job.json still exists with withdrawn status
@@ -142,7 +142,7 @@ class TestWithdrawJob(unittest.TestCase):
         result = _make_job_with_worktree(self.repo_root, 'test-001',
                                          cfa_state='TASK_IN_PROGRESS')
 
-        from orchestrator.job_store import withdraw_job
+        from teaparty.workspace.job_store import withdraw_job
         _run(withdraw_job(project_root=self.repo_root,
                           job_dir=result['job_dir']))
 
@@ -157,7 +157,7 @@ class TestWithdrawJob(unittest.TestCase):
         """Task worktrees under the job are also removed."""
         job_result = _make_job_with_worktree(self.repo_root, 'test-001')
 
-        from orchestrator.job_store import create_task, withdraw_job
+        from teaparty.workspace.job_store import create_task, withdraw_job
         task_result = _run(create_task(
             job_dir=job_result['job_dir'],
             task='Subtask',
@@ -175,7 +175,7 @@ class TestWithdrawJob(unittest.TestCase):
         result = _make_job_with_worktree(self.repo_root, 'test-001',
                                          cfa_state='COMPLETED_WORK')
 
-        from orchestrator.job_store import withdraw_job
+        from teaparty.workspace.job_store import withdraw_job
         # Should not raise
         _run(withdraw_job(project_root=self.repo_root,
                           job_dir=result['job_dir']))
@@ -204,7 +204,7 @@ class TestWithdrawKillsProcesses(unittest.TestCase):
         with open(os.path.join(job_dir, '.heartbeat'), 'w') as f:
             json.dump({'status': 'alive', 'pid': proc.pid, 'ts': 0}, f)
 
-        from orchestrator.job_store import withdraw_job
+        from teaparty.workspace.job_store import withdraw_job
         _run(withdraw_job(project_root=self.repo_root, job_dir=job_dir))
 
         # Process should be dead — wait with timeout to reap
@@ -234,7 +234,7 @@ class TestBridgeWithdrawEndpoint(unittest.TestCase):
         result = _make_job_with_worktree(self.repo_root, 'test-001')
 
         # No socket exists — the old code would return 503
-        from orchestrator.job_store import withdraw_job
+        from teaparty.workspace.job_store import withdraw_job
         _run(withdraw_job(project_root=self.repo_root,
                           job_dir=result['job_dir']))
 

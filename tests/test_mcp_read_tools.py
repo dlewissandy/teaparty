@@ -12,7 +12,7 @@ import unittest
 
 import yaml
 
-from orchestrator.mcp_server import (
+from teaparty.mcp.server.main import (
     get_agent_handler,
     get_project_handler,
     get_skill_handler,

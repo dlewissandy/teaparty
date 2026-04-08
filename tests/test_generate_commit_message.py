@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import AsyncMock, patch, MagicMock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-import scripts.generate_commit_message as mod
+import teaparty.scripts.generate_commit_message as mod
 
 
 class TestBuildFallback(unittest.TestCase):

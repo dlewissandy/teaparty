@@ -19,7 +19,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from scripts.memory_indexer import (
+from teaparty.learning.episodic.indexer import (
     chunk_by_entries,
     chunk_text,
     compute_prominence,

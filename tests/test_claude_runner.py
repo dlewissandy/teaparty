@@ -17,7 +17,7 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from orchestrator.claude_runner import ClaudeRunner
+from teaparty.runners.claude import ClaudeRunner
 
 
 def _make_runner(
@@ -194,27 +194,27 @@ class TestClaudeResultDataclass(unittest.TestCase):
 
     def test_stderr_lines_default_empty(self):
         """ClaudeResult defaults to empty stderr_lines."""
-        from orchestrator.claude_runner import ClaudeResult
+        from teaparty.runners.claude import ClaudeResult
         r = ClaudeResult(exit_code=0)
         self.assertEqual(r.stderr_lines, [])
         self.assertFalse(r.had_errors)
 
     def test_stderr_lines_populated(self):
         """ClaudeResult carries stderr_lines when set."""
-        from orchestrator.claude_runner import ClaudeResult
+        from teaparty.runners.claude import ClaudeResult
         r = ClaudeResult(exit_code=1, stderr_lines=['error: something broke'])
         self.assertEqual(r.stderr_lines, ['error: something broke'])
         self.assertTrue(r.had_errors)
 
     def test_had_errors_false_for_empty(self):
         """had_errors is False when stderr_lines is explicitly empty."""
-        from orchestrator.claude_runner import ClaudeResult
+        from teaparty.runners.claude import ClaudeResult
         r = ClaudeResult(exit_code=0, stderr_lines=[])
         self.assertFalse(r.had_errors)
 
     def test_had_errors_true_for_multiple_lines(self):
         """had_errors is True when there are multiple stderr lines."""
-        from orchestrator.claude_runner import ClaudeResult
+        from teaparty.runners.claude import ClaudeResult
         r = ClaudeResult(exit_code=0, stderr_lines=['line1', 'line2', 'line3'])
         self.assertTrue(r.had_errors)
         self.assertEqual(len(r.stderr_lines), 3)
@@ -287,7 +287,7 @@ class TestStreamWithWatchdogStderr(unittest.TestCase):
         """Each stderr line causes a STREAM_ERROR event on the event bus."""
         import asyncio
         from unittest.mock import AsyncMock, MagicMock
-        from orchestrator.events import EventBus, EventType
+        from teaparty.messaging.bus import EventBus, EventType
 
         bus = MagicMock(spec=EventBus)
         published = []
@@ -316,7 +316,7 @@ class TestStreamWithWatchdogStderr(unittest.TestCase):
     def test_stream_error_events_carry_session_id(self):
         """STREAM_ERROR events carry the runner's session_id."""
         from unittest.mock import MagicMock
-        from orchestrator.events import EventBus, EventType
+        from teaparty.messaging.bus import EventBus, EventType
 
         bus = MagicMock(spec=EventBus)
         published = []
@@ -342,7 +342,7 @@ class TestStreamWithWatchdogStderr(unittest.TestCase):
     def test_no_stream_error_events_when_no_stderr(self):
         """No STREAM_ERROR events are published when stderr is silent."""
         from unittest.mock import MagicMock
-        from orchestrator.events import EventBus, EventType
+        from teaparty.messaging.bus import EventBus, EventType
 
         bus = MagicMock(spec=EventBus)
         published = []

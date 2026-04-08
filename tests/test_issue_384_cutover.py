@@ -31,7 +31,7 @@ class TestWorktreeModuleCutover(unittest.TestCase):
 
     def test_no_worktrees_json_reference_in_worktree_module(self):
         """worktree.py must not contain any reference to worktrees.json."""
-        filepath = os.path.join(_repo_root(), 'orchestrator', 'worktree.py')
+        filepath = os.path.join(_repo_root(), 'teaparty', 'workspace', 'worktree.py')
         with open(filepath) as f:
             source = f.read()
         self.assertNotIn('worktrees.json', source,
@@ -39,7 +39,7 @@ class TestWorktreeModuleCutover(unittest.TestCase):
 
     def test_dead_functions_removed_from_worktree_module(self):
         """The legacy worktrees.json functions must not exist in worktree.py."""
-        filepath = os.path.join(_repo_root(), 'orchestrator', 'worktree.py')
+        filepath = os.path.join(_repo_root(), 'teaparty', 'workspace', 'worktree.py')
         names = _module_function_names(filepath)
         dead = {
             'create_session_worktree',
@@ -55,7 +55,7 @@ class TestWorktreeModuleCutover(unittest.TestCase):
 
     def test_no_load_manifest_in_state_reader(self):
         """state_reader.py must not contain the dead _load_manifest method."""
-        filepath = os.path.join(_repo_root(), 'orchestrator', 'state_reader.py')
+        filepath = os.path.join(_repo_root(), 'teaparty', 'bridge', 'state', 'reader.py')
         names = _module_function_names(filepath)
         self.assertNotIn('_load_manifest', names,
                          '_load_manifest still present in state_reader.py')
@@ -68,7 +68,7 @@ class TestWorktreeModuleCutover(unittest.TestCase):
 
     def test_merge_exclusion_list_no_worktrees_json(self):
         """merge.py must not exclude worktrees.json from merges."""
-        filepath = os.path.join(_repo_root(), 'orchestrator', 'merge.py')
+        filepath = os.path.join(_repo_root(), 'teaparty', 'workspace', 'merge.py')
         with open(filepath) as f:
             source = f.read()
         self.assertNotIn('worktrees.json', source,
@@ -82,7 +82,7 @@ class TestWorktreeModuleCutover(unittest.TestCase):
 
     def test_dead_session_scan_methods_removed_from_state_reader(self):
         """Legacy .sessions/-based scan methods must not exist in state_reader.py."""
-        filepath = os.path.join(_repo_root(), 'orchestrator', 'state_reader.py')
+        filepath = os.path.join(_repo_root(), 'teaparty', 'bridge', 'state', 'reader.py')
         names = _module_function_names(filepath)
         dead = {'_scan_project_sessions', '_find_dispatches_for_session'}
         found = dead & names

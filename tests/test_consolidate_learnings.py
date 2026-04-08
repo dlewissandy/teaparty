@@ -12,7 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from scripts.memory_entry import MemoryEntry, serialize_entry
+from teaparty.learning.episodic.entry import MemoryEntry, serialize_entry
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -58,7 +58,7 @@ class TestClusterEntries(unittest.TestCase):
 
     def test_identical_entries_cluster_together(self):
         """Two entries with identical content form one cluster."""
-        from orchestrator.consolidate_learnings import cluster_entries
+        from teaparty.learning.cluster import cluster_entries
 
         entries = [
             _make_entry("Always check edge cases for empty inputs"),
@@ -70,7 +70,7 @@ class TestClusterEntries(unittest.TestCase):
 
     def test_dissimilar_entries_stay_separate(self):
         """Entries with completely different content remain in separate clusters."""
-        from orchestrator.consolidate_learnings import cluster_entries
+        from teaparty.learning.cluster import cluster_entries
 
         entries = [
             _make_entry("Always check edge cases for empty inputs"),
@@ -81,7 +81,7 @@ class TestClusterEntries(unittest.TestCase):
 
     def test_near_duplicate_entries_cluster(self):
         """Entries expressing the same insight in similar words cluster together."""
-        from orchestrator.consolidate_learnings import cluster_entries
+        from teaparty.learning.cluster import cluster_entries
 
         entries = [
             _make_entry("When writing tests, always check edge cases for empty inputs"),
@@ -99,7 +99,7 @@ class TestClusterEntries(unittest.TestCase):
 
     def test_custom_threshold(self):
         """Threshold parameter controls cluster sensitivity."""
-        from orchestrator.consolidate_learnings import cluster_entries
+        from teaparty.learning.cluster import cluster_entries
 
         entries = [
             _make_entry("Check empty inputs in tests"),
@@ -117,7 +117,7 @@ class TestClusterEntries(unittest.TestCase):
 
     def test_single_entry_forms_singleton_cluster(self):
         """A single entry produces a single cluster of size 1."""
-        from orchestrator.consolidate_learnings import cluster_entries
+        from teaparty.learning.cluster import cluster_entries
 
         entries = [_make_entry("Solo entry")]
         clusters = cluster_entries(entries)
@@ -126,14 +126,14 @@ class TestClusterEntries(unittest.TestCase):
 
     def test_empty_input(self):
         """Empty entry list returns empty cluster list."""
-        from orchestrator.consolidate_learnings import cluster_entries
+        from teaparty.learning.cluster import cluster_entries
 
         clusters = cluster_entries([])
         self.assertEqual(clusters, [])
 
     def test_retired_entries_excluded(self):
         """Retired entries are excluded from clustering."""
-        from orchestrator.consolidate_learnings import cluster_entries
+        from teaparty.learning.cluster import cluster_entries
 
         entries = [
             _make_entry("Active entry about testing"),
@@ -153,7 +153,7 @@ class TestMergeCluster(unittest.TestCase):
 
     def test_merge_preserves_longest_content(self):
         """Merged entry keeps the longest content from the cluster."""
-        from orchestrator.consolidate_learnings import merge_cluster
+        from teaparty.learning.cluster import merge_cluster
 
         entries = [
             _make_entry("Short"),
@@ -165,7 +165,7 @@ class TestMergeCluster(unittest.TestCase):
 
     def test_merge_boosts_importance(self):
         """Merged entry's importance reflects convergence — higher than any single entry."""
-        from orchestrator.consolidate_learnings import merge_cluster
+        from teaparty.learning.cluster import merge_cluster
 
         entries = [
             _make_entry("Same insight", importance=0.5),
@@ -182,7 +182,7 @@ class TestMergeCluster(unittest.TestCase):
 
     def test_merge_reinforcement_uses_max_plus_one(self):
         """Reinforcement count is max(counts) + 1, not sum (avoids inflation)."""
-        from orchestrator.consolidate_learnings import merge_cluster
+        from teaparty.learning.cluster import merge_cluster
 
         entries = [
             _make_entry("Same insight", reinforcement_count=3),
@@ -194,7 +194,7 @@ class TestMergeCluster(unittest.TestCase):
 
     def test_merge_sets_compacted_status(self):
         """Merged entry has status 'compacted'."""
-        from orchestrator.consolidate_learnings import merge_cluster
+        from teaparty.learning.cluster import merge_cluster
 
         entries = [
             _make_entry("A"),
@@ -205,7 +205,7 @@ class TestMergeCluster(unittest.TestCase):
 
     def test_merge_keeps_most_recent_reinforced_date(self):
         """Merged entry uses the most recent last_reinforced date."""
-        from orchestrator.consolidate_learnings import merge_cluster
+        from teaparty.learning.cluster import merge_cluster
 
         entries = [
             _make_entry("A", created_at='2026-01-01'),
@@ -217,7 +217,7 @@ class TestMergeCluster(unittest.TestCase):
 
     def test_merge_keeps_earliest_created_at(self):
         """Merged entry preserves the oldest created_at for provenance."""
-        from orchestrator.consolidate_learnings import merge_cluster
+        from teaparty.learning.cluster import merge_cluster
 
         entries = [
             _make_entry("A", created_at='2026-02-01'),
@@ -229,7 +229,7 @@ class TestMergeCluster(unittest.TestCase):
 
     def test_singleton_cluster_returns_entry_unchanged(self):
         """A cluster of one entry returns that entry without modification."""
-        from orchestrator.consolidate_learnings import merge_cluster
+        from teaparty.learning.cluster import merge_cluster
 
         entry = _make_entry("Solo", importance=0.5, reinforcement_count=2)
         merged = merge_cluster([entry])
@@ -252,7 +252,7 @@ class TestConsolidateTaskStore(unittest.TestCase):
 
     def test_duplicate_files_consolidated(self):
         """Two files with identical content are merged into one file."""
-        from orchestrator.consolidate_learnings import consolidate_task_store
+        from teaparty.learning.cluster import consolidate_task_store
 
         tasks_dir = os.path.join(self.tmpdir, 'tasks')
         _write_entry_file(tasks_dir, 'a.md', _make_entry("Always test empty inputs"))
@@ -267,7 +267,7 @@ class TestConsolidateTaskStore(unittest.TestCase):
 
     def test_dissimilar_files_preserved(self):
         """Files with different content are not touched."""
-        from orchestrator.consolidate_learnings import consolidate_task_store
+        from teaparty.learning.cluster import consolidate_task_store
 
         tasks_dir = os.path.join(self.tmpdir, 'tasks')
         _write_entry_file(tasks_dir, 'a.md', _make_entry("Always test empty inputs"))
@@ -281,7 +281,7 @@ class TestConsolidateTaskStore(unittest.TestCase):
 
     def test_empty_directory_is_noop(self):
         """Empty directory returns zero-count result."""
-        from orchestrator.consolidate_learnings import consolidate_task_store
+        from teaparty.learning.cluster import consolidate_task_store
 
         tasks_dir = os.path.join(self.tmpdir, 'tasks')
         os.makedirs(tasks_dir)
@@ -292,14 +292,14 @@ class TestConsolidateTaskStore(unittest.TestCase):
 
     def test_nonexistent_directory_is_noop(self):
         """Nonexistent directory returns zero-count result without error."""
-        from orchestrator.consolidate_learnings import consolidate_task_store
+        from teaparty.learning.cluster import consolidate_task_store
 
         result = consolidate_task_store(os.path.join(self.tmpdir, 'nonexistent'))
         self.assertEqual(result.merged_count, 0)
 
     def test_consolidation_log_written(self):
         """A consolidation log file is written when merges occur."""
-        from orchestrator.consolidate_learnings import consolidate_task_store
+        from teaparty.learning.cluster import consolidate_task_store
 
         tasks_dir = os.path.join(self.tmpdir, 'tasks')
         _write_entry_file(tasks_dir, 'a.md', _make_entry("Always test empty inputs"))
@@ -312,8 +312,8 @@ class TestConsolidateTaskStore(unittest.TestCase):
 
     def test_merged_file_has_boosted_importance(self):
         """The remaining file after merge has importance > max of originals."""
-        from orchestrator.consolidate_learnings import consolidate_task_store
-        from scripts.memory_entry import parse_memory_file
+        from teaparty.learning.cluster import consolidate_task_store
+        from teaparty.learning.episodic.entry import parse_memory_file
 
         tasks_dir = os.path.join(self.tmpdir, 'tasks')
         _write_entry_file(tasks_dir, 'a.md', _make_entry("Always test empty inputs", importance=0.5))
@@ -331,7 +331,7 @@ class TestConsolidateTaskStore(unittest.TestCase):
 
     def test_custom_similarity_fn(self):
         """Custom similarity function is used for clustering."""
-        from orchestrator.consolidate_learnings import consolidate_task_store
+        from teaparty.learning.cluster import consolidate_task_store
 
         tasks_dir = os.path.join(self.tmpdir, 'tasks')
         _write_entry_file(tasks_dir, 'a.md',
@@ -345,7 +345,7 @@ class TestConsolidateTaskStore(unittest.TestCase):
 
     def test_correction_files_excluded(self):
         """correction-*.md files are excluded — they have a dedicated compaction pipeline."""
-        from orchestrator.consolidate_learnings import consolidate_task_store
+        from teaparty.learning.cluster import consolidate_task_store
 
         proxy_dir = os.path.join(self.tmpdir, 'proxy-tasks')
         # Two correction files with identical content
@@ -367,8 +367,8 @@ class TestConsolidateTaskStore(unittest.TestCase):
 
     def test_files_with_multiple_entries_handled(self):
         """Files containing multiple entries are parsed and each entry considered."""
-        from orchestrator.consolidate_learnings import consolidate_task_store
-        from scripts.memory_entry import serialize_memory_file
+        from teaparty.learning.cluster import consolidate_task_store
+        from teaparty.learning.episodic.entry import serialize_memory_file
 
         tasks_dir = os.path.join(self.tmpdir, 'tasks')
         os.makedirs(tasks_dir)
@@ -388,8 +388,8 @@ class TestConsolidateTaskStore(unittest.TestCase):
 
     def test_multi_entry_file_orphan_rescue(self):
         """Non-merged entries in a multi-entry file are not lost when the file is removed."""
-        from orchestrator.consolidate_learnings import consolidate_task_store
-        from scripts.memory_entry import serialize_memory_file, parse_memory_file
+        from teaparty.learning.cluster import consolidate_task_store
+        from teaparty.learning.episodic.entry import serialize_memory_file, parse_memory_file
 
         tasks_dir = os.path.join(self.tmpdir, 'tasks')
         os.makedirs(tasks_dir)
@@ -434,7 +434,7 @@ class TestConsolidationPipelineWiring(unittest.TestCase):
 
     def test_consolidate_task_learnings_calls_consolidate_task_store(self):
         """_consolidate_task_learnings delegates to consolidate_task_store for both dirs."""
-        from orchestrator.learnings import _consolidate_task_learnings
+        from teaparty.learning.extract import _consolidate_task_learnings
 
         project_dir = os.path.join(self.tmpdir, 'project')
         tasks_dir = os.path.join(project_dir, 'tasks')
@@ -445,7 +445,7 @@ class TestConsolidationPipelineWiring(unittest.TestCase):
         calls = []
         original_consolidate = None
         try:
-            from orchestrator import consolidate_learnings as cl_mod
+            from teaparty.learning import cluster as cl_mod
             original_consolidate = cl_mod.consolidate_task_store
 
             def _mock_consolidate(directory, **kwargs):
@@ -468,22 +468,22 @@ class TestJaccardSimilarity(unittest.TestCase):
     """Test the Jaccard token similarity function."""
 
     def test_identical_strings(self):
-        from orchestrator.consolidate_learnings import jaccard_token_similarity
+        from teaparty.learning.cluster import jaccard_token_similarity
         self.assertAlmostEqual(jaccard_token_similarity("hello world", "hello world"), 1.0)
 
     def test_completely_different(self):
-        from orchestrator.consolidate_learnings import jaccard_token_similarity
+        from teaparty.learning.cluster import jaccard_token_similarity
         sim = jaccard_token_similarity("alpha beta gamma", "delta epsilon zeta")
         self.assertAlmostEqual(sim, 0.0)
 
     def test_partial_overlap(self):
-        from orchestrator.consolidate_learnings import jaccard_token_similarity
+        from teaparty.learning.cluster import jaccard_token_similarity
         sim = jaccard_token_similarity("test empty inputs coverage", "test null inputs validation")
         self.assertGreater(sim, 0.0)
         self.assertLess(sim, 1.0)
 
     def test_empty_strings(self):
-        from orchestrator.consolidate_learnings import jaccard_token_similarity
+        from teaparty.learning.cluster import jaccard_token_similarity
         self.assertAlmostEqual(jaccard_token_similarity("", ""), 0.0)
 
 
@@ -491,17 +491,17 @@ class TestOverlapSimilarity(unittest.TestCase):
     """Test the overlap coefficient similarity function."""
 
     def test_identical_strings(self):
-        from orchestrator.consolidate_learnings import overlap_token_similarity
+        from teaparty.learning.cluster import overlap_token_similarity
         self.assertAlmostEqual(overlap_token_similarity("hello world", "hello world"), 1.0)
 
     def test_subset_relationship(self):
         """When one text's tokens are a subset of another's, score is 1.0."""
-        from orchestrator.consolidate_learnings import overlap_token_similarity
+        from teaparty.learning.cluster import overlap_token_similarity
         sim = overlap_token_similarity("test edge cases", "always test edge cases for empty inputs")
         self.assertAlmostEqual(sim, 1.0)
 
     def test_empty_strings(self):
-        from orchestrator.consolidate_learnings import overlap_token_similarity
+        from teaparty.learning.cluster import overlap_token_similarity
         self.assertAlmostEqual(overlap_token_similarity("", ""), 0.0)
 
 
@@ -509,23 +509,23 @@ class TestTokenNormalization(unittest.TestCase):
     """Test that suffix normalization unifies common word variants."""
 
     def test_plurals_match(self):
-        from orchestrator.consolidate_learnings import _tokenize
+        from teaparty.learning.cluster import _tokenize
         self.assertIn('test', _tokenize("tests"))
         self.assertIn('input', _tokenize("inputs"))
 
     def test_gerunds_match(self):
-        from orchestrator.consolidate_learnings import _tokenize
+        from teaparty.learning.cluster import _tokenize
         self.assertIn('writ', _tokenize("writing"))
 
     def test_past_tense_match(self):
-        from orchestrator.consolidate_learnings import _tokenize
+        from teaparty.learning.cluster import _tokenize
         # "missed" and "miss" should normalize to the same token (iterative stripping)
         tokens_ed = _tokenize("missed")
         tokens_base = _tokenize("miss")
         self.assertEqual(tokens_ed, tokens_base)
 
     def test_stop_words_removed(self):
-        from orchestrator.consolidate_learnings import _tokenize
+        from teaparty.learning.cluster import _tokenize
         tokens = _tokenize("the most common source of missed test coverage")
         self.assertNotIn('the', tokens)
         self.assertNotIn('most', tokens)
@@ -546,7 +546,7 @@ class TestIssueExamplesClustering(unittest.TestCase):
 
     def test_issue_examples_cluster_with_default_similarity(self):
         """All 3 issue examples cluster with lexical similarity via single-linkage."""
-        from orchestrator.consolidate_learnings import cluster_entries
+        from teaparty.learning.cluster import cluster_entries
 
         entries = [
             _make_entry("When writing tests, always check edge cases for empty inputs"),
@@ -561,7 +561,7 @@ class TestIssueExamplesClustering(unittest.TestCase):
 
     def test_issue_examples_all_cluster_with_embeddings(self):
         """With a similarity function that recognizes semantics, all 3 cluster."""
-        from orchestrator.consolidate_learnings import cluster_entries
+        from teaparty.learning.cluster import cluster_entries
 
         entries = [
             _make_entry("When writing tests, always check edge cases for empty inputs"),
@@ -589,7 +589,7 @@ class TestProvenancePreservation(unittest.TestCase):
 
     def test_singleton_files_not_renamed(self):
         """Files that don't participate in merges keep their original names."""
-        from orchestrator.consolidate_learnings import consolidate_task_store
+        from teaparty.learning.cluster import consolidate_task_store
 
         tasks_dir = os.path.join(self.tmpdir, 'tasks')
         # Two identical entries (will merge) + one unique entry

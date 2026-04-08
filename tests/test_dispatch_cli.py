@@ -20,8 +20,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from orchestrator.dispatch_cli import dispatch
-from scripts.cfa_state import (
+from teaparty.cfa.dispatch import dispatch
+from teaparty.cfa.statemachine.cfa_state import (
     make_initial_state,
     load_state,
     save_state,
@@ -88,14 +88,14 @@ class TestDispatchUsesMakeChildState(unittest.TestCase):
         mock_result = _make_mock_orchestrator_result()
         mock_dispatch_info = _make_mock_dispatch_info(self.dispatch_infra)
 
-        with patch('orchestrator.dispatch_cli.PhaseConfig') as mock_config_cls, \
-             patch('orchestrator.dispatch_cli.create_task',
+        with patch('teaparty.cfa.dispatch.PhaseConfig') as mock_config_cls, \
+             patch('teaparty.cfa.dispatch.create_task',
                    new=AsyncMock(return_value=mock_dispatch_info)), \
-             patch('orchestrator.dispatch_cli.release_worktree',
+             patch('teaparty.cfa.dispatch.release_worktree',
                    new=AsyncMock()), \
-             patch('orchestrator.dispatch_cli.squash_merge',
+             patch('teaparty.cfa.dispatch.squash_merge',
                    new=AsyncMock()), \
-             patch('orchestrator.dispatch_cli.Orchestrator') as mock_orch_cls:
+             patch('teaparty.cfa.dispatch.Orchestrator') as mock_orch_cls:
 
             mock_config = MagicMock()
             mock_config.max_dispatch_retries = 0
@@ -195,14 +195,14 @@ class TestDispatchParentStateFallback(unittest.TestCase):
         mock_result = _make_mock_orchestrator_result()
         mock_dispatch_info = _make_mock_dispatch_info(self.dispatch_infra)
 
-        with patch('orchestrator.dispatch_cli.PhaseConfig') as mock_config_cls, \
-             patch('orchestrator.dispatch_cli.create_task',
+        with patch('teaparty.cfa.dispatch.PhaseConfig') as mock_config_cls, \
+             patch('teaparty.cfa.dispatch.create_task',
                    new=AsyncMock(return_value=mock_dispatch_info)), \
-             patch('orchestrator.dispatch_cli.release_worktree',
+             patch('teaparty.cfa.dispatch.release_worktree',
                    new=AsyncMock()), \
-             patch('orchestrator.dispatch_cli.squash_merge',
+             patch('teaparty.cfa.dispatch.squash_merge',
                    new=AsyncMock()), \
-             patch('orchestrator.dispatch_cli.Orchestrator') as mock_orch_cls:
+             patch('teaparty.cfa.dispatch.Orchestrator') as mock_orch_cls:
 
             mock_config = MagicMock()
             mock_config.max_dispatch_retries = 0
@@ -336,14 +336,14 @@ class TestDispatchReturnShape(unittest.TestCase):
         mock_result = _make_mock_orchestrator_result(terminal_state)
         mock_dispatch_info = _make_mock_dispatch_info(self.dispatch_infra)
 
-        with patch('orchestrator.dispatch_cli.PhaseConfig') as mock_config_cls, \
-             patch('orchestrator.dispatch_cli.create_task',
+        with patch('teaparty.cfa.dispatch.PhaseConfig') as mock_config_cls, \
+             patch('teaparty.cfa.dispatch.create_task',
                    new=AsyncMock(return_value=mock_dispatch_info)), \
-             patch('orchestrator.dispatch_cli.release_worktree',
+             patch('teaparty.cfa.dispatch.release_worktree',
                    new=AsyncMock()), \
-             patch('orchestrator.dispatch_cli.squash_merge',
+             patch('teaparty.cfa.dispatch.squash_merge',
                    new=AsyncMock()), \
-             patch('orchestrator.dispatch_cli.Orchestrator') as mock_orch_cls:
+             patch('teaparty.cfa.dispatch.Orchestrator') as mock_orch_cls:
 
             mock_config = MagicMock()
             mock_config.max_dispatch_retries = 0

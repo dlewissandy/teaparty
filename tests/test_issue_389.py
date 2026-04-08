@@ -12,7 +12,7 @@ import shutil
 import tempfile
 import unittest
 
-from orchestrator.messaging import (
+from teaparty.messaging.conversations import (
     ConversationType,
     SqliteMessageBus,
     make_conversation_id,
@@ -82,7 +82,7 @@ class TestResolveJobInfra(unittest.TestCase):
         base = _make_tmpdir(self)
         job_dir = _make_job(base, 'abc12345')
 
-        from bridge.server import TeaPartyBridge
+        from teaparty.bridge.server import TeaPartyBridge
         bridge = TeaPartyBridge.__new__(TeaPartyBridge)
         result = bridge._resolve_job_infra(base, 'abc12345')
         self.assertEqual(result, job_dir)
@@ -91,7 +91,7 @@ class TestResolveJobInfra(unittest.TestCase):
         base = _make_tmpdir(self)
         _make_job(base, 'abc12345')
 
-        from bridge.server import TeaPartyBridge
+        from teaparty.bridge.server import TeaPartyBridge
         bridge = TeaPartyBridge.__new__(TeaPartyBridge)
         result = bridge._resolve_job_infra(base, 'nonexistent')
         self.assertIsNone(result)
@@ -105,7 +105,7 @@ class TestResolveTaskInfra(unittest.TestCase):
         job_dir = _make_job(base, 'abc12345')
         task_dir = _make_task(job_dir, 'def67890', team='art')
 
-        from bridge.server import TeaPartyBridge
+        from teaparty.bridge.server import TeaPartyBridge
         bridge = TeaPartyBridge.__new__(TeaPartyBridge)
         result = bridge._resolve_task_infra(job_dir, 'def67890')
         self.assertEqual(result, task_dir)
@@ -114,7 +114,7 @@ class TestResolveTaskInfra(unittest.TestCase):
         base = _make_tmpdir(self)
         job_dir = _make_job(base, 'abc12345')
 
-        from bridge.server import TeaPartyBridge
+        from teaparty.bridge.server import TeaPartyBridge
         bridge = TeaPartyBridge.__new__(TeaPartyBridge)
         result = bridge._resolve_task_infra(job_dir, 'nonexistent')
         self.assertIsNone(result)
@@ -126,7 +126,7 @@ class TestResolveTaskInfra(unittest.TestCase):
         task_dir = _make_task(job_dir, 'def67890')
         nested_dir = _make_task(task_dir, 'ghi11111', team='writing')
 
-        from bridge.server import TeaPartyBridge
+        from teaparty.bridge.server import TeaPartyBridge
         bridge = TeaPartyBridge.__new__(TeaPartyBridge)
         result = bridge._resolve_task_infra(task_dir, 'ghi11111')
         self.assertEqual(result, nested_dir)
@@ -138,7 +138,7 @@ class TestResolveTaskInfra(unittest.TestCase):
         task_dir = _make_task(job_dir, 'def67890')
         nested_dir = _make_task(task_dir, 'ghi11111', team='writing')
 
-        from bridge.server import TeaPartyBridge
+        from teaparty.bridge.server import TeaPartyBridge
         bridge = TeaPartyBridge.__new__(TeaPartyBridge)
         # Search from job_dir should find the nested task recursively
         result = bridge._resolve_task_infra(job_dir, 'ghi11111')
@@ -158,7 +158,7 @@ class TestTaskBusRouting(unittest.TestCase):
         job_dir = _make_job(base, session_id)
         _make_task(job_dir, 'def67890', team='coding', slug='feature-x')
 
-        from bridge.server import TeaPartyBridge
+        from teaparty.bridge.server import TeaPartyBridge
         bridge = TeaPartyBridge.__new__(TeaPartyBridge)
         bridge._buses = {}
         # Mock _lookup_project_path to return our base dir
@@ -219,7 +219,7 @@ class TestTaskListEndpoint(unittest.TestCase):
         _make_task(job_dir, 'def67890', team='coding', slug='feature-x')
         _make_task(job_dir, 'ghi11111', team='art', slug='icons')
 
-        from bridge.server import TeaPartyBridge
+        from teaparty.bridge.server import TeaPartyBridge
         bridge = TeaPartyBridge.__new__(TeaPartyBridge)
         bridge._buses = {}
         bridge._project_path_cache = {'proj': base}
@@ -269,7 +269,7 @@ class TestRecursiveSubtasks(unittest.TestCase):
         task_dir = _make_task(job_dir, 'def67890', team='coding')
         _make_task(task_dir, 'nested1', team='writing', slug='docs')
 
-        from bridge.server import TeaPartyBridge
+        from teaparty.bridge.server import TeaPartyBridge
         bridge = TeaPartyBridge.__new__(TeaPartyBridge)
         bridge._buses = {}
         bridge._project_path_cache = {'proj': base}
@@ -293,7 +293,7 @@ class TestRecursiveSubtasks(unittest.TestCase):
         sub_dir = _make_task(task_dir, 'level2', team='art')
         _make_task(sub_dir, 'level3', team='writing')
 
-        from bridge.server import TeaPartyBridge
+        from teaparty.bridge.server import TeaPartyBridge
         bridge = TeaPartyBridge.__new__(TeaPartyBridge)
         bridge._buses = {}
         bridge._project_path_cache = {'proj': base}
@@ -368,7 +368,7 @@ class TestTaskStatusHeartbeat(unittest.TestCase):
         # Write a terminal heartbeat
         _write_heartbeat(os.path.join(task_dir, '.heartbeat'), status='completed')
 
-        from bridge.server import TeaPartyBridge
+        from teaparty.bridge.server import TeaPartyBridge
         bridge = TeaPartyBridge.__new__(TeaPartyBridge)
         bridge._buses = {}
         bridge.teaparty_home = os.path.join(base, '.teaparty')
@@ -384,7 +384,7 @@ class TestTaskStatusHeartbeat(unittest.TestCase):
         _make_task(job_dir, 'def67890', team='coding')
         # No heartbeat written — _make_task doesn't create one
 
-        from bridge.server import TeaPartyBridge
+        from teaparty.bridge.server import TeaPartyBridge
         bridge = TeaPartyBridge.__new__(TeaPartyBridge)
         bridge._buses = {}
         bridge.teaparty_home = os.path.join(base, '.teaparty')
@@ -401,7 +401,7 @@ class TestDirectModelDispatches(unittest.TestCase):
         job_dir = _make_job(base, 'abc12345')
         _make_direct_dispatch(job_dir, 'configuration', '20260407-120000-000001')
 
-        from bridge.server import TeaPartyBridge
+        from teaparty.bridge.server import TeaPartyBridge
         bridge = TeaPartyBridge.__new__(TeaPartyBridge)
         bridge._buses = {}
         bridge.teaparty_home = os.path.join(base, '.teaparty')
@@ -417,7 +417,7 @@ class TestDirectModelDispatches(unittest.TestCase):
         _make_task(job_dir, 'def67890', team='coding')
         _make_direct_dispatch(job_dir, 'configuration', '20260407-120000-000001')
 
-        from bridge.server import TeaPartyBridge
+        from teaparty.bridge.server import TeaPartyBridge
         bridge = TeaPartyBridge.__new__(TeaPartyBridge)
         bridge._buses = {}
         bridge.teaparty_home = os.path.join(base, '.teaparty')
@@ -437,7 +437,7 @@ class TestDirectModelBusRouting(unittest.TestCase):
         dispatch_id = '20260407-120000-000001'
         _make_direct_dispatch(job_dir, 'configuration', dispatch_id)
 
-        from bridge.server import TeaPartyBridge
+        from teaparty.bridge.server import TeaPartyBridge
         bridge = TeaPartyBridge.__new__(TeaPartyBridge)
         bridge._buses = {}
         bridge._project_path_cache = {'proj': base}
@@ -464,7 +464,7 @@ class TestDescriptionFallback(unittest.TestCase):
         # Remove PROMPT.txt
         os.remove(os.path.join(task_dir, 'PROMPT.txt'))
 
-        from bridge.server import TeaPartyBridge
+        from teaparty.bridge.server import TeaPartyBridge
         bridge = TeaPartyBridge.__new__(TeaPartyBridge)
         bridge._buses = {}
         bridge.teaparty_home = os.path.join(base, '.teaparty')

@@ -18,7 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from orchestrator.skill_lookup import SkillMatch, lookup_skill
+from teaparty.util.skill_lookup import SkillMatch, lookup_skill
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -209,10 +209,10 @@ class TestSkillLookupIntegrationWithEngine(unittest.TestCase):
         """Build an Orchestrator with mocked runners for routing tests."""
         import asyncio
         from unittest.mock import AsyncMock, MagicMock
-        from orchestrator.engine import Orchestrator
-        from orchestrator.events import EventBus
-        from orchestrator.phase_config import PhaseConfig, PhaseSpec
-        from scripts.cfa_state import CfaState
+        from teaparty.cfa.engine import Orchestrator
+        from teaparty.messaging.bus import EventBus
+        from teaparty.cfa.phase_config import PhaseConfig, PhaseSpec
+        from teaparty.cfa.statemachine.cfa_state import CfaState
 
         if infra_dir is None:
             infra_dir = '/tmp/infra'

@@ -21,8 +21,8 @@ from typing import Any
 from experiments.collector import EventCollector
 from experiments.config import ExperimentConfig
 from experiments.input_providers import make_provider
-from orchestrator.events import EventBus
-from orchestrator.session import Session, SessionResult
+from teaparty.messaging.bus import EventBus
+from teaparty.cfa.session import Session, SessionResult
 
 _log = logging.getLogger('experiments.runner')
 
@@ -195,7 +195,7 @@ class ExperimentRunner:
 
         # Override REGRET_WEIGHT in approval_gate module
         if config.regret_weight is not None:
-            import scripts.approval_gate as ag
+            import teaparty.proxy.approval_gate as ag
             self._original_regret_weight = ag.REGRET_WEIGHT
             ag.REGRET_WEIGHT = config.regret_weight
             _log.info('Override REGRET_WEIGHT: %d → %d',
@@ -204,7 +204,7 @@ class ExperimentRunner:
     def _restore_overrides(self) -> None:
         """Restore original values after the run."""
         if self._original_regret_weight is not None:
-            import scripts.approval_gate as ag
+            import teaparty.proxy.approval_gate as ag
             ag.REGRET_WEIGHT = self._original_regret_weight
             self._original_regret_weight = None
 

@@ -8,8 +8,8 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from scripts.memory_entry import make_entry, serialize_memory_file, parse_memory_file, MemoryEntry
-from scripts.compact_memory import compact_file, compact_entries
+from teaparty.learning.episodic.entry import make_entry, serialize_memory_file, parse_memory_file, MemoryEntry
+from teaparty.learning.episodic.compact import compact_file, compact_entries
 
 
 class TestCompactMemory(unittest.TestCase):
@@ -133,7 +133,7 @@ class TestCompactMemory(unittest.TestCase):
 
     def test_all_entries_valid_frontmatter(self):
         """SUCCESS CRITERION 4: after compact, every entry has all required fields."""
-        from memory_entry import REQUIRED_FIELDS
+        from teaparty.learning.episodic.entry import REQUIRED_FIELDS
 
         entries = [self._make_entry(content=f"Entry {i}") for i in range(5)]
         self._write_memory_file(self.memory_path, entries)

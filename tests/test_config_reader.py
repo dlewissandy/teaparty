@@ -13,7 +13,7 @@ import unittest
 
 import yaml
 
-from orchestrator.config_reader import (
+from teaparty.config.config_reader import (
     Human,
     ManagementTeam,
     MergedCatalog,

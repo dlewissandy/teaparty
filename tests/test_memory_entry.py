@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from scripts.memory_entry import (
+from teaparty.learning.episodic.entry import (
     MemoryEntry,
     REQUIRED_FIELDS,
     make_entry,

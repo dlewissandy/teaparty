@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-import scripts.generate_dialog_response as mod
+import teaparty.scripts.generate_dialog_response as mod
 
 
 class TestReadFileContent(unittest.TestCase):
