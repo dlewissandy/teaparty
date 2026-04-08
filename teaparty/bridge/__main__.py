@@ -48,7 +48,7 @@ if not os.path.isdir(args.teaparty_home):
 
 bridge = TeaPartyBridge(
     teaparty_home=args.teaparty_home,
-    static_dir=os.path.join(project_root, 'bridge', 'static'),
+    static_dir=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static'),
 )
 print(f'Dashboard:  http://localhost:{args.port}')
 bridge.run(port=args.port)

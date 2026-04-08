@@ -73,7 +73,7 @@ class ExperimentRunner:
 
         # 3. Optional: verbose event printer for debugging
         if self.verbose:
-            from orchestrator.__main__ import CLIEventPrinter
+            from teaparty.__main__ import CLIEventPrinter
             printer = CLIEventPrinter(verbose=True)
             event_bus.subscribe(printer)
 
