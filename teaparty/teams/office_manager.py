@@ -883,9 +883,9 @@ class OfficeManagerSession:
             )
             import logging as _log_mod
             _om_dbg = _log_mod.getLogger('teaparty.teams.office_manager')
-            _om_dbg.info('OM args: %s', ' '.join(runner._build_args(None)))
-            _om_dbg.info('OM cwd: %s', runner.cwd)
-            _om_dbg.info('OM mcp_config: %r', runner.mcp_config)
+            _om_dbg.warning('OM args: %s', ' '.join(runner._build_args(None)))
+            _om_dbg.warning('OM cwd: %s', runner.cwd)
+            _om_dbg.warning('OM mcp_config: %r', runner.mcp_config)
 
             result = await runner.run()
 
