@@ -1719,8 +1719,11 @@ class TeaPartyBridge:
                 {'error': f'session not found: {session_id}'}, status=404)
 
         # Derive project_root from job_dir path
-        # job_dir = {project_root}/.teaparty/jobs/job-{id}--{slug}/
         from orchestrator.job_store import withdraw_job, project_root_from_job_dir
+        if '/.teaparty/jobs/' not in infra_dir:
+            return web.json_response(
+                {'error': 'withdrawal requires .teaparty/jobs/ layout; '
+                          'run migration first'}, status=400)
         project_root = project_root_from_job_dir(infra_dir)
 
         try:
