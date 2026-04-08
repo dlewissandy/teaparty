@@ -410,11 +410,8 @@ def _build_mcp_config(project_root: str, mcp_env: dict | None = None) -> dict:
     tools) to stay below the ToolSearch deferral threshold.  The OM only
     needs Send + read tools for dispatch — it doesn't create config artifacts.
     """
-    venv_python = os.path.join(project_root, '.venv', 'bin', 'python3')
-    if not os.path.isfile(venv_python):
-        venv_python = 'python3'
-    args = ['-m', 'teaparty.mcp.server.dispatch']
-    config: dict = {'command': venv_python, 'args': args}
+    args = ['run', 'python3', '-m', 'teaparty.mcp.server.dispatch']
+    config: dict = {'command': 'uv', 'args': args}
     if mcp_env:
         args.extend(_mcp_env_to_args(mcp_env))
         config['env'] = mcp_env
@@ -600,14 +597,11 @@ class OfficeManagerSession:
                 'AGENT_ID': member,
                 'CONTEXT_ID': context_id,
             } if sockets else {}
-            venv_python = os.path.join(repo_root, '.venv', 'bin', 'python3')
-            if not os.path.isfile(venv_python):
-                venv_python = 'python3'
             module = 'teaparty.mcp.server.dispatch' if is_lead else 'teaparty.mcp.server.main'
-            args = ['-m', module]
+            args = ['run', 'python3', '-m', module]
             args.extend(_mcp_env_to_args(mcp_env))
             config: dict = {
-                'command': venv_python,
+                'command': 'uv',
                 'args': args,
             }
             if mcp_env:
