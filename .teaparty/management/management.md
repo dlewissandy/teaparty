@@ -12,13 +12,18 @@ Rules and conventions for management-team agent dispatches.
 
 ## Codebase
 
-Key packages at repo root:
+All source code lives under `teaparty/`:
 
-- `orchestrator/` -- CfA engine, actors, session lifecycle
-- `bridge/` -- HTML dashboard + bridge server
-- `scripts/` -- CfA state machine, proxy model, learning utilities
-- `agents/` -- Team and workgroup definitions
-- `cfa-state-machine.json` -- State machine definition
+- `teaparty/cfa/` -- CfA protocol engine, actors, session, dispatch, state machine, gates
+- `teaparty/proxy/` -- Human proxy system
+- `teaparty/learning/` -- Hierarchical memory and learning
+- `teaparty/bridge/` -- HTML dashboard + bridge server
+- `teaparty/mcp/` -- MCP server
+- `teaparty/runners/` -- LLM execution backends
+- `teaparty/messaging/` -- Event bus, conversations, routing
+- `teaparty/teams/` -- Multi-turn team coordination
+- `teaparty/workspace/` -- Git worktree and job lifecycle
+- `teaparty/config/` -- Runtime config loading
 
-Dashboard: `bridge/` (HTML dashboard + bridge server)
+Config: `.teaparty/` (agents, workgroups, project settings)
 Tests: `tests/`

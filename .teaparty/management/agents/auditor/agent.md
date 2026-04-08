@@ -37,5 +37,5 @@ You review code and diffs to verify they faithfully implement the stated intent 
 
 - `docs/conceptual-design/` — CfA state machine, learning system, human proxies, hierarchical teams
 - `docs/proposals/` — Milestone 3 proposals defining current design intent
-- `projects/POC/orchestrator/` — The active codebase
-- `projects/POC/orchestrator/tests/` — Test suite
+- `teaparty/` — The active codebase (domain-aligned sub-packages)
+- `tests/` — Test suite (mirrors teaparty/ structure)

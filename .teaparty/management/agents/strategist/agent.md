@@ -34,4 +34,4 @@ You evaluate trade-offs, plan implementation strategies, and ensure work aligns 
 - `docs/conceptual-design/` — CfA state machine, learning system, human proxies, hierarchical teams
 - `docs/proposals/milestone-3.md` — Current milestone: Human Interaction Layer
 - `docs/proposals/` — Individual proposal specifications
-- `projects/POC/orchestrator/` — The active codebase
+- `teaparty/` — The active codebase (domain-aligned sub-packages)
