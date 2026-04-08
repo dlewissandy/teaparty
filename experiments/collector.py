@@ -12,7 +12,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from orchestrator.events import Event, EventType
+from teaparty.messaging.bus import Event, EventType
 
 
 @dataclass

@@ -21,7 +21,7 @@ REPO_ROOT = os.path.dirname(TEAPARTY_HOME)
 
 async def bench_single_dispatch(label: str = ''):
     """Benchmark: OM → config-lead (single level)."""
-    from orchestrator.agent_spawner import AgentSpawner
+    from teaparty.cfa.agent_spawner import AgentSpawner
 
     spawner = AgentSpawner(teaparty_home=TEAPARTY_HOME)
 
@@ -35,7 +35,7 @@ async def bench_single_dispatch(label: str = ''):
     mcp_config = {
         'teaparty-config': {
             'command': venv_python,
-            'args': ['-m', 'orchestrator.mcp_server'],
+            'args': ['-m', 'teaparty.mcp.server.main'],
             'env': {},
         },
     }
@@ -65,9 +65,9 @@ async def bench_single_dispatch(label: str = ''):
 
 async def bench_hierarchical_dispatch(label: str = ''):
     """Benchmark: OM → config-lead → project-specialist (two levels)."""
-    from orchestrator.agent_spawner import AgentSpawner
-    from orchestrator.bus_event_listener import BusEventListener
-    from orchestrator.messaging import SqliteMessageBus
+    from teaparty.cfa.agent_spawner import AgentSpawner
+    from teaparty.messaging.listener import BusEventListener
+    from teaparty.messaging.conversations import SqliteMessageBus
     import tempfile
     import uuid
 
@@ -87,7 +87,7 @@ async def bench_hierarchical_dispatch(label: str = ''):
         return {
             'teaparty-config': {
                 'command': venv_python,
-                'args': ['-m', 'orchestrator.mcp_server'],
+                'args': ['-m', 'teaparty.mcp.server.main'],
                 'env': {
                     'SEND_SOCKET': sockets[0],
                     'REPLY_SOCKET': sockets[1],

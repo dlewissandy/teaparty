@@ -1,0 +1,583 @@
+"""CLI dispatch entry point for liaison agents.
+
+Usage (from within a Claude agent session):
+    python3 -m teaparty.cfa.dispatch --team art --task "..."
+
+Runs a child orchestrator in a dispatch worktree, merges results back,
+and outputs a JSON status summary.
+"""
+from __future__ import annotations
+
+import argparse
+import asyncio
+import json
+import os
+import random
+import sys
+
+from teaparty import find_poc_root
+from teaparty.cfa.engine import Orchestrator
+from teaparty.messaging.bus import EventBus, EventType, InputRequest
+from teaparty.workspace.merge import git_output, squash_merge
+from teaparty.scripts.generate_commit_message import generate_async, build_fallback
+from teaparty.config.config_reader import (
+    load_project_team, load_management_team, resolve_budget, resolve_workgroups,
+    WorkgroupRef,
+)
+from teaparty.util.cost_tracker import CostTracker
+from teaparty.cfa.phase_config import PhaseConfig
+from teaparty.workspace.job_store import create_task, release_worktree
+from teaparty.cfa.statemachine.cfa_state import (
+    make_child_state,
+    load_state,
+    save_state,
+)
+
+
+def _resolve_cost_tracker(project_dir: str) -> CostTracker | None:
+    """Create a CostTracker from resolved budget config for dispatch."""
+    org_budget: dict[str, float] = {}
+    workgroup_budget: dict[str, float] = {}
+    project_budget: dict[str, float] = {}
+
+    try:
+        mgmt = load_management_team()
+        org_budget = mgmt.budget
+    except (FileNotFoundError, OSError):
+        pass
+
+    try:
+        proj = load_project_team(project_dir)
+        project_budget = proj.budget
+        try:
+            workgroups = resolve_workgroups(proj.workgroups, project_dir)
+            for wg in workgroups:
+                workgroup_budget.update(wg.budget)
+        except (FileNotFoundError, OSError):
+            pass
+    except (FileNotFoundError, OSError):
+        pass
+
+    budget = resolve_budget(
+        org_budget=org_budget,
+        workgroup_budget=workgroup_budget,
+        project_budget=project_budget,
+    )
+    if not budget:
+        return None
+    return CostTracker(budget=budget)
+
+
+def _attach_event_writer(event_bus: EventBus, infra_dir: str) -> None:
+    """Attach a simple JSONL event writer to the child's EventBus.
+
+    Writes all events to events.jsonl in the child's infra_dir so the
+    parent's EventCollector can merge them post-hoc for experiment analysis.
+    """
+    import time as _time
+    events_path = os.path.join(infra_dir, 'events.jsonl')
+
+    async def _write_event(event) -> None:
+        record = {
+            'timestamp': getattr(event, 'timestamp', None) or _time.time(),
+            'type': event.type.value if hasattr(event.type, 'value') else str(event.type),
+            'session_id': getattr(event, 'session_id', ''),
+            'source': os.path.basename(infra_dir),
+            **getattr(event, 'data', {}),
+        }
+        try:
+            with open(events_path, 'a') as f:
+                f.write(json.dumps(record, default=str) + '\n')
+        except OSError:
+            pass
+
+    event_bus.subscribe(_write_event)
+
+
+def _write_dispatch_memory(dispatch_infra: str, team: str, task: str, result) -> None:
+    """Write a MEMORY.md summarizing the dispatch for the rollup chain.
+
+    promote('team') reads dispatch MEMORY.md files as context when rolling up
+    learnings into team-level institutional.md and tasks/ files.
+    """
+    from datetime import date
+    memory_path = os.path.join(dispatch_infra, 'MEMORY.md')
+    today = date.today().isoformat()
+    content = (
+        f"## [{today}] Dispatch: {team}\n"
+        f"**Task:** {task}\n"
+        f"**Result:** {result.terminal_state}\n"
+        f"**Backtracks:** {result.backtrack_count}\n"
+    )
+    try:
+        with open(memory_path, 'w') as f:
+            f.write(content)
+    except OSError:
+        pass
+
+
+async def dispatch(
+    team: str,
+    task: str,
+    auto_approve_plan: bool = False,
+    cfa_parent_state: str = '',
+    session_worktree: str = '',
+    infra_dir: str = '',
+    project_slug: str = '',
+    resume_worktree: str = '',
+    resume_infra: str = '',
+    liaison_task_id: str = '',
+) -> dict:
+    """Run a dispatch and return a status dict.
+
+    Args:
+        team: The team name to dispatch to (art, writing, etc.).
+        task: The task description.
+        auto_approve_plan: Skip proxy check for plan approval.
+        cfa_parent_state: Path to parent CfA state JSON.
+        session_worktree: Parent session worktree path.  Falls back to
+            the POC_SESSION_WORKTREE env var, then os.getcwd().
+        infra_dir: Parent session infra directory.  Falls back to
+            the POC_SESSION_DIR env var.
+        project_slug: Project identifier.  Falls back to POC_PROJECT env var.
+        resume_worktree: Existing worktree to resume (issue #149).  Skips
+            worktree creation and loads CfA state from existing .cfa-state.json.
+        resume_infra: Existing infra dir for resumed dispatch (issue #149).
+    """
+    poc_root = find_poc_root()
+
+    # Resolve session context — explicit parameters take precedence over env vars
+    if not session_worktree:
+        session_worktree = os.environ.get('POC_SESSION_WORKTREE', os.getcwd())
+    if not infra_dir:
+        infra_dir = os.environ.get('POC_SESSION_DIR', '')
+    if not project_slug:
+        project_slug = os.environ.get('POC_PROJECT', 'default')
+
+    # Resolve project_dir for project-scoped team config (issue #10)
+    project_dir = os.environ.get('POC_PROJECT_DIR', '')
+
+    # Guard: reject dispatch to workgroups registered in catalog but not in dispatch membership.
+    # Configuration workgroups are accessible only via the config screen's chat blade — they
+    # are never dispatched to via the normal chain of command (issue #364).
+    _guard_reason = (
+        f"Cannot dispatch to workgroup '{team}': "
+        f"registered in catalog but not an active dispatch member. "
+        f"Configuration workgroups are accessible only via the config screen's chat blade."
+    )
+    if project_dir:
+        try:
+            proj = load_project_team(project_dir)
+            registered = {
+                (entry.ref if isinstance(entry, WorkgroupRef) else entry.name).lower()
+                for entry in proj.workgroups
+            }
+            members = {m.lower() for m in proj.members_workgroups}
+            if team.lower() in registered and team.lower() not in members:
+                return {'status': 'failed', 'reason': _guard_reason}
+        except (FileNotFoundError, OSError):
+            pass
+    else:
+        # At the management level (no project context), the OM dispatches to project leads only.
+        # Any workgroup registered in teaparty.yaml is off-limits for direct dispatch.
+        try:
+            teaparty_home = os.path.join(poc_root, '.teaparty')
+            mgmt = load_management_team(teaparty_home=teaparty_home)
+            mgmt_workgroups = {entry.name.lower() for entry in mgmt.workgroups}
+            if team.lower() in mgmt_workgroups:
+                return {'status': 'failed', 'reason': _guard_reason}
+        except (FileNotFoundError, OSError):
+            pass
+
+    config = PhaseConfig(poc_root, project_dir=project_dir or None)
+
+    if not infra_dir and not resume_infra:
+        return {'status': 'failed', 'reason': 'POC_SESSION_DIR not set'}
+
+    # Resolve execution model from team config (issue #240).
+    # "direct" teams run in the session worktree without child worktree isolation.
+    team_spec = config.teams.get(team)
+    direct_model = team_spec and team_spec.execution_model == 'direct'
+
+    # Load parent CfA state for child linkage (skip on resume — we use existing child state)
+    parent_cfa = None
+    if not resume_worktree:
+        parent_state_path = (
+            cfa_parent_state
+            or os.environ.get('POC_CFA_STATE', '')
+            or os.path.join(infra_dir, '.cfa-state.json')
+        )
+        if not os.path.exists(parent_state_path):
+            return {'status': 'failed', 'reason': f'parent CfA state not found: {parent_state_path}'}
+        parent_cfa = load_state(parent_state_path)
+
+    # Resume path (issue #149): reuse existing worktree and CfA state
+    if resume_worktree and resume_infra:
+        worktree_path = resume_worktree
+        dispatch_infra = resume_infra
+
+        # Retry budget (issue #149): 3 per phase, 9 total per child.
+        # Per-phase count resets when CfA state advances to a new phase.
+        retry_path = os.path.join(dispatch_infra, '.retry-count')
+        retry_data = {'total': 0, 'phase': '', 'phase_count': 0}
+        try:
+            with open(retry_path) as f:
+                retry_data = json.loads(f.read())
+                if isinstance(retry_data, int):  # Legacy flat count
+                    retry_data = {'total': retry_data, 'phase': '', 'phase_count': 0}
+        except (FileNotFoundError, ValueError, json.JSONDecodeError):
+            pass
+
+        # Load CfA to check phase advancement
+        cfa_for_budget = load_state(os.path.join(dispatch_infra, '.cfa-state.json'))
+        current_phase = getattr(cfa_for_budget, 'phase', '') if hasattr(cfa_for_budget, 'phase') else ''
+
+        retry_data['total'] += 1
+        if current_phase and current_phase != retry_data.get('phase', ''):
+            # Phase advanced — reset per-phase counter
+            retry_data['phase'] = current_phase
+            retry_data['phase_count'] = 1
+        else:
+            retry_data['phase_count'] = retry_data.get('phase_count', 0) + 1
+
+        with open(retry_path, 'w') as f:
+            json.dump(retry_data, f)
+
+        # Budget checks: 3 per phase, 9 total
+        if retry_data['total'] > 9:
+            return {'status': 'failed', 'reason': f'total retry budget exhausted ({retry_data["total"]} attempts)'}
+        if retry_data['phase_count'] > 3:
+            return {'status': 'failed', 'reason': f'phase retry budget exhausted ({retry_data["phase_count"]} attempts in {current_phase})'}
+
+        # Load existing CfA state
+        cfa = load_state(os.path.join(dispatch_infra, '.cfa-state.json'))
+
+        # Re-create heartbeat for the resumed dispatch
+        from teaparty.bridge.state.heartbeat import create_heartbeat
+        create_heartbeat(
+            os.path.join(dispatch_infra, '.heartbeat'),
+            role=team,
+        )
+    elif direct_model:
+        # Direct execution model (issue #240): run in session worktree,
+        # no child worktree. Used by teams whose output is runtime config
+        # (.claude/, .teaparty/) that must take effect immediately.
+        from datetime import datetime
+        dispatch_id = datetime.now().strftime('%Y%m%d-%H%M%S-%f')
+        worktree_path = session_worktree
+        dispatch_infra = os.path.join(infra_dir, team, dispatch_id)
+        os.makedirs(dispatch_infra, exist_ok=True)
+
+        from teaparty.bridge.state.heartbeat import register_child, create_heartbeat
+        create_heartbeat(os.path.join(dispatch_infra, '.heartbeat'), role=team)
+        children_path = os.path.join(infra_dir, '.children')
+        register_child(
+            children_path,
+            heartbeat=os.path.join(dispatch_infra, '.heartbeat'),
+            team=team,
+            task_id=liaison_task_id or None,
+        )
+
+        cfa = make_child_state(
+            parent_cfa, team,
+            task_id=f'dispatch-{team}-{dispatch_id}',
+        )
+        save_state(cfa, os.path.join(dispatch_infra, '.cfa-state.json'))
+    else:
+        # Worktree-isolated execution model: create a task under the job,
+        # run orchestrator there, squash-merge results back.
+        try:
+            from datetime import datetime
+            dispatch_id = datetime.now().strftime('%Y%m%d-%H%M%S-%f')
+            task_info = await create_task(
+                job_dir=infra_dir,
+                task=task,
+                team=team,
+                dispatch_id=dispatch_id,
+            )
+        except Exception as e:
+            return {'status': 'failed', 'reason': f'worktree creation failed: {e}'}
+
+        worktree_path = task_info['worktree_path']
+        dispatch_infra = task_info['task_dir']
+
+        # Register child in parent's .children registry (issue #149).
+        # Optimistic registration: the watchdog can find this child's heartbeat
+        # on disk even if the dispatch is still mid-flight.
+        from teaparty.bridge.state.heartbeat import register_child
+        children_path = os.path.join(infra_dir, '.children')
+        child_heartbeat_path = os.path.join(dispatch_infra, '.heartbeat')
+        register_child(
+            children_path,
+            heartbeat=child_heartbeat_path,
+            team=team,
+            task_id=liaison_task_id or None,
+        )
+
+        # Initialize CfA state for the child — use make_child_state for correct parent linkage
+        cfa = make_child_state(
+            parent_cfa, team,
+            task_id=f'dispatch-{team}-{dispatch_id}',
+        )
+        save_state(cfa, os.path.join(dispatch_infra, '.cfa-state.json'))
+
+    # Run child orchestrator with event collection for experiment visibility.
+    # Events are written to events.jsonl in the dispatch infra_dir so the
+    # parent's EventCollector can merge them post-hoc (issue #133).
+    event_bus = EventBus()
+    _attach_event_writer(event_bus, dispatch_infra)
+
+    # The input_provider is a placeholder — never_escalate=True means the
+    # proxy always answers and this is never called.  But it must be truthy
+    # so engine.run() starts the MCP listeners (AskQuestion for the subteam).
+    async def _unreachable_input(request):
+        raise RuntimeError('never_escalate=True but input_provider was called')
+
+    # Derive dispatch_id for session_id and stream file naming.
+    # On fresh dispatch, comes from dispatch_info.  On resume, derive from infra dir name.
+    # Direct model sets dispatch_id earlier (issue #240).
+    if resume_worktree and resume_infra:
+        dispatch_id = os.path.basename(dispatch_infra)
+        # Extract prior Claude session ID from stream files for --resume continuity
+        resume_session_id = _extract_session_id_from_streams(dispatch_infra)
+    elif not direct_model:
+        # dispatch_id already set before create_task call above
+        resume_session_id = ''
+    else:
+        # dispatch_id already set in direct model branch above
+        resume_session_id = ''
+
+    # Build phase_session_ids for --resume support
+    phase_session_ids = {}
+    if resume_session_id:
+        # The prior session was running execution phase
+        phase_session_ids = {'execution': resume_session_id, 'planning': resume_session_id}
+
+    orchestrator = Orchestrator(
+        cfa_state=cfa,
+        phase_config=config,
+        event_bus=event_bus,
+        input_provider=_unreachable_input,
+        infra_dir=dispatch_infra,
+        project_workdir=worktree_path,
+        session_worktree=worktree_path,
+        proxy_model_path=os.path.join(
+            os.path.dirname(infra_dir) if infra_dir else dispatch_infra,
+            f'.proxy-confidence-{team}.json',
+        ),
+        project_slug=project_slug,
+        poc_root=poc_root,
+        task=task,
+        session_id=dispatch_id,
+        skip_intent=True,
+        never_escalate=True,
+        team_override=team,
+        phase_session_ids=phase_session_ids if phase_session_ids else None,
+        parent_heartbeat=os.path.join(infra_dir, '.heartbeat') if infra_dir else '',
+        cost_tracker=_resolve_cost_tracker(project_dir),
+        llm_backend=os.environ.get('TEAPARTY_LLM_BACKEND', 'claude'),
+    )
+
+    retries = 0
+    max_retries = config.max_dispatch_retries
+    result = None
+    api_overloaded = False
+
+    while retries <= max_retries:
+        result = await orchestrator.run()
+        if result.terminal_state in ('COMPLETED_WORK', 'WITHDRAWN'):
+            break
+        if result.escalation_type:  # escalation — don't retry, surface it
+            break
+
+        # Detect 529 exhaustion: the child orchestrator returned non-terminal
+        # after exhausting its own overload retries.  Check sentinel file.
+        overload_sentinel = os.path.join(dispatch_infra, '.api-overloaded')
+        if os.path.exists(overload_sentinel):
+            api_overloaded = True
+            # Add jitter to prevent dispatch stampede on recovery.
+            # Random 30-120s prevents all subteams from retrying simultaneously.
+            jitter = random.uniform(30, 120)
+            await asyncio.sleep(jitter)
+
+        retries += 1
+
+    # Merge back into parent session worktree.
+    # Direct-model teams (issue #240) already wrote to session_worktree — no merge needed.
+    merge_failed = False
+    merge_error = ''
+    if not direct_model and result and result.terminal_state == 'COMPLETED_WORK':
+        # Generate commit message — failures fall back to a static message
+        # so they never prevent the merge from being attempted.
+        try:
+            dispatch_log = await git_output(worktree_path, 'log', '--oneline')
+            changed_files = await git_output(
+                worktree_path, 'diff', '--name-only', 'HEAD',
+            )
+            message = await generate_async(
+                task, team, dispatch_log, changed_files,
+            )
+            if not message:
+                message = build_fallback(team, task)
+        except Exception:
+            message = build_fallback(team, task)
+
+        # Merge — failures must surface, never be silently swallowed.
+        try:
+            await squash_merge(
+                source=worktree_path,
+                target=session_worktree,
+                message=message,
+            )
+        except Exception as e:
+            merge_failed = True
+            merge_error = str(e)
+
+    # Write dispatch MEMORY.md for the rollup chain — only if merge succeeded
+    # (or direct model, where there's no merge step).
+    if result and result.terminal_state == 'COMPLETED_WORK' and not merge_failed:
+        _write_dispatch_memory(dispatch_infra, team, task, result)
+
+    # Release worktree — skip for direct model (no child worktree to remove)
+    if not direct_model:
+        await release_worktree(worktree_path)
+
+    # Finalize heartbeat with terminal status (issue #149)
+    from teaparty.bridge.state.heartbeat import finalize_heartbeat
+    hb_path = os.path.join(dispatch_infra, '.heartbeat')
+    hb_status = 'completed' if (result and result.terminal_state == 'COMPLETED_WORK' and not merge_failed) else 'withdrawn'
+    try:
+        finalize_heartbeat(hb_path, hb_status)
+    except FileNotFoundError:
+        pass
+
+    # Build deliverables summary from changed files in the worktree.
+    # Skip if merge failed — no commit landed, so diff would show stale data.
+    deliverables = ''
+    if not merge_failed:
+        try:
+            changed = await git_output(
+                session_worktree, 'diff', '--name-only', 'HEAD~1', 'HEAD',
+            )
+            if changed.strip():
+                deliverables = changed.strip()
+        except Exception:
+            pass
+
+    # Return JSON status with deliverables summary and escalation context.
+    # A successful orchestrator run that fails to merge is still a failure —
+    # the parent agent must know that deliverables did not land.
+    if merge_failed:
+        status = 'failed'
+    elif result and result.terminal_state == 'COMPLETED_WORK':
+        status = 'completed'
+    else:
+        status = 'failed'
+    escalation_type = result.escalation_type if result else ''
+    if merge_failed:
+        exit_reason = 'merge_failed'
+    elif status == 'completed':
+        exit_reason = 'completed'
+    else:
+        exit_reason = f'{escalation_type}_escalation' if escalation_type else 'failed'
+    # Extract per-turn cost events from child events.jsonl for task chat (Issue #341).
+    # Each TURN_COST record becomes a separate cost-sender message in the task conversation,
+    # giving per-actor-turn granularity rather than one aggregate per dispatch.
+    turn_costs: list[dict] = []
+    events_path = os.path.join(dispatch_infra, 'events.jsonl')
+    try:
+        with open(events_path) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                    if rec.get('type') == 'turn_cost':
+                        cost_rec: dict = {}
+                        for key in ('total_cost_usd', 'input_tokens', 'output_tokens', 'duration_ms'):
+                            val = rec.get(key)
+                            if val is not None:
+                                cost_rec[key] = val
+                        if cost_rec:
+                            turn_costs.append(cost_rec)
+                except json.JSONDecodeError:
+                    pass
+    except OSError:
+        pass
+
+    # Fallback: if events.jsonl had no turn_cost records, read the .cost sidecar.
+    total_cost_usd = 0.0
+    if not turn_costs:
+        cost_sidecar = os.path.join(dispatch_infra, '.cost')
+        try:
+            with open(cost_sidecar) as f:
+                total_cost_usd = float(f.read().strip())
+        except (OSError, ValueError):
+            pass
+
+    result_dict = {
+        'status': status,
+        'exit_reason': exit_reason,
+        'team': team,
+        'task': task,
+        'terminal_state': result.terminal_state if result else 'unknown',
+        'backtrack_count': result.backtrack_count if result else 0,
+        'deliverables': deliverables,
+        'escalation_type': escalation_type,
+        'api_overloaded': api_overloaded,
+    }
+    if turn_costs:
+        result_dict['turn_costs'] = turn_costs
+    elif total_cost_usd:
+        result_dict['total_cost_usd'] = total_cost_usd
+    if merge_failed:
+        result_dict['reason'] = f'merge failed: {merge_error}'
+    return result_dict
+
+
+def _extract_session_id_from_streams(infra_dir: str) -> str:
+    """Extract the Claude session ID from stream JSONL files in infra_dir.
+
+    Scans for system/init events which contain the session_id field.
+    Returns the first found, or empty string.
+    """
+    import glob
+    for stream_path in glob.glob(os.path.join(infra_dir, '*.jsonl')):
+        try:
+            with open(stream_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        event = json.loads(line)
+                        if (event.get('type') == 'system'
+                                and event.get('subtype') == 'init'
+                                and event.get('session_id')):
+                            return event['session_id']
+                    except json.JSONDecodeError:
+                        continue
+        except OSError:
+            continue
+    return ''
+
+
+async def main() -> int:
+    parser = argparse.ArgumentParser(description='Dispatch work to a subteam')
+    parser.add_argument('--team', required=True, help='Team name (art, writing, etc.)')
+    parser.add_argument('--task', required=True, help='Task description')
+    parser.add_argument('--auto-approve-plan', action='store_true',
+                        help='Skip proxy check for plan approval')
+    parser.add_argument('--cfa-parent-state', default='',
+                        help='Path to parent CfA state JSON (falls back to POC_CFA_STATE env)')
+    args = parser.parse_args()
+
+    result = await dispatch(args.team, args.task, args.auto_approve_plan, args.cfa_parent_state)
+    print(json.dumps(result, indent=2))
+    exit_codes = {'completed': 0, 'plan_escalation': 10, 'work_escalation': 11}
+    return exit_codes.get(result.get('exit_reason', 'failed'), 1)
+
+
+if __name__ == '__main__':
+    sys.exit(asyncio.run(main()))

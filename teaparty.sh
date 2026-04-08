@@ -23,4 +23,4 @@ if ! command -v uv >/dev/null 2>&1; then
     echo "uv installed successfully."
 fi
 
-exec uv run python3 -m bridge --teaparty-home "$REPO_ROOT/.teaparty" "$@"
+exec uv run python3 -m teaparty.bridge --teaparty-home "$REPO_ROOT/.teaparty" "$@"
