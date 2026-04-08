@@ -46,9 +46,27 @@ if not os.path.isdir(args.teaparty_home):
         'Run from a directory containing .teaparty/ or pass --teaparty-home <path>.'
     )
 
+# Start the shared MCP server in a background thread.
+# All Claude Code sessions (interactive + dispatched agents) connect to it
+# via HTTP rather than each spawning their own MCP subprocess.
+MCP_PORT = 8082
+
+import threading
+def _run_mcp_server():
+    from teaparty.mcp.server.main import create_server
+    _log = logging.getLogger('teaparty.mcp.server')
+    server = create_server()
+    _log.info('MCP server starting on port %d', MCP_PORT)
+    server.settings.port = MCP_PORT
+    server.run(transport='streamable-http')
+
+mcp_thread = threading.Thread(target=_run_mcp_server, daemon=True)
+mcp_thread.start()
+
 bridge = TeaPartyBridge(
     teaparty_home=args.teaparty_home,
     static_dir=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static'),
 )
 print(f'Dashboard:  http://localhost:{args.port}')
+print(f'MCP server: http://localhost:{MCP_PORT}/mcp')
 bridge.run(port=args.port)

@@ -401,42 +401,6 @@ def _build_roster_agents_json(
     return agents, warnings
 
 
-# ── MCP config ──────────────────────────────────────────────────────────────
-
-def _build_mcp_config(project_root: str, mcp_env: dict | None = None) -> dict:
-    """Build the mcp_config dict for the office manager's ClaudeRunner.
-
-    Uses mcp_server_dispatch (20 tools) instead of the full mcp_server (41
-    tools) to stay below the ToolSearch deferral threshold.  The OM only
-    needs Send + read tools for dispatch — it doesn't create config artifacts.
-    """
-    args = ['run', 'python3', '-m', 'teaparty.mcp.server.dispatch']
-    config: dict = {'command': 'uv', 'args': args}
-    if mcp_env:
-        args.extend(_mcp_env_to_args(mcp_env))
-        config['env'] = mcp_env
-    return {'teaparty-config': config}
-
-
-def _mcp_env_to_args(mcp_env: dict) -> list[str]:
-    """Convert MCP env dict to CLI args for the MCP server.
-
-    Claude Code's --mcp-config ``env`` field does not reliably deliver
-    env vars to the subprocess.  Pass them as CLI args instead.
-    """
-    mapping = {
-        'SEND_SOCKET': '--send-socket',
-        'REPLY_SOCKET': '--reply-socket',
-        'CLOSE_CONV_SOCKET': '--close-conv-socket',
-        'AGENT_ID': '--agent-id',
-        'CONTEXT_ID': '--context-id',
-    }
-    args = []
-    for env_key, flag in mapping.items():
-        val = mcp_env.get(env_key, '')
-        if val:
-            args.extend([flag, val])
-    return args
 
 
 # ── Office manager session ──────────────────────────────────────────────────
@@ -583,31 +547,6 @@ class OfficeManagerSession:
             self._agent_pool = AgentPool(teaparty_home=self.teaparty_home)
         repo_root = os.path.dirname(self.teaparty_home)
 
-        def _child_mcp_config(member: str, context_id: str, *, is_lead: bool = False) -> dict:
-            """Build MCP config with listener socket paths for a spawned agent.
-
-            Leads use mcp_server_dispatch (14 tools — Send + read only).
-            Leaf specialists use the full mcp_server (41 tools — Create/Edit/etc.).
-            """
-            sockets = self._bus_listener_sockets
-            mcp_env = {
-                'SEND_SOCKET': sockets[0],
-                'REPLY_SOCKET': sockets[1],
-                'CLOSE_CONV_SOCKET': sockets[2],
-                'AGENT_ID': member,
-                'CONTEXT_ID': context_id,
-            } if sockets else {}
-            module = 'teaparty.mcp.server.dispatch' if is_lead else 'teaparty.mcp.server.main'
-            args = ['run', 'python3', '-m', module]
-            args.extend(_mcp_env_to_args(mcp_env))
-            config: dict = {
-                'command': 'uv',
-                'args': args,
-            }
-            if mcp_env:
-                config['env'] = mcp_env
-            return {'teaparty-config': config}
-
         async def spawn_fn(member, composite, context_id):
             import subprocess as _sp
             import time as _time
@@ -653,8 +592,7 @@ class OfficeManagerSession:
             session_id, result_text = await self._agent_pool.dispatch(
                 member, composite,
                 worktree=agent_dir,
-                mcp_config=_child_mcp_config(member, context_id, is_lead=is_lead),
-                agents_json=agents,
+                                agents_json=agents,
                 settings_dict=settings_dict,
                 add_dirs=add_dirs,
             )
@@ -683,8 +621,7 @@ class OfficeManagerSession:
                 composite, worktree=agent_dir, role=member,
                 project_dir=repo_root, resume_session=session_id,
                 is_management=True,
-                mcp_config=_child_mcp_config(member, context_id),
-            )
+                            )
 
         async def reply_fn(context_id, session_id, message):
             """Deliver a worker reply to the OM's conversation bus.

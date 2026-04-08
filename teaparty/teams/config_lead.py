@@ -35,10 +35,8 @@ from teaparty.messaging.conversations import (
 )
 from teaparty.teams.office_manager import (
     NON_CONVERSATIONAL_SENDERS,
-    _build_mcp_config,
     _extract_slug,
     _iter_stream_events,
-    _mcp_env_to_args,
 )
 
 log = logging.getLogger('teaparty.teams.config_lead')
@@ -168,29 +166,6 @@ class ConfigLeadSession:
         if self._agent_pool is None:
             self._agent_pool = AgentPool(teaparty_home=self.teaparty_home)
 
-        def _child_mcp_config(member: str, context_id: str, *, is_lead: bool = False) -> dict:
-            sockets = self._bus_listener_sockets
-            mcp_env = {
-                'SEND_SOCKET': sockets[0],
-                'REPLY_SOCKET': sockets[1],
-                'CLOSE_CONV_SOCKET': sockets[2],
-                'AGENT_ID': member,
-                'CONTEXT_ID': context_id,
-            } if sockets else {}
-            venv_python = os.path.join(repo_root, '.venv', 'bin', 'python3')
-            if not os.path.isfile(venv_python):
-                venv_python = 'python3'
-            module = 'teaparty.mcp.server.dispatch' if is_lead else 'teaparty.mcp.server.main'
-            args = ['-m', module]
-            args.extend(_mcp_env_to_args(mcp_env))
-            config: dict = {
-                'command': venv_python,
-                'args': args,
-            }
-            if mcp_env:
-                config['env'] = mcp_env
-            return {'teaparty-config': config}
-
         async def spawn_fn(member, composite, context_id):
             import subprocess as _sp
             import time as _time
@@ -226,7 +201,6 @@ class ConfigLeadSession:
             session_id, result_text = await self._agent_pool.dispatch(
                 member, composite,
                 worktree=agent_dir,
-                mcp_config=_child_mcp_config(member, context_id, is_lead=is_lead),
                 agents_json=agents,
                 settings_dict=settings_dict,
             )
@@ -355,7 +329,7 @@ class ConfigLeadSession:
                     },
                 },
                 resume_session=self.claude_session_id,
-                mcp_config=_build_mcp_config(cwd, mcp_env=mcp_env),
+                env_vars=mcp_env,
             )
             result = await runner.run()
 

@@ -20,7 +20,6 @@ from teaparty.messaging.conversations import (
 )
 from teaparty.teams.office_manager import (
     NON_CONVERSATIONAL_SENDERS,
-    _build_mcp_config,
     _extract_slug,
     _iter_stream_events,
 )
@@ -160,7 +159,6 @@ class ProjectLeadSession:
                 lead=self.lead_name,
                 permission_mode='default',
                 resume_session=self.claude_session_id,
-                mcp_config=_build_mcp_config(cwd),
             )
             result = await runner.run()
 

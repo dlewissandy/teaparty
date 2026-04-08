@@ -84,38 +84,18 @@ def list_mcp_tool_names() -> list[str]:
     return [prefix + name for name in sorted(server._tool_manager._tools)]
 
 
-def _agent_tool_scope() -> str:
-    """Determine tool scope for this MCP server instance.
-
-    Checked in order:
-    1. AGENT_TOOL_SCOPE env var (set by mcp_server_dispatch entry point)
-    2. .tool-scope file in cwd (written by compose_worktree)
-    3. '' (full tool set — interactive session)
-    """
-    scope = os.environ.get('AGENT_TOOL_SCOPE', '')
-    if scope:
-        return scope
-    scope_file = os.path.join(os.getcwd(), '.tool-scope')
-    try:
-        with open(scope_file) as f:
-            return f.read().strip()
-    except FileNotFoundError:
-        return ''
-
 
 def create_server() -> FastMCP:
-    """Create the MCP server with tools scoped to the agent's role."""
+    """Create the MCP server with all tools registered.
+
+    Tool filtering per agent is handled by Claude Code's --settings
+    permissions allowlist, not by the MCP server. One server instance
+    serves all agents.
+    """
     import logging as _logging
     _cs_log = _logging.getLogger('teaparty.mcp.server.main.create')
 
-    server = FastMCP('teaparty-escalation')
-    scope = _agent_tool_scope()
-    _cs_log.info('create_server: AGENT_TOOL_SCOPE=%r', scope)
-
-    # Leaf agents need no MCP tools — they just answer and exit.
-    if scope == 'leaf':
-        _cs_log.info('create_server: leaf scope — returning empty server')
-        return server
+    server = FastMCP('teaparty-config')
 
     @server.tool()
     async def AskQuestion(question: str, context: str = '') -> str:
@@ -423,16 +403,6 @@ def create_server() -> FastMCP:
             teaparty_home: Override for .teaparty/ directory path.
         """
         return list_pins_handler(project=project, teaparty_home=teaparty_home)
-
-    # ── Config tools ──────────────────────────────────────────────────────────
-    # Dispatching agents need Send + read tools only.
-    # Remove Reply/CloseConversation/intervention — result returns via stdout.
-    # Skip the 25+ config CRUD tools entirely.
-    if scope == 'dispatch':
-        for name in ('Reply', 'CloseConversation', 'WithdrawSession',
-                     'PauseDispatch', 'ResumeDispatch', 'ReprioritizeDispatch'):
-            server._tool_manager._tools.pop(name, None)
-        return server
 
     @server.tool()
     async def AddProject(
@@ -920,48 +890,16 @@ def create_server() -> FastMCP:
             project=project, path=path, teaparty_home=teaparty_home,
         )
 
-    # Filter MCP tools to the agent's frontmatter whitelist.
-    agent_id = os.environ.get('AGENT_ID', '')
-    if agent_id:
-        agent_md = os.path.join(
-            os.getcwd(), '.claude', 'agents', f'{agent_id}.md',
-        )
-        try:
-            from teaparty.config.config_reader import read_agent_frontmatter
-            fm = read_agent_frontmatter(agent_md)
-            allowed = {
-                t.strip() for t in fm.get('tools', '').split(',') if t.strip()
-            }
-            if allowed:
-                mcp_prefix = 'mcp__teaparty-config__'
-                bare_allowed = set()
-                for t in allowed:
-                    if t.startswith(mcp_prefix):
-                        bare_allowed.add(t[len(mcp_prefix):])
-                    else:
-                        bare_allowed.add(t)
-                import asyncio
-                registered = asyncio.run(server.list_tools())
-                for tool in registered:
-                    if tool.name not in bare_allowed:
-                        server.remove_tool(tool.name)
-                remaining = len(bare_allowed & {t.name for t in registered})
-                _cs_log.info(
-                    'create_server: filtered to %d MCP tools for agent %r',
-                    remaining, agent_id,
-                )
-        except FileNotFoundError:
-            pass
-        except Exception as exc:
-            _cs_log.warning(
-                'create_server: tool filter failed for %r: %s', agent_id, exc,
-            )
-
     return server
 
 
 def main():
-    """Run the MCP server on stdio."""
+    """Run the MCP server on stdio (legacy) or HTTP.
+
+    Usage:
+        python -m teaparty.mcp.server.main                    # stdio (interactive)
+        python -m teaparty.mcp.server.main --http --port 8082  # HTTP (shared)
+    """
     import argparse
     import logging
 
@@ -971,6 +909,10 @@ def main():
     parser.add_argument('--close-conv-socket', default='')
     parser.add_argument('--agent-id', default='')
     parser.add_argument('--context-id', default='')
+    parser.add_argument('--http', action='store_true',
+                        help='Run as HTTP server (shared, multi-client)')
+    parser.add_argument('--port', type=int, default=8082,
+                        help='HTTP server port (default: 8082)')
     args, _unknown = parser.parse_known_args()
 
     if args.send_socket:
@@ -1005,15 +947,20 @@ def main():
         )
 
     _mlog = logging.getLogger('teaparty.mcp.server.main')
-    _mlog.info(
-        'main: SEND_SOCKET=%r AGENT_ID=%r CONTEXT_ID=%r',
-        os.environ.get('SEND_SOCKET', ''),
-        os.environ.get('AGENT_ID', ''),
-        os.environ.get('CONTEXT_ID', ''),
-    )
     server = create_server()
     _mlog.info('main: registered %d tools', len(server._tool_manager._tools))
-    server.run(transport='stdio')
+
+    if args.http:
+        _mlog.info('main: starting HTTP server on port %d', args.port)
+        server.settings.port = args.port
+        server.run(transport='streamable-http')
+    else:
+        _mlog.info(
+            'main: stdio mode SEND_SOCKET=%r AGENT_ID=%r',
+            os.environ.get('SEND_SOCKET', ''),
+            os.environ.get('AGENT_ID', ''),
+        )
+        server.run(transport='stdio')
 
 
 if __name__ == '__main__':
