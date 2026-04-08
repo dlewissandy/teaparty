@@ -535,7 +535,7 @@ class AgentSpawner:
         # auto-memory, prefetches.  Auth via apiKeyHelper (extracts OAuth
         # token from platform credential store).  Max accounts only.
         api_key_helper = os.path.join(
-            os.path.dirname(self.teaparty_home), 'scripts', 'get-api-key.sh',
+            os.path.dirname(self.teaparty_home), 'bin', 'get-api-key.sh',
         )
         use_bare = os.path.isfile(api_key_helper)
 

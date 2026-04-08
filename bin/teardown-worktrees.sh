@@ -2,7 +2,7 @@
 # teardown-worktrees.sh — Remove worktrees created by setup-worktrees.sh.
 #
 # Usage:
-#   ./scripts/teardown-worktrees.sh <feature-prefix> [--delete-branches]
+#   ./bin/teardown-worktrees.sh <feature-prefix> [--delete-branches]
 #
 # Options:
 #   --delete-branches   Also delete the local branches after removing worktrees

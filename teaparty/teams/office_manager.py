@@ -847,7 +847,7 @@ class OfficeManagerSession:
         # secret-tool).  Falls back to OAuth (--setting-sources user) on
         # platforms without a credential store.
         repo_root = os.path.dirname(self.teaparty_home)
-        api_key_helper = os.path.join(repo_root, 'scripts', 'get-api-key.sh')
+        api_key_helper = os.path.join(repo_root, 'bin', 'get-api-key.sh')
         use_bare = os.path.isfile(api_key_helper)
 
         try:

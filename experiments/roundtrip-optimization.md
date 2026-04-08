@@ -121,7 +121,7 @@ Config-lead session timeline:
 ```
 
 ### Experiment 10: --bare via apiKeyHelper
-- scripts/get-api-key.sh extracts OAuth token from macOS keychain
+- bin/get-api-key.sh extracts OAuth token from macOS keychain
 - Spawner detects helper script and adds --bare + apiKeyHelper to settings
 - Run 1: Config-lead 13.75s, Specialist 6.6s (specialist cold, variance)
 - Run 2: Config-lead **11.0s**, Specialist **3.1s**

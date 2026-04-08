@@ -28,8 +28,8 @@ Python usage::
 
 Shell usage (macOS-compatible flock replacement)::
 
-    python3 scripts/file_lock.py --lock /path/to/file -- command args...
-    python3 scripts/file_lock.py --lock /path/to/file --shared -- cat /path/to/file
+    python3 -m teaparty.util.file_lock --lock /path/to/file -- command args...
+    python3 -m teaparty.util.file_lock --lock /path/to/file --shared -- cat /path/to/file
 """
 import argparse
 import contextlib

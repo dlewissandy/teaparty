@@ -6,10 +6,10 @@
 # isolation (separate files, separate branch, no clobbering).
 #
 # Usage:
-#   ./scripts/setup-worktrees.sh [feature-prefix]
+#   ./bin/setup-worktrees.sh [feature-prefix]
 #
 # Example:
-#   ./scripts/setup-worktrees.sh add-auth
+#   ./bin/setup-worktrees.sh add-auth
 #
 # Creates:
 #   ../teaparty-backend-add-auth/    (branch: backend/add-auth)
@@ -19,7 +19,7 @@
 #   ../teaparty-ux-add-auth/         (branch: ux/add-auth)
 #
 # Teardown:
-#   ./scripts/teardown-worktrees.sh [feature-prefix]
+#   ./bin/teardown-worktrees.sh [feature-prefix]
 
 set -euo pipefail
 
@@ -71,4 +71,4 @@ for ROLE in "${ROLES[@]}"; do
 done
 echo ""
 echo "When finished, merge branches and clean up with:"
-echo "  ./scripts/teardown-worktrees.sh $PREFIX"
+echo "  ./bin/teardown-worktrees.sh $PREFIX"

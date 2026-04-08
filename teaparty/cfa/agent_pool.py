@@ -194,7 +194,7 @@ class AgentPool:
     ) -> AgentProcess:
         """Start a new persistent claude -p process."""
         repo_root = os.path.dirname(self.teaparty_home)
-        api_key_helper = os.path.join(repo_root, 'scripts', 'get-api-key.sh')
+        api_key_helper = os.path.join(repo_root, 'bin', 'get-api-key.sh')
         use_bare = os.path.isfile(api_key_helper)
 
         settings = dict(settings_dict or {})

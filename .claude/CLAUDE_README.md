@@ -74,7 +74,7 @@ For large features where agents need true branch-level isolation (separate files
 ### Setup
 
 ```bash
-./scripts/setup-worktrees.sh <feature-name>
+./bin/setup-worktrees.sh <feature-name>
 ```
 
 This creates sibling directories, each on its own branch:
@@ -98,10 +98,10 @@ cd ../teaparty-frontend-add-auth && claude
 
 ```bash
 # Remove worktrees only
-./scripts/teardown-worktrees.sh <feature-name>
+./bin/teardown-worktrees.sh <feature-name>
 
 # Remove worktrees and delete branches
-./scripts/teardown-worktrees.sh <feature-name> --delete-branches
+./bin/teardown-worktrees.sh <feature-name> --delete-branches
 ```
 
 ### When to Use Worktrees vs. Shared Directory
@@ -157,7 +157,8 @@ Ask Claude to coordinate a team effort:
     graphic-artist.md          # SVG & visual assets (sonnet)
     test-engineer.md           # Pytest (sonnet)
     ux-designer.md             # UI/UX design (sonnet)
-scripts/
+bin/
+  get-api-key.sh               # Extract Claude Max OAuth token
   setup-worktrees.sh           # Create per-role git worktrees
   teardown-worktrees.sh        # Remove worktrees and branches
 ```
