@@ -9,6 +9,7 @@ Tests that:
 6. Withdrawals counts cancelled sessions
 7. Escalations counts historical human-contact events (not point-in-time)
 8. Daily charts produce meaningful time-series data
+9. Registry mode (teaparty_home) works end-to-end
 """
 from __future__ import annotations
 
@@ -17,6 +18,8 @@ import json
 import os
 import tempfile
 import unittest
+
+import yaml
 
 
 def _make_cfa_state(
@@ -174,6 +177,9 @@ class TestLegacyMigration(unittest.TestCase):
         _make_legacy_session(self.project_dir, '20260401-120000',
                              cfa_state='COMPLETED_WORK')
 
+        from orchestrator.job_store import migrate_legacy_sessions
+        migrate_legacy_sessions(self.project_dir)
+
         from bridge.stats import compute_stats
         stats = compute_stats(teaparty_home='', projects_dir=self._tmpdir)
 
@@ -313,3 +319,82 @@ class TestDailyCharts(unittest.TestCase):
         daily_tasks = [d['tasks'] for d in stats['daily']]
         self.assertGreater(sum(daily_tasks), 0,
                            'Daily tasks chart should have non-zero entries')
+
+
+def _make_registry(teaparty_home: str, project_name: str,
+                   project_path: str) -> None:
+    """Create a minimal teaparty.yaml registry pointing at a project."""
+    mgmt_dir = os.path.join(teaparty_home, 'management')
+    os.makedirs(mgmt_dir, exist_ok=True)
+    config = {
+        'name': 'Test Team',
+        'projects': [{'name': project_name, 'path': project_path}],
+    }
+    with open(os.path.join(mgmt_dir, 'teaparty.yaml'), 'w') as f:
+        yaml.dump(config, f)
+
+
+class TestRegistryModeStats(unittest.TestCase):
+    """SC9: Registry mode (teaparty_home) discovers jobs and computes stats."""
+
+    def setUp(self):
+        self._tmpdir = tempfile.mkdtemp()
+        self.project_dir = os.path.join(self._tmpdir, 'myproject')
+        # Registry requires .git and .teaparty markers
+        os.makedirs(os.path.join(self.project_dir, '.git'))
+        os.makedirs(os.path.join(self.project_dir, '.teaparty'))
+        self.teaparty_home = os.path.join(self._tmpdir, 'tp_home')
+        _make_registry(self.teaparty_home, 'TestProject', self.project_dir)
+
+    def test_registry_mode_finds_jobs(self):
+        """compute_stats in registry mode discovers jobs via teaparty.yaml."""
+        _make_job(self.project_dir, '20260401-120000',
+                  cfa_state='COMPLETED_WORK')
+        _make_job(self.project_dir, '20260402-120000',
+                  cfa_state='WITHDRAWN')
+
+        from bridge.stats import compute_stats
+        stats = compute_stats(teaparty_home=self.teaparty_home)
+
+        self.assertEqual(stats['summary']['jobs_done'], 1)
+        self.assertEqual(stats['summary']['withdrawals'], 1)
+
+    def test_registry_mode_escalations_historical(self):
+        """Registry mode escalation count is historical, not point-in-time."""
+        history = [
+            {'state': 'INTENT_ESCALATE', 'action': 'respond',
+             'timestamp': '2026-04-01T12:00:00+00:00'},
+            {'state': 'PLANNING_QUESTION', 'action': 'respond',
+             'timestamp': '2026-04-01T13:00:00+00:00'},
+        ]
+        _make_job(self.project_dir, '20260401-120000',
+                  cfa_state='COMPLETED_WORK', history=history)
+
+        from bridge.stats import compute_stats
+        stats = compute_stats(teaparty_home=self.teaparty_home)
+
+        self.assertEqual(stats['summary']['escalations'], 2)
+
+    def test_phase_escalations_consistent_with_summary(self):
+        """phase_escalations chart counts match the summary escalation total."""
+        history = [
+            {'state': 'INTENT_ESCALATE', 'action': 'respond',
+             'timestamp': '2026-04-01T12:00:00+00:00'},
+            {'state': 'PLANNING_QUESTION', 'action': 'respond',
+             'timestamp': '2026-04-01T13:00:00+00:00'},
+            {'state': 'TASK_ESCALATE', 'action': 'respond',
+             'timestamp': '2026-04-01T14:00:00+00:00'},
+        ]
+        _make_job(self.project_dir, '20260401-120000',
+                  cfa_state='COMPLETED_WORK', history=history)
+
+        from bridge.stats import compute_stats
+        stats = compute_stats(teaparty_home=self.teaparty_home)
+
+        chart_total = sum(e['count'] for e in stats['phase_escalations'])
+        self.assertEqual(stats['summary']['escalations'], chart_total)
+        # Verify phase breakdown
+        by_phase = {e['phase']: e['count'] for e in stats['phase_escalations']}
+        self.assertEqual(by_phase.get('intent', 0), 1)
+        self.assertEqual(by_phase.get('planning', 0), 1)
+        self.assertEqual(by_phase.get('execution', 0), 1)

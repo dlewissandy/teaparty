@@ -187,17 +187,37 @@ def _count_historical_escalations(sessions: list) -> int:
     return count
 
 
-def _phase_escalations(sessions: list) -> list[dict]:
-    """Return list of {phase, count} for sessions currently awaiting human input.
+# Map escalation states to their CfA phase.
+_ESCALATION_PHASE = {
+    'INTENT_ESCALATE': 'intent', 'INTENT_QUESTION': 'intent',
+    'PLANNING_ESCALATE': 'planning', 'PLANNING_QUESTION': 'planning',
+    'TASK_ESCALATE': 'execution', 'TASK_QUESTION': 'execution',
+}
 
-    Note (issue #288): this reflects active escalations only, not historical.
-    Phase is taken from the session's current CfA phase.
+
+def _phase_escalations(sessions: list) -> list[dict]:
+    """Return list of {phase, count} for historical escalation events.
+
+    Walks CfA history to count ESCALATE/QUESTION transitions per phase,
+    consistent with the summary escalation scalar.
     """
     counts: dict[str, int] = {}
     for session in sessions:
-        if session.needs_input:
-            phase = session.cfa_phase or 'unknown'
-            counts[phase] = counts.get(phase, 0) + 1
+        if not session.infra_dir:
+            continue
+        cfa_path = os.path.join(session.infra_dir, '.cfa-state.json')
+        if not os.path.exists(cfa_path):
+            continue
+        try:
+            with open(cfa_path) as f:
+                data = json.load(f)
+            for entry in data.get('history', []):
+                state = entry.get('state', '')
+                phase = _ESCALATION_PHASE.get(state)
+                if phase:
+                    counts[phase] = counts.get(phase, 0) + 1
+        except (OSError, ValueError):
+            pass
     return [{'phase': phase, 'count': count} for phase, count in sorted(counts.items())]
 
 
@@ -237,14 +257,7 @@ def compute_stats(teaparty_home: str, projects_dir: str | None = None) -> dict:
     _bridge_dir = os.path.dirname(os.path.abspath(__file__))
     repo_root = os.path.dirname(_bridge_dir)
 
-    from orchestrator.job_store import migrate_legacy_sessions
-
     if projects_dir is not None:
-        # Migrate legacy .sessions/ data before scanning
-        for slug in sorted(os.listdir(projects_dir)):
-            proj_path = os.path.join(projects_dir, slug)
-            if os.path.isdir(proj_path):
-                migrate_legacy_sessions(proj_path)
         reader = StateReader(repo_root=repo_root, projects_dir=projects_dir)
         project_dirs = [
             os.path.join(projects_dir, slug)
@@ -253,15 +266,12 @@ def compute_stats(teaparty_home: str, projects_dir: str | None = None) -> dict:
         ]
     else:
         reader = StateReader(repo_root=repo_root, teaparty_home=teaparty_home)
-        # Get project paths for skill counting and migration
+        # Get project paths for skill counting
         try:
             mgmt_team = load_management_team(teaparty_home=teaparty_home)
             project_dirs = [e['path'] for e in _discover(mgmt_team)]
         except Exception:
             project_dirs = []
-        # Migrate legacy .sessions/ data before scanning
-        for proj_path in project_dirs:
-            migrate_legacy_sessions(proj_path)
     all_projects = reader.reload()
 
     all_sessions = [s for p in all_projects for s in p.sessions]
