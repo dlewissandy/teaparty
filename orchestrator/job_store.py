@@ -363,6 +363,119 @@ def find_job(project_root: str, *, job_id: str | None = None, issue: int | None 
     return None
 
 
+def _migrate_one_session(project_root: str, sessions_dir: str,
+                         session_id: str) -> None:
+    """Migrate a single legacy session into .teaparty/jobs/.
+
+    Legacy sessions may contain empty team subdirectories (research/,
+    coding/, etc.) which are moved as-is. These have no state files
+    and are not recognized as tasks by _find_job_tasks — which is
+    correct, since legacy dispatches predated the task state model.
+    """
+    session_dir = os.path.join(sessions_dir, session_id)
+
+    # Read task from PROMPT.txt if available
+    task = ''
+    prompt_path = os.path.join(session_dir, 'PROMPT.txt')
+    try:
+        with open(prompt_path) as f:
+            task = f.read().strip()
+    except (FileNotFoundError, OSError):
+        pass
+
+    slug = _slugify(task) if task else 'migrated'
+    job_id = f'job-{session_id}'
+    dir_name = f'{job_id}--{slug}'
+    job_dir = os.path.join(_jobs_dir(project_root), dir_name)
+
+    # Move session dir contents into the new job dir
+    os.makedirs(os.path.dirname(job_dir), exist_ok=True)
+    shutil.move(session_dir, job_dir)
+
+    # Determine terminal status from CfA state
+    status = 'active'
+    cfa_path = os.path.join(job_dir, '.cfa-state.json')
+    try:
+        with open(cfa_path) as f:
+            cfa = json.load(f)
+        cfa_state = cfa.get('state', '')
+        if cfa_state in ('COMPLETED_WORK', 'WITHDRAWN'):
+            status = 'complete'
+    except (OSError, ValueError):
+        pass
+
+    # Write job.json
+    now = datetime.now(timezone.utc).isoformat()
+    job_state = {
+        'job_id': job_id,
+        'slug': slug,
+        'issue': None,
+        'branch': '',
+        'status': status,
+        'created_at': now,
+        'updated_at': now,
+        'migrated_from': f'.sessions/{session_id}',
+    }
+    with open(os.path.join(job_dir, 'job.json'), 'w') as f:
+        json.dump(job_state, f, indent=2)
+        f.write('\n')
+
+    # Update jobs index
+    index_path = os.path.join(_jobs_dir(project_root), 'jobs.json')
+    index = _load_index(index_path, 'jobs')
+    index['jobs'].append({
+        'job_id': job_id,
+        'dir': dir_name,
+        'status': status,
+    })
+    _save_index(index_path, index)
+
+    log.info('Migrated legacy session %s → %s', session_id, dir_name)
+
+
+def migrate_legacy_sessions(project_root: str) -> list[str]:
+    """Migrate .sessions/ data into .teaparty/jobs/ format.
+
+    For each session directory in {project_root}/.sessions/, creates a
+    corresponding job entry under .teaparty/jobs/ and moves the state
+    files. Skips sessions that already have a job entry. Removes
+    .sessions/ when empty.
+
+    Returns list of migrated session IDs.
+    """
+    sessions_dir = os.path.join(project_root, '.sessions')
+    if not os.path.isdir(sessions_dir):
+        return []
+
+    migrated = []
+    for session_id in sorted(os.listdir(sessions_dir)):
+        session_dir = os.path.join(sessions_dir, session_id)
+        if not os.path.isdir(session_dir):
+            continue
+        # Skip if no CfA state (not a valid session)
+        if not os.path.isfile(os.path.join(session_dir, '.cfa-state.json')):
+            continue
+        # Skip if already migrated
+        if find_job(project_root, job_id=f'job-{session_id}'):
+            continue
+
+        try:
+            _migrate_one_session(project_root, sessions_dir, session_id)
+            migrated.append(session_id)
+        except Exception:
+            log.warning('Failed to migrate session %s', session_id,
+                        exc_info=True)
+
+    # Remove .sessions/ if empty
+    try:
+        if os.path.isdir(sessions_dir) and not os.listdir(sessions_dir):
+            os.rmdir(sessions_dir)
+    except OSError:
+        pass
+
+    return migrated
+
+
 async def gc_jobs(project_root: str, terminal_statuses: set[str] | None = None) -> list[str]:
     """Remove jobs in terminal states. Returns list of removed job_ids.
 

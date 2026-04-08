@@ -234,6 +234,20 @@ class TeaPartyBridge:
             teaparty_home=self.teaparty_home,
         )
 
+        # Migrate legacy .sessions/ data to .teaparty/jobs/ (issue #387).
+        # One-time on startup so compute_stats stays read-only.
+        self._migrate_legacy_sessions()
+
+    def _migrate_legacy_sessions(self) -> None:
+        """Migrate .sessions/ data to .teaparty/jobs/ for all registered projects."""
+        from orchestrator.job_store import migrate_legacy_sessions
+        try:
+            team = load_management_team(teaparty_home=self.teaparty_home)
+            for entry in discover_projects(team):
+                migrate_legacy_sessions(entry['path'])
+        except Exception:
+            _log.warning('Legacy session migration failed', exc_info=True)
+
     def run(self, port: int = 8081) -> None:
         """Start the bridge server and block until interrupted."""
         app = self._build_app()

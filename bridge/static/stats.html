@@ -75,10 +75,10 @@ function render(stats) {
       </div>
 
       <div class="chart-card">
-        <div class="chart-title">Escalations by Phase (active)</div>
+        <div class="chart-title">Escalations by Phase</div>
         <div class="bar-chart">
           ${(stats.phase_escalations || []).length === 0
-            ? '<div style="color:var(--text-dim);font-size:9px;align-self:flex-end">No active escalations</div>'
+            ? '<div style="color:var(--text-dim);font-size:9px;align-self:flex-end">No escalations</div>'
             : (stats.phase_escalations || []).map(d => `
               <div class="bar-group">
                 <div class="bar-value">${d.count}</div>

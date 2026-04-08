@@ -14,6 +14,14 @@ import os
 
 _TERMINAL_STATES = frozenset({'COMPLETED_WORK', 'WITHDRAWN'})
 
+# States where the agent escalated to a human (questions and escalations,
+# not approval gates which are scheduled checkpoints).
+_ESCALATION_STATES = frozenset({
+    'INTENT_ESCALATE', 'INTENT_QUESTION',
+    'PLANNING_ESCALATE', 'PLANNING_QUESTION',
+    'TASK_ESCALATE', 'TASK_QUESTION',
+})
+
 
 def _day_label(dt: datetime.date) -> str:
     """Return 'Mon D' label for a date (e.g. 'Mar 5', 'Mar 29')."""
@@ -154,17 +162,62 @@ def _cost_by_day(sessions: list, day_labels: list[str]) -> dict[str, float]:
     return totals
 
 
-def _phase_escalations(sessions: list) -> list[dict]:
-    """Return list of {phase, count} for sessions currently awaiting human input.
+def _count_historical_escalations(sessions: list) -> int:
+    """Count total escalation events across all session CfA histories.
 
-    Note (issue #288): this reflects active escalations only, not historical.
-    Phase is taken from the session's current CfA phase.
+    An escalation is a transition INTO a state where the agent contacted
+    a human (ESCALATE or QUESTION states). This is a historical sum,
+    not a point-in-time snapshot.
+    """
+    count = 0
+    for session in sessions:
+        if not session.infra_dir:
+            continue
+        cfa_path = os.path.join(session.infra_dir, '.cfa-state.json')
+        if not os.path.exists(cfa_path):
+            continue
+        try:
+            with open(cfa_path) as f:
+                data = json.load(f)
+            for entry in data.get('history', []):
+                if entry.get('state') in _ESCALATION_STATES:
+                    count += 1
+        except (OSError, ValueError):
+            pass
+    return count
+
+
+# Map escalation states to their CfA phase.
+_ESCALATION_PHASE = {
+    'INTENT_ESCALATE': 'intent', 'INTENT_QUESTION': 'intent',
+    'PLANNING_ESCALATE': 'planning', 'PLANNING_QUESTION': 'planning',
+    'TASK_ESCALATE': 'execution', 'TASK_QUESTION': 'execution',
+}
+
+
+def _phase_escalations(sessions: list) -> list[dict]:
+    """Return list of {phase, count} for historical escalation events.
+
+    Walks CfA history to count ESCALATE/QUESTION transitions per phase,
+    consistent with the summary escalation scalar.
     """
     counts: dict[str, int] = {}
     for session in sessions:
-        if session.needs_input:
-            phase = session.cfa_phase or 'unknown'
-            counts[phase] = counts.get(phase, 0) + 1
+        if not session.infra_dir:
+            continue
+        cfa_path = os.path.join(session.infra_dir, '.cfa-state.json')
+        if not os.path.exists(cfa_path):
+            continue
+        try:
+            with open(cfa_path) as f:
+                data = json.load(f)
+            for entry in data.get('history', []):
+                state = entry.get('state', '')
+                phase = _ESCALATION_PHASE.get(state)
+                if phase:
+                    counts[phase] = counts.get(phase, 0) + 1
+        except (OSError, ValueError):
+            pass
     return [{'phase': phase, 'count': count} for phase, count in sorted(counts.items())]
 
 
@@ -229,7 +282,7 @@ def compute_stats(teaparty_home: str, projects_dir: str | None = None) -> dict:
     active_jobs = sum(1 for s in all_sessions if s.cfa_state not in _TERMINAL_STATES)
     backtracks  = sum(s.backtrack_count for s in all_sessions)
     total_cost  = sum(s.total_cost_usd for s in all_sessions)
-    escalations = sum(1 for s in all_sessions if s.needs_input)
+    escalations = _count_historical_escalations(all_sessions)
     tasks_done  = _count_completed_tasks(all_sessions)
     skills      = _count_skills(project_dirs)
 
