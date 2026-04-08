@@ -354,7 +354,7 @@ class ClaudeRunner:
             json.dump(mcp_wrapper, mcp_file)
             mcp_file.close()
             self._mcp_config_file = mcp_file.name
-            args.extend(['--mcp-config', mcp_file.name])
+            args.extend(['--mcp-config', mcp_file.name, '--strict-mcp-config'])
         return args
 
     # Env vars the Claude CLI needs to function.  Everything else is
