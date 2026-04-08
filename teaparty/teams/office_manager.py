@@ -883,6 +883,12 @@ class OfficeManagerSession:
             )
             result = await runner.run()
 
+            import logging as _log_mod
+            _om_dbg = _log_mod.getLogger('teaparty.teams.office_manager')
+            if result.stderr_lines:
+                _om_dbg.warning('OM stderr (%d lines): %s', len(result.stderr_lines),
+                                '\n'.join(result.stderr_lines[-10:]))
+
             events = list(_iter_stream_events(stream_path, 'office-manager'))
             response_text = '\n'.join(c for s, c in events if s == 'office-manager')
 
