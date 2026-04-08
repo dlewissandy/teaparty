@@ -843,13 +843,6 @@ class OfficeManagerSession:
         # Start (or reuse) the bus event listener so the OM can Send/Reply.
         mcp_env = await self._ensure_bus_listener(cwd)
 
-        # --bare when apiKeyHelper is available (macOS keychain, Linux
-        # secret-tool).  Falls back to OAuth (--setting-sources user) on
-        # platforms without a credential store.
-        repo_root = os.path.dirname(self.teaparty_home)
-        api_key_helper = os.path.join(repo_root, 'bin', 'get-api-key.sh')
-        use_bare = os.path.isfile(api_key_helper)
-
         try:
             runner = create_runner(
                 prompt,
@@ -860,8 +853,6 @@ class OfficeManagerSession:
                 lead='office-manager',
                 permission_mode='default',
                 tools='',  # No builtins — OM dispatches via MCP Send only
-                bare=use_bare,
-                api_key_helper=api_key_helper if use_bare else '',
                 settings={
                     'permissions': {
                         'allow': [

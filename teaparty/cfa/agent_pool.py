@@ -193,27 +193,16 @@ class AgentPool:
         add_dirs: list[str] | None = None,
     ) -> AgentProcess:
         """Start a new persistent claude -p process."""
-        repo_root = os.path.dirname(self.teaparty_home)
-        api_key_helper = os.path.join(repo_root, 'bin', 'get-api-key.sh')
-        use_bare = os.path.isfile(api_key_helper)
-
         settings = dict(settings_dict or {})
-        if use_bare and api_key_helper:
-            settings['apiKeyHelper'] = api_key_helper
 
-        # Build command
         cmd = [
             'claude', '-p',
             '--output-format', 'stream-json',
             '--input-format', 'stream-json',
             '--verbose',
             '--agent', role,
+            '--setting-sources', 'user',
         ]
-
-        if use_bare:
-            cmd.append('--bare')
-        else:
-            cmd.extend(['--setting-sources', 'user'])
 
         # Dispatching leads: no builtins (MCP Send only).
         # Leaf specialists: default builtins for real work.

@@ -67,50 +67,9 @@ To use agent teams, ask Claude to form a team:
 
 Claude will create tasks, spawn teammates, assign work, and coordinate results.
 
-## Worktrees for Full Isolation
+## Worktrees
 
-For large features where agents need true branch-level isolation (separate files, separate git branch, no shared uncommitted state), use the worktree scripts:
-
-### Setup
-
-```bash
-./bin/setup-worktrees.sh <feature-name>
-```
-
-This creates sibling directories, each on its own branch:
-
-```
-../teaparty-backend-<feature>/    branch: backend/<feature>
-../teaparty-frontend-<feature>/   branch: frontend/<feature>
-../teaparty-tests-<feature>/      branch: tests/<feature>
-../teaparty-docs-<feature>/       branch: docs/<feature>
-../teaparty-ux-<feature>/         branch: ux/<feature>
-```
-
-Then run a separate Claude Code session in each:
-
-```bash
-cd ../teaparty-backend-add-auth && claude
-cd ../teaparty-frontend-add-auth && claude
-```
-
-### Teardown
-
-```bash
-# Remove worktrees only
-./bin/teardown-worktrees.sh <feature-name>
-
-# Remove worktrees and delete branches
-./bin/teardown-worktrees.sh <feature-name> --delete-branches
-```
-
-### When to Use Worktrees vs. Shared Directory
-
-| Scenario | Approach |
-|----------|----------|
-| Quick task touching 1-2 areas | Single session, delegate to agents |
-| Feature touching backend + frontend | Agent team in shared directory (hooks prevent conflicts) |
-| Large feature, multiple people/sessions | Worktrees for full isolation, merge branches when done |
+Worktrees are created automatically by hierarchical dispatch (`teaparty/cfa/session.py`, `teaparty/workspace/job_store.py`). Each dispatched agent session gets its own worktree and branch for full isolation.
 
 ## Typical Workflows
 
@@ -157,8 +116,4 @@ Ask Claude to coordinate a team effort:
     graphic-artist.md          # SVG & visual assets (sonnet)
     test-engineer.md           # Pytest (sonnet)
     ux-designer.md             # UI/UX design (sonnet)
-bin/
-  get-api-key.sh               # Extract Claude Max OAuth token
-  setup-worktrees.sh           # Create per-role git worktrees
-  teardown-worktrees.sh        # Remove worktrees and branches
 ```

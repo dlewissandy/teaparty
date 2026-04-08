@@ -187,8 +187,6 @@ class ClaudeRunner:
         parent_heartbeat: str = '',
         children_file: str = '',
         tools: str | None = None,
-        bare: bool = False,
-        api_key_helper: str = '',
         on_stream_event: Callable[[dict], None] | None = None,
     ):
         self.prompt = prompt
@@ -197,8 +195,6 @@ class ClaudeRunner:
         self.agents_file = agents_file
         self.agents_json = agents_json
         self.tools = tools
-        self.bare = bare
-        self.api_key_helper = api_key_helper
         self.on_stream_event = on_stream_event
         self.lead = lead
         self.settings = settings or {}
@@ -229,8 +225,6 @@ class ClaudeRunner:
         # Write settings to temp file
         settings_file = None
         settings = dict(self.settings) if self.settings else {}
-        if self.bare and self.api_key_helper:
-            settings['apiKeyHelper'] = self.api_key_helper
         if settings:
             settings_file = tempfile.NamedTemporaryFile(
                 mode='w', suffix='.json', delete=False,
@@ -313,10 +307,7 @@ class ClaudeRunner:
             '--output-format', 'stream-json',
             '--verbose',
         ]
-        if self.bare:
-            args.append('--bare')
-        else:
-            args.extend(['--setting-sources', 'user'])
+        args.extend(['--setting-sources', 'user'])
         args.extend(['--permission-mode', self.permission_mode])
         if self.tools is not None:
             args.extend(['--tools', self.tools])

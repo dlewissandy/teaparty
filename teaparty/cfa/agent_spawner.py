@@ -531,29 +531,14 @@ class AgentSpawner:
                 except (ValueError, _json.JSONDecodeError):
                     pass
 
-        # --bare: skip hooks, LSP, plugins, CLAUDE.md discovery, OAuth,
-        # auto-memory, prefetches.  Auth via apiKeyHelper (extracts OAuth
-        # token from platform credential store).  Max accounts only.
-        api_key_helper = os.path.join(
-            os.path.dirname(self.teaparty_home), 'bin', 'get-api-key.sh',
-        )
-        use_bare = os.path.isfile(api_key_helper)
-
-        if use_bare:
-            settings_dict['apiKeyHelper'] = api_key_helper
-
         # Dispatching leads only need MCP Send — no builtins.
         # Leaf specialists need builtins (Read/Write/Edit/Bash) for real work.
         builtin_tools = '' if agents_json else 'default'
 
         cmd = [self.claude_cmd, '-p', '--output-format', 'json',
                '--tools', builtin_tools,
-               '--agent', role]
-
-        if use_bare:
-            cmd.append('--bare')
-        else:
-            cmd += ['--setting-sources', 'user']
+               '--agent', role,
+               '--setting-sources', 'user']
 
         if settings_dict:
             cmd += ['--settings', json.dumps(settings_dict)]
