@@ -24,6 +24,7 @@ import json
 import logging
 import os
 import re
+import signal
 import shutil
 from datetime import datetime, timezone
 
@@ -259,6 +260,174 @@ async def create_task(
         'worktree_path': worktree_path,
         'branch_name': branch_name,
     }
+
+
+# ── Withdrawal ──────────────────────────────────────────────────────────────
+
+def _kill_pid(pid: int) -> None:
+    """Kill a process by PID. SIGTERM with SIGKILL fallback."""
+    import time
+    if pid <= 0 or pid == os.getpid():
+        return
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    except PermissionError:
+        log.warning('No permission to kill PID %d', pid)
+        return
+    # Grace period, then SIGKILL if still alive
+    for _ in range(5):
+        time.sleep(0.1)
+        try:
+            os.kill(pid, 0)  # probe
+        except ProcessLookupError:
+            return  # dead
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+
+def _read_heartbeat_pid(infra_dir: str) -> int:
+    """Read PID from .heartbeat file. Returns -1 if unavailable."""
+    hb_path = os.path.join(infra_dir, '.heartbeat')
+    try:
+        with open(hb_path) as f:
+            data = json.load(f)
+        return data.get('pid', -1)
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return -1
+
+
+def _set_cfa_withdrawn(infra_dir: str) -> None:
+    """Set CfA state to WITHDRAWN, preserving history."""
+    cfa_path = os.path.join(infra_dir, '.cfa-state.json')
+    try:
+        with open(cfa_path) as f:
+            cfa = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return
+
+    if cfa.get('state') in ('COMPLETED_WORK', 'WITHDRAWN'):
+        return
+
+    cfa['state'] = 'WITHDRAWN'
+    cfa['actor'] = 'bridge'
+    history = cfa.get('history', [])
+    history.append({
+        'state': 'WITHDRAWN',
+        'action': 'withdraw',
+        'actor': 'bridge',
+        'timestamp': datetime.now(timezone.utc).isoformat(),
+    })
+    cfa['history'] = history
+
+    tmp = cfa_path + '.tmp'
+    with open(tmp, 'w') as f:
+        json.dump(cfa, f, indent=2)
+        f.write('\n')
+    os.replace(tmp, cfa_path)
+
+
+def _finalize_heartbeat(infra_dir: str) -> None:
+    """Set heartbeat status to 'withdrawn'."""
+    hb_path = os.path.join(infra_dir, '.heartbeat')
+    try:
+        with open(hb_path) as f:
+            data = json.load(f)
+        data['status'] = 'withdrawn'
+        tmp = hb_path + '.tmp'
+        with open(tmp, 'w') as f:
+            json.dump(data, f)
+        os.replace(tmp, hb_path)
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        pass
+
+
+async def withdraw_job(*, project_root: str, job_dir: str) -> dict:
+    """Withdraw a job: kill processes, remove worktrees, preserve stats.
+
+    1. Kill all processes (job + tasks) via heartbeat PIDs
+    2. Set CfA state to WITHDRAWN (preserving history for stats)
+    3. Remove git worktrees (job + all tasks)
+    4. Update job.json status to 'withdrawn'
+    5. Remove from jobs.json index
+
+    The job directory itself is kept (with .cfa-state.json and job.json)
+    so the stats pipeline can still discover historical data.
+    """
+    # Read current CfA state to check if already terminal
+    cfa_path = os.path.join(job_dir, '.cfa-state.json')
+    try:
+        with open(cfa_path) as f:
+            cfa = json.load(f)
+        if cfa.get('state') in ('COMPLETED_WORK', 'WITHDRAWN'):
+            return {'status': 'already_terminal', 'state': cfa['state']}
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+
+    # 1. Kill processes — job first, then tasks
+    pid = _read_heartbeat_pid(job_dir)
+    if pid > 0:
+        _kill_pid(pid)
+
+    tasks_dir = os.path.join(job_dir, 'tasks')
+    if os.path.isdir(tasks_dir):
+        for entry in os.listdir(tasks_dir):
+            task_dir = os.path.join(tasks_dir, entry)
+            if not os.path.isdir(task_dir):
+                continue
+            task_pid = _read_heartbeat_pid(task_dir)
+            if task_pid > 0:
+                _kill_pid(task_pid)
+            _set_cfa_withdrawn(task_dir)
+            _finalize_heartbeat(task_dir)
+
+    # 2. Set CfA state to WITHDRAWN
+    _set_cfa_withdrawn(job_dir)
+    _finalize_heartbeat(job_dir)
+
+    # 3. Remove git worktrees (tasks first, then job)
+    worktree_paths = []
+    if os.path.isdir(tasks_dir):
+        for entry in os.listdir(tasks_dir):
+            task_wt = os.path.join(tasks_dir, entry, 'worktree')
+            if os.path.isdir(task_wt):
+                worktree_paths.append(task_wt)
+    job_wt = os.path.join(job_dir, 'worktree')
+    if os.path.isdir(job_wt):
+        worktree_paths.append(job_wt)
+
+    for wt_path in worktree_paths:
+        try:
+            await _run_git(project_root, 'worktree', 'remove', '--force', wt_path)
+        except RuntimeError:
+            log.warning('Failed to remove worktree %s', wt_path)
+
+    # 4. Update job.json status
+    job_json_path = os.path.join(job_dir, 'job.json')
+    try:
+        with open(job_json_path) as f:
+            job_state = json.load(f)
+        job_state['status'] = 'withdrawn'
+        job_state['updated_at'] = datetime.now(timezone.utc).isoformat()
+        tmp = job_json_path + '.tmp'
+        with open(tmp, 'w') as f:
+            json.dump(job_state, f, indent=2)
+            f.write('\n')
+        os.replace(tmp, job_json_path)
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        pass
+
+    # 5. Remove from jobs index
+    index_path = os.path.join(_jobs_dir(project_root), 'jobs.json')
+    index = _load_index(index_path, 'jobs')
+    dir_name = os.path.basename(job_dir)
+    index['jobs'] = [j for j in index['jobs'] if j.get('dir') != dir_name]
+    _save_index(index_path, index)
+
+    return {'status': 'withdrawn'}
 
 
 # ── Cleanup ──────────────────────────────────────────────────────────────────

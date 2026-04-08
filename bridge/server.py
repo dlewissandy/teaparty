@@ -1706,35 +1706,50 @@ class TeaPartyBridge:
     # ── Action handlers ───────────────────────────────────────────────────────
 
     async def _handle_withdraw(self, request: web.Request) -> web.Response:
+        """Withdraw a job: kill processes, remove worktrees, preserve stats.
+
+        Operates directly on the job directory — no engine socket required.
+        """
         session_id = request.match_info['session_id']
-        sock_path = _withdrawal_socket_path(self.teaparty_home, session_id)
 
-        if not os.path.exists(sock_path):
+        # Find the job's infra_dir
+        infra_dir = self._resolve_session_infra(session_id)
+        if not infra_dir:
             return web.json_response(
-                {'error': 'intervention socket not available for this session'},
-                status=503,
-            )
+                {'error': f'session not found: {session_id}'}, status=404)
 
-        payload = json.dumps(make_intervention_request(
-            'withdraw_session', session_id=session_id,
-        ))
+        # Derive project_root from job_dir path
+        from orchestrator.job_store import withdraw_job, project_root_from_job_dir
+        if '/.teaparty/jobs/' not in infra_dir:
+            return web.json_response(
+                {'error': 'withdrawal requires .teaparty/jobs/ layout; '
+                          'run migration first'}, status=400)
+        project_root = project_root_from_job_dir(infra_dir)
+
         try:
-            reader, writer = await asyncio.open_unix_connection(sock_path)
-            writer.write(payload.encode() + b'\n')
-            await writer.drain()
-            line = await reader.readline()
-            writer.close()
-            await writer.wait_closed()
-            response = json.loads(line.decode())
+            result = await withdraw_job(
+                project_root=project_root, job_dir=infra_dir)
         except Exception as exc:
+            _log.exception('Withdrawal failed for session %s', session_id)
             return web.json_response({'error': str(exc)}, status=502)
 
-        status = response.get('status', '')
-        if status == 'error':
-            return web.json_response(response, status=502)
+        status = result.get('status', '')
         if status == 'already_terminal':
-            return web.json_response(response, status=409)
-        return web.json_response(response)
+            return web.json_response(result, status=409)
+
+        # Broadcast withdrawal to connected WebSocket clients
+        payload = json.dumps({
+            'type': 'session_completed',
+            'session_id': session_id,
+            'terminal_state': 'WITHDRAWN',
+        })
+        for ws in list(self._ws_clients):
+            try:
+                await ws.send_str(payload)
+            except Exception:
+                pass
+
+        return web.json_response(result)
 
     async def _handle_session_tasks(self, request: web.Request) -> web.Response:
         """List dispatched tasks for a session (issue #389).
