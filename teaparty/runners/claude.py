@@ -383,6 +383,9 @@ class ClaudeRunner:
                 env[key] = value
         env['CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS'] = '1'
         env['CLAUDE_CODE_MAX_OUTPUT_TOKENS'] = '128000'
+        # Remove CLAUDECODE — it suppresses MCP server startup to prevent
+        # recursion, but dispatched agents need their own MCP servers.
+        env.pop('CLAUDECODE', None)
         env.update(self.env_vars)
         return env
 
