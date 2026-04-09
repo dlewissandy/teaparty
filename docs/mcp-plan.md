@@ -439,3 +439,52 @@ Or we use aiohttp's built-in `app.router.add_route` with a raw handler that dele
 - `--mcp-config` + `--strict-mcp-config` on every ClaudeRunner invocation
 - `--tools` for builtin filtering
 - `--settings` permissions for auto-approval
+
+## Experiment 9: Single event loop + direct bus listener registry (Option F)
+
+**Date:** 2026-04-09
+
+### What we're doing
+
+Two changes in one commit because they're interdependent:
+
+1. **Mount MCP inside the bridge's aiohttp server** (single event loop)
+2. **Replace socket-based Send/Reply routing with direct bus listener calls** (Option F)
+
+### Why they're coupled
+
+Option F (direct registry) requires the MCP handlers and bus listeners to share the same process and event loop. The single event loop decision (mounting MCP inside aiohttp) is what makes Option F possible. Doing one without the other is pointless:
+
+- Single event loop without Option F: MCP is in-process but still uses sockets to talk to the bus listener sitting right next to it. Sockets to yourself.
+- Option F without single event loop: Direct calls from the uvicorn thread into the bus listener's event loop. Cross-thread, race conditions, `run_coroutine_threadsafe`. Fragile.
+
+Together: MCP handlers call bus listener functions directly via `await`. Same event loop, same thread, zero overhead. The sockets were only needed when the MCP server was a separate process.
+
+### What gets removed
+
+- Unix socket creation for Send/Reply/CloseConversation
+- Socket connection in `teaparty/mcp/tools/messaging.py` (`_default_send_post`, `_default_reply_post`, `_default_close_conv_post`)
+- `SEND_SOCKET`, `REPLY_SOCKET`, `CLOSE_CONV_SOCKET` env vars
+- `_mcp_env_to_args` helper
+- Threading for the MCP server in `bridge/__main__.py`
+- uvicorn dependency for the bridge MCP server (remains for standalone `main.py` CLI)
+
+### What gets added
+
+- Module-level bus listener registry: `{agent_name: BusEventListener}`
+- Bridge registers each bus listener when created
+- MCP Send/Reply handlers look up the listener by agent name from the registry
+- aiohttp route that delegates to the MCP ASGI app
+- Agent name injected into request context by the ASGI middleware (already parsed from URL path)
+
+### Hypothesis
+
+With the MCP server on the same event loop as the bus listener, Send will call the bus listener's spawn function directly. The bus listener spawns the target agent asynchronously. The Send handler returns the result. No sockets, no env vars, no cross-process IPC.
+
+### Test plan
+
+1. Implement the registry and aiohttp mounting
+2. Restart bridge, clear OM session
+3. OM calls Send('pybayes-lead', 'Tell me a joke')
+4. Verify: bus listener receives the call, spawns pybayes-lead, returns result
+5. Verify: no SEND_SOCKET env var needed anywhere
