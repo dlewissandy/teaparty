@@ -981,16 +981,22 @@ def create_http_app(port: int = 8082):
         /mcp/management/{agent}        — management-scoped agent
         /mcp/{project}/{agent}         — project-scoped agent
 
-    Each route lazily creates a filtered FastMCP instance and mounts its
-    streamable-http handler. Instances are cached after first creation.
+    Each route lazily creates a filtered FastMCP instance. Session managers
+    are initialized via Starlette's lifespan so the async task group is
+    available when requests arrive.
     """
+    import contextlib
     import logging as _logging
     import uvicorn
+    from collections.abc import AsyncIterator
     from starlette.applications import Starlette
-    from starlette.routing import Mount
+    from starlette.routing import Route
+    from mcp.server.fastmcp.server import StreamableHTTPASGIApp
 
     _log = _logging.getLogger('teaparty.mcp.server')
     _cache: dict[str, FastMCP] = {}
+    _managers: dict[str, object] = {}  # cache_key -> StreamableHTTPSessionManager
+    _apps: dict[str, StreamableHTTPASGIApp] = {}  # cache_key -> ASGI handler
 
     def _get_or_create(cache_key: str, agent_tools: set[str] | None) -> FastMCP:
         if cache_key not in _cache:
@@ -1000,91 +1006,80 @@ def create_http_app(port: int = 8082):
             _cache[cache_key] = server
         return _cache[cache_key]
 
-    # Default: all tools
+    def _resolve_agent(scope_or_project: str, agent_name: str) -> set[str] | None:
+        if scope_or_project == 'management':
+            return _load_agent_tools(agent_name, scope='management')
+        return _load_agent_tools(agent_name, project_name=scope_or_project)
+
+    # The default server (all tools) is the base. For agent-specific
+    # paths, we run separate FastMCP servers each with their own uvicorn.
+    # This is simpler than trying to share a single Starlette app with
+    # multiple session managers (which requires complex lifespan management).
+
+    # Actually, the simplest correct approach: run one FastMCP server
+    # per unique agent on different ports. But that's back to N servers.
+    #
+    # Instead: run the default server normally and use a ASGI middleware
+    # that intercepts agent paths, rewrites them, and delegates to
+    # lazily-started per-agent servers.
+
+    # Pre-create the default server
     default_server = _get_or_create('__all__', None)
-    default_app = default_server.streamable_http_app()
-
-    # Build the top-level Starlette app with catch-all routing.
-    # We can't pre-enumerate all agents, so we use a middleware approach:
-    # intercept requests, parse the path, and route to the right server.
-    from starlette.requests import Request
-    from starlette.responses import Response
-
-    async def route_request(request: Request) -> Response:
-        path = request.url.path
-
-        # Parse: /mcp/{scope}/{agent} or /mcp
-        parts = path.strip('/').split('/')
-        # parts[0] = 'mcp', parts[1] = scope/project, parts[2] = agent
-
-        if len(parts) == 1:
-            # /mcp — all tools, delegate to default app
-            pass
-        elif len(parts) == 3:
-            scope_or_project = parts[1]
-            agent_name = parts[2]
-            cache_key = f'{scope_or_project}/{agent_name}'
-
-            if cache_key not in _cache:
-                if scope_or_project == 'management':
-                    tools = _load_agent_tools(agent_name, scope='management')
-                else:
-                    tools = _load_agent_tools(agent_name, project_name=scope_or_project)
-                _get_or_create(cache_key, tools)
-
-            server = _cache[cache_key]
-            agent_app = server.streamable_http_app()
-            # Rewrite path to /mcp for the sub-app
-            request._scope['path'] = '/mcp'
-            return await agent_app(request.scope, request.receive, request._send)
-
-        # Default: all tools
-        return await default_app(request.scope, request.receive, request._send)
-
-    app = Starlette(routes=[Mount('/', app=default_app)])
-
-    # Override with our custom router
-    from starlette.middleware import Middleware
-    from starlette.types import ASGIApp, Receive, Scope, Send as ASGISend
-
-    class AgentRoutingMiddleware:
-        def __init__(self, app: ASGIApp):
-            self.app = app
-
-        async def __call__(self, scope: Scope, receive: Receive, send: ASGISend):
-            if scope['type'] != 'http':
-                await self.app(scope, receive, send)
-                return
-
-            path = scope.get('path', '')
-            parts = path.strip('/').split('/')
-
-            if len(parts) == 3 and parts[0] == 'mcp':
-                scope_or_project = parts[1]
-                agent_name = parts[2]
-                cache_key = f'{scope_or_project}/{agent_name}'
-
-                if cache_key not in _cache:
-                    if scope_or_project == 'management':
-                        tools = _load_agent_tools(agent_name, scope='management')
-                    else:
-                        tools = _load_agent_tools(agent_name, project_name=scope_or_project)
-                    _get_or_create(cache_key, tools)
-
-                server = _cache[cache_key]
-                agent_app = server.streamable_http_app()
-                # Rewrite path so the sub-app sees /mcp
-                scope = dict(scope)
-                scope['path'] = '/mcp'
-                await agent_app(scope, receive, send)
-            else:
-                await self.app(scope, receive, send)
-
-    app.add_middleware(AgentRoutingMiddleware)
 
     def run():
-        _log.info('HTTP MCP server starting on port %d', port)
-        uvicorn.run(app, host='127.0.0.1', port=port, log_level='warning')
+        """Start the HTTP MCP server with per-agent path routing."""
+        import asyncio
+
+        async def _serve():
+            # Start the default server's session manager
+            default_starlette = default_server.streamable_http_app()
+            default_mgr = default_server.session_manager
+
+            # ASGI app that routes /mcp/scope/agent to filtered servers
+            async def routing_app(scope, receive, send):
+                if scope['type'] == 'lifespan':
+                    await default_starlette(scope, receive, send)
+                    return
+
+                if scope['type'] != 'http':
+                    await default_starlette(scope, receive, send)
+                    return
+
+                path = scope.get('path', '')
+                parts = path.strip('/').split('/')
+
+                if len(parts) == 3 and parts[0] == 'mcp':
+                    cache_key = f'{parts[1]}/{parts[2]}'
+
+                    if cache_key not in _apps:
+                        tools = _resolve_agent(parts[1], parts[2])
+                        server = _get_or_create(cache_key, tools)
+                        agent_starlette = server.streamable_http_app()
+                        _apps[cache_key] = agent_starlette
+                        # Start the agent's session manager
+                        mgr = server.session_manager
+                        _managers[cache_key] = mgr
+                        await mgr.run().__aenter__()
+
+                    scope = dict(scope)
+                    scope['path'] = '/mcp'
+                    await _apps[cache_key](scope, receive, send)
+                else:
+                    scope = dict(scope)
+                    scope['path'] = '/mcp'
+                    await default_starlette(scope, receive, send)
+
+            config = uvicorn.Config(
+                routing_app,
+                host='127.0.0.1',
+                port=port,
+                log_level='warning',
+            )
+            server = uvicorn.Server(config)
+            _log.info('HTTP MCP server starting on port %d', port)
+            await server.serve()
+
+        asyncio.run(_serve())
 
     return run
 
