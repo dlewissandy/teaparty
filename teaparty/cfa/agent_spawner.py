@@ -83,18 +83,12 @@ def compose_worktree(
     compose_settings(worktree, teaparty_home, project_dir=project_dir,
                      agent_name=agent_name, is_management=is_management)
     t4 = _time.monotonic()
-    # Determine project name for MCP URL scope
-    _project_name = ''
-    if project_dir and not is_management:
-        _project_name = os.path.basename(project_dir)
-    compose_mcp_config(worktree, role,
-                       scope='management' if is_management else 'project',
-                       project_name=_project_name)
-    t5 = _time.monotonic()
+
+
     _log.info(
         'compose_worktree_timing: role=%r claude_md=%.3fs agents=%.3fs '
-        'skills=%.3fs settings=%.3fs mcp=%.3fs total=%.3fs',
-        role, t1 - t0, t2 - t1, t3 - t2, t4 - t3, t5 - t4, t5 - t0,
+        'skills=%.3fs settings=%.3fs total=%.3fs',
+        role, t1 - t0, t2 - t1, t3 - t2, t4 - t3, t4 - t0,
     )
 
 

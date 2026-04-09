@@ -145,8 +145,6 @@ class ProjectLeadSession:
             self.lead_name, cwd, self._infra_dir,
         )
 
-        from teaparty.cfa.agent_spawner import compose_mcp_config
-        compose_mcp_config(effective_cwd, self.lead_name, scope='management')
 
         stream_fd, stream_path = tempfile.mkstemp(
             suffix='.jsonl', prefix='pl-stream-',

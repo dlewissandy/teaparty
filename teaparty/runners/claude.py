@@ -202,6 +202,7 @@ class ClaudeRunner:
         self.add_dirs = add_dirs or []
         self.resume_session = resume_session
         self.env_vars = env_vars or {}
+        self._mcp_config_file: str | None = None
         self.event_bus = event_bus
         self.stall_timeout = stall_timeout
         self.session_id = session_id
@@ -220,9 +221,8 @@ class ClaudeRunner:
 
     async def run(self) -> ClaudeResult:
         """Run the Claude CLI and stream output. Returns result."""
-        # Set --tools from agent frontmatter if not already set by caller.
-        # MCP tool filtering is handled by the HTTP server's path routing.
-        # Builtin tool filtering is handled here via --tools.
+        # Configure tools from agent frontmatter (single source of truth).
+        # Builtins → --tools flag. MCP → HTTP server with ASGI filter.
         if self.lead and self.tools is None:
             from teaparty.mcp.server.main import _load_agent_tools
             agent_tools = _load_agent_tools(self.lead)
@@ -232,6 +232,20 @@ class ClaudeRunner:
                 if 'ToolSearch' not in builtins:
                     builtins.append('ToolSearch')
                 self.tools = ','.join(builtins)
+
+        # Write MCP config pointing to the shared HTTP server.
+        # The URL encodes the agent scope for per-agent tool filtering.
+        if self.lead:
+            mcp_port = int(os.environ.get('TEAPARTY_MCP_PORT', '8082'))
+            # TODO: support project scope — for now all agents are management
+            mcp_url = f'http://localhost:{mcp_port}/mcp/management/{self.lead}'
+            mcp_data = {'mcpServers': {'teaparty-config': {'type': 'http', 'url': mcp_url}}}
+            mcp_file = tempfile.NamedTemporaryFile(
+                mode='w', suffix='.json', prefix='mcp-', delete=False,
+            )
+            json.dump(mcp_data, mcp_file)
+            mcp_file.close()
+            self._mcp_config_file = mcp_file.name
 
         # Write settings to temp file
         settings_file = None
@@ -305,6 +319,11 @@ class ClaudeRunner:
                     os.unlink(settings_file.name)
                 except OSError:
                     pass
+            if self._mcp_config_file:
+                try:
+                    os.unlink(self._mcp_config_file)
+                except OSError:
+                    pass
 
     def _build_args(self, settings_path: str | None) -> list[str]:
         args = [
@@ -349,8 +368,8 @@ class ClaudeRunner:
                 args.extend(['--add-dir', d])
         if self.resume_session:
             args.extend(['--resume', self.resume_session])
-        # MCP config comes from the workspace .mcp.json (HTTP transport).
-        # No --mcp-config override needed.
+        if self._mcp_config_file:
+            args.extend(['--mcp-config', self._mcp_config_file, '--strict-mcp-config'])
         return args
 
     # Env vars the Claude CLI needs to function.  Everything else is

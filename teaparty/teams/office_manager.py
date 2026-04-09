@@ -771,8 +771,6 @@ class OfficeManagerSession:
             agents_path = None
 
         # Write per-agent .mcp.json pointing to the shared HTTP MCP server.
-        from teaparty.cfa.agent_spawner import compose_mcp_config
-        compose_mcp_config(effective_cwd, 'office-manager', scope='management')
 
         # Start (or reuse) the bus event listener so the OM can Send/Reply.
         mcp_env = await self._ensure_bus_listener(cwd)
