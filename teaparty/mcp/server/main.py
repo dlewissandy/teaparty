@@ -971,115 +971,176 @@ def _load_agent_tools(
     return None
 
 
-# ── HTTP server with per-agent path routing ──────────────────────────────────
+# ── HTTP server with ASGI response filter ─────────────────────────────────────
+
+# ── HTTP server with ASGI response filter ─────────────────────────────────────
 
 def create_http_app(port: int = 8082):
-    """Create a Starlette app that serves filtered MCP tools per agent.
+    """HTTP MCP server with ASGI response filter for per-agent tool filtering.
 
-    Routes:
+    One FastMCP instance, one session manager. tools/list responses on
+    agent-scoped paths are intercepted and filtered to the agent's
+    frontmatter allowlist.
+
+    Paths:
         /mcp                           — all tools (interactive session)
         /mcp/management/{agent}        — management-scoped agent
         /mcp/{project}/{agent}         — project-scoped agent
-
-    Each route lazily creates a filtered FastMCP instance. Session managers
-    are initialized via Starlette's lifespan so the async task group is
-    available when requests arrive.
     """
-    import contextlib
+    import json as _json
     import logging as _logging
     import uvicorn
-    from collections.abc import AsyncIterator
-    from starlette.applications import Starlette
-    from starlette.routing import Route
-    from mcp.server.fastmcp.server import StreamableHTTPASGIApp
 
     _log = _logging.getLogger('teaparty.mcp.server')
-    _cache: dict[str, FastMCP] = {}
-    _managers: dict[str, object] = {}  # cache_key -> StreamableHTTPSessionManager
-    _apps: dict[str, StreamableHTTPASGIApp] = {}  # cache_key -> ASGI handler
 
-    def _get_or_create(cache_key: str, agent_tools: set[str] | None) -> FastMCP:
-        if cache_key not in _cache:
-            server = create_server(agent_tools=agent_tools)
-            _log.info('create_http_app: created server for %r with %s tools',
-                      cache_key, 'all' if agent_tools is None else len(agent_tools))
-            _cache[cache_key] = server
-        return _cache[cache_key]
+    # One server with all tools, one session manager
+    server = create_server()
+    starlette_app = server.streamable_http_app()
 
-    def _resolve_agent(scope_or_project: str, agent_name: str) -> set[str] | None:
+    def _get_allowed_names(scope_or_project: str, agent_name: str) -> set[str] | None:
+        """Load agent's allowed tool names (bare, no mcp__ prefix)."""
         if scope_or_project == 'management':
-            return _load_agent_tools(agent_name, scope='management')
-        return _load_agent_tools(agent_name, project_name=scope_or_project)
+            tools = _load_agent_tools(agent_name, scope='management')
+        else:
+            tools = _load_agent_tools(agent_name, project_name=scope_or_project)
+        if tools is None:
+            return None
+        mcp_prefix = 'mcp__teaparty-config__'
+        return {t[len(mcp_prefix):] if t.startswith(mcp_prefix) else t
+                for t in tools}
 
-    # The default server (all tools) is the base. For agent-specific
-    # paths, we run separate FastMCP servers each with their own uvicorn.
-    # This is simpler than trying to share a single Starlette app with
-    # multiple session managers (which requires complex lifespan management).
+    _allowlist_cache: dict[str, set[str] | None] = {}
 
-    # Actually, the simplest correct approach: run one FastMCP server
-    # per unique agent on different ports. But that's back to N servers.
-    #
-    # Instead: run the default server normally and use a ASGI middleware
-    # that intercepts agent paths, rewrites them, and delegates to
-    # lazily-started per-agent servers.
+    def _filter_tools_response(body: bytes, allowed: set[str]) -> bytes:
+        """Filter a tools/list JSON-RPC response to only allowed tools."""
+        data = _json.loads(body)
+        result = data.get('result', {})
+        tools = result.get('tools')
+        if tools is not None:
+            result['tools'] = [t for t in tools if t.get('name') in allowed]
+            data['result'] = result
+        return _json.dumps(data).encode()
 
-    # Pre-create the default server
-    default_server = _get_or_create('__all__', None)
+    async def filtering_app(scope, receive, send):
+        """ASGI app: one server, filter tools/list for agent paths."""
+
+        # Non-HTTP (lifespan etc.) -> delegate directly
+        if scope['type'] != 'http':
+            await starlette_app(scope, receive, send)
+            return
+
+        original_path = scope.get('path', '')
+        parts = original_path.strip('/').split('/')
+
+        # Parse agent scope from path
+        agent_info = None
+        if len(parts) == 3 and parts[0] == 'mcp':
+            agent_info = (parts[1], parts[2])
+
+        # Rewrite path to /mcp for the FastMCP app
+        scope = dict(scope)
+        scope['path'] = '/mcp'
+
+        # No agent scope -> pass through unchanged (all tools)
+        if agent_info is None:
+            await starlette_app(scope, receive, send)
+            return
+
+        scope_name, agent_name = agent_info
+        cache_key = f'{scope_name}/{agent_name}'
+
+        # Load allowlist
+        if cache_key not in _allowlist_cache:
+            _allowlist_cache[cache_key] = _get_allowed_names(scope_name, agent_name)
+            allowed = _allowlist_cache[cache_key]
+            _log.info('Loaded allowlist for %s: %s',
+                      cache_key, f'{len(allowed)} tools' if allowed else 'all')
+
+        allowed = _allowlist_cache[cache_key]
+
+        # No allowlist -> pass through (all tools)
+        if allowed is None:
+            await starlette_app(scope, receive, send)
+            return
+
+        # Peek at request body to check if this is tools/list
+        first_msg = await receive()
+        request_body = first_msg.get('body', b'')
+
+        is_tools_list = False
+        try:
+            req = _json.loads(request_body)
+            is_tools_list = req.get('method') == 'tools/list'
+        except (ValueError, _json.JSONDecodeError):
+            pass
+
+        # Replay the peeked message
+        replayed = False
+        async def replay_receive():
+            nonlocal replayed
+            if not replayed:
+                replayed = True
+                return first_msg
+            return await receive()
+
+        # Not tools/list -> pass through
+        if not is_tools_list:
+            await starlette_app(scope, replay_receive, send)
+            return
+
+        # tools/list -> buffer response, filter, send
+        captured_start = None
+        captured_body = b''
+
+        async def capture_send(msg):
+            nonlocal captured_start, captured_body
+            if msg['type'] == 'http.response.start':
+                captured_start = msg
+            elif msg['type'] == 'http.response.body':
+                captured_body += msg.get('body', b'')
+
+        await starlette_app(scope, replay_receive, capture_send)
+
+        # Filter the tools
+        if captured_start and captured_start.get('status') == 200 and captured_body:
+            try:
+                filtered = _filter_tools_response(captured_body, allowed)
+            except Exception as exc:
+                _log.warning('tools/list filter failed for %s: %s', cache_key, exc)
+                filtered = captured_body
+
+            # Rewrite Content-Length
+            headers = [
+                (b'content-length', str(len(filtered)).encode())
+                if name.lower() == b'content-length' else (name, value)
+                for name, value in captured_start.get('headers', [])
+            ]
+            await send({**captured_start, 'headers': headers})
+            await send({'type': 'http.response.body', 'body': filtered})
+        else:
+            if captured_start:
+                await send(captured_start)
+            await send({'type': 'http.response.body', 'body': captured_body})
 
     def run():
-        """Start the HTTP MCP server with per-agent path routing."""
+        _log.info('HTTP MCP server starting on port %d', port)
+
         import asyncio
-
         async def _serve():
-            # Start the default server's session manager
-            default_starlette = default_server.streamable_http_app()
-            default_mgr = default_server.session_manager
-
-            # ASGI app that routes /mcp/scope/agent to filtered servers
-            async def routing_app(scope, receive, send):
-                if scope['type'] == 'lifespan':
-                    await default_starlette(scope, receive, send)
-                    return
-
-                if scope['type'] != 'http':
-                    await default_starlette(scope, receive, send)
-                    return
-
-                path = scope.get('path', '')
-                parts = path.strip('/').split('/')
-
-                if len(parts) == 3 and parts[0] == 'mcp':
-                    cache_key = f'{parts[1]}/{parts[2]}'
-
-                    if cache_key not in _apps:
-                        tools = _resolve_agent(parts[1], parts[2])
-                        server = _get_or_create(cache_key, tools)
-                        agent_starlette = server.streamable_http_app()
-                        _apps[cache_key] = agent_starlette
-                        # Start the agent's session manager
-                        mgr = server.session_manager
-                        _managers[cache_key] = mgr
-                        await mgr.run().__aenter__()
-
-                    scope = dict(scope)
-                    scope['path'] = '/mcp'
-                    await _apps[cache_key](scope, receive, send)
-                else:
-                    scope = dict(scope)
-                    scope['path'] = '/mcp'
-                    await default_starlette(scope, receive, send)
-
             config = uvicorn.Config(
-                routing_app,
+                filtering_app,
                 host='127.0.0.1',
                 port=port,
                 log_level='warning',
             )
-            server = uvicorn.Server(config)
-            _log.info('HTTP MCP server starting on port %d', port)
-            await server.serve()
+            uv_server = uvicorn.Server(config)
+            await uv_server.serve()
 
         asyncio.run(_serve())
+
+    return run
+
+
 
     return run
 
