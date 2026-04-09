@@ -221,17 +221,24 @@ class ClaudeRunner:
 
     async def run(self) -> ClaudeResult:
         """Run the Claude CLI and stream output. Returns result."""
-        # Configure tools from agent frontmatter (single source of truth).
-        # Builtins → --tools flag. MCP → HTTP server with ASGI filter.
-        if self.lead and self.tools is None:
-            from teaparty.mcp.server.main import _load_agent_tools
-            agent_tools = _load_agent_tools(self.lead)
-            if agent_tools:
-                mcp_prefix = 'mcp__'
-                builtins = [t for t in agent_tools if not t.startswith(mcp_prefix)]
-                if 'ToolSearch' not in builtins:
-                    builtins.append('ToolSearch')
-                self.tools = ','.join(builtins)
+        # Configure from agent frontmatter (single source of truth).
+        if self.lead:
+            fm = self._load_agent_frontmatter(self.lead)
+            # Builtin tools → --tools flag
+            if fm and self.tools is None:
+                tools_str = fm.get('tools', '')
+                if tools_str:
+                    all_tools = {t.strip() for t in tools_str.split(',') if t.strip()}
+                    mcp_prefix = 'mcp__'
+                    builtins = [t for t in all_tools if not t.startswith(mcp_prefix)]
+                    if 'ToolSearch' not in builtins:
+                        builtins.append('ToolSearch')
+                    self.tools = ','.join(builtins)
+            # Permission mode from frontmatter
+            if fm and self.permission_mode == 'default':
+                fm_mode = fm.get('permissionMode', '')
+                if fm_mode:
+                    self.permission_mode = fm_mode
 
         # Write MCP config pointing to the shared HTTP server.
         # The URL encodes the agent scope for per-agent tool filtering.
@@ -324,6 +331,20 @@ class ClaudeRunner:
                     os.unlink(self._mcp_config_file)
                 except OSError:
                     pass
+
+    @staticmethod
+    def _load_agent_frontmatter(agent_name: str) -> dict | None:
+        """Read an agent's frontmatter from .teaparty/ management agents."""
+        from teaparty.mcp.server.main import _resolve_teaparty_home
+        from teaparty.config.config_reader import read_agent_frontmatter
+        home = _resolve_teaparty_home()
+        if not home:
+            return None
+        agent_md = os.path.join(home, 'management', 'agents', agent_name, 'agent.md')
+        try:
+            return read_agent_frontmatter(agent_md)
+        except (FileNotFoundError, Exception):
+            return None
 
     def _build_args(self, settings_path: str | None) -> list[str]:
         args = [
