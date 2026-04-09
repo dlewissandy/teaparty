@@ -223,16 +223,23 @@ class ClaudeRunner:
     async def run(self) -> ClaudeResult:
         """Run the Claude CLI and stream output. Returns result."""
         if self.lead and self.cwd:
-            # Write per-agent .mcp.json so the agent sees only its allowed tools.
-            from teaparty.cfa.agent_spawner import compose_mcp_config
-            compose_mcp_config(self.cwd, self.lead)
-
-            # Build permissions from the agent's frontmatter tools: list.
-            # The frontmatter is the single source of truth for what tools
-            # an agent can use — no hardcoded lists in Python.
+            # Configure tools from the agent's frontmatter. The frontmatter
+            # tools: field is the single source of truth.
             from teaparty.mcp.server.main import _load_agent_tools
+            from teaparty.cfa.agent_spawner import compose_mcp_config
             agent_tools = _load_agent_tools(self.lead)
             if agent_tools:
+                # MCP tools are filtered by compose_mcp_config (--agent flag).
+                compose_mcp_config(self.cwd, self.lead)
+                # Builtin tools are controlled by --tools flag. Separate
+                # builtins from MCP tools in the frontmatter allowlist.
+                mcp_prefix = 'mcp__'
+                builtins = [t for t in agent_tools if not t.startswith(mcp_prefix)]
+                # ToolSearch is always needed to discover deferred tools.
+                if 'ToolSearch' not in builtins:
+                    builtins.append('ToolSearch')
+                self.tools = ','.join(builtins)
+                # Permissions allow list for auto-approval.
                 perms = self.settings.get('permissions', {})
                 perms['allow'] = list(agent_tools)
                 self.settings['permissions'] = perms
