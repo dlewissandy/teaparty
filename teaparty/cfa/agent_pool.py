@@ -139,8 +139,6 @@ class AgentPool:
         message: str,
         *,
         worktree: str,
-        mcp_config: dict[str, Any] | None = None,
-        agents_json: dict[str, Any] | None = None,
         settings_dict: dict[str, Any] | None = None,
         add_dirs: list[str] | None = None,
     ) -> tuple[str, str]:
@@ -163,7 +161,6 @@ class AgentPool:
             return await spawner.spawn(
                 message, worktree=worktree, role=role,
                 is_management=True,
-                mcp_config=mcp_config, agents_json=agents_json,
             )
 
         if agent and not agent.alive:
@@ -174,8 +171,6 @@ class AgentPool:
         _log.info('agent_pool: cold start for %s', role)
         agent = await self._start_process(
             role, worktree=worktree,
-            mcp_config=mcp_config,
-            agents_json=agents_json,
             settings_dict=settings_dict,
             add_dirs=add_dirs,
         )
@@ -187,8 +182,6 @@ class AgentPool:
         role: str,
         *,
         worktree: str,
-        mcp_config: dict[str, Any] | None = None,
-        agents_json: dict[str, Any] | None = None,
         settings_dict: dict[str, Any] | None = None,
         add_dirs: list[str] | None = None,
     ) -> AgentProcess:
@@ -204,27 +197,15 @@ class AgentPool:
             '--setting-sources', 'user',
         ]
 
-
         for d in (add_dirs or []):
             cmd.extend(['--add-dir', d])
 
         if settings:
             cmd.extend(['--settings', json.dumps(settings)])
 
-        mcp_config_file = None
-        if mcp_config:
-            mcp_config_file = tempfile.NamedTemporaryFile(
-                mode='w', suffix='.json', prefix='mcp-pool-', delete=False,
-            )
-            json.dump({'mcpServers': mcp_config}, mcp_config_file)
-            mcp_config_file.close()
-            cmd.extend([
-                '--mcp-config', mcp_config_file.name,
-                '--strict-mcp-config',
-            ])
-
+        # MCP config comes from workspace .mcp.json (HTTP transport).
         env = dict(os.environ)
-        env.pop('AGENT_TOOL_SCOPE', None)
+        env.pop('CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS', None)
         env['DISABLE_NONESSENTIAL_TRAFFIC'] = '1'
         env['MCP_TIMEOUT'] = '5000'
 

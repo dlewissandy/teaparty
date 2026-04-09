@@ -907,91 +907,208 @@ def create_server(agent_tools: set[str] | None = None) -> FastMCP:
     return server
 
 
-def _load_agent_tools(agent_id: str) -> set[str] | None:
-    """Read the allowed MCP tools from an agent's frontmatter.
+def _resolve_teaparty_home() -> str:
+    """Find the .teaparty/ directory."""
+    home = os.environ.get('TEAPARTY_HOME', '')
+    if home:
+        return home
+    d = os.getcwd()
+    while d != os.path.dirname(d):
+        candidate = os.path.join(d, '.teaparty')
+        if os.path.isdir(candidate):
+            return candidate
+        d = os.path.dirname(d)
+    return ''
 
-    Returns the set of tool names, or None if the agent has no
-    tools restriction (all tools available).
+
+def _load_agent_tools(
+    agent_id: str,
+    *,
+    scope: str = 'management',
+    project_name: str = '',
+) -> set[str] | None:
+    """Read the allowed tools from an agent's frontmatter.
+
+    Scope resolution: project overrides management. If scope is a project
+    name, look there first; fall back to management.
+
+    Returns the set of tool names (both builtins and MCP), or None if
+    the agent has no tools restriction.
     """
     from teaparty.config.config_reader import read_agent_frontmatter
 
-    # Search management agents dir
-    teaparty_home = os.environ.get('TEAPARTY_HOME', '')
-    if not teaparty_home:
-        d = os.getcwd()
-        while d != os.path.dirname(d):
-            candidate = os.path.join(d, '.teaparty')
-            if os.path.isdir(candidate):
-                teaparty_home = candidate
-                break
-            d = os.path.dirname(d)
-
+    teaparty_home = _resolve_teaparty_home()
     if not teaparty_home:
         return None
 
-    agent_md = os.path.join(teaparty_home, 'management', 'agents', agent_id, 'agent.md')
-    if not os.path.isfile(agent_md):
-        # Try .claude/agents/ in cwd
-        agent_md = os.path.join(os.getcwd(), '.claude', 'agents', f'{agent_id}.md')
+    candidates = []
 
-    try:
-        fm = read_agent_frontmatter(agent_md)
-        tools_str = fm.get('tools', '')
-        if tools_str:
-            return {t.strip() for t in tools_str.split(',') if t.strip()}
-    except (FileNotFoundError, Exception):
-        pass
+    # Project scope: check project agents first
+    if project_name and project_name != 'management':
+        from teaparty.mcp.tools.config_helpers import _find_project_path
+        project_dir = _find_project_path(project_name, teaparty_home)
+        if project_dir:
+            candidates.append(
+                os.path.join(project_dir, '.teaparty', 'project', 'agents', agent_id, 'agent.md')
+            )
+
+    # Management scope: always checked as fallback
+    candidates.append(
+        os.path.join(teaparty_home, 'management', 'agents', agent_id, 'agent.md')
+    )
+
+    for agent_md in candidates:
+        if not os.path.isfile(agent_md):
+            continue
+        try:
+            fm = read_agent_frontmatter(agent_md)
+            tools_str = fm.get('tools', '')
+            if tools_str:
+                return {t.strip() for t in tools_str.split(',') if t.strip()}
+        except (FileNotFoundError, Exception):
+            continue
 
     return None
 
 
+# ── HTTP server with per-agent path routing ──────────────────────────────────
+
+def create_http_app(port: int = 8082):
+    """Create a Starlette app that serves filtered MCP tools per agent.
+
+    Routes:
+        /mcp                           — all tools (interactive session)
+        /mcp/management/{agent}        — management-scoped agent
+        /mcp/{project}/{agent}         — project-scoped agent
+
+    Each route lazily creates a filtered FastMCP instance and mounts its
+    streamable-http handler. Instances are cached after first creation.
+    """
+    import logging as _logging
+    import uvicorn
+    from starlette.applications import Starlette
+    from starlette.routing import Mount
+
+    _log = _logging.getLogger('teaparty.mcp.server')
+    _cache: dict[str, FastMCP] = {}
+
+    def _get_or_create(cache_key: str, agent_tools: set[str] | None) -> FastMCP:
+        if cache_key not in _cache:
+            server = create_server(agent_tools=agent_tools)
+            _log.info('create_http_app: created server for %r with %s tools',
+                      cache_key, 'all' if agent_tools is None else len(agent_tools))
+            _cache[cache_key] = server
+        return _cache[cache_key]
+
+    # Default: all tools
+    default_server = _get_or_create('__all__', None)
+    default_app = default_server.streamable_http_app()
+
+    # Build the top-level Starlette app with catch-all routing.
+    # We can't pre-enumerate all agents, so we use a middleware approach:
+    # intercept requests, parse the path, and route to the right server.
+    from starlette.requests import Request
+    from starlette.responses import Response
+
+    async def route_request(request: Request) -> Response:
+        path = request.url.path
+
+        # Parse: /mcp/{scope}/{agent} or /mcp
+        parts = path.strip('/').split('/')
+        # parts[0] = 'mcp', parts[1] = scope/project, parts[2] = agent
+
+        if len(parts) == 1:
+            # /mcp — all tools, delegate to default app
+            pass
+        elif len(parts) == 3:
+            scope_or_project = parts[1]
+            agent_name = parts[2]
+            cache_key = f'{scope_or_project}/{agent_name}'
+
+            if cache_key not in _cache:
+                if scope_or_project == 'management':
+                    tools = _load_agent_tools(agent_name, scope='management')
+                else:
+                    tools = _load_agent_tools(agent_name, project_name=scope_or_project)
+                _get_or_create(cache_key, tools)
+
+            server = _cache[cache_key]
+            agent_app = server.streamable_http_app()
+            # Rewrite path to /mcp for the sub-app
+            request._scope['path'] = '/mcp'
+            return await agent_app(request.scope, request.receive, request._send)
+
+        # Default: all tools
+        return await default_app(request.scope, request.receive, request._send)
+
+    app = Starlette(routes=[Mount('/', app=default_app)])
+
+    # Override with our custom router
+    from starlette.middleware import Middleware
+    from starlette.types import ASGIApp, Receive, Scope, Send as ASGISend
+
+    class AgentRoutingMiddleware:
+        def __init__(self, app: ASGIApp):
+            self.app = app
+
+        async def __call__(self, scope: Scope, receive: Receive, send: ASGISend):
+            if scope['type'] != 'http':
+                await self.app(scope, receive, send)
+                return
+
+            path = scope.get('path', '')
+            parts = path.strip('/').split('/')
+
+            if len(parts) == 3 and parts[0] == 'mcp':
+                scope_or_project = parts[1]
+                agent_name = parts[2]
+                cache_key = f'{scope_or_project}/{agent_name}'
+
+                if cache_key not in _cache:
+                    if scope_or_project == 'management':
+                        tools = _load_agent_tools(agent_name, scope='management')
+                    else:
+                        tools = _load_agent_tools(agent_name, project_name=scope_or_project)
+                    _get_or_create(cache_key, tools)
+
+                server = _cache[cache_key]
+                agent_app = server.streamable_http_app()
+                # Rewrite path so the sub-app sees /mcp
+                scope = dict(scope)
+                scope['path'] = '/mcp'
+                await agent_app(scope, receive, send)
+            else:
+                await self.app(scope, receive, send)
+
+    app.add_middleware(AgentRoutingMiddleware)
+
+    def run():
+        _log.info('HTTP MCP server starting on port %d', port)
+        uvicorn.run(app, host='127.0.0.1', port=port, log_level='warning')
+
+    return run
+
+
 def main():
-    """Run the MCP server on stdio or HTTP.
+    """Run the MCP server.
 
-    Stdio mode (per-agent, filtered):
-        python -m teaparty.mcp.server.main --agent office-manager
-
-    HTTP mode (shared, all tools):
+    HTTP mode (production — started by the bridge):
         python -m teaparty.mcp.server.main --http --port 8082
+
+    Stdio mode (interactive session fallback):
+        python -m teaparty.mcp.server.main
     """
     import argparse
     import logging
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--send-socket', default='')
-    parser.add_argument('--reply-socket', default='')
-    parser.add_argument('--close-conv-socket', default='')
-    parser.add_argument('--agent-id', default='')
-    parser.add_argument('--agent', default='',
-                        help='Agent name — filters tools to this agent\'s frontmatter allowlist')
-    parser.add_argument('--context-id', default='')
     parser.add_argument('--http', action='store_true',
-                        help='Run as HTTP server (shared, all tools)')
+                        help='Run as HTTP server with per-agent path routing')
     parser.add_argument('--port', type=int, default=8082,
                         help='HTTP server port (default: 8082)')
     args, _unknown = parser.parse_known_args()
 
-    if args.send_socket:
-        os.environ['SEND_SOCKET'] = args.send_socket
-    if args.reply_socket:
-        os.environ['REPLY_SOCKET'] = args.reply_socket
-    if args.close_conv_socket:
-        os.environ['CLOSE_CONV_SOCKET'] = args.close_conv_socket
-    if args.agent_id:
-        os.environ['AGENT_ID'] = args.agent_id
-    if args.context_id:
-        os.environ['CONTEXT_ID'] = args.context_id
-
-    teaparty_home = os.environ.get('TEAPARTY_HOME', '')
-    if not teaparty_home:
-        d = os.getcwd()
-        while d != os.path.dirname(d):
-            candidate = os.path.join(d, '.teaparty')
-            if os.path.isdir(candidate):
-                teaparty_home = candidate
-                break
-            d = os.path.dirname(d)
-
+    teaparty_home = _resolve_teaparty_home()
     if teaparty_home:
         log_dir = os.path.join(teaparty_home, 'logs')
         os.makedirs(log_dir, exist_ok=True)
@@ -1002,23 +1119,11 @@ def main():
             filename=log_file,
         )
 
-    _mlog = logging.getLogger('teaparty.mcp.server.main')
-
-    # Load agent tool filter if --agent specified
-    agent_tools = None
-    if args.agent:
-        agent_tools = _load_agent_tools(args.agent)
-        _mlog.info('main: agent=%r tools=%s', args.agent,
-                    f'{len(agent_tools)} filtered' if agent_tools else 'all (no filter)')
-
-    server = create_server(agent_tools=agent_tools)
-    _mlog.info('main: registered %d tools', len(server._tool_manager._tools))
-
     if args.http:
-        _mlog.info('main: starting HTTP server on port %d', args.port)
-        server.settings.port = args.port
-        server.run(transport='streamable-http')
+        run_fn = create_http_app(port=args.port)
+        run_fn()
     else:
+        server = create_server()
         server.run(transport='stdio')
 
 

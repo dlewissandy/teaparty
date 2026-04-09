@@ -770,13 +770,14 @@ class OfficeManagerSession:
         except OSError:
             agents_path = None
 
+        # Write per-agent .mcp.json pointing to the shared HTTP MCP server.
+        from teaparty.cfa.agent_spawner import compose_mcp_config
+        compose_mcp_config(effective_cwd, 'office-manager', scope='management')
+
         # Start (or reuse) the bus event listener so the OM can Send/Reply.
         mcp_env = await self._ensure_bus_listener(cwd)
 
         try:
-            # Pass socket paths as env vars so the workspace .mcp.json MCP
-            # Permissions are built from agent frontmatter by ClaudeRunner.run().
-            # No hardcoded tool lists here.
             runner = create_runner(
                 prompt,
                 cwd=effective_cwd,

@@ -270,8 +270,8 @@ class TestClaudeRunnerMCPIntegration(unittest.TestCase):
     """ClaudeRunner must wire the MCP server into Claude Code's args."""
 
     def test_mcp_server_config_in_build_args(self):
-        """When mcp_config is provided, ClaudeRunner must include
-        --mcp-config in the CLI args pointing to a temp file."""
+        """mcp_config parameter is accepted but ignored — MCP comes from
+        workspace .mcp.json via HTTP transport, not --mcp-config."""
         from teaparty.runners.claude import ClaudeRunner
 
         runner = ClaudeRunner(
@@ -284,13 +284,7 @@ class TestClaudeRunnerMCPIntegration(unittest.TestCase):
             }},
         )
         args = runner._build_args(None)
-        self.assertIn('--mcp-config', args)
-        # Clean up the temp file created by _build_args
-        if runner._mcp_config_file:
-            try:
-                os.unlink(runner._mcp_config_file)
-            except OSError:
-                pass
+        self.assertNotIn('--mcp-config', args)
 
     def test_no_mcp_config_when_not_provided(self):
         """When mcp_config is not provided, --mcp-config should not appear."""

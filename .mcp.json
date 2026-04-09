@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "teaparty-config": {
-      "command": "uv",
-      "args": ["run", "python3", "-m", "teaparty.mcp.server.main"]
+      "type": "http",
+      "url": "http://localhost:8082/mcp"
     }
   }
 }

@@ -295,6 +295,9 @@ class ConfigLeadSession:
             self.LEAD, cwd, self._infra_dir,
         )
 
+        from teaparty.cfa.agent_spawner import compose_mcp_config
+        compose_mcp_config(effective_cwd, self.LEAD, scope='management')
+
         # Start bus listener so Send dispatches to specialists.
         mcp_env = await self._ensure_bus_listener(cwd)
 

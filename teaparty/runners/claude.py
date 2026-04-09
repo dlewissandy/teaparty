@@ -182,11 +182,11 @@ class ClaudeRunner:
         event_bus: EventBus | None = None,
         stall_timeout: int = 1800,
         session_id: str = '',
-        mcp_config: dict[str, Any] | None = None,
         heartbeat_file: str = '',
         parent_heartbeat: str = '',
         children_file: str = '',
         tools: str | None = None,
+        mcp_config: dict[str, Any] | None = None,  # Ignored — kept for CfA engine compat
         on_stream_event: Callable[[dict], None] | None = None,
     ):
         self.prompt = prompt
@@ -202,8 +202,6 @@ class ClaudeRunner:
         self.add_dirs = add_dirs or []
         self.resume_session = resume_session
         self.env_vars = env_vars or {}
-        self.mcp_config = mcp_config
-        self._mcp_config_file: str | None = None
         self.event_bus = event_bus
         self.stall_timeout = stall_timeout
         self.session_id = session_id
@@ -222,27 +220,18 @@ class ClaudeRunner:
 
     async def run(self) -> ClaudeResult:
         """Run the Claude CLI and stream output. Returns result."""
-        if self.lead and self.cwd:
-            # Configure tools from the agent's frontmatter. The frontmatter
-            # tools: field is the single source of truth.
+        # Set --tools from agent frontmatter if not already set by caller.
+        # MCP tool filtering is handled by the HTTP server's path routing.
+        # Builtin tool filtering is handled here via --tools.
+        if self.lead and self.tools is None:
             from teaparty.mcp.server.main import _load_agent_tools
-            from teaparty.cfa.agent_spawner import compose_mcp_config
             agent_tools = _load_agent_tools(self.lead)
             if agent_tools:
-                # MCP tools are filtered by compose_mcp_config (--agent flag).
-                compose_mcp_config(self.cwd, self.lead)
-                # Builtin tools are controlled by --tools flag. Separate
-                # builtins from MCP tools in the frontmatter allowlist.
                 mcp_prefix = 'mcp__'
                 builtins = [t for t in agent_tools if not t.startswith(mcp_prefix)]
-                # ToolSearch is always needed to discover deferred tools.
                 if 'ToolSearch' not in builtins:
                     builtins.append('ToolSearch')
                 self.tools = ','.join(builtins)
-                # Permissions allow list for auto-approval.
-                perms = self.settings.get('permissions', {})
-                perms['allow'] = list(agent_tools)
-                self.settings['permissions'] = perms
 
         # Write settings to temp file
         settings_file = None
@@ -316,12 +305,6 @@ class ClaudeRunner:
                     os.unlink(settings_file.name)
                 except OSError:
                     pass
-            if self._mcp_config_file:
-                try:
-                    os.unlink(self._mcp_config_file)
-                except OSError:
-                    pass
-                self._mcp_config_file = None
 
     def _build_args(self, settings_path: str | None) -> list[str]:
         args = [
@@ -366,17 +349,8 @@ class ClaudeRunner:
                 args.extend(['--add-dir', d])
         if self.resume_session:
             args.extend(['--resume', self.resume_session])
-        if self.mcp_config:
-            # Write MCP server config to a temp file for --mcp-config.
-            # The temp file is cleaned up in run() alongside the settings file.
-            mcp_file = tempfile.NamedTemporaryFile(
-                mode='w', suffix='.json', delete=False,
-            )
-            mcp_wrapper = {'mcpServers': self.mcp_config}
-            json.dump(mcp_wrapper, mcp_file)
-            mcp_file.close()
-            self._mcp_config_file = mcp_file.name
-            args.extend(['--mcp-config', mcp_file.name, '--strict-mcp-config'])
+        # MCP config comes from the workspace .mcp.json (HTTP transport).
+        # No --mcp-config override needed.
         return args
 
     # Env vars the Claude CLI needs to function.  Everything else is
@@ -403,11 +377,10 @@ class ClaudeRunner:
                 env[key] = value
             elif key.startswith(self._ENV_PREFIX_ALLOWLIST):
                 env[key] = value
-        env['CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS'] = '1'
         env['CLAUDE_CODE_MAX_OUTPUT_TOKENS'] = '128000'
-        # Remove CLAUDECODE — it suppresses MCP server startup to prevent
-        # recursion, but dispatched agents need their own MCP servers.
-        env.pop('CLAUDECODE', None)
+        # Do NOT set CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS — it enables
+        # SendMessage which bypasses TeaParty's bus listener.
+        env.pop('CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS', None)
         env.update(self.env_vars)
         return env
 

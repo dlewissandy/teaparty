@@ -46,9 +46,21 @@ if not os.path.isdir(args.teaparty_home):
         'Run from a directory containing .teaparty/ or pass --teaparty-home <path>.'
     )
 
+# Start the shared HTTP MCP server in a background thread.
+# All agents connect to it via HTTP with per-agent path routing.
+MCP_PORT = 8082
+
+import threading
+from teaparty.mcp.server.main import create_http_app
+
+mcp_run = create_http_app(port=MCP_PORT)
+mcp_thread = threading.Thread(target=mcp_run, daemon=True)
+mcp_thread.start()
+
 bridge = TeaPartyBridge(
     teaparty_home=args.teaparty_home,
     static_dir=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static'),
 )
 print(f'Dashboard:  http://localhost:{args.port}')
+print(f'MCP server: http://localhost:{MCP_PORT}/mcp')
 bridge.run(port=args.port)

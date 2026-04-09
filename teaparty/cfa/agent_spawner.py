@@ -83,27 +83,48 @@ def compose_worktree(
     compose_settings(worktree, teaparty_home, project_dir=project_dir,
                      agent_name=agent_name, is_management=is_management)
     t4 = _time.monotonic()
+    # Determine project name for MCP URL scope
+    _project_name = ''
+    if project_dir and not is_management:
+        _project_name = os.path.basename(project_dir)
+    compose_mcp_config(worktree, role,
+                       scope='management' if is_management else 'project',
+                       project_name=_project_name)
+    t5 = _time.monotonic()
     _log.info(
         'compose_worktree_timing: role=%r claude_md=%.3fs agents=%.3fs '
-        'skills=%.3fs settings=%.3fs total=%.3fs',
-        role, t1 - t0, t2 - t1, t3 - t2, t4 - t3, t4 - t0,
+        'skills=%.3fs settings=%.3fs mcp=%.3fs total=%.3fs',
+        role, t1 - t0, t2 - t1, t3 - t2, t4 - t3, t5 - t4, t5 - t0,
     )
 
 
-def compose_mcp_config(worktree: str, agent_name: str) -> None:
-    """Write a per-agent .mcp.json to the worktree.
+def compose_mcp_config(
+    worktree: str,
+    agent_name: str,
+    *,
+    scope: str = 'management',
+    project_name: str = '',
+    mcp_port: int = 8082,
+) -> None:
+    """Write a per-agent .mcp.json pointing to the shared HTTP MCP server.
 
-    The MCP server runs as a stdio subprocess filtered to this agent's
-    allowed tools via --agent. The agent sees only the tools its
-    frontmatter declares.
+    The URL encodes the scope so the server returns only this agent's
+    allowed tools:
+        /mcp/management/{agent}     — management-scoped
+        /mcp/{project}/{agent}      — project-scoped (overrides management)
     """
     import json as _json
+
+    if project_name and project_name != 'management':
+        path = f'/mcp/{project_name}/{agent_name}'
+    else:
+        path = f'/mcp/management/{agent_name}'
+
     mcp_config = {
         'mcpServers': {
             'teaparty-config': {
-                'command': 'uv',
-                'args': ['run', 'python3', '-m', 'teaparty.mcp.server.main',
-                         '--agent', agent_name],
+                'type': 'http',
+                'url': f'http://localhost:{mcp_port}{path}',
             },
         },
     }
