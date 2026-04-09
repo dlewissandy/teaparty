@@ -775,50 +775,15 @@ class OfficeManagerSession:
 
         try:
             # Pass socket paths as env vars so the workspace .mcp.json MCP
-            # server (started by Claude Code natively) can reach the bus
-            # listener. No --mcp-config override needed.
-            # Don't pass agents_file — it enables Claude Code's builtin
-            # SendMessage which bypasses our bus listener. The OM discovers
-            # its team via mcp__teaparty-config__ListTeamMembers instead.
+            # Permissions are built from agent frontmatter by ClaudeRunner.run().
+            # No hardcoded tool lists here.
             runner = create_runner(
                 prompt,
                 cwd=effective_cwd,
                 stream_file=stream_path,
                 backend=self._llm_backend,
                 lead='office-manager',
-                permission_mode='default',
                 env_vars=mcp_env,
-                settings={
-                    'permissions': {
-                        'allow': [
-                            # Dispatch and escalation
-                            'mcp__teaparty-config__Send',
-                            'mcp__teaparty-config__Reply',
-                            'mcp__teaparty-config__AskQuestion',
-                            'mcp__teaparty-config__CloseConversation',
-                            # Intervention
-                            'mcp__teaparty-config__WithdrawSession',
-                            'mcp__teaparty-config__PauseDispatch',
-                            'mcp__teaparty-config__ResumeDispatch',
-                            'mcp__teaparty-config__ReprioritizeDispatch',
-                            # Config read tools
-                            'mcp__teaparty-config__PinArtifact',
-                            'mcp__teaparty-config__UnpinArtifact',
-                            'mcp__teaparty-config__ListProjects',
-                            'mcp__teaparty-config__GetProject',
-                            'mcp__teaparty-config__ListAgents',
-                            'mcp__teaparty-config__GetAgent',
-                            'mcp__teaparty-config__ListSkills',
-                            'mcp__teaparty-config__GetSkill',
-                            'mcp__teaparty-config__ListWorkgroups',
-                            'mcp__teaparty-config__GetWorkgroup',
-                            'mcp__teaparty-config__ListHooks',
-                            'mcp__teaparty-config__ListScheduledTasks',
-                            'mcp__teaparty-config__ListPins',
-                            'mcp__teaparty-config__ListTeamMembers',
-                        ],
-                    },
-                },
                 resume_session=self.claude_session_id,
             )
 

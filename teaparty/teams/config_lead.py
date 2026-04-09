@@ -308,25 +308,6 @@ class ConfigLeadSession:
                 stream_file=stream_path,
                 backend=self._llm_backend,
                 lead=self.LEAD,
-                permission_mode='default',
-                settings={
-                    'permissions': {
-                        'allow': [
-                            'mcp__teaparty-config__Send',
-                            'mcp__teaparty-config__Reply',
-                            'mcp__teaparty-config__PinArtifact',
-                            'mcp__teaparty-config__UnpinArtifact',
-                            'mcp__teaparty-config__ListAgents',
-                            'mcp__teaparty-config__GetAgent',
-                            'mcp__teaparty-config__ListSkills',
-                            'mcp__teaparty-config__GetSkill',
-                            'mcp__teaparty-config__ListWorkgroups',
-                            'mcp__teaparty-config__GetWorkgroup',
-                            'mcp__teaparty-config__ListProjects',
-                            'mcp__teaparty-config__GetProject',
-                        ],
-                    },
-                },
                 resume_session=self.claude_session_id,
                 env_vars=mcp_env,
             )

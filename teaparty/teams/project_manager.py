@@ -166,15 +166,6 @@ class ProjectManagerSession:
                 stream_file=stream_path,
                 backend=self._llm_backend,
                 lead=self.lead,
-                permission_mode='default',
-                settings={
-                    'permissions': {
-                        'allow': [
-                            'mcp__teaparty-config__PinArtifact',
-                            'mcp__teaparty-config__UnpinArtifact',
-                        ],
-                    },
-                },
                 resume_session=self.claude_session_id,
             )
             result = await runner.run()

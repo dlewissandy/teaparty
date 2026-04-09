@@ -157,7 +157,6 @@ class ProjectLeadSession:
                 stream_file=stream_path,
                 backend=self._llm_backend,
                 lead=self.lead_name,
-                permission_mode='default',
                 resume_session=self.claude_session_id,
             )
             result = await runner.run()
