@@ -280,14 +280,24 @@ Since `json_response=True`, the response is a single JSON object (not SSE), maki
 3. Verify: init returns full capabilities, tools/list returns only the OM's 22 allowed tools (not all 42)
 4. Test via `claude -p --mcp-config` to verify Claude Code sees only the filtered tools
 
+### Result
+
+**CONFIRMED.** ASGI response filter works end-to-end.
+
+```
+/mcp via claude -p:                          status=connected, tools=42
+/mcp/management/office-manager via claude -p: status=connected, tools=22
+```
+
+One FastMCP instance, one session manager. `tools/list` responses on agent paths are filtered. All other methods pass through. Both paths work with `--mcp-config` + `--strict-mcp-config` in `-p` mode.
+
 ### Implementation notes
 
-The middleware needs to:
-- Buffer the response body (since we need to parse and rewrite it)
-- Parse the request body to detect `tools/list` method
-- Parse the response body to filter the tools array
-- Rewrite `Content-Length` header after filtering
-- Pass through non-`tools/list` responses unchanged
+The ASGI filter:
+- Peeks at request body to detect `tools/list` method
+- For tools/list: buffers response, parses JSON, filters tools array, rewrites Content-Length
+- For everything else: passes through unchanged
+- Agent allowlist loaded from frontmatter and cached per scope/agent key
 
 ## Revised implementation plan
 
