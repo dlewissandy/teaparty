@@ -105,5 +105,48 @@ Claude Code requires explicit user approval before loading MCP servers from proj
 ### Blocker
 Claude Code in `-p` mode silently ignores project-scoped `.mcp.json` MCP servers because the approval dialog is skipped. The HTTP MCP server works but Claude Code never connects to it.
 
-### Next step
-Determine which of the untried approaches (--mcp-config with HTTP, pre-populate ~/.claude.json, user-scoped registration) works in `-p` mode.
+## Experiment 6: --mcp-config with HTTP URL
+
+**Date:** 2026-04-09
+
+### Hypothesis
+
+`--mcp-config` is a CLI flag, not a project-scoped file. Claude Code should load MCP servers from `--mcp-config` without requiring interactive approval, even in `-p` mode. If the config points to an HTTP URL instead of a stdio command, Claude Code will connect to the shared HTTP MCP server.
+
+### Test
+
+```bash
+# Write HTTP config to temp file
+echo '{"mcpServers":{"teaparty-config":{"type":"http","url":"http://localhost:8082/mcp"}}}' > /tmp/test-mcp-http.json
+
+# Run from OM workspace with minimal env (no CLAUDECODE etc.)
+claude -p --output-format stream-json --verbose \
+  --mcp-config /tmp/test-mcp-http.json \
+  <<< "list your mcp tools"
+```
+
+**Expected:** teaparty-config appears in `mcp_servers` with `"status": "connected"`, and all 42 tools are listed.
+
+### Result
+
+**CONFIRMED.** `--mcp-config` with HTTP URL works in `-p` mode.
+
+```
+MCP: [{"name": "teaparty-config", "status": "connected"}]
+TeaParty tools: 42
+```
+
+The key difference from `.mcp.json`: CLI-provided `--mcp-config` bypasses the project-scope approval requirement. Claude Code loads it unconditionally.
+
+### Implications for implementation
+
+1. **Stop writing `.mcp.json` to workspaces.** It requires approval that `-p` mode can't provide.
+2. **`ClaudeRunner` passes `--mcp-config` with the HTTP URL.** The URL includes the agent scope path for per-agent filtering: `http://localhost:8082/mcp/management/{agent}`.
+3. **Use `--strict-mcp-config`** to prevent Claude Code from also loading the workspace's `.mcp.json` (which would fail approval and produce confusing behavior).
+4. **`compose_mcp_config` becomes unnecessary** — the runner constructs the config at invocation time from the agent name and scope.
+
+### Remaining questions
+
+1. Does `--mcp-config` work with `--resume`? Or does `--resume` ignore it (finding #3)? Need to test.
+2. Does path-based routing work now that we have `json_response=True`? The agent path crashed earlier due to `asyncio.run()` in an async context — that's fixed. Need to verify the lazy session manager startup works.
+3. If `--resume` ignores `--mcp-config`, we need `--strict-mcp-config` to force it. Need to verify this flag works with HTTP transport on resume.
