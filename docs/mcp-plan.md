@@ -488,3 +488,51 @@ With the MCP server on the same event loop as the bus listener, Send will call t
 3. OM calls Send('pybayes-lead', 'Tell me a joke')
 4. Verify: bus listener receives the call, spawns pybayes-lead, returns result
 5. Verify: no SEND_SOCKET env var needed anywhere
+
+### Result (single event loop)
+
+**CONFIRMED.** MCP server mounted inside the bridge's aiohttp server on the same event loop. No threading, no separate port.
+
+- Bridge port 9000 serves both the dashboard and MCP at `/mcp`, `/mcp/{scope}/{agent}`
+- aiohttp-to-ASGI bridge handler forwards requests to FastMCP's Starlette app
+- Session manager started in `_on_startup`, cleaned in `_on_cleanup`
+- OM sees 22 filtered MCP tools (correct)
+- `--mcp-config` URL now points to `http://localhost:9000/mcp/management/office-manager`
+
+### Remaining: Option F — direct bus listener calls
+
+Send still fails with "Neither DISPATCH_BUS_PATH nor SEND_SOCKET set." The MCP Send handler reads socket paths from `os.environ`, but sockets no longer exist. The handler needs to call the bus listener directly through the in-process registry.
+
+## Experiment 9b: Wire Send handler to bus listener registry
+
+**Date:** 2026-04-09
+
+### What we're doing
+
+Replace the socket-based Send/Reply routing in `teaparty/mcp/tools/messaging.py` with direct calls to the bus listener via `teaparty/mcp/registry.py`.
+
+### How
+
+1. When the bridge starts a bus listener for an agent (in `_ensure_bus_listener`), register its `spawn_fn` in the registry
+2. The ASGI middleware already knows the agent name from the URL path. It needs to make the agent name available to the tool handler.
+3. The Send handler looks up the spawn function from the registry by agent name and calls it directly: `await spawn_fn(member, composite, context_id)`
+4. No sockets, no env vars, no IPC — direct async function call on the same event loop
+
+### The context-passing problem
+
+The Send MCP tool handler (`send_handler` in messaging.py) needs to know which agent is calling so it can look up the right bus listener. The agent name comes from the URL path (parsed by the ASGI middleware). But FastMCP's tool handler signature is fixed — it receives the tool parameters, not request metadata.
+
+Options:
+- **contextvars**: Set a context variable in the ASGI middleware before forwarding. The tool handler reads it. Thread-safe and async-safe.
+- **Env var per-request**: Not possible (shared process).
+- **Custom header**: FastMCP doesn't expose request headers to tool handlers.
+
+**Decision:** Use `contextvars`. The ASGI middleware sets `current_agent_scope` before each request. The Send handler reads it.
+
+### Test plan
+
+1. Implement contextvars for agent scope
+2. Modify Send handler to read from registry via contextvars
+3. Register OM's spawn_fn when bus listener starts
+4. OM calls Send('pybayes-lead', 'Tell me a joke')
+5. Verify: spawn_fn receives the call, spawns pybayes-lead
