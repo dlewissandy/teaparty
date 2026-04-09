@@ -388,3 +388,54 @@ Option F is the cleanest. The HTTP MCP server runs in the bridge process. The br
 3. Modify the ASGI middleware to inject the agent scope into a request-scoped context
 4. Modify the Send handler to look up the bus listener from the registry instead of reading env vars
 5. Test: OM calls Send → handler looks up 'office-manager' → finds bus listener → routes message
+
+## Decision: Single event loop — mount MCP inside the bridge
+
+**Date:** 2026-04-09
+
+### The problem
+
+The HTTP MCP server runs in a background thread (uvicorn). The bus listener runs on the bridge's asyncio event loop (aiohttp). The Send handler needs to call the bus listener. Cross-thread calls into a non-thread-safe async object require `run_coroutine_threadsafe` — fragile and conceptually unclear.
+
+### The decision
+
+Mount the MCP ASGI app inside the bridge's existing aiohttp server. One event loop, one process. The MCP handlers and bus listeners share the same event loop. Direct async function calls, no threads, no sockets.
+
+### Why
+
+| Criterion | Two event loops (thread) | One event loop |
+|-----------|-------------------------|----------------|
+| **Robustness** | Cross-thread calls; race conditions if bus listener isn't thread-safe | Single-threaded async; no races |
+| **Conceptual clarity** | Two web frameworks, thread boundary, `run_coroutine_threadsafe` | One process, one loop, direct calls |
+| **Latency** | Thread scheduling + possible GIL contention | Direct async call, zero overhead |
+
+### How
+
+aiohttp can mount ASGI sub-applications. The MCP Starlette app becomes a route on the bridge's aiohttp server:
+
+```python
+# In bridge/server.py
+from aiohttp_asgi import ASGIApplicationServer
+from teaparty.mcp.server.main import create_filtering_app
+
+mcp_app = create_filtering_app()
+app.router.add_route('*', '/mcp/{path:.*}', ASGIApplicationServer(mcp_app))
+```
+
+Or we use aiohttp's built-in `app.router.add_route` with a raw handler that delegates to the ASGI app.
+
+### What changes
+
+- `teaparty/bridge/__main__.py` — remove threading, remove uvicorn. Mount MCP inside aiohttp.
+- `teaparty/bridge/server.py` — add MCP route
+- `teaparty/mcp/server/main.py` — `create_filtering_app()` returns the ASGI app (no uvicorn, no `run()`)
+- Send/Reply handlers — replace socket reads with direct bus listener calls via a shared registry
+- Bus listener stays as-is (async, single-threaded — correct for one event loop)
+
+### What stays the same
+
+- The ASGI response filter for tools/list
+- The agent frontmatter as source of truth for tool allowlists
+- `--mcp-config` + `--strict-mcp-config` on every ClaudeRunner invocation
+- `--tools` for builtin filtering
+- `--settings` permissions for auto-approval
