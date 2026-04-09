@@ -32,7 +32,7 @@ from teaparty.messaging.conversations import (
 )
 from teaparty.teams.office_manager import (
     NON_CONVERSATIONAL_SENDERS,
-    _iter_stream_events,
+    _make_live_stream_relay,
 )
 from teaparty.proxy.memory import (
     MemoryChunk,
@@ -695,6 +695,10 @@ class ProxyReviewSession:
         stream_fd, stream_path = tempfile.mkstemp(suffix='.jsonl', prefix='proxy-stream-')
         os.close(stream_fd)
 
+        stream_callback, events = _make_live_stream_relay(
+            self._bus, self.conversation_id, 'proxy',
+        )
+
         try:
             runner = create_runner(
                 prompt,
@@ -704,14 +708,14 @@ class ProxyReviewSession:
                 lead='proxy-review',
                 permission_mode='default',
                 resume_session=self.claude_session_id,
+                on_stream_event=stream_callback,
             )
             result = await runner.run()
 
-            events = list(_iter_stream_events(stream_path, 'proxy'))
             response_text = '\n'.join(c for s, c in events if s == 'proxy')
 
             if response_text:
-                # Process correction/reinforce signals before writing to bus
+                # Process correction/reinforce signals after events are streamed
                 mem_path = proxy_memory_path(self.teaparty_home)
                 os.makedirs(os.path.dirname(mem_path), exist_ok=True)
                 from teaparty.proxy.memory import open_proxy_db
@@ -724,8 +728,6 @@ class ProxyReviewSession:
                     ))
                 finally:
                     conn.close()
-                for sender, content in events:
-                    self._bus.send(self.conversation_id, sender, content)
             else:
                 self.claude_session_id = None
                 self.save_state()

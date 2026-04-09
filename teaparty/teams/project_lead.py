@@ -21,7 +21,6 @@ from teaparty.messaging.conversations import (
 from teaparty.teams.office_manager import (
     NON_CONVERSATIONAL_SENDERS,
     _extract_slug,
-    _iter_stream_events,
     _make_live_stream_relay,
 )
 
