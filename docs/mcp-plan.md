@@ -225,17 +225,80 @@ Session 2 (resume + --mcp-config + --strict-mcp-config): tools=42
 | 8 | `--strict-mcp-config` forces MCP rediscovery on resume | Experiment 6c |
 | 9 | `json_response=True` required for HTTP MCP (Claude Code disconnects on SSE) | Experiment earlier today |
 
+## Decision: ASGI response filter for per-agent tool filtering
+
+**Date:** 2026-04-09
+
+### Why not the other options
+
+- **Accept all tools visible:** Wastes context. 42 tool descriptions for an agent that needs 5. Not acceptable.
+- **Pre-create all agent servers at startup:** Agents and their tool allowlists can be created or modified dynamically via the UI. Pre-creation can't handle runtime changes.
+- **Path-based routing with multiple FastMCP instances:** Failed (Experiment 6b). FastMCP's `StreamableHTTPSessionManager` requires a long-lived async context manager per instance. Lazy creation inside request handlers crashes.
+
+### Chosen approach: ASGI response filter
+
+Run ONE FastMCP instance with all 42 tools and one session manager. Intercept the `tools/list` JSON-RPC response at the ASGI layer and filter it based on the URL path.
+
+**How it works:**
+
+1. Agent's `--mcp-config` points to `http://localhost:8082/mcp/management/office-manager`
+2. ASGI middleware receives `POST /mcp/management/office-manager`
+3. Middleware parses the path → extracts `(management, office-manager)`
+4. Middleware rewrites path to `/mcp` and forwards to the single FastMCP app
+5. FastMCP processes the request normally (init, tools/list, tools/call, etc.)
+6. **For `tools/list` responses only:** middleware intercepts the JSON response body, reads the agent's frontmatter allowlist via `_load_agent_tools()`, removes tools not in the allowlist, re-serializes, and sends the filtered response
+7. All other methods (init, tools/call, prompts/list, etc.) pass through unmodified
+
+**Why this works:**
+
+- One session manager, one lifespan — no lazy startup problems
+- `json_response=True` means responses are plain JSON, trivial to intercept and rewrite
+- Agent allowlist is read on each `tools/list` request — handles dynamic agent changes
+- No FastMCP internals hacked — filtering is purely at the HTTP layer
+- Path routing is just string parsing, not multiple Starlette apps
+
+**Constraints:**
+
+- `tools/call` is NOT filtered — if an agent somehow calls a tool it shouldn't have, it succeeds. This is acceptable because the agent can only call tools it discovered via `tools/list`, which was already filtered. The `--tools` flag blocks builtins. The only risk is a resumed session that cached a stale tool list, and `--strict-mcp-config` handles that.
+
+## Experiment 7: ASGI response filter for tools/list
+
+**Date:** 2026-04-09
+
+### Hypothesis
+
+We can wrap the single FastMCP Starlette app in an ASGI middleware that:
+1. Forwards all requests to FastMCP unchanged (path rewritten to `/mcp`)
+2. For responses to `tools/list` requests on agent paths, intercepts the JSON body and filters the tools array
+
+Since `json_response=True`, the response is a single JSON object (not SSE), making interception straightforward.
+
+### Test plan
+
+1. Implement the ASGI filter middleware in `create_http_app()`
+2. Start the server, send `initialize` + `tools/list` to `/mcp/management/office-manager`
+3. Verify: init returns full capabilities, tools/list returns only the OM's 22 allowed tools (not all 42)
+4. Test via `claude -p --mcp-config` to verify Claude Code sees only the filtered tools
+
+### Implementation notes
+
+The middleware needs to:
+- Buffer the response body (since we need to parse and rewrite it)
+- Parse the request body to detect `tools/list` method
+- Parse the response body to filter the tools array
+- Rewrite `Content-Length` header after filtering
+- Pass through non-`tools/list` responses unchanged
+
 ## Revised implementation plan
 
-Based on experiments, the architecture is:
+Based on all experiments, the final architecture is:
 
-1. **Bridge starts one HTTP MCP server** at `/mcp` with ALL tools (port 8082)
-2. **`ClaudeRunner` always passes `--mcp-config` + `--strict-mcp-config`** with the HTTP URL
-3. **`ClaudeRunner` passes `--tools` with builtins** from agent frontmatter (controls builtin visibility)
-4. **Per-agent MCP filtering:** TBD — path routing doesn't work. Options:
-   - Accept all tools visible, rely on permissions to block calls (simplest but wastes context)
-   - Pre-create all agent servers at startup (complex but clean)
-   - Custom ASGI response filter (medium complexity)
-5. **Remove `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`** from env
-6. **Remove `compose_mcp_config`** — no more `.mcp.json` writes
-7. **No more `compose_agents`** roster writes — agents discover teammates via MCP ListTeamMembers
+1. **Bridge starts one HTTP MCP server** at port 8082 with ASGI response filter middleware
+2. **One FastMCP instance** with all tools, one session manager, one lifespan
+3. **URL paths** encode agent scope: `/mcp/management/{agent}`, `/mcp/{project}/{agent}`
+4. **`tools/list` responses** are filtered per-agent based on frontmatter allowlist
+5. **`ClaudeRunner` always passes `--mcp-config` + `--strict-mcp-config`** with the agent-scoped HTTP URL
+6. **`ClaudeRunner` passes `--tools`** with builtins from agent frontmatter
+7. **Remove `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`** from env (kills SendMessage)
+8. **Remove `compose_mcp_config`** — runner constructs config inline
+9. **Interactive session** uses `--mcp-config` pointing to `/mcp` (all tools)
