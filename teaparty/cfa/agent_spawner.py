@@ -71,8 +71,11 @@ def compose_worktree(
     compose_claude_md(worktree, teaparty_home, project_dir=project_dir,
                       is_management=is_management)
     t1 = _time.monotonic()
+    # Only include the agent's own definition — not the full roster.
+    # Agents discover teammates via MCP ListTeamMembers.
+    own_agent = catalog_agents if catalog_agents is not None else [role]
     compose_agents(worktree, teaparty_home, project_dir=project_dir,
-                   catalog_agents=catalog_agents, is_management=is_management)
+                   catalog_agents=own_agent, is_management=is_management)
     t2 = _time.monotonic()
     compose_skills(worktree, teaparty_home, role, project_dir=project_dir,
                    catalog_skills=catalog_skills)
@@ -138,10 +141,15 @@ def compose_agents(
     catalog_agents: list[str] | None = None,
     is_management: bool = False,
 ) -> None:
-    """Symlink agents from .teaparty/ sources into worktree .claude/agents/.
+    """Symlink the agent's OWN definition into worktree .claude/agents/.
 
-    Only agents named in catalog_agents are included. If catalog_agents is
-    None, all discovered agents from the source directory are included.
+    Only the agent's own definition is included — NOT the full roster.
+    Claude Code enables its builtin SendMessage when it sees multiple
+    agents in .claude/agents/, which bypasses TeaParty's bus listener.
+    Agents discover teammates via mcp__teaparty-config__ListTeamMembers.
+
+    catalog_agents controls which agents are included. Typically this
+    is just the agent itself (single-element list).
     """
     if is_management:
         source_dir = os.path.join(teaparty_home, 'management', 'agents')
@@ -154,6 +162,11 @@ def compose_agents(
     dest_dir = os.path.join(worktree, '.claude', 'agents')
     os.makedirs(dest_dir, exist_ok=True)
 
+    # Clean out old agent symlinks to prevent stale roster
+    for existing in os.scandir(dest_dir):
+        if existing.is_symlink() or existing.name.endswith('.md'):
+            os.unlink(existing.path)
+
     for entry in os.scandir(source_dir):
         if not entry.is_dir():
             continue
@@ -162,14 +175,10 @@ def compose_agents(
         agent_md = os.path.join(entry.path, 'agent.md')
         if not os.path.exists(agent_md):
             continue
-        # Directory symlink (for tools that read supporting files).
         dest_link = os.path.join(dest_dir, entry.name)
         if os.path.lexists(dest_link):
             os.unlink(dest_link)
         os.symlink(entry.path, dest_link)
-        # .md symlink (what Claude Code reads for agent definitions).
-        # Uses absolute path to the real .teaparty/ source so worktrees
-        # always see current content regardless of their git HEAD.
         dest_md = os.path.join(dest_dir, entry.name + '.md')
         if os.path.lexists(dest_md):
             os.unlink(dest_md)
