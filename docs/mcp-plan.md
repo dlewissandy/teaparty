@@ -145,8 +145,97 @@ The key difference from `.mcp.json`: CLI-provided `--mcp-config` bypasses the pr
 3. **Use `--strict-mcp-config`** to prevent Claude Code from also loading the workspace's `.mcp.json` (which would fail approval and produce confusing behavior).
 4. **`compose_mcp_config` becomes unnecessary** — the runner constructs the config at invocation time from the agent name and scope.
 
-### Remaining questions
+## Experiment 6a: Does --mcp-config persist across --resume?
 
-1. Does `--mcp-config` work with `--resume`? Or does `--resume` ignore it (finding #3)? Need to test.
-2. Does path-based routing work now that we have `json_response=True`? The agent path crashed earlier due to `asyncio.run()` in an async context — that's fixed. Need to verify the lazy session manager startup works.
-3. If `--resume` ignores `--mcp-config`, we need `--strict-mcp-config` to force it. Need to verify this flag works with HTTP transport on resume.
+**Date:** 2026-04-09
+
+### Test
+
+1. Create fresh session with `--mcp-config` (HTTP URL) → count tools
+2. Resume that session WITH `--mcp-config` → count tools
+3. Resume that session WITHOUT `--mcp-config` → count tools
+
+### Result
+
+```
+Session 1 (fresh + --mcp-config):        teaparty_tools=42
+Session 2 (resume + --mcp-config):       teaparty_tools=42
+Session 3 (resume, no --mcp-config):     teaparty_tools=0
+```
+
+**Conclusion:** `--mcp-config` must be passed on EVERY invocation, including resumes. It is not persisted in the session. If omitted on resume, the MCP server is lost.
+
+**Implication:** `ClaudeRunner` must always pass `--mcp-config` — not just on fresh sessions. This is actually good: it means every invocation gets the current config. No stale sessions.
+
+## Experiment 6b: Does path-based agent filtering work via --mcp-config?
+
+**Date:** 2026-04-09
+
+### Test
+
+Pass `--mcp-config` with URL `http://localhost:8082/mcp/management/office-manager` (agent-scoped path).
+
+### Result
+
+```
+MCP: [{"name": "teaparty-config", "status": "failed"}]
+TeaParty tools: 0
+```
+
+**FAILED.** The agent path crashes because the lazily-created agent server's `StreamableHTTPSessionManager` isn't properly initialized. The session manager requires a long-lived async context manager (`mgr.run()`) that can't be started inside a request handler.
+
+**Conclusion:** Path-based routing doesn't work with FastMCP's session manager architecture. We need a different approach for per-agent filtering.
+
+**Options:**
+- A. Use one server at `/mcp` with all tools. Filter via `--tools` (builtins) and `--settings` permissions (MCP). Accept that agents SEE all MCP tools but can only CALL their allowed ones.
+- B. Pre-create all known agent servers at startup (not lazy). Walk the agent directories, create a server per agent, start all session managers in the lifespan.
+- C. Write a custom ASGI handler that doesn't use FastMCP's session manager — intercept `tools/list` JSON-RPC responses and filter them.
+
+## Experiment 6c: Does --strict-mcp-config force MCP rediscovery on resume?
+
+**Date:** 2026-04-09
+
+### Test
+
+1. Create session WITHOUT `--mcp-config` (no MCP tools)
+2. Resume with `--mcp-config` + `--strict-mcp-config`
+
+### Result
+
+```
+Session 1 (no mcp):                                    tools=0
+Session 2 (resume + --mcp-config + --strict-mcp-config): tools=42
+```
+
+**CONFIRMED.** `--strict-mcp-config` forces Claude Code to use the provided config even on resume, overriding the session's original (empty) MCP state.
+
+**Implication:** We should always pass both `--mcp-config` and `--strict-mcp-config`. This guarantees every invocation gets the current MCP config regardless of session state. Combined with finding 6a, this means we never have stale MCP.
+
+## Summary of confirmed facts
+
+| # | Fact | Source |
+|---|------|--------|
+| 1 | `--tools ''` kills all tools including MCP | Experiment 2 |
+| 2 | `--tools <list>` controls builtins only; MCP unaffected | Experiment 2 |
+| 3 | `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` enables unblockable SendMessage | Claude Code docs |
+| 4 | Project-scoped `.mcp.json` requires approval; silently skipped in `-p` mode | Experiment 5 |
+| 5 | `--mcp-config` bypasses approval; works in `-p` mode | Experiment 6 |
+| 6 | `--mcp-config` must be passed on every invocation (not persisted in session) | Experiment 6a |
+| 7 | Path-based agent routing doesn't work (FastMCP session manager limitation) | Experiment 6b |
+| 8 | `--strict-mcp-config` forces MCP rediscovery on resume | Experiment 6c |
+| 9 | `json_response=True` required for HTTP MCP (Claude Code disconnects on SSE) | Experiment earlier today |
+
+## Revised implementation plan
+
+Based on experiments, the architecture is:
+
+1. **Bridge starts one HTTP MCP server** at `/mcp` with ALL tools (port 8082)
+2. **`ClaudeRunner` always passes `--mcp-config` + `--strict-mcp-config`** with the HTTP URL
+3. **`ClaudeRunner` passes `--tools` with builtins** from agent frontmatter (controls builtin visibility)
+4. **Per-agent MCP filtering:** TBD — path routing doesn't work. Options:
+   - Accept all tools visible, rely on permissions to block calls (simplest but wastes context)
+   - Pre-create all agent servers at startup (complex but clean)
+   - Custom ASGI response filter (medium complexity)
+5. **Remove `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`** from env
+6. **Remove `compose_mcp_config`** — no more `.mcp.json` writes
+7. **No more `compose_agents`** roster writes — agents discover teammates via MCP ListTeamMembers
