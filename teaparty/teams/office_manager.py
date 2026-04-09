@@ -681,6 +681,12 @@ class OfficeManagerSession:
         )
         sockets = await self._bus_listener.start()
         self._bus_listener_sockets = sockets
+
+        # Register spawn_fn in the MCP registry so the in-process
+        # HTTP MCP server can route Send calls directly.
+        from teaparty.mcp.registry import register_spawn_fn
+        register_spawn_fn('office-manager', spawn_fn)
+
         send, reply, close = sockets
         return {
             'SEND_SOCKET': send,

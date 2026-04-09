@@ -1049,6 +1049,10 @@ def create_http_app(port: int = 8082):
         scope_name, agent_name = agent_info
         cache_key = f'{scope_name}/{agent_name}'
 
+        # Set the agent context so tool handlers know who's calling
+        from teaparty.mcp.registry import current_agent_name
+        current_agent_name.set(agent_name)
+
         # Load allowlist
         if cache_key not in _allowlist_cache:
             _allowlist_cache[cache_key] = _get_allowed_names(scope_name, agent_name)
