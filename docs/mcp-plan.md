@@ -1,127 +1,109 @@
-# MCP Server Architecture
+# MCP Server Architecture — Experiment Journal
 
-## Problem
+## Problem Statement
 
-Dispatched agents need MCP tools (Send, Reply, ListTeamMembers, etc.) to participate in TeaParty's hierarchical dispatch. The previous architecture spawned a separate MCP server subprocess per agent via Claude Code's `--mcp-config` flag. This broke for multiple reasons:
+Dispatched agents need MCP tools (Send, Reply, ListTeamMembers, etc.) to participate in TeaParty's hierarchical dispatch. The original architecture spawned a separate MCP server subprocess per agent. After the issue #390 restructure, the OM couldn't reach its MCP tools at all.
 
-- `CLAUDECODE=1` env var suppresses MCP subprocess startup in nested Claude Code processes
-- `--tools ''` (used to hide builtins) also kills MCP tools
-- `--resume` preserves stale tool state from the original session
-- `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` enables Claude Code's builtin `SendMessage` which bypasses TeaParty's bus listener and **cannot be blocked** by `--tools`
-- Per-agent stdio MCP subprocesses are wasteful — N agents = N server processes running identical code
+## Findings (chronological)
 
-## Design
+### 1. CLAUDECODE=1 suppresses MCP subprocess startup
 
-### One HTTP MCP server, path-based per-agent filtering
+**Date:** 2026-04-08
 
-The bridge starts a single HTTP MCP server at boot. All Claude Code sessions — interactive and dispatched — connect to it over HTTP. The URL path determines which tools are visible.
+When Claude Code runs, it sets `CLAUDECODE=1` in its environment. Child processes that inherit this have MCP server startup suppressed — Claude Code's anti-recursion guard. Since the bridge server runs inside a Claude Code session, all OM processes inherited `CLAUDECODE=1`.
 
-```
-http://localhost:8082/mcp                           # all tools (interactive session)
-http://localhost:8082/mcp/management/{agent}        # management-scoped agent
-http://localhost:8082/mcp/{project}/{agent}         # project-scoped agent
-```
+**Fix attempted:** Strip `CLAUDECODE` from `ClaudeRunner._build_env()`.
 
-Each path returns only the tools listed in that agent's frontmatter `tools:` field. The server caches filtered FastMCP instances per path after first creation.
+**Result:** This alone didn't fix it — other issues masked the effect.
 
-### Tool resolution and scope layering
+### 2. `--tools ''` kills ALL tools including MCP
 
-Agent tool allowlists come from the `tools:` field in the agent's frontmatter (`agent.md`). Resolution follows the same scope chain as `config_reader.merge_catalog`:
+**Date:** 2026-04-08
 
-1. **Project scope**: `{project_dir}/.teaparty/project/agents/{agent}/agent.md`
-2. **Management scope**: `.teaparty/management/agents/{agent}/agent.md`
+The OM passed `--tools ''` to disable builtin tools (Read/Write/Bash) while keeping MCP tools. But Claude Code interprets `--tools ''` as "disable ALL tools including MCP." The OM had zero tools and hallucinated every tool call.
 
-Project-level definitions override management-level definitions of the same name. A project can define its own `auditor` agent with a different tool allowlist than the management `auditor`.
+**Confirmed:** `--tools` with a specific comma-separated list DOES work — it disables unlisted builtins but keeps MCP tools. The empty string is the problem.
 
-### Builtin tool control
+**Fix:** Remove `--tools ''`. Use `--tools Bash,WebSearch,ToolSearch` (explicit list from frontmatter).
 
-The frontmatter `tools:` field lists both MCP tools (prefixed `mcp__teaparty-config__`) and builtin tools (Bash, Read, Edit, etc.). The runner separates them:
+### 3. `--resume` preserves stale MCP state
 
-- **MCP tools**: Controlled by the HTTP server's per-agent filtering. The agent only sees the MCP tools in its allowlist.
-- **Builtin tools**: Passed to Claude Code's `--tools` flag. Only the builtins listed in the frontmatter are available. `ToolSearch` is always included so deferred tools can be discovered.
+**Date:** 2026-04-08
 
-This means `SendMessage` (a Claude Code builtin not in any agent's frontmatter) is never available.
+When Claude Code resumes a session via `--resume`, it uses the MCP config from the ORIGINAL session creation. New `--mcp-config`, `--strict-mcp-config`, and workspace `.mcp.json` changes are ignored for tool discovery. This means every MCP config change requires a fresh session.
 
-### .mcp.json per agent
+**Implication:** Any session created when MCP was broken is permanently poisoned. `/clear` must reset `claude_session_id` to force a fresh session.
 
-`compose_mcp_config` writes a `.mcp.json` to each agent's worktree pointing to the scoped URL:
+**Fix:** MCP failure detection clears `claude_session_id` when system init shows `"status": "failed"`.
 
-```json
-{
-  "mcpServers": {
-    "teaparty-config": {
-      "type": "http",
-      "url": "http://localhost:8082/mcp/management/office-manager"
-    }
-  }
-}
-```
+### 4. `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` enables unblockable SendMessage
 
-The interactive session's `.mcp.json` (repo root) points to the unscoped path:
+**Date:** 2026-04-08
 
-```json
-{
-  "mcpServers": {
-    "teaparty-config": {
-      "type": "http",
-      "url": "http://localhost:8082/mcp"
-    }
-  }
-}
-```
+We set this env var for all dispatched agents. It enables Claude Code's native agent teams, which includes `SendMessage` — a builtin that **cannot be blocked by `--tools`**. The OM found `SendMessage` via ToolSearch and used it instead of `mcp__teaparty-config__Send`. Messages went to Claude Code's internal routing (a black hole) instead of TeaParty's bus listener.
 
-### Environment changes
+**Source:** Claude Code docs confirm: "Team coordination tools such as SendMessage and the task management tools are always available to a teammate even when tools restricts other tools."
 
-- **Remove** `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` from `ClaudeRunner._build_env()`. This disables `SendMessage`.
-- **Remove** `CLAUDECODE` stripping — no longer needed since we don't spawn MCP subprocesses.
-- **Remove** `--mcp-config`, `--strict-mcp-config` — agents use workspace `.mcp.json` natively.
+**Fix:** Remove `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` from `_build_env()`.
 
-## Implementation
+### 5. Project-scoped .mcp.json requires approval that -p mode can't give
 
-### Files to change
+**Date:** 2026-04-09  
+**This is the current blocker.**
 
-| File | Change |
-|------|--------|
-| `teaparty/mcp/server/main.py` | Add `create_http_app()` that builds a Starlette app with path-based routing. Each path lazily creates a filtered FastMCP instance. |
-| `teaparty/bridge/__main__.py` | Start the HTTP MCP server in a background thread on port 8082. |
-| `teaparty/cfa/agent_spawner.py` | `compose_mcp_config` writes HTTP URL with scope (`management/{agent}` or `{project}/{agent}`). |
-| `teaparty/runners/claude.py` | Read agent frontmatter, extract builtins for `--tools`. Remove `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`. Remove `CLAUDECODE` pop. Remove `--mcp-config`/`--strict-mcp-config` logic. |
-| `teaparty/teams/office_manager.py` | Remove all `mcp_config` plumbing, `_build_mcp_config`, `_mcp_env_to_args`. |
-| `teaparty/teams/config_lead.py` | Same cleanup. |
-| `teaparty/teams/project_lead.py` | Same cleanup. |
-| `teaparty/teams/project_manager.py` | Same cleanup. |
-| `teaparty/cfa/agent_pool.py` | Remove `mcp_config` parameter and `--mcp-config` flag construction. |
-| `.mcp.json` | Change to HTTP transport pointing to `http://localhost:8082/mcp`. |
+Claude Code requires explicit user approval before loading MCP servers from project-scoped `.mcp.json` files. This approval is stored in `~/.claude.json` under the project path. In `-p` (print/pipe) mode, there is no interactive prompt — the approval dialog is skipped.
 
-### Files to delete
+**Evidence:**
+- The OM workspace has no entry in `~/.claude.json` → servers silently skipped
+- The main repo has `enabledMcpjsonServers: []` → no servers enabled
+- The system init event shows Gmail and Calendar (user-scoped) but NO teaparty-config
+- The HTTP server at localhost:8082 responds correctly to curl
+- Claude Code never attempts to connect
 
-| File | Reason |
-|------|--------|
-| `teaparty/mcp/server/dispatch.py` | No longer needed — one server, no dispatch variant. |
+**Key insight:** The `-p` flag docs say "The workspace trust dialog is skipped when Claude is run with the -p mode. Only use this flag in directories you trust." But skipping the trust dialog doesn't mean auto-approving MCP servers — it means they're silently ignored.
 
-### What stays the same
+**Possible paths forward:**
+1. Pre-populate `~/.claude.json` with approval entries for agent workspaces
+2. Use `--mcp-config` to bypass project-scoped approval (back to per-agent config, but via HTTP URL not subprocess)
+3. Use `claude mcp add --scope local` to register the server at local scope for each workspace
+4. Register as user-scoped (available to all projects) — but then all agents see all tools
 
-- `create_server(agent_tools=...)` — still the core tool registration, now called per-path
-- `_load_agent_tools(agent_name)` — still reads frontmatter, extended to accept scope
-- Agent frontmatter `tools:` field — still the single source of truth
-- Bus listener sockets — still used for Send/Reply routing (passed as env vars to the Claude process, read by the MCP server via `os.environ`)
+## Architecture Decisions
 
-## Sequence: agent dispatched by the bridge
+### What works
 
-```
-1. Bridge receives user message
-2. Bridge calls OfficeManagerSession.invoke()
-3. invoke() calls compose_mcp_config(worktree, 'office-manager', scope='management')
-   → writes .mcp.json: {"type": "http", "url": "http://localhost:8082/mcp/management/office-manager"}
-4. invoke() calls ClaudeRunner(lead='office-manager', ...)
-5. ClaudeRunner.run() reads office-manager frontmatter:
-   tools: Bash, WebSearch, WebFetch, mcp__teaparty-config__Send, ...
-6. Separates: builtins=[Bash, WebSearch, WebFetch, ToolSearch]
-              mcp=[Send, Reply, ListTeamMembers, ...]
-7. Passes --tools Bash,WebSearch,WebFetch,ToolSearch to claude -p
-8. Claude Code starts, reads .mcp.json, connects to http://localhost:8082/mcp/management/office-manager
-9. HTTP server returns tools/list filtered to [Send, Reply, ListTeamMembers, ...]
-10. Agent sees ONLY: Bash, WebSearch, WebFetch, ToolSearch + Send, Reply, ListTeamMembers, ...
-11. SendMessage does not exist (CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS not set)
-12. Agent calls mcp__teaparty-config__Send → bus listener → spawns target agent
-```
+- **One HTTP MCP server** started by the bridge at boot (port 8082) — server responds correctly
+- **Per-agent tool filtering** via `create_server(agent_tools=...)` — correctly filters to frontmatter allowlist
+- **Builtin tool control** via `--tools` with explicit comma-separated list from frontmatter
+- **`json_response=True`** on FastMCP — returns JSON instead of SSE, which Claude Code expects
+- **Agent frontmatter as single source of truth** for tool allowlists — no hardcoded Python lists
+
+### What doesn't work
+
+- **Path-based routing** for per-agent filtering — FastMCP's `StreamableHTTPSessionManager` requires a long-lived async context manager that can't be lazily started inside request handlers
+- **Project-scoped .mcp.json** — requires interactive approval that `-p` mode can't provide
+- **`--mcp-config` with `--strict-mcp-config`** — worked technically but was fragile (temp files, stale sessions)
+
+### What we haven't tried
+
+- **`--mcp-config` with HTTP URL** — `--mcp-config` takes a JSON file/string. Could we pass the HTTP config directly? This bypasses project-scope approval since it's a CLI flag, not a `.mcp.json` file.
+- **Pre-populating `~/.claude.json`** — write approval entries for agent workspaces before spawning
+- **User-scoped MCP server** — `claude mcp add --scope user --transport http teaparty-config http://localhost:8082/mcp` — available everywhere, no per-project approval needed
+
+## Current State (2026-04-09)
+
+### Code changes made
+- HTTP MCP server with path-based routing implemented (`create_http_app`)
+- `compose_mcp_config` writes HTTP URLs to `.mcp.json`
+- `ClaudeRunner.run()` reads agent frontmatter for `--tools` builtins
+- `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` removed from env
+- `CLAUDECODE` stripped from env
+- `--mcp-config`/`--strict-mcp-config` removed from ClaudeRunner
+- All hardcoded permission lists removed from team sessions
+- `dispatch.py` entry point deleted
+
+### Blocker
+Claude Code in `-p` mode silently ignores project-scoped `.mcp.json` MCP servers because the approval dialog is skipped. The HTTP MCP server works but Claude Code never connects to it.
+
+### Next step
+Determine which of the untried approaches (--mcp-config with HTTP, pre-populate ~/.claude.json, user-scoped registration) works in `-p` mode.
