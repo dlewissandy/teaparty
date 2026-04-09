@@ -210,6 +210,7 @@ class TeaPartyBridge:
         self.teaparty_home = os.path.expanduser(teaparty_home)
         self.static_dir = os.path.expanduser(static_dir)
         self._llm_backend = os.environ.get('TEAPARTY_LLM_BACKEND', 'claude')
+        self._mcp_asgi_app = None  # Set in _on_startup
         self._ws_clients: Set[web.WebSocketResponse] = set()
         # Shared bus registry: session_id -> SqliteMessageBus.
         # Populated by the StatePoller; consumed by MessageRelay.
@@ -313,6 +314,10 @@ class TeaPartyBridge:
         # ── WebSocket ─────────────────────────────────────────────────────────
         app.router.add_get('/ws', self._handle_websocket)
 
+        # ── MCP server (shared, per-agent filtering) ─────────────────────────
+        app.router.add_route('*', '/mcp', self._handle_mcp)
+        app.router.add_route('*', '/mcp/{scope}/{agent}', self._handle_mcp)
+
         # ── Static files ──────────────────────────────────────────────────────
         if not os.path.isdir(self.static_dir):
             raise FileNotFoundError(
@@ -328,7 +333,70 @@ class TeaPartyBridge:
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
+    async def _handle_mcp(self, request: web.Request) -> web.StreamResponse:
+        """Forward MCP requests to the shared ASGI app.
+
+        Bridges aiohttp request/response to ASGI scope/receive/send.
+        """
+        # Build ASGI scope
+        scope = {
+            'type': 'http',
+            'asgi': {'version': '3.0'},
+            'http_version': '1.1',
+            'method': request.method,
+            'path': request.path,
+            'query_string': request.query_string.encode() if request.query_string else b'',
+            'headers': [(k.lower().encode(), v.encode()) for k, v in request.headers.items()],
+            'server': (request.host.split(':')[0], request.url.port or 80),
+        }
+
+        body = await request.read()
+
+        # ASGI receive
+        sent_body = False
+        async def receive():
+            nonlocal sent_body
+            if not sent_body:
+                sent_body = True
+                return {'type': 'http.request', 'body': body, 'more_body': False}
+            # Wait for disconnect
+            return {'type': 'http.disconnect'}
+
+        # ASGI send — collect response parts
+        response = web.StreamResponse()
+        response_started = False
+
+        async def send(msg):
+            nonlocal response_started
+            if msg['type'] == 'http.response.start':
+                response.set_status(msg['status'])
+                for name, value in msg.get('headers', []):
+                    # Skip content-length — aiohttp manages it
+                    if name.lower() != b'content-length':
+                        response.headers[name.decode()] = value.decode()
+                await response.prepare(request)
+                response_started = True
+            elif msg['type'] == 'http.response.body':
+                body_data = msg.get('body', b'')
+                if body_data and response_started:
+                    await response.write(body_data)
+
+        await self._mcp_asgi_app(scope, receive, send)
+
+        if response_started:
+            await response.write_eof()
+        return response
+
     async def _on_startup(self, app: web.Application) -> None:
+        # Start the shared MCP server (same event loop, no threading)
+        from teaparty.mcp.server.main import create_http_app
+        self._mcp_asgi_app, mcp_starlette, mcp_server = create_http_app()
+        # Start the session manager via its lifespan
+        self._mcp_session_mgr = mcp_server.session_manager
+        self._mcp_session_ctx = self._mcp_session_mgr.run()
+        await self._mcp_session_ctx.__aenter__()
+        _log.info('MCP server started (in-process, same event loop)')
+
         async def broadcast(event: dict) -> None:
             payload = json.dumps(event)
             for ws in list(self._ws_clients):
@@ -357,6 +425,13 @@ class TeaPartyBridge:
             self._get_agent_bus(agent_name)
 
     async def _on_cleanup(self, app: web.Application) -> None:
+        # Shut down MCP session manager
+        if hasattr(self, '_mcp_session_ctx') and self._mcp_session_ctx:
+            try:
+                await self._mcp_session_ctx.__aexit__(None, None, None)
+            except Exception:
+                pass
+
         for key in ('_poller_task', '_relay_task'):
             task = app.get(key)
             if task is not None:

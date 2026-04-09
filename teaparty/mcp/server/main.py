@@ -1122,27 +1122,34 @@ def create_http_app(port: int = 8082):
                 await send(captured_start)
             await send({'type': 'http.response.body', 'body': captured_body})
 
-    def run():
+    # Return the ASGI app, the Starlette app (for lifespan), and a standalone run function
+    return filtering_app, starlette_app, server
+
+    # Standalone run function (for python -m teaparty.mcp.server.main --http)
+    # Not used when mounted inside the bridge.
+
+
+def run_standalone_http(port: int = 8082):
+    """Run the HTTP MCP server standalone with uvicorn (for testing)."""
+    import uvicorn
+    import asyncio
+    import logging as _logging
+    _log = _logging.getLogger('teaparty.mcp.server')
+
+    filtering_app, _, _ = create_http_app(port)
+
+    async def _serve():
+        config = uvicorn.Config(
+            filtering_app,
+            host='127.0.0.1',
+            port=port,
+            log_level='warning',
+        )
+        uv_server = uvicorn.Server(config)
         _log.info('HTTP MCP server starting on port %d', port)
+        await uv_server.serve()
 
-        import asyncio
-        async def _serve():
-            config = uvicorn.Config(
-                filtering_app,
-                host='127.0.0.1',
-                port=port,
-                log_level='warning',
-            )
-            uv_server = uvicorn.Server(config)
-            await uv_server.serve()
-
-        asyncio.run(_serve())
-
-    return run
-
-
-
-    return run
+    asyncio.run(_serve())
 
 
 def main():
@@ -1176,8 +1183,7 @@ def main():
         )
 
     if args.http:
-        run_fn = create_http_app(port=args.port)
-        run_fn()
+        run_standalone_http(port=args.port)
     else:
         server = create_server()
         server.run(transport='stdio')

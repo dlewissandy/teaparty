@@ -251,7 +251,7 @@ class ClaudeRunner:
         # Write MCP config pointing to the shared HTTP server.
         # The URL encodes the agent scope for per-agent tool filtering.
         if self.lead:
-            mcp_port = int(os.environ.get('TEAPARTY_MCP_PORT', '8082'))
+            mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
             # TODO: support project scope — for now all agents are management
             mcp_url = f'http://localhost:{mcp_port}/mcp/management/{self.lead}'
             mcp_data = {'mcpServers': {'teaparty-config': {'type': 'http', 'url': mcp_url}}}
