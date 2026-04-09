@@ -335,3 +335,56 @@ This is not special-casing. The runner reads the frontmatter `tools:` field (alr
 1. `--tools` flag (builtins visible to Claude Code)
 2. HTTP MCP path filter (MCP tools visible via tools/list)
 3. `--settings` permissions `allow` (tools auto-approved without prompting)
+
+### Result
+
+**PARTIAL SUCCESS.** The permissions allow list works — Send was called without prompting. But the call failed:
+
+```
+"Neither DISPATCH_BUS_PATH nor SEND_SOCKET set — cannot send."
+```
+
+The MCP Send handler needs socket paths to route messages to the bus listener. Previously these were passed as env vars to the MCP subprocess (when it was a stdio subprocess per agent). Now the MCP server is a shared HTTP server started by the bridge — it runs in the bridge process, not in the agent's process. The socket paths from `_ensure_bus_listener()` never reach the HTTP server.
+
+### Analysis
+
+The Send/Reply/CloseConversation handlers in `teaparty/mcp/tools/messaging.py` read socket paths from `os.environ`:
+- `SEND_SOCKET` — path to the bus listener's send unix socket  
+- `REPLY_SOCKET` — path to the bus listener's reply unix socket
+- `DISPATCH_BUS_PATH` — alternative: path to the sqlite bus for bus-based transport
+
+These env vars were set per-agent when the MCP server was a subprocess. With a shared HTTP server, there's one process for all agents — it can't have per-agent env vars.
+
+### The fundamental problem
+
+The Send handler needs to know WHICH bus listener to route to. Different agents have different bus listeners (the OM has one, the config lead has another). The socket paths are per-session, not per-server. A shared HTTP server can't use per-process env vars for per-session routing.
+
+## Experiment 9: How to route Send/Reply through the shared HTTP server
+
+**Date:** 2026-04-09
+
+### Options
+
+**A. Pass socket paths as tool parameters.** The agent includes `send_socket` as an argument to the Send MCP tool call. This leaks infrastructure details into the agent's tool API — ugly.
+
+**B. Pass socket paths as HTTP headers.** Claude Code doesn't support custom headers per MCP request. Rejected.
+
+**C. Pass socket paths in the MCP session init.** The `clientInfo` in the initialize request could include custom metadata. But we don't control what Claude Code sends.
+
+**D. Pass socket paths as env vars to the Claude process, which passes them as HTTP headers.** Claude Code doesn't forward env vars to MCP HTTP requests.
+
+**E. The bridge's bus listener registers itself with the HTTP MCP server.** The bridge starts the bus listener and registers its socket paths with the MCP server keyed by agent name. When the Send handler runs, it looks up the socket paths by the agent scope from the URL path. The ASGI middleware already knows the agent scope — it could inject it into the request context.
+
+**F. The Send handler routes through the bridge directly.** Since the HTTP server runs inside the bridge process (same Python process via threading), the Send handler can access the bridge's bus listeners directly through a shared registry — no sockets needed.
+
+### Hypothesis
+
+Option F is the cleanest. The HTTP MCP server runs in the bridge process. The bridge owns the bus listeners. A shared registry (module-level dict) maps agent names to bus listener instances. The Send handler looks up the listener by agent name (extracted from the URL path) and calls it directly — no unix sockets, no env vars.
+
+### Test plan
+
+1. Create a module-level registry: `{agent_name: BusEventListener}`
+2. When the bridge starts a bus listener for an agent, register it
+3. Modify the ASGI middleware to inject the agent scope into a request-scoped context
+4. Modify the Send handler to look up the bus listener from the registry instead of reading env vars
+5. Test: OM calls Send → handler looks up 'office-manager' → finds bus listener → routes message
