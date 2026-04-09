@@ -95,7 +95,7 @@ def create_server(agent_tools: set[str] | None = None) -> FastMCP:
     import logging as _logging
     _cs_log = _logging.getLogger('teaparty.mcp.server.main.create')
 
-    server = FastMCP('teaparty-config')
+    server = FastMCP('teaparty-config', json_response=True)
 
 
     @server.tool()
@@ -893,16 +893,16 @@ def create_server(agent_tools: set[str] | None = None) -> FastMCP:
 
     # Filter to agent's allowed tools when specified.
     if agent_tools is not None:
-        import asyncio
-        registered = asyncio.run(server.list_tools())
+        registered = server._tool_manager.list_tools()
         mcp_prefix = 'mcp__teaparty-config__'
         bare_names = set()
         for t in agent_tools:
             bare_names.add(t[len(mcp_prefix):] if t.startswith(mcp_prefix) else t)
-        for tool in registered:
-            if tool.name not in bare_names:
-                server.remove_tool(tool.name)
-        _cs_log.info('create_server: filtered to %d/%d tools', len(bare_names & {t.name for t in registered}), len(registered))
+        to_remove = [tool.name for tool in registered if tool.name not in bare_names]
+        for name in to_remove:
+            server.remove_tool(name)
+        _cs_log.info('create_server: filtered to %d/%d tools',
+                     len(registered) - len(to_remove), len(registered))
 
     return server
 
