@@ -211,8 +211,10 @@ def _extract_slug(stream_path: str, session_id: str, cwd: str) -> str:
     return ''
 
 
-def _iter_stream_events(stream_path: str, agent_role: str):
-    """Yield (sender, content) pairs for every event in a stream-json JSONL file.
+def _classify_event(ev: dict, agent_role: str,
+                    seen_tool_use: set[str],
+                    seen_tool_result: set[str]):
+    """Yield (sender, content) pairs for a single stream-json event dict.
 
     Maps stream event types to bus sender labels:
     - thinking block   → ('thinking', text)
@@ -222,9 +224,77 @@ def _iter_stream_events(stream_path: str, agent_role: str):
     - system event     → ('system', JSON of event)
     - unknown block    → ('unknown:<type>', JSON of block)
 
-    Yields events in stream order. Unknown event types are skipped; unknown
-    block types within assistant events are written rather than dropped.
+    Deduplicates tool_use and tool_result by their IDs.
     """
+    ev_type = ev.get('type', '')
+
+    if ev_type == 'assistant':
+        for block in ev.get('message', {}).get('content', []):
+            if not isinstance(block, dict):
+                continue
+            block_type = block.get('type', '')
+            if block_type == 'thinking':
+                text = block.get('thinking', '').strip()
+                if text:
+                    yield 'thinking', text
+            elif block_type == 'text':
+                text = block.get('text', '').strip()
+                if text:
+                    yield agent_role, text
+            elif block_type == 'tool_use':
+                tid = block.get('id', '')
+                if tid and tid not in seen_tool_use:
+                    seen_tool_use.add(tid)
+                    yield 'tool_use', json.dumps({
+                        'name': block.get('name', ''),
+                        'input': block.get('input', {}),
+                    })
+            else:
+                yield f'unknown:{block_type}', json.dumps(block)
+
+    elif ev_type == 'tool_use':
+        tid = ev.get('tool_use_id', '')
+        if not tid or tid not in seen_tool_use:
+            if tid:
+                seen_tool_use.add(tid)
+            yield 'tool_use', json.dumps({
+                'name': ev.get('name', ''),
+                'input': ev.get('input', {}),
+            })
+
+    elif ev_type == 'tool_result':
+        tid = ev.get('tool_use_id', '')
+        if not tid or tid not in seen_tool_result:
+            if tid:
+                seen_tool_result.add(tid)
+            raw = ev.get('content', '')
+            yield 'tool_result', raw if isinstance(raw, str) else json.dumps(raw)
+
+    elif ev_type == 'user':
+        content = ev.get('message', {}).get('content', [])
+        if isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict) and block.get('type') == 'tool_result':
+                    tid = block.get('tool_use_id', '')
+                    if not tid or tid not in seen_tool_result:
+                        if tid:
+                            seen_tool_result.add(tid)
+                        raw = block.get('content', '')
+                        yield 'tool_result', raw if isinstance(raw, str) else json.dumps(raw)
+
+    elif ev_type == 'system':
+        yield 'system', json.dumps(ev)
+
+    elif ev_type == 'result':
+        stats = {k: ev[k] for k in (
+            'total_cost_usd', 'duration_ms', 'input_tokens', 'output_tokens'
+        ) if k in ev}
+        if stats:
+            yield 'cost', json.dumps(stats)
+
+
+def _iter_stream_events(stream_path: str, agent_role: str):
+    """Yield (sender, content) pairs for every event in a stream-json JSONL file."""
     seen_tool_use: set[str] = set()
     seen_tool_result: set[str] = set()
     try:
@@ -237,75 +307,34 @@ def _iter_stream_events(stream_path: str, agent_role: str):
                     ev = json.loads(line)
                 except (ValueError, json.JSONDecodeError):
                     continue
-                ev_type = ev.get('type', '')
-
-                if ev_type == 'assistant':
-                    for block in ev.get('message', {}).get('content', []):
-                        if not isinstance(block, dict):
-                            continue
-                        block_type = block.get('type', '')
-                        if block_type == 'thinking':
-                            text = block.get('thinking', '').strip()
-                            if text:
-                                yield 'thinking', text
-                        elif block_type == 'text':
-                            text = block.get('text', '').strip()
-                            if text:
-                                yield agent_role, text
-                        elif block_type == 'tool_use':
-                            tid = block.get('id', '')
-                            if tid and tid not in seen_tool_use:
-                                seen_tool_use.add(tid)
-                                yield 'tool_use', json.dumps({
-                                    'name': block.get('name', ''),
-                                    'input': block.get('input', {}),
-                                })
-                        else:
-                            yield f'unknown:{block_type}', json.dumps(block)
-
-                elif ev_type == 'tool_use':
-                    tid = ev.get('tool_use_id', '')
-                    if not tid or tid not in seen_tool_use:
-                        if tid:
-                            seen_tool_use.add(tid)
-                        yield 'tool_use', json.dumps({
-                            'name': ev.get('name', ''),
-                            'input': ev.get('input', {}),
-                        })
-
-                elif ev_type == 'tool_result':
-                    tid = ev.get('tool_use_id', '')
-                    if not tid or tid not in seen_tool_result:
-                        if tid:
-                            seen_tool_result.add(tid)
-                        raw = ev.get('content', '')
-                        yield 'tool_result', raw if isinstance(raw, str) else json.dumps(raw)
-
-                elif ev_type == 'user':
-                    # Tool results arrive as content blocks inside user events.
-                    content = ev.get('message', {}).get('content', [])
-                    if isinstance(content, list):
-                        for block in content:
-                            if isinstance(block, dict) and block.get('type') == 'tool_result':
-                                tid = block.get('tool_use_id', '')
-                                if not tid or tid not in seen_tool_result:
-                                    if tid:
-                                        seen_tool_result.add(tid)
-                                    raw = block.get('content', '')
-                                    yield 'tool_result', raw if isinstance(raw, str) else json.dumps(raw)
-
-                elif ev_type == 'system':
-                    yield 'system', json.dumps(ev)
-
-                elif ev_type == 'result':
-                    stats = {k: ev[k] for k in (
-                        'total_cost_usd', 'duration_ms', 'input_tokens', 'output_tokens'
-                    ) if k in ev}
-                    if stats:
-                        yield 'cost', json.dumps(stats)
-
+                yield from _classify_event(ev, agent_role, seen_tool_use, seen_tool_result)
     except OSError:
         pass
+
+
+def _make_live_stream_relay(bus, conv_id: str, agent_role: str):
+    """Return (callback, events) for real-time streaming to the message bus.
+
+    The callback processes a single stream-json event dict: writes each
+    (sender, content) pair to the bus immediately and appends it to the
+    events list for post-processing.
+
+    Returns:
+        callback: Synchronous callable(event_dict) — pass as on_stream_event.
+        events:   List of (sender, content) tuples accumulated during the run.
+    """
+    seen_tool_use: set[str] = set()
+    seen_tool_result: set[str] = set()
+    events: list[tuple[str, str]] = []
+
+    def callback(event: dict) -> None:
+        for sender, content in _classify_event(
+            event, agent_role, seen_tool_use, seen_tool_result,
+        ):
+            bus.send(conv_id, sender, content)
+            events.append((sender, content))
+
+    return callback, events
 
 
 # Senders that carry internal stream trace — not conversational history.
@@ -781,6 +810,11 @@ class OfficeManagerSession:
         # Start (or reuse) the bus event listener so the OM can Send/Reply.
         mcp_env = await self._ensure_bus_listener(cwd)
 
+        # Stream events to the bus in real-time as the runner produces them.
+        stream_callback, events = _make_live_stream_relay(
+            self._bus, self.conversation_id, 'office-manager',
+        )
+
         try:
             runner = create_runner(
                 prompt,
@@ -790,6 +824,7 @@ class OfficeManagerSession:
                 lead='office-manager',
                 env_vars=mcp_env,
                 resume_session=self.claude_session_id,
+                on_stream_event=stream_callback,
             )
 
             result = await runner.run()
@@ -798,7 +833,6 @@ class OfficeManagerSession:
                 _om_dbg.warning('OM stderr (%d lines): %s', len(result.stderr_lines),
                                 '\n'.join(result.stderr_lines[-10:]))
 
-            events = list(_iter_stream_events(stream_path, 'office-manager'))
             response_text = '\n'.join(c for s, c in events if s == 'office-manager')
 
             # Detect MCP failure: if the system init shows MCP "failed",
@@ -813,9 +847,6 @@ class OfficeManagerSession:
                                 mcp_failed = True
                     except (ValueError, json.JSONDecodeError):
                         pass
-
-            for sender, content in events:
-                self._bus.send(self.conversation_id, sender, content)
 
             if mcp_failed:
                 import logging as _log_mod

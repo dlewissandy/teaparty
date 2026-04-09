@@ -22,6 +22,7 @@ from teaparty.teams.office_manager import (
     NON_CONVERSATIONAL_SENDERS,
     _extract_slug,
     _iter_stream_events,
+    _make_live_stream_relay,
 )
 
 
@@ -151,6 +152,10 @@ class ProjectLeadSession:
         )
         os.close(stream_fd)
 
+        stream_callback, events = _make_live_stream_relay(
+            self._bus, self.conversation_id, self.lead_name,
+        )
+
         try:
             runner = create_runner(
                 prompt,
@@ -159,16 +164,13 @@ class ProjectLeadSession:
                 backend=self._llm_backend,
                 lead=self.lead_name,
                 resume_session=self.claude_session_id,
+                on_stream_event=stream_callback,
             )
             result = await runner.run()
 
-            events = list(_iter_stream_events(stream_path, self.lead_name))
             response_text = '\n'.join(
                 c for s, c in events if s == self.lead_name
             )
-
-            for sender, content in events:
-                self._bus.send(self.conversation_id, sender, content)
 
             if not response_text:
                 self.claude_session_id = None

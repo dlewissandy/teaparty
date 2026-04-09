@@ -37,6 +37,7 @@ from teaparty.teams.office_manager import (
     NON_CONVERSATIONAL_SENDERS,
     _extract_slug,
     _iter_stream_events,
+    _make_live_stream_relay,
 )
 
 log = logging.getLogger('teaparty.teams.config_lead')
@@ -302,6 +303,10 @@ class ConfigLeadSession:
         stream_fd, stream_path = tempfile.mkstemp(suffix='.jsonl', prefix='config-stream-')
         os.close(stream_fd)
 
+        stream_callback, events = _make_live_stream_relay(
+            self._bus, self.conversation_id, self.LEAD,
+        )
+
         try:
             runner = create_runner(
                 prompt,
@@ -311,14 +316,11 @@ class ConfigLeadSession:
                 lead=self.LEAD,
                 resume_session=self.claude_session_id,
                 env_vars=mcp_env,
+                on_stream_event=stream_callback,
             )
             result = await runner.run()
 
-            events = list(_iter_stream_events(stream_path, self.LEAD))
             response_text = '\n'.join(c for s, c in events if s == self.LEAD)
-
-            for sender, content in events:
-                self._bus.send(self.conversation_id, sender, content)
 
             if not response_text:
                 self.claude_session_id = None

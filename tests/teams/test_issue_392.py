@@ -242,7 +242,7 @@ class TestRunnerReceivesOnStreamEvent(unittest.TestCase):
              patch.object(session, 'load_state'), \
              patch.object(session, 'save_state'), \
              patch.object(session, '_ensure_bus_listener', new_callable=AsyncMock, return_value={}), \
-             patch('teaparty.teams.office_manager.ensure_agent_worktree', new_callable=AsyncMock, return_value=tmpdir), \
+             patch('teaparty.workspace.worktree.ensure_agent_worktree', new_callable=AsyncMock, return_value=tmpdir), \
              patch('teaparty.teams.office_manager._build_roster_agents_json', return_value=({}, [])):
 
             asyncio.run(session.invoke(cwd=tmpdir))
