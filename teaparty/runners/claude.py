@@ -239,6 +239,14 @@ class ClaudeRunner:
                 fm_mode = fm.get('permissionMode', '')
                 if fm_mode:
                     self.permission_mode = fm_mode
+            # Auto-approve the agent's allowed tools via --settings permissions
+            if fm:
+                tools_str = fm.get('tools', '')
+                if tools_str:
+                    all_tools = [t.strip() for t in tools_str.split(',') if t.strip()]
+                    perms = self.settings.get('permissions', {})
+                    perms['allow'] = all_tools
+                    self.settings['permissions'] = perms
 
         # Write MCP config pointing to the shared HTTP server.
         # The URL encodes the agent scope for per-agent tool filtering.

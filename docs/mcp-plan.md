@@ -312,3 +312,26 @@ Based on all experiments, the final architecture is:
 7. **Remove `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`** from env (kills SendMessage)
 8. **Remove `compose_mcp_config`** — runner constructs config inline
 9. **Interactive session** uses `--mcp-config` pointing to `/mcp` (all tools)
+
+## Experiment 8: Permission mode and tool approval in -p mode
+
+**Date:** 2026-04-09
+
+### Problem
+
+The OM has the correct 22 MCP tools visible but can't call them: "Claude requested permissions to use mcp__teaparty-config__Send, but you haven't granted it yet."
+
+### Hypothesis
+
+`permissionMode: acceptEdits` (from agent frontmatter) only auto-approves file edit operations, not MCP tool calls. MCP tools need explicit approval via the `--settings` permissions `allow` list.
+
+### Test
+
+Pass the agent's frontmatter `tools:` list as `--settings '{"permissions":{"allow":[...]}}'`. This should auto-approve the listed tools without prompting.
+
+### Rationale
+
+This is not special-casing. The runner reads the frontmatter `tools:` field (already loaded for `--tools` builtins and MCP filtering) and passes it as the permissions allowlist. One source of truth — the frontmatter — drives three things:
+1. `--tools` flag (builtins visible to Claude Code)
+2. HTTP MCP path filter (MCP tools visible via tools/list)
+3. `--settings` permissions `allow` (tools auto-approved without prompting)
