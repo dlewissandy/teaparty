@@ -237,6 +237,9 @@ class TeaPartyBridge:
 
     def run(self, port: int = 8081) -> None:
         """Start the bridge server and block until interrupted."""
+        # Publish the port so agent invocations can compose .mcp.json
+        # pointing to the HTTP MCP endpoint at /mcp/{scope}/{agent}.
+        os.environ['TEAPARTY_BRIDGE_PORT'] = str(port)
         app = self._build_app()
         web.run_app(app, port=port)
 
