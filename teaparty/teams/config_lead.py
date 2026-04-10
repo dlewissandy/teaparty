@@ -104,37 +104,53 @@ class ConfigLeadSession:
             lines.append(f'{role}: {msg.content}')
         return '\n\n'.join(lines)
 
-    def _state_path(self) -> str:
+    def _session_key(self) -> str:
         safe_id = self.qualifier.replace('/', '-').replace(':', '-').replace(' ', '-')
-        sessions_dir = os.path.join(self.teaparty_home, 'management', 'sessions')
-        os.makedirs(sessions_dir, exist_ok=True)
-        return os.path.join(sessions_dir, f'config-{safe_id}.json')
+        return f'config-{safe_id}'
 
     def save_state(self) -> None:
-        """Persist session state to disk."""
-        state = {
-            'claude_session_id': self.claude_session_id,
+        """Persist session state to {scope}/sessions/."""
+        from teaparty.runners.launcher import create_session, load_session
+        key = self._session_key()
+        session = load_session(
+            agent_name=self.LEAD, scope='management',
+            teaparty_home=self.teaparty_home, session_id=key,
+        )
+        if session is None:
+            session = create_session(
+                agent_name=self.LEAD, scope='management',
+                teaparty_home=self.teaparty_home, session_id=key,
+            )
+        meta_path = os.path.join(session.path, 'metadata.json')
+        meta = {
+            'session_id': session.id, 'agent_name': session.agent_name,
+            'scope': session.scope,
+            'claude_session_id': self.claude_session_id or '',
+            'conversation_map': session.conversation_map,
+            'conversation_title': self.conversation_title or '',
             'qualifier': self.qualifier,
-            'conversation_id': self.conversation_id,
-            'conversation_title': self.conversation_title,
         }
-        state_path = self._state_path()
-        os.makedirs(os.path.dirname(state_path), exist_ok=True)
-        tmp = state_path + '.tmp'
+        tmp = meta_path + '.tmp'
         with open(tmp, 'w') as f:
-            json.dump(state, f)
-        os.replace(tmp, state_path)
+            json.dump(meta, f, indent=2)
+        os.replace(tmp, meta_path)
 
     def load_state(self) -> None:
-        """Load session state from disk."""
-        state_path = self._state_path()
-        try:
-            with open(state_path) as f:
-                state = json.load(f)
-            self.claude_session_id = state.get('claude_session_id')
-            self.conversation_title = state.get('conversation_title') or None
-        except (FileNotFoundError, json.JSONDecodeError):
-            pass
+        """Load session state from {scope}/sessions/."""
+        from teaparty.runners.launcher import load_session
+        session = load_session(
+            agent_name=self.LEAD, scope='management',
+            teaparty_home=self.teaparty_home, session_id=self._session_key(),
+        )
+        if session is not None:
+            self.claude_session_id = session.claude_session_id or None
+            meta_path = os.path.join(session.path, 'metadata.json')
+            try:
+                with open(meta_path) as f:
+                    meta = json.load(f)
+                self.conversation_title = meta.get('conversation_title') or None
+            except (FileNotFoundError, json.JSONDecodeError):
+                pass
 
     def _latest_human_message(self) -> str:
         messages = self.get_messages()
@@ -159,15 +175,37 @@ class ConfigLeadSession:
             }
 
         from teaparty.messaging.listener import BusEventListener
+        from teaparty.runners.launcher import (
+            create_session as _create_session,
+            record_child_session as _record_child,
+            remove_child_session as _remove_child,
+            check_slot_available as _check_slot,
+        )
 
         bus_db_path = os.path.join(self._infra_dir, 'messages.db')
         repo_root = os.path.dirname(self.teaparty_home)
+
+        # Session for conversation map tracking.
+        if not hasattr(self, '_dispatch_session') or self._dispatch_session is None:
+            self._dispatch_session = _create_session(
+                agent_name='configuration-lead',
+                scope='management',
+                teaparty_home=self.teaparty_home,
+            )
+        dispatch_session = self._dispatch_session
 
         async def spawn_fn(member, composite, context_id):
             import subprocess as _sp
             import time as _time
             from teaparty.runners.launcher import launch as _launch
             t0 = _time.monotonic()
+
+            if not _check_slot(dispatch_session):
+                log.warning(
+                    'config_lead spawn_fn: at conversation limit, blocking dispatch to %s',
+                    member,
+                )
+                return ('', '', 'Dispatch blocked: per-agent conversation limit reached.')
 
             agent_dir = os.path.join(self._infra_dir, 'agents', f'pool_{member}')
             if not os.path.isdir(agent_dir):
@@ -189,6 +227,12 @@ class ConfigLeadSession:
                 mcp_port=mcp_port,
             )
             t_done = _time.monotonic()
+
+            if result.session_id:
+                _record_child(dispatch_session,
+                              request_id=context_id,
+                              child_session_id=result.session_id)
+
             log.info(
                 'config_lead spawn_fn: member=%r worktree=%.2fs dispatch=%.2fs total=%.2fs',
                 member, t_worktree - t0, t_done - t_worktree, t_done - t0,
@@ -198,6 +242,7 @@ class ConfigLeadSession:
         async def reply_fn(context_id, session_id, message):
             log.info('config_lead reply_fn: delivering reply for context %s', context_id)
             self._bus.send(self.conversation_id, 'agent-specialist', message)
+            _remove_child(dispatch_session, request_id=context_id)
 
         async def reinvoke_fn(context_id, session_id, message):
             log.info('config_lead reinvoke_fn: fan-in complete for context %s', context_id)

@@ -291,12 +291,16 @@ def create_session(
     agent_name: str,
     scope: str,
     teaparty_home: str,
+    session_id: str = '',
 ) -> Session:
     """Create a new session under {scope}/sessions/{session-id}/.
 
     Writes metadata.json with the agent name and empty conversation map.
+    If session_id is provided, uses it (for stable session keying);
+    otherwise generates a random ID.
     """
-    session_id = uuid.uuid4().hex[:12]
+    if not session_id:
+        session_id = uuid.uuid4().hex[:12]
     sessions_dir = os.path.join(teaparty_home, scope, 'sessions')
     session_path = os.path.join(sessions_dir, session_id)
     os.makedirs(session_path, exist_ok=True)
@@ -309,6 +313,37 @@ def create_session(
     )
     _save_session_metadata(session)
     return session
+
+
+def load_session(
+    *,
+    agent_name: str,
+    scope: str,
+    teaparty_home: str,
+    session_id: str,
+) -> Session | None:
+    """Load an existing session from {scope}/sessions/{session-id}/.
+
+    Returns None if the session directory or metadata.json doesn't exist.
+    """
+    sessions_dir = os.path.join(teaparty_home, scope, 'sessions')
+    session_path = os.path.join(sessions_dir, session_id)
+    meta_path = os.path.join(session_path, 'metadata.json')
+    if not os.path.isfile(meta_path):
+        return None
+    try:
+        with open(meta_path) as f:
+            meta = json.load(f)
+        return Session(
+            id=session_id,
+            path=session_path,
+            agent_name=meta.get('agent_name', agent_name),
+            scope=meta.get('scope', scope),
+            claude_session_id=meta.get('claude_session_id', ''),
+            conversation_map=meta.get('conversation_map', {}),
+        )
+    except (json.JSONDecodeError, OSError):
+        return None
 
 
 def _save_session_metadata(session: Session) -> None:

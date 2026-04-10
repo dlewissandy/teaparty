@@ -565,37 +565,52 @@ class ProxyReviewSession:
             dialog_history=dialog_history,
         )
 
-    def _state_path(self) -> str:
+    def _session_key(self) -> str:
         safe_id = self.decider.replace('/', '-').replace(':', '-').replace(' ', '-')
-        sessions_dir = os.path.join(self.teaparty_home, 'management', 'sessions')
-        os.makedirs(sessions_dir, exist_ok=True)
-        return os.path.join(sessions_dir, f'proxy-{safe_id}.json')
+        return f'proxy-{safe_id}'
 
     def save_state(self) -> None:
-        """Persist session state to disk."""
-        state = {
-            'claude_session_id': self.claude_session_id,
-            'decider': self.decider,
-            'conversation_id': self.conversation_id,
-            'conversation_title': self.conversation_title,
+        """Persist session state to {scope}/sessions/."""
+        from teaparty.runners.launcher import create_session, load_session
+        key = self._session_key()
+        session = load_session(
+            agent_name='proxy-review', scope='management',
+            teaparty_home=self.teaparty_home, session_id=key,
+        )
+        if session is None:
+            session = create_session(
+                agent_name='proxy-review', scope='management',
+                teaparty_home=self.teaparty_home, session_id=key,
+            )
+        meta_path = os.path.join(session.path, 'metadata.json')
+        meta = {
+            'session_id': session.id, 'agent_name': session.agent_name,
+            'scope': session.scope,
+            'claude_session_id': self.claude_session_id or '',
+            'conversation_map': session.conversation_map,
+            'conversation_title': self.conversation_title or '',
         }
-        state_path = self._state_path()
-        os.makedirs(os.path.dirname(state_path), exist_ok=True)
-        tmp = state_path + '.tmp'
+        tmp = meta_path + '.tmp'
         with open(tmp, 'w') as f:
-            json.dump(state, f)
-        os.replace(tmp, state_path)
+            json.dump(meta, f, indent=2)
+        os.replace(tmp, meta_path)
 
     def load_state(self) -> None:
-        """Load session state from disk."""
-        state_path = self._state_path()
-        try:
-            with open(state_path) as f:
-                state = json.load(f)
-            self.claude_session_id = state.get('claude_session_id')
-            self.conversation_title = state.get('conversation_title') or None
-        except (FileNotFoundError, json.JSONDecodeError):
-            pass
+        """Load session state from {scope}/sessions/."""
+        from teaparty.runners.launcher import load_session
+        session = load_session(
+            agent_name='proxy-review', scope='management',
+            teaparty_home=self.teaparty_home, session_id=self._session_key(),
+        )
+        if session is not None:
+            self.claude_session_id = session.claude_session_id or None
+            meta_path = os.path.join(session.path, 'metadata.json')
+            try:
+                with open(meta_path) as f:
+                    meta = json.load(f)
+                self.conversation_title = meta.get('conversation_title') or None
+            except (FileNotFoundError, json.JSONDecodeError):
+                pass
 
     def _latest_human_message(self) -> str:
         messages = self.get_messages()
@@ -759,7 +774,7 @@ def read_proxy_session_title(teaparty_home: str, decider: str) -> str | None:
     """
     safe_id = decider.replace('/', '-').replace(':', '-').replace(' ', '-')
     sessions_dir = os.path.join(teaparty_home, 'management', 'sessions')
-    state_path = os.path.join(sessions_dir, f'proxy-{safe_id}.json')
+    state_path = os.path.join(sessions_dir, f'proxy-{safe_id}', 'metadata.json')
     try:
         with open(state_path) as f:
             state = json.load(f)

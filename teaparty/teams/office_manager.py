@@ -421,37 +421,59 @@ class OfficeManagerSession:
             lines.append(f'{role}: {msg.content}')
         return '\n\n'.join(lines)
 
-    def _state_path(self) -> str:
-        """Return the state file path under {scope}/sessions/."""
+    def _session_key(self) -> str:
+        """Return a stable session key for this conversation."""
         safe_id = self.user_id.replace('/', '-').replace(':', '-').replace(' ', '-')
-        sessions_dir = os.path.join(self.teaparty_home, 'management', 'sessions')
-        os.makedirs(sessions_dir, exist_ok=True)
-        return os.path.join(sessions_dir, f'om-{safe_id}.json')
+        return f'om-{safe_id}'
 
     def save_state(self) -> None:
-        """Persist session state (Claude session ID and conversation title) to disk."""
-        state = {
-            'claude_session_id': self.claude_session_id,
+        """Persist session state to {scope}/sessions/ via the launcher's session lifecycle."""
+        from teaparty.runners.launcher import create_session, load_session, _save_session_metadata
+        session_key = self._session_key()
+        session = load_session(
+            agent_name='office-manager', scope='management',
+            teaparty_home=self.teaparty_home, session_id=session_key,
+        )
+        if session is None:
+            session = create_session(
+                agent_name='office-manager', scope='management',
+                teaparty_home=self.teaparty_home, session_id=session_key,
+            )
+        session.claude_session_id = self.claude_session_id or ''
+        # Store conversation title in metadata for read_om_session_title
+        meta_path = os.path.join(session.path, 'metadata.json')
+        meta = {
+            'session_id': session.id,
+            'agent_name': session.agent_name,
+            'scope': session.scope,
+            'claude_session_id': session.claude_session_id,
+            'conversation_map': session.conversation_map,
+            'conversation_title': self.conversation_title or '',
             'user_id': self.user_id,
             'conversation_id': self.conversation_id,
-            'conversation_title': self.conversation_title,
         }
-        state_path = self._state_path()
-        tmp = state_path + '.tmp'
+        tmp = meta_path + '.tmp'
         with open(tmp, 'w') as f:
-            json.dump(state, f)
-        os.replace(tmp, state_path)
+            json.dump(meta, f, indent=2)
+        os.replace(tmp, meta_path)
 
     def load_state(self) -> None:
-        """Load session state from disk."""
-        state_path = self._state_path()
-        try:
-            with open(state_path) as f:
-                state = json.load(f)
-            self.claude_session_id = state.get('claude_session_id')
-            self.conversation_title = state.get('conversation_title') or None
-        except (FileNotFoundError, json.JSONDecodeError):
-            pass
+        """Load session state from {scope}/sessions/."""
+        from teaparty.runners.launcher import load_session
+        session = load_session(
+            agent_name='office-manager', scope='management',
+            teaparty_home=self.teaparty_home, session_id=self._session_key(),
+        )
+        if session is not None:
+            self.claude_session_id = session.claude_session_id or None
+            # Load conversation title from metadata
+            meta_path = os.path.join(session.path, 'metadata.json')
+            try:
+                with open(meta_path) as f:
+                    meta = json.load(f)
+                self.conversation_title = meta.get('conversation_title') or None
+            except (FileNotFoundError, json.JSONDecodeError):
+                pass
 
     def _latest_human_message(self) -> str:
         """Return the content of the most recent human message in this conversation."""
@@ -484,13 +506,35 @@ class OfficeManagerSession:
         bus_db_path = os.path.join(self._infra_dir, 'messages.db')
         repo_root = os.path.dirname(self.teaparty_home)
 
+        # Session object for conversation map tracking (per-agent limit of 3).
+        from teaparty.runners.launcher import (
+            create_session as _create_session,
+            record_child_session as _record_child,
+            check_slot_available as _check_slot,
+        )
+        if not hasattr(self, '_dispatch_session') or self._dispatch_session is None:
+            self._dispatch_session = _create_session(
+                agent_name='office-manager',
+                scope='management',
+                teaparty_home=self.teaparty_home,
+            )
+
+        dispatch_session = self._dispatch_session
+
         async def spawn_fn(member, composite, context_id):
             import subprocess as _sp
             import time as _time
             from teaparty.runners.launcher import launch as _launch
             t0 = _time.monotonic()
 
-            # Stable worktree per role so the cwd stays valid across dispatches.
+            # Enforce per-agent conversation limit (max 3 open dispatches).
+            if not _check_slot(dispatch_session):
+                log.warning(
+                    'spawn_fn: agent %s at conversation limit (%d open), blocking dispatch to %s',
+                    'office-manager', len(dispatch_session.conversation_map), member,
+                )
+                return ('', '', 'Dispatch blocked: per-agent conversation limit reached.')
+
             agent_dir = os.path.join(self._infra_dir, 'agents', f'pool_{member}')
             if not os.path.isdir(agent_dir):
                 wt_result = _sp.run(
@@ -511,6 +555,12 @@ class OfficeManagerSession:
                 mcp_port=mcp_port,
             )
             t_done = _time.monotonic()
+
+            # Record the child session in the conversation map.
+            if result.session_id:
+                _record_child(dispatch_session,
+                              request_id=context_id,
+                              child_session_id=result.session_id)
 
             log.info(
                 'spawn_fn_timing: member=%r worktree=%.2fs dispatch=%.2fs total=%.2fs',
@@ -549,14 +599,17 @@ class OfficeManagerSession:
 
             Called for EVERY Reply from a dispatched worker.  Writes the
             reply to the OM's message bus so it appears in the chat blade.
-            The OM will see it on its next turn.
+            Frees the dispatch slot in the conversation map.
             """
+            from teaparty.runners.launcher import remove_child_session as _remove_child
             log.info('OM reply_fn: delivering reply for context %s', context_id)
             self._bus.send(
                 self.conversation_id,
                 'configuration-lead',  # TODO: derive sender from context
                 message,
             )
+            # Free the dispatch slot.
+            _remove_child(dispatch_session, request_id=context_id)
 
         async def reinvoke_fn(context_id, session_id, message):
             """All workers have replied — no-op for now.
@@ -764,7 +817,7 @@ def read_om_session_title(teaparty_home: str, qualifier: str) -> str | None:
     """
     safe_id = qualifier.replace('/', '-').replace(':', '-').replace(' ', '-')
     sessions_dir = os.path.join(teaparty_home, 'management', 'sessions')
-    state_path = os.path.join(sessions_dir, f'om-{safe_id}.json')
+    state_path = os.path.join(sessions_dir, f'om-{safe_id}', 'metadata.json')
     try:
         with open(state_path) as f:
             state = json.load(f)
