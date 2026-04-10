@@ -142,7 +142,7 @@ class ProjectLeadSession:
 
     async def invoke(self, *, cwd: str) -> str:
         """Invoke the project lead agent via the unified launcher."""
-        from teaparty.runners.launcher import launch
+        from teaparty.runners.launcher import launch, create_session, load_session
         from teaparty.workspace.worktree import ensure_agent_worktree
 
         self.load_state()
@@ -156,8 +156,20 @@ class ProjectLeadSession:
         if not prompt:
             return ''
 
+        session_key = self._session_key()
+        session = load_session(
+            agent_name=self.lead_name, scope='management',
+            teaparty_home=self.teaparty_home, session_id=session_key,
+        )
+        if session is None:
+            session = create_session(
+                agent_name=self.lead_name, scope='management',
+                teaparty_home=self.teaparty_home, session_id=session_key,
+            )
+
         effective_cwd = await ensure_agent_worktree(
             self.lead_name, cwd, self._infra_dir,
+            session_path=session.path,
         )
 
         stream_fd, stream_path = tempfile.mkstemp(

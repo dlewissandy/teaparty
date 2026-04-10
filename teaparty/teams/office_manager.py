@@ -690,7 +690,9 @@ class OfficeManagerSession:
         """
         import tempfile
         import time as _time
-        from teaparty.runners.launcher import launch, detect_poisoned_session
+        from teaparty.runners.launcher import (
+            launch, detect_poisoned_session, create_session, load_session,
+        )
         from teaparty.workspace.worktree import ensure_agent_worktree
 
         t_invoke_start = _time.monotonic()
@@ -715,9 +717,22 @@ class OfficeManagerSession:
         if not prompt:
             return ''
 
-        # Agent isolation: run in a worktree with a scoped .claude/.
+        # Session = worktree (1:1). Create/load session first, then
+        # create the worktree inside the session directory.
+        session_key = self._session_key()
+        session = load_session(
+            agent_name='office-manager', scope='management',
+            teaparty_home=self.teaparty_home, session_id=session_key,
+        )
+        if session is None:
+            session = create_session(
+                agent_name='office-manager', scope='management',
+                teaparty_home=self.teaparty_home, session_id=session_key,
+            )
+
         effective_cwd = await ensure_agent_worktree(
             'office-manager', cwd, self._infra_dir,
+            session_path=session.path,
         )
         self._effective_cwd = effective_cwd
 

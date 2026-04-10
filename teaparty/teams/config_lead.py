@@ -302,7 +302,7 @@ class ConfigLeadSession:
 
         Returns the agent's response text, or '' if invocation fails.
         """
-        from teaparty.runners.launcher import launch
+        from teaparty.runners.launcher import launch, create_session, load_session
         from teaparty.workspace.worktree import ensure_agent_worktree
 
         self.load_state()
@@ -316,8 +316,20 @@ class ConfigLeadSession:
         if not prompt:
             return ''
 
+        session_key = self._session_key()
+        session = load_session(
+            agent_name=self.LEAD, scope='management',
+            teaparty_home=self.teaparty_home, session_id=session_key,
+        )
+        if session is None:
+            session = create_session(
+                agent_name=self.LEAD, scope='management',
+                teaparty_home=self.teaparty_home, session_id=session_key,
+            )
+
         effective_cwd = await ensure_agent_worktree(
             self.LEAD, cwd, self._infra_dir,
+            session_path=session.path,
         )
 
         mcp_env = await self._ensure_bus_listener(cwd)
