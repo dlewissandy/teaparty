@@ -60,10 +60,12 @@ async def ensure_agent_worktree(
     Returns:
         Absolute path to the worktree, for use as ``cwd``.
     """
-    if session_path:
-        worktree_path = os.path.join(session_path, 'worktree')
-    else:
-        worktree_path = os.path.join(parent_dir, f'{agent_name}-workspace')
+    if not session_path:
+        raise ValueError(
+            f'session_path is required for ensure_agent_worktree '
+            f'(agent={agent_name}). Session must be created before worktree.'
+        )
+    worktree_path = os.path.join(session_path, 'worktree')
 
     if not os.path.isdir(worktree_path):
         os.makedirs(os.path.dirname(worktree_path), exist_ok=True)

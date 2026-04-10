@@ -269,7 +269,7 @@ class AgentSession:
                 worktree=agent_dir, resume_session=session_id,
                 mcp_port=mcp_port,
             )
-            return (result.session_id, result.stream_file or '')
+            return result.session_id
 
         async def reply_fn(context_id, session_id, message):
             _log.info('%s reply_fn: delivering reply for context %s',

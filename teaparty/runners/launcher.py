@@ -199,93 +199,6 @@ def _deep_merge(base: dict, override: dict) -> dict:
     return result
 
 
-# ── Command composition ──────────────────────────────────────────────────────
-
-def build_launch_command(
-    *,
-    agent_name: str,
-    scope: str,
-    teaparty_home: str,
-    resume_session: str = '',
-    mcp_port: int = 0,
-) -> list[str]:
-    """Build the ``claude -p`` command for an agent launch.
-
-    Always includes: --agent, --output-format stream-json, --verbose,
-    --setting-sources user, --settings.
-    Conditionally: --resume, --mcp-config.
-
-    Returns the command as a list of strings suitable for subprocess.
-    """
-    settings = _merge_settings(agent_name, scope, teaparty_home)
-
-    # Write settings to a temp file so --settings can reference it
-    settings_file = tempfile.NamedTemporaryFile(
-        mode='w', suffix='.json', prefix='launch-settings-', delete=False,
-    )
-    json.dump(settings, settings_file)
-    settings_file.close()
-
-    cmd = [
-        'claude', '-p',
-        '--agent', agent_name,
-        '--output-format', 'stream-json',
-        '--verbose',
-        '--setting-sources', 'user',
-        '--settings', settings_file.name,
-    ]
-
-    if resume_session:
-        cmd.extend(['--resume', resume_session])
-
-    if mcp_port:
-        mcp_url = f'http://localhost:{mcp_port}/mcp/{scope}/{agent_name}'
-        mcp_data = {
-            'mcpServers': {
-                'teaparty-config': {
-                    'type': 'http',
-                    'url': mcp_url,
-                },
-            },
-        }
-        mcp_file = tempfile.NamedTemporaryFile(
-            mode='w', suffix='.json', prefix='launch-mcp-', delete=False,
-        )
-        json.dump(mcp_data, mcp_file)
-        mcp_file.close()
-        cmd.extend(['--mcp-config', mcp_file.name, '--strict-mcp-config'])
-
-    return cmd
-
-
-# ── Environment ──────────────────────────────────────────────────────────────
-
-_ENV_ALLOWLIST = frozenset({
-    'PATH', 'HOME', 'TMPDIR', 'SHELL', 'USER', 'LOGNAME',
-    'LANG', 'TERM',
-    'ANTHROPIC_API_KEY',
-    'VIRTUAL_ENV', 'PYENV_ROOT',
-})
-
-_ENV_PREFIX_ALLOWLIST = ('CLAUDE_', 'POC_', 'LC_')
-
-
-def build_launch_env(extra_vars: dict[str, str] | None = None) -> dict[str, str]:
-    """Build a sanitized environment for agent subprocesses.
-
-    Strips to allowlist so agents don't inherit orchestrator credentials.
-    """
-    env: dict[str, str] = {}
-    for key, value in os.environ.items():
-        if key in _ENV_ALLOWLIST:
-            env[key] = value
-        elif key.startswith(_ENV_PREFIX_ALLOWLIST):
-            env[key] = value
-    env['CLAUDE_CODE_MAX_OUTPUT_TOKENS'] = '128000'
-    env.pop('CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS', None)
-    if extra_vars:
-        env.update(extra_vars)
-    return env
 
 
 # ── Session lifecycle ────────────────────────────────────────────────────────
@@ -471,7 +384,10 @@ def _record_metrics(
         conn.commit()
         conn.close()
     except Exception:
-        pass  # Metrics are best-effort — never fail the launch
+        import logging
+        logging.getLogger('teaparty.runners.launcher').warning(
+            'Failed to record metrics', exc_info=True,
+        )
 
 
 # ── The launcher ─────────────────────────────────────────────────────────────

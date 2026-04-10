@@ -96,100 +96,135 @@ class TestLaunchFunctionExists(unittest.TestCase):
         self.assertIn('scope', params)
 
 
-# ── 2. Command composition from config ──────────────────────────────────────
+# ── 2. Production command via launch() ───────────────────────────────────────
 
-class TestCommandComposition(_TempDirMixin, unittest.TestCase):
-    """launch() must produce a claude -p command with the correct flags,
-    derived entirely from .teaparty/ config."""
+class TestProductionCommand(_TempDirMixin, unittest.TestCase):
+    """launch() must produce a claude -p subprocess with the correct flags,
+    derived entirely from .teaparty/ config. Tests the ACTUAL production path
+    by mocking create_subprocess_exec and inspecting the args it receives."""
 
     def setUp(self):
         super().setUp()
         self._tp = _make_teaparty_tree(self._tmpdir)
+        self._worktree = os.path.join(self._tmpdir, 'worktree')
+        os.makedirs(os.path.join(self._worktree, '.claude'), exist_ok=True)
+        with open(os.path.join(self._worktree, '.claude', 'CLAUDE.md'), 'w') as f:
+            f.write('# Repo\n')
+
+    def _capture_subprocess_args(self):
+        """Run launch() with a mocked subprocess, return the captured args."""
+        import asyncio
+        from unittest.mock import patch
+        from tests.runners.test_dispatch_chain import _make_mock_process, _stream_json_events
+
+        captured = {}
+
+        async def mock_create(*args, **kwargs):
+            captured['args'] = list(args)
+            captured['env'] = kwargs.get('env', {})
+            return await _make_mock_process(_stream_json_events('sess-1', 'ok'))
+
+        async def run(resume='', mcp_port=0):
+            from teaparty.runners.launcher import launch
+            with patch('asyncio.create_subprocess_exec', side_effect=mock_create):
+                await launch(
+                    agent_name='test-agent',
+                    message='hello',
+                    scope='management',
+                    teaparty_home=self._tp,
+                    worktree=self._worktree,
+                    resume_session=resume,
+                    mcp_port=mcp_port,
+                )
+            return captured
+
+        return run
 
     def test_always_present_flags(self):
         """Every launch must include --agent, --output-format stream-json,
-        --verbose, --setting-sources user, --settings."""
-        from teaparty.runners.launcher import build_launch_command
-        cmd = build_launch_command(
-            agent_name='test-agent',
-            scope='management',
-            teaparty_home=self._tp,
-        )
+        --verbose, --setting-sources user."""
+        import asyncio
+        run = self._capture_subprocess_args()
+        captured = asyncio.run(run())
+        cmd = captured['args']
         self.assertIn('claude', cmd)
         self.assertIn('-p', cmd)
-        self.assertIn('--output-format', cmd)
         idx = cmd.index('--output-format')
         self.assertEqual(cmd[idx + 1], 'stream-json')
         self.assertIn('--verbose', cmd)
-        self.assertIn('--setting-sources', cmd)
         idx = cmd.index('--setting-sources')
         self.assertEqual(cmd[idx + 1], 'user')
-        self.assertIn('--agent', cmd)
         idx = cmd.index('--agent')
         self.assertEqual(cmd[idx + 1], 'test-agent')
 
-    def test_settings_from_config_merge(self):
-        """--settings must be derived from scope settings.yaml merged with
-        agent settings.yaml (agent wins per-key)."""
-        from teaparty.runners.launcher import build_launch_command
-        cmd = build_launch_command(
-            agent_name='test-agent',
-            scope='management',
-            teaparty_home=self._tp,
-        )
-        self.assertIn('--settings', cmd)
-        idx = cmd.index('--settings')
-        settings_path = cmd[idx + 1]
-        # The settings file must exist (either temp file or path)
-        # and contain the merged result
-        with open(settings_path) as f:
-            settings = json.load(f)
-        self.assertTrue(settings.get('base_setting'), 'Base setting missing')
-        self.assertTrue(settings.get('agent_override'), 'Agent override missing')
-
-    def test_resume_session_flag(self):
+    def test_resume_flag_when_session_provided(self):
         """--resume must be included when a session_id is provided."""
-        from teaparty.runners.launcher import build_launch_command
-        cmd = build_launch_command(
-            agent_name='test-agent',
-            scope='management',
-            teaparty_home=self._tp,
-            resume_session='abc-123',
-        )
-        self.assertIn('--resume', cmd)
+        import asyncio
+        run = self._capture_subprocess_args()
+        captured = asyncio.run(run(resume='abc-123'))
+        cmd = captured['args']
         idx = cmd.index('--resume')
         self.assertEqual(cmd[idx + 1], 'abc-123')
 
     def test_no_resume_when_cold_start(self):
         """--resume must NOT be included when no session_id is provided."""
-        from teaparty.runners.launcher import build_launch_command
-        cmd = build_launch_command(
-            agent_name='test-agent',
-            scope='management',
-            teaparty_home=self._tp,
-        )
+        import asyncio
+        run = self._capture_subprocess_args()
+        captured = asyncio.run(run())
+        cmd = captured['args']
         self.assertNotIn('--resume', cmd)
 
-    def test_mcp_config_when_agent_has_mcp(self):
-        """--mcp-config must point to HTTP MCP server scoped to the agent."""
-        from teaparty.runners.launcher import build_launch_command
-        cmd = build_launch_command(
-            agent_name='test-agent',
-            scope='management',
-            teaparty_home=self._tp,
-            mcp_port=9000,
-        )
-        self.assertIn('--mcp-config', cmd)
-        idx = cmd.index('--mcp-config')
-        mcp_arg = cmd[idx + 1]
-        # Must be a path to a file or JSON containing the HTTP URL
-        if os.path.isfile(mcp_arg):
-            with open(mcp_arg) as f:
-                mcp_data = json.load(f)
-        else:
-            mcp_data = json.loads(mcp_arg)
-        url = mcp_data['mcpServers']['teaparty-config']['url']
-        self.assertIn('/mcp/management/test-agent', url)
+    def test_no_input_format_flag(self):
+        """--input-format must NOT be present (no persistent NDJSON stdin)."""
+        import asyncio
+        run = self._capture_subprocess_args()
+        captured = asyncio.run(run())
+        cmd = captured['args']
+        self.assertNotIn('--input-format', cmd)
+
+    def test_env_strips_secrets(self):
+        """Agent subprocess env must not inherit orchestrator secrets."""
+        import asyncio
+        os.environ['SUPER_SECRET_TOKEN'] = 'leaked'
+        try:
+            run = self._capture_subprocess_args()
+            captured = asyncio.run(run())
+            env = captured['env']
+            self.assertNotIn('SUPER_SECRET_TOKEN', env)
+            self.assertIn('PATH', env)
+        finally:
+            del os.environ['SUPER_SECRET_TOKEN']
+
+    def test_agent_teams_env_var_removed(self):
+        """CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS must never be in agent env."""
+        import asyncio
+        os.environ['CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS'] = '1'
+        try:
+            run = self._capture_subprocess_args()
+            captured = asyncio.run(run())
+            env = captured['env']
+            self.assertNotIn('CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS', env)
+        finally:
+            del os.environ['CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS']
+
+    def test_mcp_from_worktree_not_cli_flag(self):
+        """MCP config must come from .mcp.json in the worktree, NOT from
+        --mcp-config CLI flag. The launcher composes .mcp.json; Claude Code
+        reads it from cwd."""
+        import asyncio
+        run = self._capture_subprocess_args()
+        captured = asyncio.run(run(mcp_port=9000))
+        cmd = captured['args']
+        # .mcp.json should exist in worktree
+        mcp_path = os.path.join(self._worktree, '.mcp.json')
+        self.assertTrue(os.path.exists(mcp_path))
+        with open(mcp_path) as f:
+            mcp = json.load(f)
+        self.assertIn('/mcp/management/test-agent',
+                       mcp['mcpServers']['teaparty-config']['url'])
+        # --mcp-config should NOT be in the CLI args
+        self.assertNotIn('--mcp-config', cmd,
+                         'MCP config comes from worktree .mcp.json, not --mcp-config flag')
 
 
 # ── 3. Worktree composition ─────────────────────────────────────────────────
@@ -345,65 +380,6 @@ class TestComposeCLAUDEMdDeleted(unittest.TestCase):
         )
 
 
-# ── 6. Environment isolation ────────────────────────────────────────────────
-
-class TestEnvironmentIsolation(unittest.TestCase):
-    """Agents must not inherit orchestrator credentials or sensitive state."""
-
-    def test_env_strips_to_allowlist(self):
-        """build_launch_env must strip env to an allowlist, not inherit everything."""
-        from teaparty.runners.launcher import build_launch_env
-        os.environ['SUPER_SECRET_TOKEN'] = 'leaked'
-        try:
-            env = build_launch_env()
-            self.assertNotIn('SUPER_SECRET_TOKEN', env)
-            # But PATH must be present
-            self.assertIn('PATH', env)
-        finally:
-            del os.environ['SUPER_SECRET_TOKEN']
-
-    def test_agent_teams_env_var_removed(self):
-        """CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS must never be passed to agents."""
-        from teaparty.runners.launcher import build_launch_env
-        os.environ['CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS'] = '1'
-        try:
-            env = build_launch_env()
-            self.assertNotIn('CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS', env)
-        finally:
-            del os.environ['CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS']
-
-
-# ── 7. All agents use stream-json ────────────────────────────────────────────
-
-class TestAllAgentsStream(_TempDirMixin, unittest.TestCase):
-    """Every agent must use --output-format stream-json. No json, no NDJSON stdin."""
-
-    def setUp(self):
-        super().setUp()
-        self._tp = _make_teaparty_tree(self._tmpdir)
-
-    def test_output_format_is_stream_json(self):
-        """The command must use --output-format stream-json, not json."""
-        from teaparty.runners.launcher import build_launch_command
-        cmd = build_launch_command(
-            agent_name='test-agent',
-            scope='management',
-            teaparty_home=self._tp,
-        )
-        idx = cmd.index('--output-format')
-        self.assertEqual(cmd[idx + 1], 'stream-json',
-                         'All agents must use stream-json, not json')
-
-    def test_no_input_format_flag(self):
-        """The command must NOT use --input-format (no persistent NDJSON stdin)."""
-        from teaparty.runners.launcher import build_launch_command
-        cmd = build_launch_command(
-            agent_name='test-agent',
-            scope='management',
-            teaparty_home=self._tp,
-        )
-        self.assertNotIn('--input-format', cmd,
-                         'No --input-format flag — agents are one-shot, not persistent')
 
 
 # ── 8. Directory structure: config vs runtime separation ─────────────────────

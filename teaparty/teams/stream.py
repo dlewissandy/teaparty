@@ -146,25 +146,6 @@ def _classify_event(ev: dict, agent_role: str,
             yield 'cost', json.dumps(stats)
 
 
-def _iter_stream_events(stream_path: str, agent_role: str):
-    """Yield (sender, content) pairs for every event in a stream-json JSONL file."""
-    seen_tool_use: set[str] = set()
-    seen_tool_result: set[str] = set()
-    try:
-        with open(stream_path) as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    ev = json.loads(line)
-                except (ValueError, json.JSONDecodeError):
-                    continue
-                yield from _classify_event(ev, agent_role, seen_tool_use, seen_tool_result)
-    except OSError:
-        pass
-
-
 def _make_live_stream_relay(bus, conv_id: str, agent_role: str):
     """Return (callback, events) for real-time streaming to the message bus.
 

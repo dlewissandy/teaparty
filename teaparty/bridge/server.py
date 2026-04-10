@@ -1180,6 +1180,8 @@ class TeaPartyBridge:
         cwd: str,
         agent_role: str = '',
         dispatches: bool = False,
+        post_invoke_hook=None,
+        build_prompt_hook=None,
     ) -> None:
         """Unified agent invocation — one codepath for all agent types.
 
@@ -1200,6 +1202,8 @@ class TeaPartyBridge:
                     agent_role=agent_role or agent_name,
                     llm_backend=self._llm_backend,
                     dispatches=dispatches,
+                    post_invoke_hook=post_invoke_hook,
+                    build_prompt_hook=build_prompt_hook,
                 )
             session = self._agent_sessions[session_key]
             try:
@@ -1274,6 +1278,7 @@ class TeaPartyBridge:
         On runner failure, writes an error message to the bus so the human sees
         feedback rather than silence.
         """
+        from teaparty.proxy.hooks import proxy_post_invoke, proxy_build_prompt
         await self._invoke_agent(
             session_key=f'proxy:{qualifier}',
             agent_name='proxy-review',
@@ -1281,6 +1286,8 @@ class TeaPartyBridge:
             qualifier=qualifier,
             conversation_type=ConversationType.PROXY_REVIEW,
             cwd=self._repo_root,
+            post_invoke_hook=proxy_post_invoke,
+            build_prompt_hook=proxy_build_prompt,
         )
 
     async def _invoke_config_lead(self, qualifier: str) -> None:
