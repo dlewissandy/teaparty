@@ -96,8 +96,14 @@ def compose_launch_worktree(
     """
     from teaparty.config.config_reader import read_agent_frontmatter
 
-    agent_def_path = resolve_agent_definition(agent_name, scope, teaparty_home)
-    fm = read_agent_frontmatter(agent_def_path)
+    try:
+        agent_def_path = resolve_agent_definition(agent_name, scope, teaparty_home)
+        fm = read_agent_frontmatter(agent_def_path)
+    except FileNotFoundError:
+        # Agent definition not in .teaparty/ — compose what we can
+        # (settings, MCP config) without the agent-specific parts.
+        agent_def_path = ''
+        fm = {}
 
     claude_dir = os.path.join(worktree, '.claude')
     os.makedirs(claude_dir, exist_ok=True)
@@ -109,8 +115,9 @@ def compose_launch_worktree(
     for entry in os.scandir(agents_dir):
         if entry.is_symlink() or entry.name.endswith('.md'):
             os.unlink(entry.path)
-    dest_md = os.path.join(agents_dir, f'{agent_name}.md')
-    shutil.copy2(agent_def_path, dest_md)
+    if agent_def_path:
+        dest_md = os.path.join(agents_dir, f'{agent_name}.md')
+        shutil.copy2(agent_def_path, dest_md)
 
     # ── Skills (filtered by agent allowlist) ─────────────────────────────
     allowed_skills = fm.get('skills') or []
@@ -495,27 +502,24 @@ async def launch(
     env_vars: dict[str, str] | None = None,
     permission_mode_override: str = '',
     tools_override: str | None = None,
-    skip_compose: bool = False,
 ) -> ClaudeResult:
     """Launch an agent through the unified codepath.
 
-    1. Composes the worktree .claude/ from .teaparty/ config (unless skip_compose)
+    1. Composes the worktree .claude/ from .teaparty/ config
     2. Reads agent frontmatter for tools and permissions
     3. Builds a sanitized environment
     4. Runs the subprocess via ClaudeRunner, streams events, returns result
 
     This is the only function that spawns agent subprocesses.
 
-    The *_override parameters allow callers with their own config derivation
-    (e.g. the CfA job engine) to bypass the standard .teaparty/ composition
-    while still using the single launch path.
+    The *_override parameters allow callers to layer additional settings
+    (e.g. CfA jail hooks) on top of the config-derived baseline.
     """
     from teaparty.config.config_reader import read_agent_frontmatter
     from teaparty.runners.claude import ClaudeRunner
 
-    # Compose worktree from .teaparty/ config (standard path)
-    if not skip_compose:
-        compose_launch_worktree(
+    # Compose worktree from .teaparty/ config
+    compose_launch_worktree(
             worktree=worktree,
             agent_name=agent_name,
             scope=scope,

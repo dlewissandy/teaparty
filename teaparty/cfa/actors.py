@@ -243,7 +243,6 @@ class AgentRunner:
             stream_file=os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file),
             env_vars=ctx.env_vars,
             permission_mode_override=ctx.phase_spec.permission_mode,
-            skip_compose=True,
         )
 
         if result.stall_killed:
