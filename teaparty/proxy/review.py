@@ -626,7 +626,7 @@ class ProxyReviewSession:
         return f'{memory_context}\n\n{accuracy_context}'
 
     async def invoke(self, *, cwd: str) -> str:
-        """Invoke the proxy-review agent to respond to the current conversation.
+        """Invoke the proxy-review agent via the unified launcher.
 
         Fresh session: sends full review prompt with history and memory context.
         Resumed session: sends fresh memory context + latest human message,
@@ -638,7 +638,7 @@ class ProxyReviewSession:
         Returns the agent's response text, or '' if invocation fails.
         """
         import tempfile
-        from teaparty.runners.claude import create_runner
+        from teaparty.runners.launcher import launch
         from teaparty.workspace.worktree import ensure_agent_worktree
 
         self.load_state()
@@ -648,17 +648,14 @@ class ProxyReviewSession:
         if not latest_human:
             return ''
 
-        # Agent isolation: run in a worktree with a scoped .claude/.
         effective_cwd = await ensure_agent_worktree(
             'proxy-review', cwd, self._infra_dir,
         )
 
         if self.claude_session_id:
-            # Resumed: provide fresh memory context so corrections surface immediately.
             mem_ctx = self._build_memory_context_prompt()
             prompt = f'{mem_ctx}\n\nHuman: {latest_human}'
         else:
-            # Fresh: full review prompt including all conversation history.
             messages = self.get_messages()
             dialog_history = ''
             if messages:
@@ -699,23 +696,23 @@ class ProxyReviewSession:
             self._bus, self.conversation_id, 'proxy',
         )
 
+        mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
+
         try:
-            runner = create_runner(
-                prompt,
-                cwd=effective_cwd,
-                stream_file=stream_path,
-                backend=self._llm_backend,
-                lead='proxy-review',
-                permission_mode='default',
-                resume_session=self.claude_session_id,
+            result = await launch(
+                agent_name='proxy-review',
+                message=prompt,
+                scope='management',
+                teaparty_home=self.teaparty_home,
+                worktree=effective_cwd,
+                resume_session=self.claude_session_id or '',
+                mcp_port=mcp_port,
                 on_stream_event=stream_callback,
             )
-            result = await runner.run()
 
             response_text = '\n'.join(c for s, c in events if s == 'proxy')
 
             if response_text:
-                # Process correction/reinforce signals after events are streamed
                 mem_path = proxy_memory_path(self.teaparty_home)
                 os.makedirs(os.path.dirname(mem_path), exist_ok=True)
                 from teaparty.proxy.memory import open_proxy_db

@@ -565,24 +565,18 @@ class OfficeManagerSession:
 
         import logging
         from teaparty.messaging.listener import BusEventListener
-        from teaparty.cfa.agent_spawner import AgentSpawner
-        from teaparty.cfa.agent_pool import AgentPool
 
         log = logging.getLogger('teaparty.teams.office_manager')
         bus_db_path = os.path.join(self._infra_dir, 'messages.db')
-        spawner = AgentSpawner(teaparty_home=self.teaparty_home)
-
-        if self._agent_pool is None:
-            self._agent_pool = AgentPool(teaparty_home=self.teaparty_home)
         repo_root = os.path.dirname(self.teaparty_home)
 
         async def spawn_fn(member, composite, context_id):
             import subprocess as _sp
             import time as _time
+            from teaparty.runners.launcher import launch as _launch
             t0 = _time.monotonic()
 
-            # Stable worktree per role (not per context_id) so the pool
-            # process's cwd stays valid across dispatches.
+            # Stable worktree per role so the cwd stays valid across dispatches.
             agent_dir = os.path.join(self._infra_dir, 'agents', f'pool_{member}')
             if not os.path.isdir(agent_dir):
                 wt_result = _sp.run(
@@ -593,36 +587,14 @@ class OfficeManagerSession:
                     os.makedirs(agent_dir, exist_ok=True)
             t_worktree = _time.monotonic()
 
-            # Read agent settings from composed worktree
-            from teaparty.cfa.agent_spawner import compose_worktree, _derive_roster
-            compose_worktree(
-                agent_dir, self.teaparty_home, member,
-                is_management=True,
-            )
-            settings_path = os.path.join(agent_dir, '.claude', 'settings.json')
-            settings_dict = {}
-            if os.path.isfile(settings_path):
-                with open(settings_path) as f:
-                    try:
-                        settings_dict = json.loads(f.read())
-                    except (ValueError, json.JSONDecodeError):
-                        pass
-
-            agents = _derive_roster(member, self.teaparty_home)
-            is_lead = bool(agents)
-
-            # Project leads need access to their project directory.
-            add_dirs: list[str] = []
-            from teaparty.config.roster import resolve_lead_project_path
-            project_path = resolve_lead_project_path(member, self.teaparty_home)
-            if project_path:
-                add_dirs.append(project_path)
-
-            session_id, result_text = await self._agent_pool.dispatch(
-                member, composite,
+            mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
+            result = await _launch(
+                agent_name=member,
+                message=composite,
+                scope='management',
+                teaparty_home=self.teaparty_home,
                 worktree=agent_dir,
-                settings_dict=settings_dict,
-                add_dirs=add_dirs,
+                mcp_port=mcp_port,
             )
             t_done = _time.monotonic()
 
@@ -630,9 +602,10 @@ class OfficeManagerSession:
                 'spawn_fn_timing: member=%r worktree=%.2fs dispatch=%.2fs total=%.2fs',
                 member, t_worktree - t0, t_done - t_worktree, t_done - t0,
             )
-            return (session_id, agent_dir, result_text)
+            return (result.session_id, agent_dir, '')
 
         async def resume_fn(member, composite, session_id, context_id):
+            from teaparty.runners.launcher import launch as _launch
             agent_dir = ''
             if os.path.exists(bus_db_path) and context_id:
                 bus = SqliteMessageBus(bus_db_path)
@@ -645,11 +618,17 @@ class OfficeManagerSession:
             if not agent_dir:
                 agent_dir = repo_root
 
-            return await spawner.spawn(
-                composite, worktree=agent_dir, role=member,
-                project_dir=repo_root, resume_session=session_id,
-                is_management=True,
-                            )
+            mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
+            result = await _launch(
+                agent_name=member,
+                message=composite,
+                scope='management',
+                teaparty_home=self.teaparty_home,
+                worktree=agent_dir,
+                resume_session=session_id,
+                mcp_port=mcp_port,
+            )
+            return (result.session_id, result.stream_file or '')
 
         async def reply_fn(context_id, session_id, message):
             """Deliver a worker reply to the OM's conversation bus.
@@ -736,19 +715,18 @@ class OfficeManagerSession:
             self._bus_listener_sockets = None
 
     async def invoke(self, *, cwd: str) -> str:
-        """Invoke the office manager agent to respond to the current conversation.
+        """Invoke the office manager agent via the unified launcher.
 
-        Loads session state (for --resume), runs claude -p as the office-manager
-        sub-agent, extracts the response text from the stream, writes it to the
-        OM bus, and saves the updated session ID for the next --resume.
+        Loads session state (for --resume), launches the agent, extracts the
+        response text from the stream, writes it to the OM bus, and saves the
+        updated session ID for the next --resume.
 
         Returns the agent's response text, or '' if invocation fails or produces
         no text.
         """
-        import asyncio
         import tempfile
         import time as _time
-        from teaparty.runners.claude import create_runner
+        from teaparty.runners.launcher import launch, detect_poisoned_session
         from teaparty.workspace.worktree import ensure_agent_worktree
 
         t_invoke_start = _time.monotonic()
@@ -765,9 +743,6 @@ class OfficeManagerSession:
 
         is_fresh_session = self.claude_session_id is None
 
-        # For resuming sessions, pass only the latest human message; the prior
-        # context lives in the Claude session. For fresh sessions, pass the full
-        # conversation history so the agent understands what it's responding to.
         if self.claude_session_id:
             prompt = self._latest_human_message()
         else:
@@ -782,31 +757,6 @@ class OfficeManagerSession:
         )
         self._effective_cwd = effective_cwd
 
-        stream_fd, stream_path = tempfile.mkstemp(suffix='.jsonl', prefix='om-stream-')
-        os.close(stream_fd)
-
-        # Build liaison team from registry. Degrade gracefully if registry is
-        # missing or malformed rather than failing the entire invocation.
-        agents_dict, registry_warnings = _build_roster_agents_json(self.teaparty_home)
-        for warning in registry_warnings:
-            self.send_agent_message(
-                f'[Team configuration warning: {warning}]'
-            )
-
-        # Write agents JSON to a named path in the infra dir (not a temp file)
-        # so existing tests that mock tempfile.mkstemp for stream_path are unaffected.
-        safe_id = self.user_id.replace('/', '-').replace(':', '-').replace(' ', '-')
-        agents_path: str | None = os.path.join(
-            self._infra_dir, f'.om-agents-{safe_id}.json',
-        )
-        try:
-            with open(agents_path, 'w') as f:
-                json.dump(agents_dict, f)
-        except OSError:
-            agents_path = None
-
-        # Write per-agent .mcp.json pointing to the shared HTTP MCP server.
-
         # Start (or reuse) the bus event listener so the OM can Send/Reply.
         mcp_env = await self._ensure_bus_listener(cwd)
 
@@ -815,19 +765,22 @@ class OfficeManagerSession:
             self._bus, self.conversation_id, 'office-manager',
         )
 
+        stream_fd, stream_path = tempfile.mkstemp(suffix='.jsonl', prefix='om-stream-')
+        os.close(stream_fd)
+
+        mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
+
         try:
-            runner = create_runner(
-                prompt,
-                cwd=effective_cwd,
-                stream_file=stream_path,
-                backend=self._llm_backend,
-                lead='office-manager',
-                env_vars=mcp_env,
-                resume_session=self.claude_session_id,
+            result = await launch(
+                agent_name='office-manager',
+                message=prompt,
+                scope='management',
+                teaparty_home=self.teaparty_home,
+                worktree=effective_cwd,
+                resume_session=self.claude_session_id or '',
+                mcp_port=mcp_port,
                 on_stream_event=stream_callback,
             )
-
-            result = await runner.run()
 
             if result.stderr_lines:
                 _om_dbg.warning('OM stderr (%d lines): %s', len(result.stderr_lines),
@@ -835,20 +788,16 @@ class OfficeManagerSession:
 
             response_text = '\n'.join(c for s, c in events if s == 'office-manager')
 
-            # Detect MCP failure: if the system init shows MCP "failed",
-            # the session is poisoned — don't save it for --resume.
-            mcp_failed = False
+            # Detect poisoned session via unified health check
+            system_events = []
             for sender, content in events:
                 if sender == 'system':
                     try:
-                        sys_data = json.loads(content)
-                        for srv in sys_data.get('mcp_servers', []):
-                            if srv.get('status') == 'failed':
-                                mcp_failed = True
+                        system_events.append(json.loads(content))
                     except (ValueError, json.JSONDecodeError):
                         pass
 
-            if mcp_failed:
+            if detect_poisoned_session(system_events):
                 import logging as _log_mod
                 _log_mod.getLogger('teaparty.teams.office_manager').warning(
                     'MCP server failed to start — clearing session to prevent poisoned --resume'
@@ -857,9 +806,6 @@ class OfficeManagerSession:
                 self.save_state()
 
             if not response_text:
-                # Runner completed but produced no assistant text. Clear the
-                # saved session so the next invocation starts fresh rather than
-                # silently producing nothing again on --resume.
                 self.claude_session_id = None
                 self.save_state()
                 self._bus.send(
@@ -872,8 +818,6 @@ class OfficeManagerSession:
 
             if response_text and result.session_id:
                 self.claude_session_id = result.session_id
-                # Update the OM's bus context with the latest session_id so
-                # reinvoke_fn can find it when workers reply.
                 if self._bus_context_id:
                     bus_db_path = os.path.join(self._infra_dir, 'messages.db')
                     _bus_ctx = SqliteMessageBus(bus_db_path)
@@ -883,8 +827,6 @@ class OfficeManagerSession:
                         )
                     finally:
                         _bus_ctx.close()
-                # On the first turn, capture the slug Claude auto-generates for
-                # this conversation so the UI can show a descriptive nav label.
                 if is_fresh_session and not self.conversation_title:
                     slug = _extract_slug(stream_path, result.session_id, cwd)
                     if slug:
@@ -902,11 +844,6 @@ class OfficeManagerSession:
                 os.unlink(stream_path)
             except OSError:
                 pass
-            if agents_path:
-                try:
-                    os.unlink(agents_path)
-                except OSError:
-                    pass
 
 
 def read_om_session_title(teaparty_home: str, qualifier: str) -> str | None:

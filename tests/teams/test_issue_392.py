@@ -193,12 +193,26 @@ class TestLiveStreamRelay(unittest.TestCase):
 
 
 class TestRunnerReceivesOnStreamEvent(unittest.TestCase):
-    """Team agent invoke methods must pass on_stream_event to create_runner."""
+    """Team agent invoke methods must pass on_stream_event to the unified launcher."""
+
+    def _make_fake_launch(self):
+        """Return (fake_launch, captured_kwargs) for verifying on_stream_event."""
+        from unittest.mock import MagicMock
+        captured_kwargs = {}
+
+        async def fake_launch(**kwargs):
+            captured_kwargs.update(kwargs)
+            mock_result = MagicMock()
+            mock_result.session_id = 'sess-123'
+            mock_result.stderr_lines = []
+            return mock_result
+
+        return fake_launch, captured_kwargs
 
     def test_office_manager_passes_on_stream_event_to_runner(self):
         """OfficeManagerSession.invoke() must pass on_stream_event so events
         stream to the bus in real-time, not batched after completion."""
-        from unittest.mock import patch, MagicMock, AsyncMock
+        from unittest.mock import patch, AsyncMock
         import asyncio
 
         tmpdir = tempfile.mkdtemp()
@@ -206,20 +220,6 @@ class TestRunnerReceivesOnStreamEvent(unittest.TestCase):
         bus = SqliteMessageBus(bus_path)
         conv_id = 'om:test-user'
 
-        # Track the on_stream_event kwarg passed to create_runner
-        captured_kwargs = {}
-        original_create_runner = None
-
-        def fake_create_runner(*args, **kwargs):
-            captured_kwargs.update(kwargs)
-            mock_runner = MagicMock()
-            mock_result = MagicMock()
-            mock_result.session_id = 'sess-123'
-            mock_result.stderr_lines = []
-            mock_runner.run = AsyncMock(return_value=mock_result)
-            return mock_runner
-
-        # Create a minimal OM session and invoke it
         from teaparty.teams.office_manager import OfficeManagerSession
 
         session = OfficeManagerSession.__new__(OfficeManagerSession)
@@ -234,53 +234,34 @@ class TestRunnerReceivesOnStreamEvent(unittest.TestCase):
         session._bus_context_id = None
         session._om_locks = {}
 
-        # Write a human message so _latest_human_message finds something
         bus.send(conv_id, 'human', 'Hello')
+        fake_launch, captured = self._make_fake_launch()
 
-        # Mock out heavy dependencies
-        with patch('teaparty.runners.claude.create_runner', side_effect=fake_create_runner) as mock_cr, \
+        with patch('teaparty.runners.launcher.launch', side_effect=fake_launch), \
              patch.object(session, 'load_state'), \
              patch.object(session, 'save_state'), \
              patch.object(session, '_ensure_bus_listener', new_callable=AsyncMock, return_value={}), \
-             patch('teaparty.workspace.worktree.ensure_agent_worktree', new_callable=AsyncMock, return_value=tmpdir), \
-             patch('teaparty.teams.office_manager._build_roster_agents_json', return_value=({}, [])):
+             patch('teaparty.workspace.worktree.ensure_agent_worktree', new_callable=AsyncMock, return_value=tmpdir):
 
             asyncio.run(session.invoke(cwd=tmpdir))
 
-        self.assertIn('on_stream_event', captured_kwargs,
-                       'create_runner must receive on_stream_event for real-time streaming')
-        self.assertIsNotNone(captured_kwargs['on_stream_event'],
+        self.assertIn('on_stream_event', captured,
+                       'launch must receive on_stream_event for real-time streaming')
+        self.assertIsNotNone(captured['on_stream_event'],
                              'on_stream_event must not be None')
 
         bus.close()
-
-
-    def _make_fake_runner(self):
-        """Return (fake_create_runner, captured_kwargs) for verifying on_stream_event."""
-        from unittest.mock import MagicMock, AsyncMock
-        captured_kwargs = {}
-
-        def fake_create_runner(*args, **kwargs):
-            captured_kwargs.update(kwargs)
-            mock_runner = MagicMock()
-            mock_result = MagicMock()
-            mock_result.session_id = 'sess-123'
-            mock_result.stderr_lines = []
-            mock_runner.run = AsyncMock(return_value=mock_result)
-            return mock_runner
-
-        return fake_create_runner, captured_kwargs
 
     def test_project_manager_passes_on_stream_event_to_runner(self):
         """ProjectManagerSession.invoke() must pass on_stream_event."""
         from unittest.mock import patch, AsyncMock
         import asyncio
-        from teaparty.teams.project_manager import ProjectManagerSession
 
         tmpdir = tempfile.mkdtemp()
         bus = SqliteMessageBus(os.path.join(tmpdir, 'messages.db'))
         conv_id = 'pm:test-project:test-user'
 
+        from teaparty.teams.project_manager import ProjectManagerSession
         session = ProjectManagerSession.__new__(ProjectManagerSession)
         session.teaparty_home = tmpdir
         session.lead = 'project-manager'
@@ -292,9 +273,9 @@ class TestRunnerReceivesOnStreamEvent(unittest.TestCase):
         session._infra_dir = tmpdir
 
         bus.send(conv_id, 'human', 'Hello')
-        fake_cr, captured = self._make_fake_runner()
+        fake_launch, captured = self._make_fake_launch()
 
-        with patch('teaparty.runners.claude.create_runner', side_effect=fake_cr), \
+        with patch('teaparty.runners.launcher.launch', side_effect=fake_launch), \
              patch.object(session, 'load_state'), \
              patch.object(session, 'save_state'), \
              patch('teaparty.workspace.worktree.ensure_agent_worktree',
@@ -309,12 +290,12 @@ class TestRunnerReceivesOnStreamEvent(unittest.TestCase):
         """ProjectLeadSession.invoke() must pass on_stream_event."""
         from unittest.mock import patch, AsyncMock
         import asyncio
-        from teaparty.teams.project_lead import ProjectLeadSession
 
         tmpdir = tempfile.mkdtemp()
         bus = SqliteMessageBus(os.path.join(tmpdir, 'messages.db'))
         conv_id = 'lead:test-lead:test-user'
 
+        from teaparty.teams.project_lead import ProjectLeadSession
         session = ProjectLeadSession.__new__(ProjectLeadSession)
         session.teaparty_home = tmpdir
         session.lead_name = 'test-lead'
@@ -327,9 +308,9 @@ class TestRunnerReceivesOnStreamEvent(unittest.TestCase):
         session._infra_dir = tmpdir
 
         bus.send(conv_id, 'human', 'Hello')
-        fake_cr, captured = self._make_fake_runner()
+        fake_launch, captured = self._make_fake_launch()
 
-        with patch('teaparty.runners.claude.create_runner', side_effect=fake_cr), \
+        with patch('teaparty.runners.launcher.launch', side_effect=fake_launch), \
              patch.object(session, 'load_state'), \
              patch.object(session, 'save_state'), \
              patch('teaparty.workspace.worktree.ensure_agent_worktree',
@@ -344,12 +325,12 @@ class TestRunnerReceivesOnStreamEvent(unittest.TestCase):
         """ConfigLeadSession.invoke() must pass on_stream_event."""
         from unittest.mock import patch, AsyncMock
         import asyncio
-        from teaparty.teams.config_lead import ConfigLeadSession
 
         tmpdir = tempfile.mkdtemp()
         bus = SqliteMessageBus(os.path.join(tmpdir, 'messages.db'))
         conv_id = 'config:test-user'
 
+        from teaparty.teams.config_lead import ConfigLeadSession
         session = ConfigLeadSession.__new__(ConfigLeadSession)
         session.teaparty_home = tmpdir
         session.LEAD = 'configuration-lead'
@@ -361,9 +342,9 @@ class TestRunnerReceivesOnStreamEvent(unittest.TestCase):
         session._infra_dir = tmpdir
 
         bus.send(conv_id, 'human', 'Hello')
-        fake_cr, captured = self._make_fake_runner()
+        fake_launch, captured = self._make_fake_launch()
 
-        with patch('teaparty.runners.claude.create_runner', side_effect=fake_cr), \
+        with patch('teaparty.runners.launcher.launch', side_effect=fake_launch), \
              patch.object(session, 'load_state'), \
              patch.object(session, 'save_state'), \
              patch.object(session, '_ensure_bus_listener',
@@ -380,12 +361,12 @@ class TestRunnerReceivesOnStreamEvent(unittest.TestCase):
         """ProxyReviewSession.invoke() must pass on_stream_event."""
         from unittest.mock import patch, AsyncMock
         import asyncio
-        from teaparty.proxy.review import ProxyReviewSession
 
         tmpdir = tempfile.mkdtemp()
         bus = SqliteMessageBus(os.path.join(tmpdir, 'messages.db'))
         conv_id = 'proxy:test-user'
 
+        from teaparty.proxy.review import ProxyReviewSession
         session = ProxyReviewSession.__new__(ProxyReviewSession)
         session.teaparty_home = tmpdir
         session.decider = 'test-user'
@@ -397,9 +378,9 @@ class TestRunnerReceivesOnStreamEvent(unittest.TestCase):
         session._infra_dir = tmpdir
 
         bus.send(conv_id, 'human', 'Hello')
-        fake_cr, captured = self._make_fake_runner()
+        fake_launch, captured = self._make_fake_launch()
 
-        with patch('teaparty.runners.claude.create_runner', side_effect=fake_cr), \
+        with patch('teaparty.runners.launcher.launch', side_effect=fake_launch), \
              patch.object(session, 'load_state'), \
              patch.object(session, 'save_state'), \
              patch.object(session, '_build_memory_context_prompt',

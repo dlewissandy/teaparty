@@ -158,17 +158,14 @@ class ConfigLeadSession:
             }
 
         from teaparty.messaging.listener import BusEventListener
-        from teaparty.cfa.agent_pool import AgentPool
 
         bus_db_path = os.path.join(self._infra_dir, 'messages.db')
         repo_root = os.path.dirname(self.teaparty_home)
 
-        if self._agent_pool is None:
-            self._agent_pool = AgentPool(teaparty_home=self.teaparty_home)
-
         async def spawn_fn(member, composite, context_id):
             import subprocess as _sp
             import time as _time
+            from teaparty.runners.launcher import launch as _launch
             t0 = _time.monotonic()
 
             agent_dir = os.path.join(self._infra_dir, 'agents', f'pool_{member}')
@@ -181,34 +178,21 @@ class ConfigLeadSession:
                     os.makedirs(agent_dir, exist_ok=True)
             t_worktree = _time.monotonic()
 
-            from teaparty.cfa.agent_spawner import compose_worktree, _derive_roster
-            compose_worktree(
-                agent_dir, self.teaparty_home, member,
-                is_management=True,
-            )
-            settings_path = os.path.join(agent_dir, '.claude', 'settings.json')
-            settings_dict = {}
-            if os.path.isfile(settings_path):
-                with open(settings_path) as f:
-                    try:
-                        settings_dict = json.loads(f.read())
-                    except (ValueError, json.JSONDecodeError):
-                        pass
-
-            agents = _derive_roster(member, self.teaparty_home)
-            is_lead = bool(agents)
-
-            session_id, result_text = await self._agent_pool.dispatch(
-                member, composite,
+            mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
+            result = await _launch(
+                agent_name=member,
+                message=composite,
+                scope='management',
+                teaparty_home=self.teaparty_home,
                 worktree=agent_dir,
-                settings_dict=settings_dict,
+                mcp_port=mcp_port,
             )
             t_done = _time.monotonic()
             log.info(
                 'config_lead spawn_fn: member=%r worktree=%.2fs dispatch=%.2fs total=%.2fs',
                 member, t_worktree - t0, t_done - t_worktree, t_done - t0,
             )
-            return (session_id, agent_dir, result_text)
+            return (result.session_id, agent_dir, '')
 
         async def reply_fn(context_id, session_id, message):
             log.info('config_lead reply_fn: delivering reply for context %s', context_id)
@@ -268,15 +252,14 @@ class ConfigLeadSession:
             self._bus_listener_sockets = None
 
     async def invoke(self, *, cwd: str) -> str:
-        """Invoke the configuration-lead agent to respond to the current conversation.
+        """Invoke the configuration-lead agent via the unified launcher.
 
         Fresh session: sends full conversation history.
         Resumed session: sends only the latest human message via --resume.
 
         Returns the agent's response text, or '' if invocation fails.
         """
-        import asyncio
-        from teaparty.runners.claude import create_runner
+        from teaparty.runners.launcher import launch
         from teaparty.workspace.worktree import ensure_agent_worktree
 
         self.load_state()
@@ -290,13 +273,10 @@ class ConfigLeadSession:
         if not prompt:
             return ''
 
-        # Agent isolation: run in a worktree with a scoped .claude/.
         effective_cwd = await ensure_agent_worktree(
             self.LEAD, cwd, self._infra_dir,
         )
 
-
-        # Start bus listener so Send dispatches to specialists.
         mcp_env = await self._ensure_bus_listener(cwd)
 
         stream_fd, stream_path = tempfile.mkstemp(suffix='.jsonl', prefix='config-stream-')
@@ -306,18 +286,19 @@ class ConfigLeadSession:
             self._bus, self.conversation_id, self.LEAD,
         )
 
+        mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
+
         try:
-            runner = create_runner(
-                prompt,
-                cwd=effective_cwd,
-                stream_file=stream_path,
-                backend=self._llm_backend,
-                lead=self.LEAD,
-                resume_session=self.claude_session_id,
-                env_vars=mcp_env,
+            result = await launch(
+                agent_name=self.LEAD,
+                message=prompt,
+                scope='management',
+                teaparty_home=self.teaparty_home,
+                worktree=effective_cwd,
+                resume_session=self.claude_session_id or '',
+                mcp_port=mcp_port,
                 on_stream_event=stream_callback,
             )
-            result = await runner.run()
 
             response_text = '\n'.join(c for s, c in events if s == self.LEAD)
 

@@ -135,9 +135,8 @@ class ProjectManagerSession:
         return ''
 
     async def invoke(self, *, cwd: str) -> str:
-        """Invoke the project manager agent to respond to the current conversation."""
-        import asyncio
-        from teaparty.runners.claude import create_runner
+        """Invoke the project manager agent via the unified launcher."""
+        from teaparty.runners.launcher import launch
         from teaparty.workspace.worktree import ensure_agent_worktree
 
         self.load_state()
@@ -151,11 +150,9 @@ class ProjectManagerSession:
         if not prompt:
             return ''
 
-        # Agent isolation: run in a worktree with a scoped .claude/.
         effective_cwd = await ensure_agent_worktree(
             self.lead, cwd, self._infra_dir,
         )
-
 
         stream_fd, stream_path = tempfile.mkstemp(suffix='.jsonl', prefix='pm-stream-')
         os.close(stream_fd)
@@ -164,17 +161,19 @@ class ProjectManagerSession:
             self._bus, self.conversation_id, self.lead,
         )
 
+        mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
+
         try:
-            runner = create_runner(
-                prompt,
-                cwd=effective_cwd,
-                stream_file=stream_path,
-                backend=self._llm_backend,
-                lead=self.lead,
-                resume_session=self.claude_session_id,
+            result = await launch(
+                agent_name=self.lead,
+                message=prompt,
+                scope='management',
+                teaparty_home=self.teaparty_home,
+                worktree=effective_cwd,
+                resume_session=self.claude_session_id or '',
+                mcp_port=mcp_port,
                 on_stream_event=stream_callback,
             )
-            result = await runner.run()
 
             response_text = '\n'.join(c for s, c in events if s == self.lead)
 

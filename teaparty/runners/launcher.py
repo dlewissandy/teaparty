@@ -393,66 +393,90 @@ async def launch(
     parent_heartbeat: str = '',
     children_file: str = '',
     stall_timeout: int = 1800,
+    # Optional overrides — callers that derive config from other sources
+    # (e.g. CfA PhaseConfig) can bypass the standard .teaparty/ derivation.
+    settings_override: dict[str, Any] | None = None,
+    add_dirs: list[str] | None = None,
+    agents_json: str | None = None,
+    agents_file: str | None = None,
+    stream_file: str = '',
+    env_vars: dict[str, str] | None = None,
+    permission_mode_override: str = '',
+    tools_override: str | None = None,
+    skip_compose: bool = False,
 ) -> ClaudeResult:
     """Launch an agent through the unified codepath.
 
-    1. Composes the worktree .claude/ from .teaparty/ config
-    2. Builds the claude -p command
+    1. Composes the worktree .claude/ from .teaparty/ config (unless skip_compose)
+    2. Reads agent frontmatter for tools and permissions
     3. Builds a sanitized environment
-    4. Runs the subprocess, streams events, returns result
+    4. Runs the subprocess via ClaudeRunner, streams events, returns result
 
     This is the only function that spawns agent subprocesses.
+
+    The *_override parameters allow callers with their own config derivation
+    (e.g. the CfA job engine) to bypass the standard .teaparty/ composition
+    while still using the single launch path.
     """
     from teaparty.config.config_reader import read_agent_frontmatter
     from teaparty.runners.claude import ClaudeRunner
 
-    # Compose worktree
-    compose_launch_worktree(
-        worktree=worktree,
-        agent_name=agent_name,
-        scope=scope,
-        teaparty_home=teaparty_home,
-        mcp_port=mcp_port,
-    )
+    # Compose worktree from .teaparty/ config (standard path)
+    if not skip_compose:
+        compose_launch_worktree(
+            worktree=worktree,
+            agent_name=agent_name,
+            scope=scope,
+            teaparty_home=teaparty_home,
+            mcp_port=mcp_port,
+        )
 
     # Read agent frontmatter for tools and permission mode
-    agent_def_path = resolve_agent_definition(agent_name, scope, teaparty_home)
-    fm = read_agent_frontmatter(agent_def_path)
+    try:
+        agent_def_path = resolve_agent_definition(agent_name, scope, teaparty_home)
+        fm = read_agent_frontmatter(agent_def_path)
+    except FileNotFoundError:
+        fm = {}
 
-    # Derive tools from frontmatter
-    tools = None
-    tools_str = fm.get('tools', '')
-    if tools_str:
-        all_tools = {t.strip() for t in tools_str.split(',') if t.strip()}
-        mcp_prefix = 'mcp__'
-        builtins = [t for t in all_tools if not t.startswith(mcp_prefix)]
-        if 'ToolSearch' not in builtins:
-            builtins.append('ToolSearch')
-        tools = ','.join(builtins)
+    # Derive tools from frontmatter (unless overridden)
+    tools = tools_override
+    if tools is None:
+        tools_str = fm.get('tools', '')
+        if tools_str:
+            all_tools = {t.strip() for t in tools_str.split(',') if t.strip()}
+            mcp_prefix = 'mcp__'
+            builtins = [t for t in all_tools if not t.startswith(mcp_prefix)]
+            if 'ToolSearch' not in builtins:
+                builtins.append('ToolSearch')
+            tools = ','.join(builtins)
 
-    # Permission mode from frontmatter
-    permission_mode = fm.get('permissionMode', 'default') or 'default'
+    # Permission mode
+    permission_mode = permission_mode_override or fm.get('permissionMode', 'default') or 'default'
 
     # Settings
-    settings = _merge_settings(agent_name, scope, teaparty_home)
-    if tools_str:
-        all_tools_list = [t.strip() for t in tools_str.split(',') if t.strip()]
-        perms = settings.get('permissions', {})
-        perms['allow'] = all_tools_list
-        settings['permissions'] = perms
+    if settings_override is not None:
+        settings = dict(settings_override)
+    else:
+        settings = _merge_settings(agent_name, scope, teaparty_home)
+        tools_str = fm.get('tools', '')
+        if tools_str:
+            all_tools_list = [t.strip() for t in tools_str.split(',') if t.strip()]
+            perms = settings.get('permissions', {})
+            perms['allow'] = all_tools_list
+            settings['permissions'] = perms
 
-    # MCP config
-    mcp_config = None  # Handled by compose_launch_worktree via .mcp.json in worktree
+    effective_stream = stream_file or os.path.join(worktree, '.stream.jsonl')
 
     # Build the runner — delegate to ClaudeRunner for streaming, watchdog, etc.
     runner = ClaudeRunner(
         message,
         cwd=worktree,
-        stream_file=os.path.join(worktree, '.stream.jsonl'),
+        stream_file=effective_stream,
         lead=agent_name,
         settings=settings,
         permission_mode=permission_mode,
         tools=tools,
+        add_dirs=add_dirs or [],
         resume_session=resume_session or None,
         on_stream_event=on_stream_event,
         event_bus=event_bus,
@@ -461,6 +485,9 @@ async def launch(
         parent_heartbeat=parent_heartbeat,
         children_file=children_file,
         stall_timeout=stall_timeout,
+        agents_json=agents_json,
+        agents_file=agents_file,
+        env_vars=env_vars or {},
     )
 
     return await runner.run()
