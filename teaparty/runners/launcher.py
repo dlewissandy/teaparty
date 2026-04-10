@@ -375,6 +375,63 @@ def should_clear_session(*, response_text: str, session_id: str) -> bool:
     return not response_text and bool(session_id)
 
 
+# ── Metrics ──────────────────────────────────────────────────────────────────
+
+def _record_metrics(
+    *,
+    teaparty_home: str,
+    scope: str,
+    agent_name: str,
+    session_id: str,
+    result: ClaudeResult,
+) -> None:
+    """Write turn metrics to {scope}/metrics.db.
+
+    Writes cost, tokens, duration keyed by session/agent/turn.
+    The database survives session cleanup.
+    """
+    import sqlite3
+
+    db_path = os.path.join(teaparty_home, scope, 'metrics.db')
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.execute('PRAGMA journal_mode=WAL')
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS turn_metrics (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                agent_name TEXT NOT NULL,
+                timestamp REAL NOT NULL,
+                cost_usd REAL NOT NULL DEFAULT 0.0,
+                input_tokens INTEGER NOT NULL DEFAULT 0,
+                output_tokens INTEGER NOT NULL DEFAULT 0,
+                duration_ms INTEGER NOT NULL DEFAULT 0,
+                exit_code INTEGER NOT NULL DEFAULT 0
+            )
+        ''')
+        conn.execute(
+            'INSERT INTO turn_metrics '
+            '(session_id, agent_name, timestamp, cost_usd, input_tokens, '
+            'output_tokens, duration_ms, exit_code) '
+            'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            (
+                session_id,
+                agent_name,
+                time.time(),
+                result.cost_usd,
+                result.input_tokens,
+                result.output_tokens,
+                result.duration_ms,
+                result.exit_code,
+            ),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass  # Metrics are best-effort — never fail the launch
+
+
 # ── The launcher ─────────────────────────────────────────────────────────────
 
 async def launch(
@@ -490,4 +547,15 @@ async def launch(
         env_vars=env_vars or {},
     )
 
-    return await runner.run()
+    result = await runner.run()
+
+    # Write metrics to per-scope metrics.db (survives session cleanup)
+    _record_metrics(
+        teaparty_home=teaparty_home,
+        scope=scope,
+        agent_name=agent_name,
+        session_id=session_id or result.session_id,
+        result=result,
+    )
+
+    return result
