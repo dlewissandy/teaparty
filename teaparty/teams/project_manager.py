@@ -37,7 +37,8 @@ def read_pm_session_title(teaparty_home: str, project_slug: str, user_id: str) -
     """Read the conversation title from a saved PM session state file."""
     qualifier = f'{project_slug}:{user_id}'
     safe_id = qualifier.replace('/', '-').replace(':', '-').replace(' ', '-')
-    state_path = os.path.join(teaparty_home, 'management', 'agents', 'project-manager', f'.pm-session-{safe_id}.json')
+    sessions_dir = os.path.join(teaparty_home, 'management', 'sessions')
+    state_path = os.path.join(sessions_dir, f'pm-{safe_id}.json')
     try:
         with open(state_path) as f:
             state = json.load(f)
@@ -102,7 +103,9 @@ class ProjectManagerSession:
     def _state_path(self) -> str:
         qualifier = f'{self.project_slug}:{self.user_id}'
         safe_id = qualifier.replace('/', '-').replace(':', '-').replace(' ', '-')
-        return os.path.join(self._infra_dir, f'.pm-session-{safe_id}.json')
+        sessions_dir = os.path.join(self.teaparty_home, 'management', 'sessions')
+        os.makedirs(sessions_dir, exist_ok=True)
+        return os.path.join(sessions_dir, f'pm-{safe_id}.json')
 
     def save_state(self) -> None:
         state = {

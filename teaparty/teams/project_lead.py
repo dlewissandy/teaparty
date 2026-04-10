@@ -90,9 +90,9 @@ class ProjectLeadSession:
 
     def _state_path(self) -> str:
         safe_id = self.qualifier.replace('/', '-').replace(':', '-').replace(' ', '-')
-        return os.path.join(
-            self._infra_dir, f'.pl-session-{safe_id}.json',
-        )
+        sessions_dir = os.path.join(self.teaparty_home, 'management', 'sessions')
+        os.makedirs(sessions_dir, exist_ok=True)
+        return os.path.join(sessions_dir, f'pl-{self.lead_name}-{safe_id}.json')
 
     def save_state(self) -> None:
         state = {

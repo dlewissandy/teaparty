@@ -422,9 +422,11 @@ class OfficeManagerSession:
         return '\n\n'.join(lines)
 
     def _state_path(self) -> str:
-        """Return the state file path, keyed by user_id so concurrent OM threads don't collide."""
+        """Return the state file path under {scope}/sessions/."""
         safe_id = self.user_id.replace('/', '-').replace(':', '-').replace(' ', '-')
-        return os.path.join(self._infra_dir, f'.om-session-{safe_id}.json')
+        sessions_dir = os.path.join(self.teaparty_home, 'management', 'sessions')
+        os.makedirs(sessions_dir, exist_ok=True)
+        return os.path.join(sessions_dir, f'om-{safe_id}.json')
 
     def save_state(self) -> None:
         """Persist session state (Claude session ID and conversation title) to disk."""
@@ -761,7 +763,8 @@ def read_om_session_title(teaparty_home: str, qualifier: str) -> str | None:
     Returns None if no title is stored or the file doesn't exist.
     """
     safe_id = qualifier.replace('/', '-').replace(':', '-').replace(' ', '-')
-    state_path = os.path.join(teaparty_home, 'management', 'agents', 'office-manager', f'.om-session-{safe_id}.json')
+    sessions_dir = os.path.join(teaparty_home, 'management', 'sessions')
+    state_path = os.path.join(sessions_dir, f'om-{safe_id}.json')
     try:
         with open(state_path) as f:
             state = json.load(f)

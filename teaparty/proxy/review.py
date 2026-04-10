@@ -567,7 +567,9 @@ class ProxyReviewSession:
 
     def _state_path(self) -> str:
         safe_id = self.decider.replace('/', '-').replace(':', '-').replace(' ', '-')
-        return os.path.join(self._infra_dir, f'.proxy-session-{safe_id}.json')
+        sessions_dir = os.path.join(self.teaparty_home, 'management', 'sessions')
+        os.makedirs(sessions_dir, exist_ok=True)
+        return os.path.join(sessions_dir, f'proxy-{safe_id}.json')
 
     def save_state(self) -> None:
         """Persist session state to disk."""
@@ -756,7 +758,8 @@ def read_proxy_session_title(teaparty_home: str, decider: str) -> str | None:
     Returns None if no title is stored or the file doesn't exist.
     """
     safe_id = decider.replace('/', '-').replace(':', '-').replace(' ', '-')
-    state_path = os.path.join(teaparty_home, 'management', 'agents', 'proxy-review', f'.proxy-session-{safe_id}.json')
+    sessions_dir = os.path.join(teaparty_home, 'management', 'sessions')
+    state_path = os.path.join(sessions_dir, f'proxy-{safe_id}.json')
     try:
         with open(state_path) as f:
             state = json.load(f)
