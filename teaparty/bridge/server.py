@@ -1178,6 +1178,8 @@ class TeaPartyBridge:
         qualifier: str,
         conversation_type: ConversationType,
         cwd: str,
+        teaparty_home: str = '',
+        scope: str = 'management',
         agent_role: str = '',
         dispatches: bool = False,
         post_invoke_hook=None,
@@ -1187,7 +1189,13 @@ class TeaPartyBridge:
 
         Creates or reuses an AgentSession, acquires a per-qualifier lock
         to serialize concurrent invocations, and delegates to invoke().
+
+        teaparty_home: sessions live where the work lives. Management agents
+        use the teaparty repo's .teaparty/. Project agents use the project
+        repo's .teaparty/.
         """
+        effective_home = teaparty_home or self.teaparty_home
+
         if session_key not in self._agent_locks:
             self._agent_locks[session_key] = asyncio.Lock()
         lock = self._agent_locks[session_key]
@@ -1195,8 +1203,9 @@ class TeaPartyBridge:
         async with lock:
             if session_key not in self._agent_sessions:
                 self._agent_sessions[session_key] = AgentSession(
-                    self.teaparty_home,
+                    effective_home,
                     agent_name=agent_name,
+                    scope=scope,
                     qualifier=qualifier,
                     conversation_type=conversation_type,
                     agent_role=agent_role or agent_name,
@@ -1254,12 +1263,16 @@ class TeaPartyBridge:
         project_slug = parts[0]
         project_path = self._lookup_project_path(project_slug)
         cwd = project_path if project_path is not None else self._repo_root
+        # Sessions live where the work lives: project repo's .teaparty/.
+        project_tp = os.path.join(cwd, '.teaparty') if project_path else self.teaparty_home
         await self._invoke_agent(
             session_key=f'pm:{qualifier}',
             agent_name='project-manager',
             agent_role=f'{project_slug}-project-manager',
             qualifier=qualifier,
             conversation_type=ConversationType.PROJECT_MANAGER,
+            teaparty_home=project_tp,
+            scope='project',
             cwd=cwd,
         )
 
@@ -1303,11 +1316,21 @@ class TeaPartyBridge:
         feedback rather than silence.
         """
         cwd = self._cwd_for_config_qualifier(qualifier)
+        # Config lead scope follows the qualifier: management-level work stays
+        # in the teaparty repo, project-level work uses the project repo.
+        if cwd != self._repo_root:
+            config_tp = os.path.join(cwd, '.teaparty')
+            config_scope = 'project'
+        else:
+            config_tp = self.teaparty_home
+            config_scope = 'management'
         await self._invoke_agent(
             session_key=f'config:{qualifier}',
             agent_name='configuration-lead',
             qualifier=qualifier,
             conversation_type=ConversationType.CONFIG_LEAD,
+            teaparty_home=config_tp,
+            scope=config_scope,
             dispatches=True,
             cwd=cwd,
         )
@@ -1323,11 +1346,14 @@ class TeaPartyBridge:
         from teaparty.config.roster import resolve_lead_project_path
         project_path = resolve_lead_project_path(lead_name, self.teaparty_home)
         cwd = project_path if project_path else self._repo_root
+        project_tp = os.path.join(cwd, '.teaparty') if project_path else self.teaparty_home
         await self._invoke_agent(
             session_key=f'pl:{key}',
             agent_name=lead_name,
             qualifier=key,
             conversation_type=ConversationType.PROJECT_LEAD,
+            teaparty_home=project_tp,
+            scope='project',
             cwd=cwd,
         )
 

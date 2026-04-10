@@ -19,7 +19,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import tempfile
 import uuid
 from typing import Any, Awaitable, Callable
 
@@ -413,77 +412,70 @@ class AgentSession:
             self._bus, self.conversation_id, self.agent_role,
         )
 
-        stream_fd, stream_path = tempfile.mkstemp(
-            suffix='.jsonl', prefix=f'{self.agent_name}-stream-',
-        )
-        os.close(stream_fd)
+        # The launcher writes stream events to {worktree}/.stream.jsonl.
+        # We read the slug from that same file after launch completes.
+        stream_path = os.path.join(effective_cwd, '.stream.jsonl')
 
         mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
 
-        try:
-            result = await launch(
-                agent_name=self.agent_name,
-                message=prompt,
-                scope=self.scope,
-                teaparty_home=self.teaparty_home,
-                worktree=effective_cwd,
-                resume_session=self.claude_session_id or '',
-                mcp_port=mcp_port,
-                on_stream_event=stream_callback,
+        result = await launch(
+            agent_name=self.agent_name,
+            message=prompt,
+            scope=self.scope,
+            teaparty_home=self.teaparty_home,
+            worktree=effective_cwd,
+            resume_session=self.claude_session_id or '',
+            mcp_port=mcp_port,
+            on_stream_event=stream_callback,
+        )
+
+        response_text = '\n'.join(
+            c for s, c in events if s == self.agent_role
+        )
+
+        # Poisoned session detection (all agents, not just OM)
+        system_events = []
+        for sender, content in events:
+            if sender == 'system':
+                try:
+                    system_events.append(json.loads(content))
+                except (ValueError, json.JSONDecodeError):
+                    pass
+        if detect_poisoned_session(system_events):
+            _log.warning(
+                '%s: MCP server failed — clearing session', self.agent_name,
+            )
+            self.claude_session_id = None
+            self.save_state()
+
+        if not response_text:
+            self.claude_session_id = None
+            self.save_state()
+            self._bus.send(
+                self.conversation_id,
+                self.agent_role,
+                'I was unable to produce a response (the session may have '
+                'expired). Please send your message again to start a fresh '
+                'session.',
             )
 
-            response_text = '\n'.join(
-                c for s, c in events if s == self.agent_role
-            )
+        # Post-invoke hook (e.g. proxy ACT-R correction processing)
+        if response_text and self._post_invoke_hook:
+            self._post_invoke_hook(response_text, self)
 
-            # Poisoned session detection (all agents, not just OM)
-            system_events = []
-            for sender, content in events:
-                if sender == 'system':
-                    try:
-                        system_events.append(json.loads(content))
-                    except (ValueError, json.JSONDecodeError):
-                        pass
-            if detect_poisoned_session(system_events):
-                _log.warning(
-                    '%s: MCP server failed — clearing session', self.agent_name,
-                )
-                self.claude_session_id = None
-                self.save_state()
+        if response_text and result.session_id:
+            self.claude_session_id = result.session_id
+            if is_fresh_session and not self.conversation_title:
+                slug = _extract_slug(stream_path, result.session_id, cwd)
+                if slug:
+                    self.conversation_title = slug
+            self.save_state()
 
-            if not response_text:
-                self.claude_session_id = None
-                self.save_state()
-                self._bus.send(
-                    self.conversation_id,
-                    self.agent_role,
-                    'I was unable to produce a response (the session may have '
-                    'expired). Please send your message again to start a fresh '
-                    'session.',
-                )
-
-            # Post-invoke hook (e.g. proxy ACT-R correction processing)
-            if response_text and self._post_invoke_hook:
-                self._post_invoke_hook(response_text, self)
-
-            if response_text and result.session_id:
-                self.claude_session_id = result.session_id
-                if is_fresh_session and not self.conversation_title:
-                    slug = _extract_slug(stream_path, result.session_id, cwd)
-                    if slug:
-                        self.conversation_title = slug
-                self.save_state()
-
-            _log.info(
-                '%s invoke: %.2fs response_len=%d',
-                self.agent_name, _time.monotonic() - t_start, len(response_text),
-            )
-            return response_text
-        finally:
-            try:
-                os.unlink(stream_path)
-            except OSError:
-                pass
+        _log.info(
+            '%s invoke: %.2fs response_len=%d',
+            self.agent_name, _time.monotonic() - t_start, len(response_text),
+        )
+        return response_text
 
 
 # ── Session title reader ─────────────────────────────────────────────────────
