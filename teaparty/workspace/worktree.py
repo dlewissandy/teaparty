@@ -45,14 +45,15 @@ async def ensure_agent_worktree(
     *,
     is_management: bool = True,
 ) -> str:
-    """Ensure a worktree exists for an agent, with a composed ``.claude/``.
+    """Ensure a git worktree exists for an agent.
 
     Creates a detached-HEAD worktree on first call.  On subsequent calls,
     fast-forwards to the current HEAD of *repo_root* so the agent sees
     up-to-date files.
 
-    The worktree's ``.claude/`` is composed from ``.teaparty/`` sources
-    (the source of truth) via :func:`compose_worktree`.
+    The worktree's ``.claude/`` directory is composed by the unified
+    launcher (``teaparty.runners.launcher.compose_launch_worktree``),
+    not by this function.
 
     Args:
         agent_name: Agent name (e.g. ``'office-manager'``).
@@ -65,8 +66,6 @@ async def ensure_agent_worktree(
     Returns:
         Absolute path to the worktree, for use as ``cwd``.
     """
-    from teaparty.runners.claude import populate_scoped_claude_dir
-
     worktree_path = os.path.join(parent_dir, f'{agent_name}-workspace')
 
     if not os.path.isdir(worktree_path):
@@ -81,24 +80,6 @@ async def ensure_agent_worktree(
             log.warning('ensure_agent_worktree: checkout failed for %s, recreating', agent_name)
             await _run_git(repo_root, 'worktree', 'remove', '--force', worktree_path)
             await _run_git(repo_root, 'worktree', 'add', '--detach', worktree_path)
-
-    # Populate .claude/ from .teaparty/ sources (the source of truth).
-    # Management agents live under .teaparty/management/agents/{name}/agent.md.
-    teaparty_home = os.path.join(repo_root, '.teaparty')
-    if is_management:
-        agent_source = os.path.join(
-            teaparty_home, 'management', 'agents', agent_name, 'agent.md',
-        )
-    else:
-        agent_source = os.path.join(repo_root, '.claude', 'agents', f'{agent_name}.md')
-
-    if os.path.isfile(agent_source):
-        populate_scoped_claude_dir(
-            os.path.join(worktree_path, '.claude'),
-            agent_name,
-            os.path.join(repo_root, '.claude'),
-            agent_source_override=agent_source,
-        )
 
     return worktree_path
 

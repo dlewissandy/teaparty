@@ -345,91 +345,6 @@ NON_CONVERSATIONAL_SENDERS: frozenset[str] = frozenset({
 })
 
 
-# ── Roster agent construction ──────────────────────────────────────────────
-
-def _build_roster_agents_json(
-    teaparty_home: str,
-) -> tuple[dict, list[str]]:
-    """Build the OM's --agents roster from the management team config.
-
-    Team membership is derived from three sources only:
-    1. Proxy agents — implied by ``humans:`` entries
-    2. Project leads — implied by ``members.projects``
-    3. Workgroup leads — implied by ``members.workgroups``
-
-    Returns:
-        (agents_dict, warnings) where agents_dict maps agent name → definition
-        and warnings is a list of human-readable messages about degraded state.
-    """
-    from teaparty.config.config_reader import (
-        load_management_team,
-        load_management_workgroups,
-        read_agent_frontmatter,
-    )
-    from teaparty.config.roster import derive_om_roster
-
-    agents: dict = {}
-    warnings: list[str] = []
-
-    try:
-        team = load_management_team(teaparty_home)
-    except FileNotFoundError:
-        return agents, warnings
-    except Exception as exc:  # noqa: BLE001
-        warnings.append(
-            f'Could not load team registry ({exc}) — roster unavailable.'
-        )
-        return agents, warnings
-
-    repo_root = os.path.dirname(teaparty_home)
-    mgmt_agents_dir = os.path.join(
-        teaparty_home, 'management', 'agents',
-    )
-
-    # Project leads (from members.projects)
-    try:
-        roster = derive_om_roster(teaparty_home, agents_dir=mgmt_agents_dir)
-        for name, info in roster.items():
-            agents[name] = {'description': info.get('description', name)}
-    except Exception as exc:  # noqa: BLE001
-        warnings.append(f'Roster derivation failed ({exc}).')
-
-    # Workgroup leads (from members.workgroups)
-    try:
-        workgroups = load_management_workgroups(team, teaparty_home=teaparty_home)
-        for wg in workgroups:
-            if wg.lead and wg.lead not in agents:
-                desc = ''
-                lead_path = os.path.join(
-                    mgmt_agents_dir, wg.lead, 'agent.md',
-                )
-                if os.path.isfile(lead_path):
-                    fm = read_agent_frontmatter(lead_path)
-                    desc = fm.get('description', '')
-                agents[wg.lead] = {
-                    'description': desc or f'{wg.name} workgroup lead',
-                }
-    except Exception as exc:  # noqa: BLE001
-        warnings.append(f'Workgroup loading failed ({exc}).')
-
-    # Proxy agents (implied by humans: entries)
-    for human in team.humans:
-        proxy_name = 'proxy-review'
-        if proxy_name not in agents:
-            desc = ''
-            proxy_path = os.path.join(
-                mgmt_agents_dir, proxy_name, 'agent.md',
-            )
-            if os.path.isfile(proxy_path):
-                fm = read_agent_frontmatter(proxy_path)
-                desc = fm.get('description', '')
-            agents[proxy_name] = {
-                'description': desc or f'Human proxy for {human.name}',
-            }
-
-    return agents, warnings
-
-
 
 
 # ── Office manager session ──────────────────────────────────────────────────
@@ -474,9 +389,6 @@ class OfficeManagerSession:
         # Effective cwd (worktree) — set during invoke(), read by reply_fn
         # and reinvoke_fn to locate the OM's session file for injection.
         self._effective_cwd: str = ''
-        # Persistent process pool for agent dispatch — eliminates cold start
-        # on subsequent dispatches to the same role.
-        self._agent_pool = None
 
     def send_human_message(self, content: str) -> str:
         """Record a human message in the conversation. Returns message ID."""
@@ -705,10 +617,7 @@ class OfficeManagerSession:
         }
 
     async def stop(self):
-        """Stop the bus event listener and agent pool. Call on session teardown."""
-        if self._agent_pool is not None:
-            await self._agent_pool.stop()
-            self._agent_pool = None
+        """Stop the bus event listener. Call on session teardown."""
         if self._bus_listener is not None:
             await self._bus_listener.stop()
             self._bus_listener = None

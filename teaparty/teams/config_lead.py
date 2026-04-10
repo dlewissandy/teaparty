@@ -77,7 +77,6 @@ class ConfigLeadSession:
         self._bus_listener = None
         self._bus_listener_sockets: tuple[str, str, str] | None = None
         self._bus_context_id: str | None = None
-        self._agent_pool = None
 
     def send_human_message(self, content: str) -> str:
         """Record a human message in the conversation. Returns message ID."""
@@ -242,10 +241,7 @@ class ConfigLeadSession:
         }
 
     async def stop(self):
-        """Stop the bus event listener and agent pool."""
-        if self._agent_pool is not None:
-            await self._agent_pool.stop()
-            self._agent_pool = None
+        """Stop the bus event listener."""
         if self._bus_listener is not None:
             await self._bus_listener.stop()
             self._bus_listener = None
