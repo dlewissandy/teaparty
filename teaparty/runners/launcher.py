@@ -154,7 +154,7 @@ def compose_launch_worktree(
         mcp_data = {
             'mcpServers': {
                 'teaparty-config': {
-                    'type': 'http',
+                    'type': 'sse',
                     'url': mcp_url,
                 },
             },
