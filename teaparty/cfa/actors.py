@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Protocol
 
-from teaparty.runners.claude import ClaudeResult, create_runner
+from teaparty.runners.claude import ClaudeResult
 from teaparty.messaging.bus import (
     Event, EventBus, EventType, InputRequest,
 )
@@ -221,30 +221,29 @@ class AgentRunner:
                 'handler': jail_hook,
             })
 
-        runner = create_runner(
-            prompt,
-            cwd=ctx.session_worktree,
-            stream_file=os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file),
-            backend=self.llm_backend,
-            agents_file=agents_path or None,
-            agents_json=agents_json or None,
-            lead=ctx.phase_spec.lead,
-            settings=settings,
-            permission_mode=ctx.phase_spec.permission_mode,
-            add_dirs=ctx.add_dirs,
-            resume_session=ctx.resume_session,
-            env_vars=ctx.env_vars,
+        from teaparty.runners.launcher import launch
+        result = await launch(
+            agent_name=ctx.phase_spec.lead,
+            message=prompt,
+            scope='project',
+            teaparty_home=ctx.poc_root,
+            worktree=ctx.session_worktree,
+            resume_session=ctx.resume_session or '',
+            on_stream_event=self.on_stream_event,
             event_bus=ctx.event_bus,
-            stall_timeout=self.stall_timeout,
             session_id=ctx.session_id,
-            mcp_config=ctx.mcp_config,
             heartbeat_file=ctx.heartbeat_file,
             parent_heartbeat=ctx.parent_heartbeat,
             children_file=ctx.children_file,
-            on_stream_event=self.on_stream_event,
+            stall_timeout=self.stall_timeout,
+            settings_override=settings,
+            add_dirs=ctx.add_dirs,
+            agents_json=agents_json or None,
+            agents_file=agents_path or None,
+            stream_file=os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file),
+            env_vars=ctx.env_vars,
+            permission_mode_override=ctx.phase_spec.permission_mode,
         )
-
-        result = await runner.run()
 
         if result.stall_killed:
             return ActorResult(action='failed', data={

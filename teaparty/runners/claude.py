@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import shutil
 import signal
 import tempfile
 import time
@@ -57,105 +56,6 @@ class LLMRunner(Protocol):
     async def run(self) -> ClaudeResult: ...
 
 
-def create_runner(
-    prompt: str,
-    *,
-    cwd: str,
-    stream_file: str,
-    backend: str = 'claude',
-    **kwargs: Any,
-) -> LLMRunner:
-    """Create an LLM runner for the given backend.
-
-    Backends:
-      'claude' — ClaudeRunner (default, production)
-      'ollama' — OllamaRunner (cheap local model)
-      'deterministic' — DeterministicRunner (scripted responses for tests)
-    """
-    if backend == 'claude':
-        return ClaudeRunner(prompt, cwd=cwd, stream_file=stream_file, **kwargs)
-    elif backend == 'ollama':
-        from teaparty.runners.ollama import OllamaRunner
-        return OllamaRunner(prompt, cwd=cwd, stream_file=stream_file, **kwargs)
-    elif backend == 'deterministic':
-        from teaparty.runners.deterministic import DeterministicRunner
-        return DeterministicRunner(prompt, cwd=cwd, stream_file=stream_file, **kwargs)
-    else:
-        raise ValueError(f"Unknown LLM backend: {backend!r}")
-
-
-def populate_scoped_claude_dir(
-    target_dir: str,
-    agent_name: str,
-    source_claude_dir: str,
-    *,
-    agent_source_override: str = '',
-) -> None:
-    """Populate a ``.claude/`` directory scoped to an agent's skill allowlist.
-
-    Replaces *target_dir* with a fresh directory containing only:
-
-    - ``agents/{agent_name}.md`` — the lead agent's definition
-    - ``skills/{name}/`` — symlinks to only the skills named in the agent's
-      ``skills:`` frontmatter (omitted entirely when the allowlist is empty)
-    - ``CLAUDE.md`` — project instructions (if present in source)
-
-    Thread-safe: each call operates on its own *target_dir* path, and only
-    reads from *source_claude_dir* (no shared mutable state).
-
-    Args:
-        target_dir: Path to the ``.claude/`` directory to create/replace
-            (e.g. ``{worktree}/.claude/``).
-        agent_name: Agent name matching ``source_claude_dir/agents/{name}.md``.
-        source_claude_dir: Path to the canonical ``.claude/`` directory
-            containing the full set of agents and skills.
-        agent_source_override: If set, use this path as the agent definition
-            instead of ``source_claude_dir/agents/{name}.md``.  Allows
-            reading from ``.teaparty/`` while placing the result as a
-            ``.claude/agents/{name}.md`` file for Claude Code resolution.
-    """
-    from teaparty.config.config_reader import read_agent_frontmatter
-
-    # Start fresh so stale content from a previous invocation is gone.
-    if os.path.exists(target_dir):
-        shutil.rmtree(target_dir)
-    os.makedirs(target_dir)
-
-    # ── Agent definition (for --agent resolution) ────────────────────────
-    agent_src = agent_source_override or os.path.join(
-        source_claude_dir, 'agents', f'{agent_name}.md',
-    )
-    allowed_skills: list[str] = []
-    if os.path.isfile(agent_src):
-        agents_dir = os.path.join(target_dir, 'agents')
-        os.makedirs(agents_dir)
-        # Copy (not symlink) when using an override source so Claude Code
-        # finds a regular .md file at the expected path regardless of origin.
-        dest = os.path.join(agents_dir, f'{agent_name}.md')
-        if agent_source_override:
-            shutil.copy2(agent_src, dest)
-        else:
-            os.symlink(os.path.abspath(agent_src), dest)
-        fm = read_agent_frontmatter(agent_src)
-        allowed_skills = fm.get('skills') or []
-
-    # ── Skills — only those in the agent's allowlist ─────────────────────
-    source_skills = os.path.join(source_claude_dir, 'skills')
-    if allowed_skills and os.path.isdir(source_skills):
-        skills_dir = os.path.join(target_dir, 'skills')
-        os.makedirs(skills_dir)
-        for skill_name in allowed_skills:
-            skill_src = os.path.join(source_skills, skill_name)
-            if os.path.isdir(skill_src):
-                os.symlink(os.path.abspath(skill_src),
-                           os.path.join(skills_dir, skill_name))
-
-    # ── Project instructions apply to all agents ─────────────────────────
-    claude_md = os.path.join(source_claude_dir, 'CLAUDE.md')
-    if os.path.isfile(claude_md):
-        os.symlink(os.path.abspath(claude_md),
-                   os.path.join(target_dir, 'CLAUDE.md'))
-
 
 class ClaudeRunner:
     """Manages a single Claude CLI invocation."""
@@ -186,7 +86,6 @@ class ClaudeRunner:
         parent_heartbeat: str = '',
         children_file: str = '',
         tools: str | None = None,
-        mcp_config: dict[str, Any] | None = None,  # Ignored — kept for CfA engine compat
         on_stream_event: Callable[[dict], None] | None = None,
     ):
         self.prompt = prompt
@@ -202,7 +101,6 @@ class ClaudeRunner:
         self.add_dirs = add_dirs or []
         self.resume_session = resume_session
         self.env_vars = env_vars or {}
-        self._mcp_config_file: str | None = None
         self.event_bus = event_bus
         self.stall_timeout = stall_timeout
         self.session_id = session_id
@@ -220,47 +118,15 @@ class ClaudeRunner:
         self._context_budget = ContextBudget()
 
     async def run(self) -> ClaudeResult:
-        """Run the Claude CLI and stream output. Returns result."""
-        # Configure from agent frontmatter (single source of truth).
-        if self.lead:
-            fm = self._load_agent_frontmatter(self.lead)
-            # Builtin tools → --tools flag
-            if fm and self.tools is None:
-                tools_str = fm.get('tools', '')
-                if tools_str:
-                    all_tools = {t.strip() for t in tools_str.split(',') if t.strip()}
-                    mcp_prefix = 'mcp__'
-                    builtins = [t for t in all_tools if not t.startswith(mcp_prefix)]
-                    if 'ToolSearch' not in builtins:
-                        builtins.append('ToolSearch')
-                    self.tools = ','.join(builtins)
-            # Permission mode from frontmatter
-            if fm and self.permission_mode == 'default':
-                fm_mode = fm.get('permissionMode', '')
-                if fm_mode:
-                    self.permission_mode = fm_mode
-            # Auto-approve the agent's allowed tools via --settings permissions
-            if fm:
-                tools_str = fm.get('tools', '')
-                if tools_str:
-                    all_tools = [t.strip() for t in tools_str.split(',') if t.strip()]
-                    perms = self.settings.get('permissions', {})
-                    perms['allow'] = all_tools
-                    self.settings['permissions'] = perms
+        """Run the Claude CLI and stream output. Returns result.
 
-        # Write MCP config pointing to the shared HTTP server.
-        # The URL encodes the agent scope for per-agent tool filtering.
-        if self.lead:
-            mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
-            # TODO: support project scope — for now all agents are management
-            mcp_url = f'http://localhost:{mcp_port}/mcp/management/{self.lead}'
-            mcp_data = {'mcpServers': {'teaparty-config': {'type': 'http', 'url': mcp_url}}}
-            mcp_file = tempfile.NamedTemporaryFile(
-                mode='w', suffix='.json', prefix='mcp-', delete=False,
-            )
-            json.dump(mcp_data, mcp_file)
-            mcp_file.close()
-            self._mcp_config_file = mcp_file.name
+        All config (tools, permissions, settings, MCP) is derived by the
+        launcher and passed to ClaudeRunner via constructor parameters.
+        ClaudeRunner is the execution engine — it uses what it's given.
+        """
+        # MCP config comes from the worktree's .mcp.json, written by
+        # compose_launch_worktree with the correct scope. Claude Code
+        # reads it from cwd automatically. No --mcp-config flag needed.
 
         # Write settings to temp file
         settings_file = None
@@ -334,25 +200,6 @@ class ClaudeRunner:
                     os.unlink(settings_file.name)
                 except OSError:
                     pass
-            if self._mcp_config_file:
-                try:
-                    os.unlink(self._mcp_config_file)
-                except OSError:
-                    pass
-
-    @staticmethod
-    def _load_agent_frontmatter(agent_name: str) -> dict | None:
-        """Read an agent's frontmatter from .teaparty/ management agents."""
-        from teaparty.mcp.server.main import _resolve_teaparty_home
-        from teaparty.config.config_reader import read_agent_frontmatter
-        home = _resolve_teaparty_home()
-        if not home:
-            return None
-        agent_md = os.path.join(home, 'management', 'agents', agent_name, 'agent.md')
-        try:
-            return read_agent_frontmatter(agent_md)
-        except (FileNotFoundError, Exception):
-            return None
 
     def _build_args(self, settings_path: str | None) -> list[str]:
         args = [
@@ -397,8 +244,6 @@ class ClaudeRunner:
                 args.extend(['--add-dir', d])
         if self.resume_session:
             args.extend(['--resume', self.resume_session])
-        if self._mcp_config_file:
-            args.extend(['--mcp-config', self._mcp_config_file, '--strict-mcp-config'])
         return args
 
     # Env vars the Claude CLI needs to function.  Everything else is

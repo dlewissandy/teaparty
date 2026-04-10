@@ -265,8 +265,22 @@ class TestIterStreamEvents(unittest.TestCase):
                 f.write(json.dumps(ev) + '\n')
 
     def _iter(self, agent_role='test-agent'):
-        from teaparty.teams.office_manager import _iter_stream_events
-        return list(_iter_stream_events(self._stream_path, agent_role))
+        from teaparty.teams.stream import _classify_event
+        import json as _json
+        results = []
+        seen_tu: set[str] = set()
+        seen_tr: set[str] = set()
+        with open(self._stream_path) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    ev = _json.loads(line)
+                except (ValueError, _json.JSONDecodeError):
+                    continue
+                results.extend(_classify_event(ev, agent_role, seen_tu, seen_tr))
+        return results
 
     # ── top-level tool_use ───────────────────────────────────────────────
 

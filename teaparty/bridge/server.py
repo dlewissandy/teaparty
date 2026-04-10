@@ -29,13 +29,7 @@ from aiohttp import web
 
 from teaparty.cfa.gates.intervention_listener import make_intervention_request
 from teaparty.messaging.conversations import ConversationType, SqliteMessageBus, agent_bus_path
-from teaparty.teams.office_manager import OfficeManagerSession, read_om_session_title
-from teaparty.teams.project_manager import ProjectManagerSession, read_pm_session_title
-from teaparty.proxy.review import (
-    ProxyReviewSession,
-    read_proxy_session_title,
-)
-from teaparty.teams.config_lead import ConfigLeadSession
+from teaparty.teams.session import AgentSession, read_session_title
 from teaparty.bridge.state.reader import StateReader
 from teaparty.bridge.state.heartbeat import _heartbeat_three_state
 from teaparty.config.config_reader import (
@@ -217,17 +211,9 @@ class TeaPartyBridge:
         self._buses: dict[str, SqliteMessageBus] = {}
         # Agent buses: agent-name -> SqliteMessageBus (persistent, not session-scoped).
         self._agent_buses: dict[str, SqliteMessageBus] = {}
-        # Per-qualifier asyncio locks: queues concurrent invocations per agent type.
-        self._om_locks: dict[str, asyncio.Lock] = {}
-        self._om_sessions: dict[str, OfficeManagerSession] = {}
-        self._pm_locks: dict[str, asyncio.Lock] = {}
-        self._pm_sessions: dict[str, ProjectManagerSession] = {}
-        self._proxy_locks: dict[str, asyncio.Lock] = {}
-        self._proxy_sessions: dict[str, ProxyReviewSession] = {}
-        self._config_lead_locks: dict[str, asyncio.Lock] = {}
-        self._config_lead_sessions: dict[str, ConfigLeadSession] = {}
-        self._pl_locks: dict[str, asyncio.Lock] = {}
-        self._pl_sessions: dict[str, 'ProjectLeadSession'] = {}
+        # Per-qualifier asyncio locks and unified sessions.
+        self._agent_locks: dict[str, asyncio.Lock] = {}
+        self._agent_sessions: dict[str, AgentSession] = {}
         self._active_job_tasks: dict[str, asyncio.Task] = {}
         # StateReader uses registry-based project discovery.
         self._state_reader = StateReader(
@@ -447,8 +433,8 @@ class TeaPartyBridge:
         for name, bus in self._agent_buses.items():
             if name not in self._buses:
                 bus.close()
-        # Stop OM bus event listeners so socket servers are cleaned up.
-        for session in self._om_sessions.values():
+        # Stop bus event listeners so socket servers are cleaned up.
+        for session in self._agent_sessions.values():
             await session.stop()
 
     # ── State handlers ────────────────────────────────────────────────────────
@@ -959,10 +945,10 @@ class TeaPartyBridge:
                 d = self._serialize_conversation(c)
                 qualifier = c.id[len('om:'):] if c.id.startswith('om:') else ''
                 if qualifier:
-                    session = self._om_sessions.get(qualifier)
+                    session = self._agent_sessions.get(f'om:{qualifier}')
                     title = (
                         (session.conversation_title if session else None)
-                        or read_om_session_title(self.teaparty_home, qualifier)
+                        or read_session_title(self.teaparty_home, 'office-manager', qualifier)
                     )
                     if title:
                         d['title'] = title
@@ -979,13 +965,10 @@ class TeaPartyBridge:
                 # qualifier is '{slug}:{user}' — strip the 'pm:' prefix
                 qualifier = c.id[len('pm:'):] if c.id.startswith('pm:') else ''
                 if qualifier:
-                    session = self._pm_sessions.get(qualifier)
-                    parts = qualifier.split(':', 1)
-                    project_slug = parts[0]
-                    user_id = parts[1] if len(parts) > 1 else ''
+                    session = self._agent_sessions.get(f'pm:{qualifier}')
                     title = (
                         (session.conversation_title if session else None)
-                        or read_pm_session_title(self.teaparty_home, project_slug, user_id)
+                        or read_session_title(self.teaparty_home, 'project-manager', qualifier)
                     )
                     if title:
                         d['title'] = title
@@ -1001,10 +984,10 @@ class TeaPartyBridge:
                 d = self._serialize_conversation(c)
                 qualifier = c.id[len('proxy:'):] if c.id.startswith('proxy:') else ''
                 if qualifier:
-                    session = self._proxy_sessions.get(qualifier)
+                    session = self._agent_sessions.get(f'proxy:{qualifier}')
                     title = (
                         (session.conversation_title if session else None)
-                        or read_proxy_session_title(self.teaparty_home, qualifier)
+                        or read_session_title(self.teaparty_home, 'proxy-review', qualifier)
                     )
                     if title:
                         d['title'] = title
@@ -1187,6 +1170,65 @@ class TeaPartyBridge:
                 pass
         return ''
 
+    async def _invoke_agent(
+        self,
+        *,
+        session_key: str,
+        agent_name: str,
+        qualifier: str,
+        conversation_type: ConversationType,
+        cwd: str,
+        teaparty_home: str = '',
+        scope: str = 'management',
+        agent_role: str = '',
+        dispatches: bool = False,
+        post_invoke_hook=None,
+        build_prompt_hook=None,
+    ) -> None:
+        """Unified agent invocation — one codepath for all agent types.
+
+        Creates or reuses an AgentSession, acquires a per-qualifier lock
+        to serialize concurrent invocations, and delegates to invoke().
+
+        teaparty_home: sessions live where the work lives. Management agents
+        use the teaparty repo's .teaparty/. Project agents use the project
+        repo's .teaparty/.
+        """
+        effective_home = teaparty_home or self.teaparty_home
+
+        if session_key not in self._agent_locks:
+            self._agent_locks[session_key] = asyncio.Lock()
+        lock = self._agent_locks[session_key]
+
+        async with lock:
+            if session_key not in self._agent_sessions:
+                self._agent_sessions[session_key] = AgentSession(
+                    effective_home,
+                    agent_name=agent_name,
+                    scope=scope,
+                    qualifier=qualifier,
+                    conversation_type=conversation_type,
+                    agent_role=agent_role or agent_name,
+                    llm_backend=self._llm_backend,
+                    dispatches=dispatches,
+                    post_invoke_hook=post_invoke_hook,
+                    build_prompt_hook=build_prompt_hook,
+                )
+            session = self._agent_sessions[session_key]
+            try:
+                await session.invoke(cwd=cwd)
+            except Exception:
+                _log.exception('%s invocation failed for %r', agent_name, qualifier)
+                try:
+                    session.send_agent_message(
+                        'Sorry, I encountered an error and could not respond. '
+                        'Please try again.'
+                    )
+                except Exception:
+                    _log.exception(
+                        'Failed to write error message for %s %r', agent_name, qualifier,
+                    )
+
     async def _invoke_om(self, qualifier: str) -> None:
         """Invoke the office manager agent for the given conversation qualifier.
 
@@ -1201,31 +1243,14 @@ class TeaPartyBridge:
         On runner failure, writes an error message to the bus so the human sees
         feedback rather than silence.
         """
-        if qualifier not in self._om_locks:
-            self._om_locks[qualifier] = asyncio.Lock()
-        lock = self._om_locks[qualifier]
-
-        import time as _time
-        async with lock:
-            t_om_start = _time.monotonic()
-            if qualifier not in self._om_sessions:
-                self._om_sessions[qualifier] = OfficeManagerSession(self.teaparty_home, qualifier, llm_backend=self._llm_backend)
-            session = self._om_sessions[qualifier]
-            try:
-                await session.invoke(cwd=self._repo_root)
-                _log.info(
-                    'om_round_trip: qualifier=%r total=%.2fs',
-                    qualifier, _time.monotonic() - t_om_start,
-                )
-            except Exception:
-                _log.exception('OM invocation failed for qualifier %r', qualifier)
-                try:
-                    session.send_agent_message(
-                        'Sorry, I encountered an error and could not respond. '
-                        'Please try again.'
-                    )
-                except Exception:
-                    _log.exception('Failed to write error message to OM bus for %r', qualifier)
+        await self._invoke_agent(
+            session_key=f'om:{qualifier}',
+            agent_name='office-manager',
+            qualifier=qualifier,
+            conversation_type=ConversationType.OFFICE_MANAGER,
+            dispatches=True,
+            cwd=self._repo_root,
+        )
 
     async def _invoke_pm(self, qualifier: str) -> None:
         """Invoke the project manager agent for the given conversation qualifier.
@@ -1234,33 +1259,22 @@ class TeaPartyBridge:
         Runs as a fire-and-forget asyncio task. Concurrent invocations for the
         same qualifier queue via an asyncio.Lock.
         """
-        if qualifier not in self._pm_locks:
-            self._pm_locks[qualifier] = asyncio.Lock()
-        lock = self._pm_locks[qualifier]
-
-        async with lock:
-            if qualifier not in self._pm_sessions:
-                parts = qualifier.split(':', 1)
-                project_slug = parts[0]
-                user_id = parts[1] if len(parts) > 1 else qualifier
-                self._pm_sessions[qualifier] = ProjectManagerSession(
-                    self.teaparty_home, project_slug, user_id,
-                    llm_backend=self._llm_backend,
-                )
-            session = self._pm_sessions[qualifier]
-            try:
-                project_path = self._lookup_project_path(session.project_slug)
-                cwd = project_path if project_path is not None else self._repo_root
-                await session.invoke(cwd=cwd)
-            except Exception:
-                _log.exception('PM invocation failed for qualifier %r', qualifier)
-                try:
-                    session.send_agent_message(
-                        'Sorry, I encountered an error and could not respond. '
-                        'Please try again.'
-                    )
-                except Exception:
-                    _log.exception('Failed to write error message to PM bus for %r', qualifier)
+        parts = qualifier.split(':', 1)
+        project_slug = parts[0]
+        project_path = self._lookup_project_path(project_slug)
+        cwd = project_path if project_path is not None else self._repo_root
+        # Sessions live where the work lives: project repo's .teaparty/.
+        project_tp = os.path.join(cwd, '.teaparty') if project_path else self.teaparty_home
+        await self._invoke_agent(
+            session_key=f'pm:{qualifier}',
+            agent_name='project-manager',
+            agent_role=f'{project_slug}-project-manager',
+            qualifier=qualifier,
+            conversation_type=ConversationType.PROJECT_MANAGER,
+            teaparty_home=project_tp,
+            scope='project',
+            cwd=cwd,
+        )
 
     async def _invoke_proxy(self, qualifier: str) -> None:
         """Invoke the proxy review agent for the given conversation qualifier.
@@ -1277,25 +1291,17 @@ class TeaPartyBridge:
         On runner failure, writes an error message to the bus so the human sees
         feedback rather than silence.
         """
-        if qualifier not in self._proxy_locks:
-            self._proxy_locks[qualifier] = asyncio.Lock()
-        lock = self._proxy_locks[qualifier]
-
-        async with lock:
-            if qualifier not in self._proxy_sessions:
-                self._proxy_sessions[qualifier] = ProxyReviewSession(self.teaparty_home, qualifier, llm_backend=self._llm_backend)
-            session = self._proxy_sessions[qualifier]
-            try:
-                await session.invoke(cwd=self._repo_root)
-            except Exception:
-                _log.exception('Proxy invocation failed for qualifier %r', qualifier)
-                try:
-                    session.send_agent_message(
-                        'Sorry, I encountered an error and could not respond. '
-                        'Please try again.'
-                    )
-                except Exception:
-                    _log.exception('Failed to write error message to proxy bus for %r', qualifier)
+        from teaparty.proxy.hooks import proxy_post_invoke, proxy_build_prompt
+        await self._invoke_agent(
+            session_key=f'proxy:{qualifier}',
+            agent_name='proxy-review',
+            agent_role='proxy',
+            qualifier=qualifier,
+            conversation_type=ConversationType.PROXY_REVIEW,
+            cwd=self._repo_root,
+            post_invoke_hook=proxy_post_invoke,
+            build_prompt_hook=proxy_build_prompt,
+        )
 
     async def _invoke_config_lead(self, qualifier: str) -> None:
         """Invoke the configuration-lead agent for the given conversation qualifier.
@@ -1309,30 +1315,25 @@ class TeaPartyBridge:
         On runner failure, writes an error message to the bus so the human sees
         feedback rather than silence.
         """
-        if qualifier not in self._config_lead_locks:
-            self._config_lead_locks[qualifier] = asyncio.Lock()
-        lock = self._config_lead_locks[qualifier]
-
-        async with lock:
-            if qualifier not in self._config_lead_sessions:
-                self._config_lead_sessions[qualifier] = ConfigLeadSession(
-                    self.teaparty_home, qualifier,
-                    llm_backend=self._llm_backend,
-                )
-            session = self._config_lead_sessions[qualifier]
-            try:
-                # Determine cwd: project-scoped qualifiers run in the project directory.
-                cwd = self._cwd_for_config_qualifier(qualifier)
-                await session.invoke(cwd=cwd)
-            except Exception:
-                _log.exception('Config lead invocation failed for qualifier %r', qualifier)
-                try:
-                    session.send_agent_message(
-                        'Sorry, I encountered an error and could not respond. '
-                        'Please try again.'
-                    )
-                except Exception:
-                    _log.exception('Failed to write error message to config lead bus for %r', qualifier)
+        cwd = self._cwd_for_config_qualifier(qualifier)
+        # Config lead scope follows the qualifier: management-level work stays
+        # in the teaparty repo, project-level work uses the project repo.
+        if cwd != self._repo_root:
+            config_tp = os.path.join(cwd, '.teaparty')
+            config_scope = 'project'
+        else:
+            config_tp = self.teaparty_home
+            config_scope = 'management'
+        await self._invoke_agent(
+            session_key=f'config:{qualifier}',
+            agent_name='configuration-lead',
+            qualifier=qualifier,
+            conversation_type=ConversationType.CONFIG_LEAD,
+            teaparty_home=config_tp,
+            scope=config_scope,
+            dispatches=True,
+            cwd=cwd,
+        )
 
     async def _invoke_project_lead(self, lead_name: str, qualifier: str) -> None:
         """Invoke a project lead agent for a direct human conversation.
@@ -1341,43 +1342,20 @@ class TeaPartyBridge:
         conversation history and responds. MessageRelay picks up the reply
         and broadcasts it to WebSocket clients.
         """
-        from teaparty.teams.project_lead import ProjectLeadSession
-
         key = f'{lead_name}:{qualifier}'
-        if key not in self._pl_locks:
-            self._pl_locks[key] = asyncio.Lock()
-        lock = self._pl_locks[key]
-
-        async with lock:
-            if key not in self._pl_sessions:
-                self._pl_sessions[key] = ProjectLeadSession(
-                    self.teaparty_home, lead_name, qualifier,
-                    llm_backend=self._llm_backend,
-                )
-            session = self._pl_sessions[key]
-            try:
-                # Run in the project directory if we can resolve it.
-                from teaparty.config.roster import resolve_lead_project_path
-                project_path = resolve_lead_project_path(
-                    lead_name, self.teaparty_home,
-                )
-                cwd = project_path if project_path else self._repo_root
-                await session.invoke(cwd=cwd)
-            except Exception:
-                _log.exception(
-                    'Project lead invocation failed for %r qualifier %r',
-                    lead_name, qualifier,
-                )
-                try:
-                    session.send_agent_message(
-                        'Sorry, I encountered an error and could not respond. '
-                        'Please try again.'
-                    )
-                except Exception:
-                    _log.exception(
-                        'Failed to write error message to lead bus for %r',
-                        lead_name,
-                    )
+        from teaparty.config.roster import resolve_lead_project_path
+        project_path = resolve_lead_project_path(lead_name, self.teaparty_home)
+        cwd = project_path if project_path else self._repo_root
+        project_tp = os.path.join(cwd, '.teaparty') if project_path else self.teaparty_home
+        await self._invoke_agent(
+            session_key=f'pl:{key}',
+            agent_name=lead_name,
+            qualifier=key,
+            conversation_type=ConversationType.PROJECT_LEAD,
+            teaparty_home=project_tp,
+            scope='project',
+            cwd=cwd,
+        )
 
     def _cwd_for_config_qualifier(self, qualifier: str) -> str:
         """Resolve the working directory for a config lead invocation.

@@ -657,19 +657,24 @@ class Orchestrator:
         worktree path that must be preserved for multi-turn use.
         """
         import subprocess
-        from teaparty.cfa.agent_spawner import AgentSpawner
-        spawner = AgentSpawner(teaparty_home=self.poc_root)
-        safe_id = context_id.replace(':', '_').replace('/', '_')
-        agent_dir = os.path.join(self.infra_dir, 'agents', safe_id)
+        from teaparty.runners.launcher import launch as _launch, create_session as _create_session
 
         # Check if the recipient has a sub-roster and needs its own listener
         child_listener = None
         child_mcp_config = None
+
+        # Session = worktree (1:1). Create session, worktree inside it.
+        child_session = _create_session(
+            agent_name=member, scope='management',
+            teaparty_home=self.poc_root,
+        )
+        worktree_path = os.path.join(child_session.path, 'worktree')
+
         try:
-            from teaparty.config.roster import has_sub_roster, derive_project_roster, derive_workgroup_roster
+            from teaparty.config.roster import has_sub_roster
             if has_sub_roster(member, self.poc_root, project_dir=self.project_workdir):
                 child_listener, child_mcp_config = await self._make_child_listener(
-                    member, context_id, agent_dir,
+                    member, context_id, worktree_path,
                 )
         except Exception:
             _log.debug(
@@ -677,29 +682,27 @@ class Orchestrator:
                 member, exc_info=True,
             )
 
-        # Create a git worktree so the agent has access to project files.
-        # The worktree persists after spawn so follow-up --resume calls
-        # can reuse the same directory (Issue #383).
         wt_result = subprocess.run(
-            ['git', 'worktree', 'add', agent_dir, 'HEAD'],
+            ['git', 'worktree', 'add', worktree_path, 'HEAD'],
             cwd=self.project_workdir,
             capture_output=True, text=True,
         )
         if wt_result.returncode != 0:
             _log.warning(
                 'git worktree add failed for %s: %s — falling back to plain directory',
-                agent_dir, wt_result.stderr.strip(),
+                worktree_path, wt_result.stderr.strip(),
             )
-            os.makedirs(agent_dir, exist_ok=True)
+            os.makedirs(worktree_path, exist_ok=True)
 
+        mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
         try:
-            session_id, result_text = await spawner.spawn(
-                composite,
-                worktree=agent_dir,
-                role=member,
-                project_dir=self.project_workdir,
-                mcp_config=child_mcp_config,
-                extra_env={'CONTEXT_ID': context_id, 'AGENT_ID': member},
+            result = await _launch(
+                agent_name=member,
+                message=composite,
+                scope='management',
+                teaparty_home=self.poc_root,
+                worktree=worktree_path,
+                mcp_port=mcp_port,
             )
         except Exception:
             if child_listener:
@@ -709,7 +712,7 @@ class Orchestrator:
             if child_listener:
                 await child_listener.stop()
 
-        return (session_id, agent_dir, result_text)
+        return (result.session_id, worktree_path, '')
 
     async def _make_child_listener(
         self,
@@ -724,7 +727,7 @@ class Orchestrator:
         """
         import sys
         from teaparty.messaging.listener import BusEventListener
-        from teaparty.cfa.agent_spawner import AgentSpawner
+        from teaparty.runners.launcher import launch as _launch
         from teaparty.config.roster import (
             derive_project_roster,
             derive_workgroup_roster,
@@ -733,7 +736,6 @@ class Orchestrator:
         from teaparty.messaging.dispatcher import BusDispatcher, RoutingTable
 
         bus_db_path = os.path.join(self.infra_dir, 'messages.db')
-        spawner = AgentSpawner(teaparty_home=self.poc_root)
 
         # Determine the child's agent_id
         project_name = self.project_slug or os.path.basename(self.project_workdir)
@@ -773,23 +775,30 @@ class Orchestrator:
             child_member: str, composite: str, child_ctx_id: str,
         ) -> tuple[str, str]:
             import subprocess as _sp
-            child_safe_id = child_ctx_id.replace(':', '_').replace('/', '_')
-            child_agent_dir = os.path.join(self.infra_dir, 'agents', child_safe_id)
+            from teaparty.runners.launcher import create_session as _cs
+            # Session = worktree (1:1).
+            child_session = _cs(
+                agent_name=child_member, scope='management',
+                teaparty_home=self.poc_root,
+            )
+            child_wt = os.path.join(child_session.path, 'worktree')
             wt_result = _sp.run(
-                ['git', 'worktree', 'add', child_agent_dir, 'HEAD'],
+                ['git', 'worktree', 'add', child_wt, 'HEAD'],
                 cwd=self.project_workdir,
                 capture_output=True, text=True,
             )
             if wt_result.returncode != 0:
-                os.makedirs(child_agent_dir, exist_ok=True)
-            session_id, result_text = await spawner.spawn(
-                composite,
-                worktree=child_agent_dir,
-                role=child_member,
-                project_dir=self.project_workdir,
-                extra_env={'CONTEXT_ID': child_ctx_id, 'AGENT_ID': child_member},
+                os.makedirs(child_wt, exist_ok=True)
+            mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
+            result = await _launch(
+                agent_name=child_member,
+                message=composite,
+                scope='management',
+                teaparty_home=self.poc_root,
+                worktree=child_wt,
+                mcp_port=mcp_port,
             )
-            return (session_id, child_agent_dir, result_text)
+            return (result.session_id, child_wt, '')
 
         async def child_resume_fn(
             child_member: str, composite: str, session_id: str, child_ctx_id: str,
@@ -806,14 +815,17 @@ class Orchestrator:
                     bus.close()
             if not child_agent_dir:
                 child_agent_dir = self.project_workdir
-            session_id, _result = await spawner.spawn(
-                composite,
+            mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
+            result = await _launch(
+                agent_name=child_member,
+                message=composite,
+                scope='management',
+                teaparty_home=self.poc_root,
                 worktree=child_agent_dir,
-                role=child_member,
-                project_dir=self.project_workdir,
                 resume_session=session_id,
+                mcp_port=mcp_port,
             )
-            return session_id
+            return result.session_id
 
         async def child_reinvoke_fn(
             child_ctx_id: str, session_id: str, message: str,
@@ -870,11 +882,10 @@ class Orchestrator:
 
         Returns the session_id (unchanged — --resume reuses the existing session).
         """
-        from teaparty.cfa.agent_spawner import AgentSpawner
+        from teaparty.runners.launcher import launch as _launch
         from teaparty.messaging.conversations import SqliteMessageBus
 
         if not session_id:
-            # No prior session captured — cannot resume.
             _log.warning(
                 '_bus_resume_agent called without session_id for member %s; '
                 'cannot resume — no-op',
@@ -882,8 +893,6 @@ class Orchestrator:
             )
             return ''
 
-        # Look up the agent's original spawn worktree from the context record so
-        # that multi-turn resumes run in the same directory as the first spawn.
         agent_dir: str = ''
         bus_db_path = os.path.join(self.infra_dir, 'messages.db')
         if os.path.exists(bus_db_path) and context_id:
@@ -903,16 +912,17 @@ class Orchestrator:
             )
             agent_dir = self.session_worktree or self.project_workdir
 
-        spawner = AgentSpawner(teaparty_home=self.poc_root)
-
-        session_id_out, _result = await spawner.spawn(
-            composite,
+        mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
+        result = await _launch(
+            agent_name=member,
+            message=composite,
+            scope='management',
+            teaparty_home=self.poc_root,
             worktree=agent_dir,
-            role=member,
-            project_dir=self.project_workdir,
             resume_session=session_id,
+            mcp_port=mcp_port,
         )
-        return session_id_out
+        return result.session_id
 
     async def _cleanup_bus_agent_worktree(self, worktree_path: str) -> None:
         """Remove a bus-spawned agent worktree after its conversation closes (#383).
