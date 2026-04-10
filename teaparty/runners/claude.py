@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import shutil
 import signal
 import tempfile
 import time
@@ -56,105 +55,6 @@ class LLMRunner(Protocol):
 
     async def run(self) -> ClaudeResult: ...
 
-
-def create_runner(
-    prompt: str,
-    *,
-    cwd: str,
-    stream_file: str,
-    backend: str = 'claude',
-    **kwargs: Any,
-) -> LLMRunner:
-    """Create an LLM runner for the given backend.
-
-    Backends:
-      'claude' — ClaudeRunner (default, production)
-      'ollama' — OllamaRunner (cheap local model)
-      'deterministic' — DeterministicRunner (scripted responses for tests)
-    """
-    if backend == 'claude':
-        return ClaudeRunner(prompt, cwd=cwd, stream_file=stream_file, **kwargs)
-    elif backend == 'ollama':
-        from teaparty.runners.ollama import OllamaRunner
-        return OllamaRunner(prompt, cwd=cwd, stream_file=stream_file, **kwargs)
-    elif backend == 'deterministic':
-        from teaparty.runners.deterministic import DeterministicRunner
-        return DeterministicRunner(prompt, cwd=cwd, stream_file=stream_file, **kwargs)
-    else:
-        raise ValueError(f"Unknown LLM backend: {backend!r}")
-
-
-def populate_scoped_claude_dir(
-    target_dir: str,
-    agent_name: str,
-    source_claude_dir: str,
-    *,
-    agent_source_override: str = '',
-) -> None:
-    """Populate a ``.claude/`` directory scoped to an agent's skill allowlist.
-
-    Replaces *target_dir* with a fresh directory containing only:
-
-    - ``agents/{agent_name}.md`` — the lead agent's definition
-    - ``skills/{name}/`` — symlinks to only the skills named in the agent's
-      ``skills:`` frontmatter (omitted entirely when the allowlist is empty)
-    - ``CLAUDE.md`` — project instructions (if present in source)
-
-    Thread-safe: each call operates on its own *target_dir* path, and only
-    reads from *source_claude_dir* (no shared mutable state).
-
-    Args:
-        target_dir: Path to the ``.claude/`` directory to create/replace
-            (e.g. ``{worktree}/.claude/``).
-        agent_name: Agent name matching ``source_claude_dir/agents/{name}.md``.
-        source_claude_dir: Path to the canonical ``.claude/`` directory
-            containing the full set of agents and skills.
-        agent_source_override: If set, use this path as the agent definition
-            instead of ``source_claude_dir/agents/{name}.md``.  Allows
-            reading from ``.teaparty/`` while placing the result as a
-            ``.claude/agents/{name}.md`` file for Claude Code resolution.
-    """
-    from teaparty.config.config_reader import read_agent_frontmatter
-
-    # Start fresh so stale content from a previous invocation is gone.
-    if os.path.exists(target_dir):
-        shutil.rmtree(target_dir)
-    os.makedirs(target_dir)
-
-    # ── Agent definition (for --agent resolution) ────────────────────────
-    agent_src = agent_source_override or os.path.join(
-        source_claude_dir, 'agents', f'{agent_name}.md',
-    )
-    allowed_skills: list[str] = []
-    if os.path.isfile(agent_src):
-        agents_dir = os.path.join(target_dir, 'agents')
-        os.makedirs(agents_dir)
-        # Copy (not symlink) when using an override source so Claude Code
-        # finds a regular .md file at the expected path regardless of origin.
-        dest = os.path.join(agents_dir, f'{agent_name}.md')
-        if agent_source_override:
-            shutil.copy2(agent_src, dest)
-        else:
-            os.symlink(os.path.abspath(agent_src), dest)
-        fm = read_agent_frontmatter(agent_src)
-        allowed_skills = fm.get('skills') or []
-
-    # ── Skills — only those in the agent's allowlist ─────────────────────
-    source_skills = os.path.join(source_claude_dir, 'skills')
-    if allowed_skills and os.path.isdir(source_skills):
-        skills_dir = os.path.join(target_dir, 'skills')
-        os.makedirs(skills_dir)
-        for skill_name in allowed_skills:
-            skill_src = os.path.join(source_skills, skill_name)
-            if os.path.isdir(skill_src):
-                os.symlink(os.path.abspath(skill_src),
-                           os.path.join(skills_dir, skill_name))
-
-    # ── Project instructions apply to all agents ─────────────────────────
-    claude_md = os.path.join(source_claude_dir, 'CLAUDE.md')
-    if os.path.isfile(claude_md):
-        os.symlink(os.path.abspath(claude_md),
-                   os.path.join(target_dir, 'CLAUDE.md'))
 
 
 class ClaudeRunner:
