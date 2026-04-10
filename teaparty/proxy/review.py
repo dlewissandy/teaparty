@@ -625,7 +625,7 @@ class ProxyReviewSession:
 
         return f'{memory_context}\n\n{accuracy_context}'
 
-    async def invoke(self, *, cwd: str) -> str:
+    async def invoke(self, *, cwd: str, ws_broadcast=None) -> str:
         """Invoke the proxy-review agent to respond to the current conversation.
 
         Fresh session: sends full review prompt with history and memory context.
@@ -697,6 +697,7 @@ class ProxyReviewSession:
 
         stream_callback, events = _make_live_stream_relay(
             self._bus, self.conversation_id, 'proxy',
+            ws_broadcast=ws_broadcast,
         )
 
         try:

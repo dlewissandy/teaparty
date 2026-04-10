@@ -125,7 +125,7 @@ class ProjectLeadSession:
                 return msg.content
         return ''
 
-    async def invoke(self, *, cwd: str) -> str:
+    async def invoke(self, *, cwd: str, ws_broadcast=None) -> str:
         """Invoke the project lead agent to respond to the conversation."""
         from teaparty.runners.claude import create_runner
         from teaparty.workspace.worktree import ensure_agent_worktree
@@ -153,6 +153,7 @@ class ProjectLeadSession:
 
         stream_callback, events = _make_live_stream_relay(
             self._bus, self.conversation_id, self.lead_name,
+            ws_broadcast=ws_broadcast,
         )
 
         try:

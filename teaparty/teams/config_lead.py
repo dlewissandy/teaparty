@@ -267,7 +267,7 @@ class ConfigLeadSession:
             self._bus_listener = None
             self._bus_listener_sockets = None
 
-    async def invoke(self, *, cwd: str) -> str:
+    async def invoke(self, *, cwd: str, ws_broadcast=None) -> str:
         """Invoke the configuration-lead agent to respond to the current conversation.
 
         Fresh session: sends full conversation history.
@@ -304,6 +304,7 @@ class ConfigLeadSession:
 
         stream_callback, events = _make_live_stream_relay(
             self._bus, self.conversation_id, self.LEAD,
+            ws_broadcast=ws_broadcast,
         )
 
         try:
