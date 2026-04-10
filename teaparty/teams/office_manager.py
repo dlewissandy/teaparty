@@ -312,29 +312,17 @@ def _iter_stream_events(stream_path: str, agent_role: str):
         pass
 
 
-def _make_live_stream_relay(bus, conv_id: str, agent_role: str,
-                           ws_broadcast=None):
+def _make_live_stream_relay(bus, conv_id: str, agent_role: str):
     """Return (callback, events) for real-time streaming to the message bus.
 
     The callback processes a single stream-json event dict: writes each
-    (sender, content) pair to the bus immediately, pushes a WebSocket
-    broadcast if ws_broadcast is provided, and appends the pair to the
+    (sender, content) pair to the bus immediately and appends it to the
     events list for post-processing.
-
-    Args:
-        bus:          SqliteMessageBus for persistence.
-        conv_id:      Conversation ID for bus writes and WebSocket routing.
-        agent_role:   Sender name for assistant text events.
-        ws_broadcast: Optional async callable(event_dict) for direct
-                      WebSocket push (bypasses MessageRelay polling).
 
     Returns:
         callback: Synchronous callable(event_dict) — pass as on_stream_event.
         events:   List of (sender, content) tuples accumulated during the run.
     """
-    import asyncio
-    import time as _time
-
     seen_tool_use: set[str] = set()
     seen_tool_result: set[str] = set()
     events: list[tuple[str, str]] = []
@@ -343,21 +331,8 @@ def _make_live_stream_relay(bus, conv_id: str, agent_role: str,
         for sender, content in _classify_event(
             event, agent_role, seen_tool_use, seen_tool_result,
         ):
-            msg_id = bus.send(conv_id, sender, content)
+            bus.send(conv_id, sender, content)
             events.append((sender, content))
-            if ws_broadcast is not None:
-                try:
-                    loop = asyncio.get_running_loop()
-                    loop.create_task(ws_broadcast({
-                        'type': 'message',
-                        'id': msg_id,
-                        'conversation_id': conv_id,
-                        'sender': sender,
-                        'content': content,
-                        'timestamp': _time.time(),
-                    }))
-                except RuntimeError:
-                    pass  # No running event loop
 
     return callback, events
 
@@ -760,7 +735,7 @@ class OfficeManagerSession:
             self._bus_listener = None
             self._bus_listener_sockets = None
 
-    async def invoke(self, *, cwd: str, ws_broadcast=None) -> str:
+    async def invoke(self, *, cwd: str) -> str:
         """Invoke the office manager agent to respond to the current conversation.
 
         Loads session state (for --resume), runs claude -p as the office-manager
@@ -836,11 +811,8 @@ class OfficeManagerSession:
         mcp_env = await self._ensure_bus_listener(cwd)
 
         # Stream events to the bus in real-time as the runner produces them.
-        # When ws_broadcast is provided, events are also pushed directly to
-        # WebSocket clients, bypassing MessageRelay's poll cycle.
         stream_callback, events = _make_live_stream_relay(
             self._bus, self.conversation_id, 'office-manager',
-            ws_broadcast=ws_broadcast,
         )
 
         try:

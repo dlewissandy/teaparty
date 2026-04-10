@@ -618,13 +618,6 @@ function onWsMessage(ev) {
     match = ev.conversation_id === remapped;
   }
   if (!match) return;
-  // Deduplicate by message ID — direct WebSocket push and MessageRelay
-  // poll may both deliver the same message (issue #392).
-  if (ev.id) {
-    if (!pageState._seenMsgIds) pageState._seenMsgIds = {};
-    if (pageState._seenMsgIds[ev.id]) return;
-    pageState._seenMsgIds[ev.id] = true;
-  }
   // Skip the WS echo of messages we already showed via optimistic append.
   if (ev.sender === 'human') {
     var now = Date.now();

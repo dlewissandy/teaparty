@@ -405,8 +405,6 @@ class TeaPartyBridge:
                 except Exception:
                     pass
 
-        self._ws_broadcast = broadcast
-
         def bus_factory(infra_dir: str) -> SqliteMessageBus:
             db_path = os.path.join(infra_dir, 'messages.db')
             bus = SqliteMessageBus(db_path)
@@ -1214,10 +1212,7 @@ class TeaPartyBridge:
                 self._om_sessions[qualifier] = OfficeManagerSession(self.teaparty_home, qualifier, llm_backend=self._llm_backend)
             session = self._om_sessions[qualifier]
             try:
-                await session.invoke(
-                    cwd=self._repo_root,
-                    ws_broadcast=self._ws_broadcast,
-                )
+                await session.invoke(cwd=self._repo_root)
                 _log.info(
                     'om_round_trip: qualifier=%r total=%.2fs',
                     qualifier, _time.monotonic() - t_om_start,
@@ -1256,10 +1251,7 @@ class TeaPartyBridge:
             try:
                 project_path = self._lookup_project_path(session.project_slug)
                 cwd = project_path if project_path is not None else self._repo_root
-                await session.invoke(
-                    cwd=cwd,
-                    ws_broadcast=self._ws_broadcast,
-                )
+                await session.invoke(cwd=cwd)
             except Exception:
                 _log.exception('PM invocation failed for qualifier %r', qualifier)
                 try:
@@ -1294,10 +1286,7 @@ class TeaPartyBridge:
                 self._proxy_sessions[qualifier] = ProxyReviewSession(self.teaparty_home, qualifier, llm_backend=self._llm_backend)
             session = self._proxy_sessions[qualifier]
             try:
-                await session.invoke(
-                    cwd=self._repo_root,
-                    ws_broadcast=self._ws_broadcast,
-                )
+                await session.invoke(cwd=self._repo_root)
             except Exception:
                 _log.exception('Proxy invocation failed for qualifier %r', qualifier)
                 try:
@@ -1334,10 +1323,7 @@ class TeaPartyBridge:
             try:
                 # Determine cwd: project-scoped qualifiers run in the project directory.
                 cwd = self._cwd_for_config_qualifier(qualifier)
-                await session.invoke(
-                    cwd=cwd,
-                    ws_broadcast=self._ws_broadcast,
-                )
+                await session.invoke(cwd=cwd)
             except Exception:
                 _log.exception('Config lead invocation failed for qualifier %r', qualifier)
                 try:
@@ -1376,10 +1362,7 @@ class TeaPartyBridge:
                     lead_name, self.teaparty_home,
                 )
                 cwd = project_path if project_path else self._repo_root
-                await session.invoke(
-                    cwd=cwd,
-                    ws_broadcast=self._ws_broadcast,
-                )
+                await session.invoke(cwd=cwd)
             except Exception:
                 _log.exception(
                     'Project lead invocation failed for %r qualifier %r',
