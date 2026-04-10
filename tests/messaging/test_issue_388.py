@@ -265,7 +265,7 @@ class TestIterStreamEvents(unittest.TestCase):
                 f.write(json.dumps(ev) + '\n')
 
     def _iter(self, agent_role='test-agent'):
-        from teaparty.teams.office_manager import _iter_stream_events
+        from teaparty.teams.stream import _iter_stream_events
         return list(_iter_stream_events(self._stream_path, agent_role))
 
     # ── top-level tool_use ───────────────────────────────────────────────

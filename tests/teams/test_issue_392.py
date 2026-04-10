@@ -36,7 +36,7 @@ class TestLiveStreamRelay(unittest.TestCase):
         self._bus.close()
 
     def _get_relay(self, agent_role='office-manager'):
-        from teaparty.teams.office_manager import _make_live_stream_relay
+        from teaparty.teams.stream import _make_live_stream_relay
         return _make_live_stream_relay(self._bus, self._conv_id, agent_role)
 
     def _messages(self):

@@ -29,7 +29,7 @@ from teaparty.messaging.conversations import (
     agent_bus_path,
     make_conversation_id,
 )
-from teaparty.teams.office_manager import (
+from teaparty.teams.stream import (
     NON_CONVERSATIONAL_SENDERS,
     _extract_slug,
     _make_live_stream_relay,
