@@ -118,34 +118,12 @@ class ClaudeRunner:
         self._context_budget = ContextBudget()
 
     async def run(self) -> ClaudeResult:
-        """Run the Claude CLI and stream output. Returns result."""
-        # Configure from agent frontmatter (single source of truth).
-        if self.lead:
-            fm = self._load_agent_frontmatter(self.lead)
-            # Builtin tools → --tools flag
-            if fm and self.tools is None:
-                tools_str = fm.get('tools', '')
-                if tools_str:
-                    all_tools = {t.strip() for t in tools_str.split(',') if t.strip()}
-                    mcp_prefix = 'mcp__'
-                    builtins = [t for t in all_tools if not t.startswith(mcp_prefix)]
-                    if 'ToolSearch' not in builtins:
-                        builtins.append('ToolSearch')
-                    self.tools = ','.join(builtins)
-            # Permission mode from frontmatter
-            if fm and self.permission_mode == 'default':
-                fm_mode = fm.get('permissionMode', '')
-                if fm_mode:
-                    self.permission_mode = fm_mode
-            # Auto-approve the agent's allowed tools via --settings permissions
-            if fm:
-                tools_str = fm.get('tools', '')
-                if tools_str:
-                    all_tools = [t.strip() for t in tools_str.split(',') if t.strip()]
-                    perms = self.settings.get('permissions', {})
-                    perms['allow'] = all_tools
-                    self.settings['permissions'] = perms
+        """Run the Claude CLI and stream output. Returns result.
 
+        All config (tools, permissions, settings, MCP) is derived by the
+        launcher and passed to ClaudeRunner via constructor parameters.
+        ClaudeRunner is the execution engine — it uses what it's given.
+        """
         # MCP config comes from the worktree's .mcp.json, written by
         # compose_launch_worktree with the correct scope. Claude Code
         # reads it from cwd automatically. No --mcp-config flag needed.
@@ -222,20 +200,6 @@ class ClaudeRunner:
                     os.unlink(settings_file.name)
                 except OSError:
                     pass
-
-    @staticmethod
-    def _load_agent_frontmatter(agent_name: str) -> dict | None:
-        """Read an agent's frontmatter from .teaparty/ management agents."""
-        from teaparty.mcp.server.main import _resolve_teaparty_home
-        from teaparty.config.config_reader import read_agent_frontmatter
-        home = _resolve_teaparty_home()
-        if not home:
-            return None
-        agent_md = os.path.join(home, 'management', 'agents', agent_name, 'agent.md')
-        try:
-            return read_agent_frontmatter(agent_md)
-        except (FileNotFoundError, Exception):
-            return None
 
     def _build_args(self, settings_path: str | None) -> list[str]:
         args = [
