@@ -214,6 +214,7 @@ class AgentSession:
         async def spawn_fn(member, composite, context_id):
             import subprocess as _sp
             import time as _time
+            from teaparty.teams.stream import _classify_event
             t0 = _time.monotonic()
 
             if not _check_slot(dispatch_session):
@@ -236,12 +237,25 @@ class AgentSession:
             if wt_result.returncode != 0:
                 os.makedirs(worktree_path, exist_ok=True)
 
+            # Capture assistant text from stream events.
+            response_parts: list[str] = []
+            seen_tu: set[str] = set()
+            seen_tr: set[str] = set()
+
+            def on_event(ev: dict) -> None:
+                for sender, content in _classify_event(ev, member, seen_tu, seen_tr):
+                    if sender == member:
+                        response_parts.append(content)
+
             mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
             result = await _launch(
                 agent_name=member, message=composite,
                 scope=self.scope, teaparty_home=self.teaparty_home,
                 worktree=worktree_path, mcp_port=mcp_port,
+                on_stream_event=on_event,
             )
+
+            result_text = '\n'.join(response_parts)
 
             if result.session_id:
                 _record_child(dispatch_session,
@@ -250,7 +264,7 @@ class AgentSession:
 
             _log.info('%s spawn_fn: dispatched to %s in %.2fs',
                       self.agent_name, member, _time.monotonic() - t0)
-            return (result.session_id, worktree_path, '')
+            return (result.session_id, worktree_path, result_text)
 
         async def resume_fn(member, composite, session_id, context_id):
             agent_dir = ''
