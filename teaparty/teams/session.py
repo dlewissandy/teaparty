@@ -224,20 +224,24 @@ class AgentSession:
                 )
                 return ('', '', 'Dispatch blocked: per-agent conversation limit reached.')
 
-            agent_dir = os.path.join(infra_dir, 'agents', f'pool_{member}')
-            if not os.path.isdir(agent_dir):
-                wt_result = _sp.run(
-                    ['git', 'worktree', 'add', '--detach', agent_dir],
-                    cwd=repo_root, capture_output=True, text=True,
-                )
-                if wt_result.returncode != 0:
-                    os.makedirs(agent_dir, exist_ok=True)
+            # Session = worktree (1:1). Create session, worktree inside it.
+            child_session = _create_session(
+                agent_name=member, scope=self.scope,
+                teaparty_home=self.teaparty_home,
+            )
+            worktree_path = os.path.join(child_session.path, 'worktree')
+            wt_result = _sp.run(
+                ['git', 'worktree', 'add', '--detach', worktree_path],
+                cwd=repo_root, capture_output=True, text=True,
+            )
+            if wt_result.returncode != 0:
+                os.makedirs(worktree_path, exist_ok=True)
 
             mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
             result = await _launch(
                 agent_name=member, message=composite,
                 scope=self.scope, teaparty_home=self.teaparty_home,
-                worktree=agent_dir, mcp_port=mcp_port,
+                worktree=worktree_path, mcp_port=mcp_port,
             )
 
             if result.session_id:
@@ -247,7 +251,7 @@ class AgentSession:
 
             _log.info('%s spawn_fn: dispatched to %s in %.2fs',
                       self.agent_name, member, _time.monotonic() - t0)
-            return (result.session_id, agent_dir, '')
+            return (result.session_id, worktree_path, '')
 
         async def resume_fn(member, composite, session_id, context_id):
             agent_dir = ''
