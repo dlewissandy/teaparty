@@ -379,6 +379,14 @@ class SqliteMessageBus:
         cid = make_conversation_id(conv_type, qualifier)
         return self.get_conversation(cid)
 
+    def clear_messages(self, conversation_id: str) -> None:
+        """Delete all messages for a conversation."""
+        self._conn.execute(
+            'DELETE FROM messages WHERE conversation = ?',
+            (conversation_id,),
+        )
+        self._conn.commit()
+
     def close(self) -> None:
         self._conn.close()
 
@@ -531,6 +539,13 @@ class SqliteMessageBus:
         self._conn.execute(
             "UPDATE agent_contexts SET status = 'closed' WHERE context_id = ?",
             (context_id,),
+        )
+        self._conn.commit()
+
+    def close_all_agent_contexts(self) -> None:
+        """Close all open agent context records."""
+        self._conn.execute(
+            "UPDATE agent_contexts SET status = 'closed' WHERE status = 'open'"
         )
         self._conn.commit()
 

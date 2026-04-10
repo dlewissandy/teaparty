@@ -355,6 +355,36 @@ class AgentSession:
             'PYTHONPATH': cwd,
         }
 
+    async def _clear(self, cwd: str) -> None:
+        """Full reset: clear bus messages, stop listener, close contexts.
+
+        Called by /clear. Resets all session state so the next invocation
+        starts completely fresh with no stale history or orphaned resources.
+        """
+        # 1. Stop the bus listener (kills sockets, tears down dispatch infra)
+        await self.stop()
+
+        # 2. Close open agent context records in the infra bus DB
+        infra_dir = os.path.join(
+            self.teaparty_home, self.scope, 'agents', self.agent_name,
+        )
+        infra_db_path = os.path.join(infra_dir, 'messages.db')
+        if os.path.exists(infra_db_path):
+            infra_bus = SqliteMessageBus(infra_db_path)
+            try:
+                infra_bus.close_all_agent_contexts()
+            finally:
+                infra_bus.close()
+
+        # 3. Clear all messages from the conversation bus
+        self._bus.clear_messages(self.conversation_id)
+
+        # 4. Reset session state
+        self.claude_session_id = None
+        self._bus_context_id = None
+        self._dispatch_session = None
+        self.save_state()
+
     async def stop(self):
         """Stop the bus event listener. Call on session teardown."""
         if self._bus_listener is not None:
@@ -387,11 +417,10 @@ class AgentSession:
         t_start = _time.monotonic()
         self.load_state()
 
-        # Handle /clear
+        # Handle /clear — full reset: bus messages, listener, contexts, state
         latest = self._latest_human_message()
         if latest.strip() == '/clear':
-            self.claude_session_id = None
-            self.save_state()
+            await self._clear(cwd)
             msg = 'Session cleared.'
             self._bus.send(self.conversation_id, self.agent_role, msg)
             return msg
