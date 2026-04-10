@@ -694,7 +694,7 @@ class Orchestrator:
             )
             os.makedirs(worktree_path, exist_ok=True)
 
-        mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '8081'))
+        mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
         try:
             result = await _launch(
                 agent_name=member,
@@ -789,7 +789,7 @@ class Orchestrator:
             )
             if wt_result.returncode != 0:
                 os.makedirs(child_wt, exist_ok=True)
-            mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '8081'))
+            mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
             result = await _launch(
                 agent_name=child_member,
                 message=composite,
@@ -815,7 +815,7 @@ class Orchestrator:
                     bus.close()
             if not child_agent_dir:
                 child_agent_dir = self.project_workdir
-            mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '8081'))
+            mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
             result = await _launch(
                 agent_name=child_member,
                 message=composite,
@@ -912,7 +912,7 @@ class Orchestrator:
             )
             agent_dir = self.session_worktree or self.project_workdir
 
-        mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '8081'))
+        mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
         result = await _launch(
             agent_name=member,
             message=composite,

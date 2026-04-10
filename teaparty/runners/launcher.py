@@ -455,12 +455,10 @@ async def launch(
     if tools is None:
         tools_str = fm.get('tools', '')
         if tools_str:
-            all_tools = {t.strip() for t in tools_str.split(',') if t.strip()}
-            mcp_prefix = 'mcp__'
-            builtins = [t for t in all_tools if not t.startswith(mcp_prefix)]
-            if 'ToolSearch' not in builtins:
-                builtins.append('ToolSearch')
-            tools = ','.join(builtins)
+            all_tools = [t.strip() for t in tools_str.split(',') if t.strip()]
+            if 'ToolSearch' not in all_tools:
+                all_tools.append('ToolSearch')
+            tools = ','.join(all_tools)
 
     # Permission mode
     permission_mode = permission_mode_override or fm.get('permissionMode', 'default') or 'default'

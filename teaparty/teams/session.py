@@ -236,7 +236,7 @@ class AgentSession:
             if wt_result.returncode != 0:
                 os.makedirs(worktree_path, exist_ok=True)
 
-            mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '8081'))
+            mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
             result = await _launch(
                 agent_name=member, message=composite,
                 scope=self.scope, teaparty_home=self.teaparty_home,
@@ -265,7 +265,7 @@ class AgentSession:
             if not agent_dir:
                 agent_dir = repo_root
 
-            mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '8081'))
+            mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
             result = await _launch(
                 agent_name=member, message=composite,
                 scope=self.scope, teaparty_home=self.teaparty_home,
@@ -416,7 +416,7 @@ class AgentSession:
         # We read the slug from that same file after launch completes.
         stream_path = os.path.join(effective_cwd, '.stream.jsonl')
 
-        mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '8081'))
+        mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
 
         result = await launch(
             agent_name=self.agent_name,
