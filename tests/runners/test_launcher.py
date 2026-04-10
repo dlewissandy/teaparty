@@ -207,10 +207,11 @@ class TestProductionCommand(_TempDirMixin, unittest.TestCase):
         finally:
             del os.environ['CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS']
 
-    def test_mcp_from_worktree_not_cli_flag(self):
-        """MCP config must come from .mcp.json in the worktree, NOT from
-        --mcp-config CLI flag. The launcher composes .mcp.json; Claude Code
-        reads it from cwd."""
+    def test_mcp_config_passed_via_cli_flag(self):
+        """--mcp-config must point to the composed .mcp.json in the worktree.
+
+        --setting-sources user prevents Claude Code from reading project-level
+        .mcp.json automatically, so it must be passed explicitly."""
         import asyncio
         run = self._capture_subprocess_args()
         captured = asyncio.run(run(mcp_port=9000))
@@ -222,9 +223,10 @@ class TestProductionCommand(_TempDirMixin, unittest.TestCase):
             mcp = json.load(f)
         self.assertIn('/mcp/management/test-agent',
                        mcp['mcpServers']['teaparty-config']['url'])
-        # --mcp-config should NOT be in the CLI args
-        self.assertNotIn('--mcp-config', cmd,
-                         'MCP config comes from worktree .mcp.json, not --mcp-config flag')
+        # --mcp-config must be in the CLI args (--setting-sources user blocks
+        # project-level discovery, so we must pass it explicitly)
+        idx = cmd.index('--mcp-config')
+        self.assertEqual(cmd[idx + 1], mcp_path)
 
 
 # ── 3. Worktree composition ─────────────────────────────────────────────────

@@ -244,6 +244,11 @@ class ClaudeRunner:
                 args.extend(['--add-dir', d])
         if self.resume_session:
             args.extend(['--resume', self.resume_session])
+        # --setting-sources user prevents Claude Code from reading
+        # project-level .mcp.json.  Pass it explicitly via --mcp-config.
+        mcp_path = os.path.join(self.cwd, '.mcp.json')
+        if os.path.isfile(mcp_path):
+            args.extend(['--mcp-config', mcp_path])
         return args
 
     # Env vars the Claude CLI needs to function.  Everything else is
