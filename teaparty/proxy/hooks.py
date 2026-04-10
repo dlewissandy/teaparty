@@ -4,7 +4,7 @@ These hooks plug into AgentSession's post_invoke_hook and build_prompt_hook
 to give the proxy agent its distinguishing behavior: correction processing
 and memory-context prompt building.
 
-Extracted from the deleted ProxyReviewSession (Issue #394).
+Issue #394.
 """
 from __future__ import annotations
 
