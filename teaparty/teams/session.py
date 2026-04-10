@@ -215,6 +215,7 @@ class AgentSession:
             import subprocess as _sp
             import time as _time
             from teaparty.teams.stream import _classify_event
+            from teaparty.mcp.registry import register_spawn_fn as _register
             t0 = _time.monotonic()
 
             if not _check_slot(dispatch_session):
@@ -236,6 +237,17 @@ class AgentSession:
             )
             if wt_result.returncode != 0:
                 os.makedirs(worktree_path, exist_ok=True)
+
+            # If the child agent dispatches (has a sub-roster), register
+            # a spawn_fn for it so its Send MCP calls can route through
+            # the same in-process registry.  This is recursive — the
+            # child's spawn_fn is structurally identical to ours.
+            try:
+                from teaparty.config.roster import has_sub_roster
+                if has_sub_roster(member, self.teaparty_home):
+                    _register(member, spawn_fn)
+            except Exception:
+                _log.debug('Sub-roster check failed for %s', member, exc_info=True)
 
             # Capture assistant text from stream events.
             response_parts: list[str] = []
