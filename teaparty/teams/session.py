@@ -206,9 +206,6 @@ class AgentSession:
         repo_root = os.path.dirname(self.teaparty_home)
 
         if self._dispatch_session is None:
-            # Use the agent's named session — not a throwaway.
-            # This is the same session whose metadata.json the dispatch
-            # tree reads to discover children.
             from teaparty.runners.launcher import load_session as _load_session
             stable_id = f'{self.agent_name}-{self.qualifier}'
             try:
@@ -223,19 +220,34 @@ class AgentSession:
                     teaparty_home=self.teaparty_home,
                     session_id=stable_id,
                 )
-        dispatch_session = self._dispatch_session
+
+        # Map agent_name → session for hierarchical dispatch recording.
+        # When a child agent dispatches, spawn_fn looks up the child's
+        # session here to record grandchildren in the right conversation_map.
+        session_registry: dict[str, object] = {
+            self.agent_name: self._dispatch_session,
+        }
 
         async def spawn_fn(member, composite, context_id):
             import subprocess as _sp
             import time as _time
             from teaparty.teams.stream import _classify_event
-            from teaparty.mcp.registry import register_spawn_fn as _register
+            from teaparty.mcp.registry import (
+                register_spawn_fn as _register,
+                current_agent_name as _current_agent_var,
+            )
             t0 = _time.monotonic()
 
-            if not _check_slot(dispatch_session):
+            # Determine which agent is dispatching. Look up its session
+            # in the registry so children are recorded in the right map.
+            dispatcher = _current_agent_var.get('') or self.agent_name
+            dispatcher_session = session_registry.get(
+                dispatcher, self._dispatch_session)
+
+            if not _check_slot(dispatcher_session):
                 _log.warning(
                     '%s spawn_fn: at conversation limit, blocking dispatch to %s',
-                    self.agent_name, member,
+                    dispatcher, member,
                 )
                 return ('', '', 'Dispatch blocked: per-agent conversation limit reached.')
 
@@ -252,10 +264,13 @@ class AgentSession:
             if wt_result.returncode != 0:
                 os.makedirs(worktree_path, exist_ok=True)
 
+            # Register the child's session so its dispatches are recorded
+            # in its own conversation_map (not the parent's).
+            session_registry[member] = child_session
+
             # If the child agent dispatches (has a sub-roster), register
-            # a spawn_fn for it so its Send MCP calls can route through
-            # the same in-process registry.  This is recursive — the
-            # child's spawn_fn is structurally identical to ours.
+            # the same spawn_fn for it. The session_registry ensures each
+            # agent's children are recorded in the right session.
             try:
                 from teaparty.config.roster import has_sub_roster
                 if has_sub_roster(member, self.teaparty_home):
@@ -284,11 +299,9 @@ class AgentSession:
             result_text = '\n'.join(response_parts)
 
             if result.session_id:
-                # Update child session's claude_session_id so the dispatch
-                # tree can resolve the UUID → directory mapping.
                 child_session.claude_session_id = result.session_id
                 _save_meta(child_session)
-                _record_child(dispatch_session,
+                _record_child(dispatcher_session,
                               request_id=context_id,
                               child_session_id=result.session_id)
 
