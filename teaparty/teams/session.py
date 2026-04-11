@@ -232,26 +232,24 @@ class AgentSession:
         async def spawn_fn(member, composite, context_id):
             import subprocess as _sp
             import time as _time
+            import asyncio as _asyncio
             from teaparty.teams.stream import _classify_event
             from teaparty.mcp.registry import (
                 register_spawn_fn as _register,
                 current_session_id as _current_session_var,
             )
-            t0 = _time.monotonic()
 
-            # Determine which session is dispatching. The MCP middleware
-            # sets current_session_id from the URL path — unique per
-            # instance even for parallel instances of the same agent.
+            # Determine which session is dispatching.
             caller_sid = _current_session_var.get('')
             dispatcher_session = session_registry.get(
                 caller_sid, self._dispatch_session)
 
             if not _check_slot(dispatcher_session):
                 _log.warning(
-                    '%s spawn_fn: at conversation limit, blocking dispatch to %s',
-                    dispatcher, member,
+                    '%s spawn_fn: at conversation limit, dispatch to %s blocked',
+                    self.agent_name, member,
                 )
-                return ('', '', 'Dispatch blocked: per-agent conversation limit reached.')
+                return ('', '', '')
 
             # Session = worktree (1:1). Create session, worktree inside it.
             child_session = _create_session(
@@ -266,17 +264,17 @@ class AgentSession:
             if wt_result.returncode != 0:
                 os.makedirs(worktree_path, exist_ok=True)
 
-            # Register the child's session by its session_id so its
-            # dispatches are recorded in its own conversation_map.
+            # Register the child's session so its dispatches are recorded
+            # in its own conversation_map.
             session_registry[child_session.id] = child_session
 
-            # Record the child in the dispatcher's conversation_map NOW
-            # (before launch) so the accordion shows it while running.
+            # Record in dispatcher's conversation_map so the accordion
+            # shows the child while running.
+            child_conv_id = f'dispatch:{child_session.id}'
             _record_child(dispatcher_session,
                           request_id=context_id,
                           child_session_id=child_session.id)
 
-            # Emit dispatch_started event for the dashboard accordion.
             if self._on_dispatch:
                 self._on_dispatch({
                     'type': 'dispatch_started',
@@ -285,9 +283,7 @@ class AgentSession:
                     'agent_name': member,
                 })
 
-            # If the child agent dispatches (has a sub-roster), register
-            # the same spawn_fn for it. The session_registry ensures each
-            # agent's children are recorded in the right session.
+            # If the child can dispatch, register the same spawn_fn.
             try:
                 from teaparty.config.roster import has_sub_roster
                 if has_sub_roster(member, self.teaparty_home):
@@ -295,59 +291,61 @@ class AgentSession:
             except Exception:
                 _log.debug('Sub-roster check failed for %s', member, exc_info=True)
 
-            # Write the dispatch request to the bus so it's visible in the
-            # child's chat section.
-            child_conv_id = f'dispatch:{child_session.id}'
+            # Write the parent's request to the bus (visible in child chat).
             self._bus.send(child_conv_id, self.agent_name, composite)
 
-            # Capture assistant text from stream events and write them to
-            # the bus under the child's conversation_id.
-            response_parts: list[str] = []
-            seen_tu: set[str] = set()
-            seen_tr: set[str] = set()
+            # ── Launch the child as a background task ────────────────────
+            # Send returns immediately with the conversation handle.
+            # The child runs asynchronously; its response is written to
+            # the parent's bus when it completes.
 
-            def on_event(ev: dict) -> None:
-                for sender, content in _classify_event(ev, member, seen_tu, seen_tr):
-                    if sender == member:
-                        response_parts.append(content)
-                    # Write classified events to bus for the child chat section.
-                    # Skip tool_result — these are internal plumbing (Send/Reply
-                    # return values) that appear twice in the stream and aren't
-                    # conversational content.
-                    if content and sender != 'tool_result':
-                        self._bus.send(child_conv_id, sender, content)
+            async def _run_child():
+                t0 = _time.monotonic()
+                seen_tu: set[str] = set()
+                seen_tr: set[str] = set()
 
-            mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
-            result = await _launch(
-                agent_name=member, message=composite,
-                scope=self.scope, teaparty_home=self.teaparty_home,
-                worktree=worktree_path, mcp_port=mcp_port,
-                session_id=child_session.id,
-                on_stream_event=on_event,
-            )
+                def on_event(ev: dict) -> None:
+                    for sender, content in _classify_event(ev, member, seen_tu, seen_tr):
+                        if content and sender != 'tool_result':
+                            self._bus.send(child_conv_id, sender, content)
 
-            result_text = '\n'.join(response_parts)
+                mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
+                try:
+                    result = await _launch(
+                        agent_name=member, message=composite,
+                        scope=self.scope, teaparty_home=self.teaparty_home,
+                        worktree=worktree_path, mcp_port=mcp_port,
+                        session_id=child_session.id,
+                        on_stream_event=on_event,
+                    )
 
-            if result.session_id:
-                child_session.claude_session_id = result.session_id
-                _save_meta(child_session)
+                    if result.session_id:
+                        child_session.claude_session_id = result.session_id
+                        _save_meta(child_session)
 
-            # Child completed — remove from dispatcher's conversation_map.
-            # Frees the slot and removes the section from the accordion.
-            _remove_child(dispatcher_session, request_id=context_id)
+                except Exception:
+                    _log.exception('Child %s failed', member)
 
-            # Emit dispatch_completed event for the dashboard accordion.
-            if self._on_dispatch:
-                self._on_dispatch({
-                    'type': 'dispatch_completed',
-                    'parent_session_id': dispatcher_session.id,
-                    'child_session_id': child_session.id,
-                    'agent_name': member,
-                })
+                # Child finished — write its response to the parent's bus
+                # under the same conversation_id. The parent owns the
+                # conversation lifecycle and must close it explicitly.
+                if self._on_dispatch:
+                    self._on_dispatch({
+                        'type': 'dispatch_completed',
+                        'parent_session_id': dispatcher_session.id,
+                        'child_session_id': child_session.id,
+                        'agent_name': member,
+                    })
 
-            _log.info('%s spawn_fn: dispatched to %s in %.2fs',
-                      self.agent_name, member, _time.monotonic() - t0)
-            return (result.session_id, worktree_path, result_text)
+                _log.info('%s spawn_fn: %s completed in %.2fs',
+                          self.agent_name, member, _time.monotonic() - t0)
+
+            _asyncio.create_task(_run_child())
+
+            # Return immediately — child runs in background.
+            _log.info('%s spawn_fn: dispatched to %s (async)',
+                      self.agent_name, member)
+            return (child_session.id, worktree_path, '')
 
         async def resume_fn(member, composite, session_id, context_id):
             agent_dir = ''

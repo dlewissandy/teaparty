@@ -102,12 +102,19 @@ async def _default_send_post(member: str, composite: str, context_id: str) -> st
         t0 = _time.monotonic()
         try:
             session_id, worktree, result_text = await spawn_fn(member, composite, context_id)
-            _send_log.info('send_registry: member=%r total=%.2fs result_len=%d',
-                           member, _time.monotonic() - t0, len(result_text))
+            if not session_id:
+                _send_log.warning('send_registry: member=%r slot limit reached', member)
+                return json.dumps({
+                    'status': 'failed',
+                    'reason': 'You already have three open conversations. '
+                              'Wait for them to complete or use CloseConversation.',
+                })
+            conv_id = f'dispatch:{session_id}'
+            _send_log.info('send_registry: member=%r conv=%s elapsed=%.2fs',
+                           member, conv_id, _time.monotonic() - t0)
             return json.dumps({
-                'status': 'ok',
-                'context_id': context_id,
-                'result': result_text,
+                'status': 'message_sent',
+                'conversation_id': conv_id,
             })
         except Exception as exc:
             _send_log.warning('send_registry failed for %r: %s', member, exc)
