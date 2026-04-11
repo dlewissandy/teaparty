@@ -73,6 +73,19 @@
     width: 6px; height: 6px; border-radius: 50%; background: var(--red);
     animation: pulse 1.5s infinite;
   }
+
+  /* Accordion sections in the blade */
+  .accord-section { display: flex; flex-direction: column; }
+  .accord-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 10px; cursor: pointer; border-bottom: 1px solid var(--border);
+    background: var(--surface); transition: background 0.15s;
+    gap: 6px; min-height: 24px;
+  }
+  .accord-header:hover { background: rgba(78,204,163,0.05); }
+  .accord-header.expanded { background: var(--surface2); border-left: 2px solid var(--green); }
+  .accord-label { font-size: 10px; font-weight: 600; color: var(--text); text-transform: capitalize; }
+  .accord-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 </style>
 </head>
 <body>
@@ -83,7 +96,7 @@
   <div class="blade-tab" onclick="toggleBlade()">OM</div>
   <div class="blade-body">
     <div class="blade-header"><span class="blade-title" id="blade-title">Office Manager</span><button class="blade-close" onclick="toggleBlade()">&#215;</button></div>
-    <iframe id="blade-iframe" src="about:blank" style="flex:1;width:100%;border:none;display:block;min-height:0"></iframe>
+    <div id="dispatch-accordion" style="flex:1;display:flex;flex-direction:column;overflow:hidden"></div>
   </div>
 </div>
 </div>
@@ -126,18 +139,99 @@ function toggleBlade() {
   var el = document.getElementById('blade');
   if (_bladeOpen) {
     el.classList.add('open');
-    _updateBladeIframe();
+    _updateAccordion();
   } else {
     el.classList.remove('open');
   }
 }
 
-function _updateBladeIframe() {
+// ── Accordion state ─────────────────────────────────────────────────────────
+var _accordionExpanded = null;  // session_id of the currently expanded section
+var _dispatchTree = null;       // last fetched tree
+
+function _updateAccordion() {
   if (!_bladeOpen) return;
-  var convId = pageState.omConvId;
-  if (!convId) return;
-  var iframe = document.getElementById('blade-iframe');
-  if (iframe) iframe.src = 'chat.html?conv=' + encodeURIComponent(convId) + '&minimal=1';
+  var omSessionId = pageState.omSessionId;
+  if (!omSessionId) return;
+  fetch('/api/dispatch-tree/' + encodeURIComponent(omSessionId))
+    .then(function(r) { return r.ok ? r.json() : null; })
+    .then(function(tree) {
+      if (!tree) return;
+      _dispatchTree = tree;
+      if (!_accordionExpanded) _accordionExpanded = tree.session_id;
+      _renderAccordion();
+    })
+    .catch(function() {});
+}
+
+function _renderAccordion() {
+  var container = document.getElementById('dispatch-accordion');
+  if (!container || !_dispatchTree) return;
+  container.innerHTML = _renderNode(_dispatchTree, 0);
+}
+
+function _renderNode(node, depth) {
+  var isExpanded = (_accordionExpanded === node.session_id);
+  var indent = depth * 16;
+  var statusCls = node.status === 'active' ? 'badge-active' : 'badge-idle';
+  var agentLabel = node.agent_name.replace(/-/g, ' ');
+  // Capitalize first letter
+  agentLabel = agentLabel.charAt(0).toUpperCase() + agentLabel.slice(1);
+
+  var html = '';
+  // Section header (always visible)
+  html += '<div class="accord-section" data-session="' + node.session_id + '" style="margin-left:' + indent + 'px">';
+  html += '<div class="accord-header' + (isExpanded ? ' expanded' : '') + '" onclick="accordionToggle(\'' + node.session_id + '\')">';
+  html += '<span class="accord-label">' + agentLabel + '</span>';
+  html += '<span class="item-badge ' + statusCls + '" style="font-size:7px">' + node.status + '</span>';
+  html += '</div>';
+
+  // Expanded content (iframe with chat)
+  if (isExpanded) {
+    var convId = node.conversation_id || ('session:' + node.session_id);
+    html += '<div class="accord-body">';
+    html += '<iframe src="chat.html?conv=' + encodeURIComponent(convId) + '&minimal=1" style="width:100%;height:100%;border:none;display:block"></iframe>';
+    html += '</div>';
+  }
+  html += '</div>';
+
+  // Children (rendered after this section, at greater depth)
+  if (node.children && node.children.length > 0) {
+    for (var i = 0; i < node.children.length; i++) {
+      html += _renderNode(node.children[i], depth + 1);
+    }
+  }
+  return html;
+}
+
+function accordionToggle(sessionId) {
+  _accordionExpanded = sessionId;
+  _renderAccordion();
+}
+
+// When a session completes, remove it and expand the one above
+function _handleSessionRemoval(sessionId) {
+  if (!_dispatchTree) return;
+  var flat = _flattenTree(_dispatchTree);
+  var idx = -1;
+  for (var i = 0; i < flat.length; i++) {
+    if (flat[i].session_id === sessionId) { idx = i; break; }
+  }
+  if (idx >= 0 && _accordionExpanded === sessionId) {
+    // Expand the section above (previous sibling or parent)
+    _accordionExpanded = idx > 0 ? flat[idx - 1].session_id : flat[0].session_id;
+  }
+  _updateAccordion();
+}
+
+function _flattenTree(node) {
+  var result = [node];
+  if (node.children) {
+    for (var i = 0; i < node.children.length; i++) {
+      result = result.concat(_flattenTree(node.children[i]));
+    }
+  }
+  return result;
 }
 
 if (localStorage.getItem('bladeOpen') === '1') {
@@ -282,7 +376,7 @@ function renderWorkflow(phaseIdx, large, needsInput) {
 
 // Page state: updated by fetchAll() and WebSocket events.
 // escalationConvMap: session_id → conversation_id from input_requested events.
-var pageState = { projects: [], configs: {}, omConvId: 'om:darrell', escalationConvMap: {} };
+var pageState = { projects: [], configs: {}, omConvId: 'om:darrell', omSessionId: 'office-manager-darrell', escalationConvMap: {} };
 
 function fetchAll() {
   Promise.all([
@@ -293,7 +387,10 @@ function fetchAll() {
     var omConvs = results[1] || [];
     if (omConvs.length > 0) {
       pageState.omConvId = omConvs[0].id;
-      _updateBladeIframe();
+      // Derive session_id: om:{qualifier} → office-manager-{qualifier}
+      var qualifier = omConvs[0].id.replace(/^om:/, '');
+      pageState.omSessionId = 'office-manager-' + qualifier;
+      _updateAccordion();
     }
     var configFetches = pageState.projects.map(function(p) {
       return fetch('/api/config/' + encodeURIComponent(p.slug))
@@ -454,6 +551,7 @@ function connectWS() {
       } else if (event.type === 'session_completed') {
         // Session is done — its escalation no longer requires a response.
         delete pageState.escalationConvMap[event.session_id];
+        _handleSessionRemoval(event.session_id);
         fetchAll();
       }
     } catch (err) {}
@@ -493,6 +591,8 @@ function onStateChanged(sessionId, phase, cfaState) {
       }
     });
   });
+  // Refresh accordion — new dispatches may have appeared
+  _updateAccordion();
 }
 
 // Add escalation dot to a session row on input_requested.

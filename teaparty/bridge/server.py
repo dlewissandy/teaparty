@@ -288,6 +288,7 @@ class TeaPartyBridge:
 
         # ── Task endpoints ───────────────────────────────────────────────────
         app.router.add_get('/api/sessions/{session_id}/tasks', self._handle_session_tasks)
+        app.router.add_get('/api/dispatch-tree/{session_id}', self._handle_dispatch_tree)
 
         # ── Action endpoints ──────────────────────────────────────────────────
         app.router.add_post('/api/jobs', self._handle_create_job)
@@ -1851,6 +1852,19 @@ class TeaPartyBridge:
                 {'error': f'project not found: {project_slug}'}, status=404)
         tasks = self._list_session_tasks(project_path, session_id)
         return web.json_response(tasks)
+
+    async def _handle_dispatch_tree(self, request: web.Request) -> web.Response:
+        """Return the dispatch tree rooted at a session.
+
+        GET /api/dispatch-tree/{session_id}
+        Returns a nested tree of dispatched conversations with their status.
+        """
+        session_id = request.match_info['session_id']
+        from teaparty.bridge.state.dispatch_tree import build_dispatch_tree
+        sessions_dir = os.path.join(
+            self._teaparty_home, 'management', 'sessions')
+        tree = build_dispatch_tree(sessions_dir, session_id)
+        return web.json_response(tree)
 
     async def _handle_create_job(self, request: web.Request) -> web.Response:
         """Create a new CfA session for a project.
