@@ -227,7 +227,7 @@ function _renderNode(node, depth) {
   if (isExpanded) {
     var convId = node.conversation_id || ('session:' + node.session_id);
     html += '<div class="accord-body">';
-    html += '<iframe src="chat.html?conv=' + encodeURIComponent(convId) + '&minimal=1" style="width:100%;flex:1;border:none;display:block;min-height:0"></iframe>';
+    html += '<iframe src="chat.html?conv=' + encodeURIComponent(convId) + '&minimal=1&_t=' + Date.now() + '" style="width:100%;flex:1;border:none;display:block;min-height:0"></iframe>';
     html += '</div>';
   }
   html += '</div>';
