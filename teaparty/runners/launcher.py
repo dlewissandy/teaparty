@@ -81,6 +81,7 @@ def compose_launch_worktree(
     scope: str,
     teaparty_home: str,
     mcp_port: int = 0,
+    session_id: str = '',
 ) -> None:
     """Compose the .claude/ directory in a worktree for an agent launch.
 
@@ -150,7 +151,10 @@ def compose_launch_worktree(
 
     # ── MCP config ───────────────────────────────────────────────────────
     if mcp_port:
-        mcp_url = f'http://localhost:{mcp_port}/mcp/{scope}/{agent_name}'
+        if session_id:
+            mcp_url = f'http://localhost:{mcp_port}/mcp/{scope}/{agent_name}/{session_id}'
+        else:
+            mcp_url = f'http://localhost:{mcp_port}/mcp/{scope}/{agent_name}'
         mcp_data = {
             'mcpServers': {
                 'teaparty-config': {
@@ -441,6 +445,7 @@ async def launch(
             scope=scope,
             teaparty_home=teaparty_home,
             mcp_port=mcp_port,
+            session_id=session_id,
         )
 
     # Read agent frontmatter for tools and permission mode

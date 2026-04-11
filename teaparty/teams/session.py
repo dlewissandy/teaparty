@@ -221,12 +221,11 @@ class AgentSession:
                     session_id=stable_id,
                 )
 
-        # Map agent_name → session for hierarchical dispatch recording.
+        # Map session_id → session for hierarchical dispatch recording.
         # When a child agent dispatches, spawn_fn looks up the child's
-        # session here to record grandchildren in the right conversation_map.
-        session_registry: dict[str, object] = {
-            self.agent_name: self._dispatch_session,
-        }
+        # session by the session_id from the MCP contextvar (unique per
+        # instance, even for parallel instances of the same agent).
+        session_registry: dict[str, object] = {}
 
         async def spawn_fn(member, composite, context_id):
             import subprocess as _sp
@@ -234,15 +233,16 @@ class AgentSession:
             from teaparty.teams.stream import _classify_event
             from teaparty.mcp.registry import (
                 register_spawn_fn as _register,
-                current_agent_name as _current_agent_var,
+                current_session_id as _current_session_var,
             )
             t0 = _time.monotonic()
 
-            # Determine which agent is dispatching. Look up its session
-            # in the registry so children are recorded in the right map.
-            dispatcher = _current_agent_var.get('') or self.agent_name
+            # Determine which session is dispatching. The MCP middleware
+            # sets current_session_id from the URL path — unique per
+            # instance even for parallel instances of the same agent.
+            caller_sid = _current_session_var.get('')
             dispatcher_session = session_registry.get(
-                dispatcher, self._dispatch_session)
+                caller_sid, self._dispatch_session)
 
             if not _check_slot(dispatcher_session):
                 _log.warning(
@@ -264,9 +264,9 @@ class AgentSession:
             if wt_result.returncode != 0:
                 os.makedirs(worktree_path, exist_ok=True)
 
-            # Register the child's session so its dispatches are recorded
-            # in its own conversation_map (not the parent's).
-            session_registry[member] = child_session
+            # Register the child's session by its session_id so its
+            # dispatches are recorded in its own conversation_map.
+            session_registry[child_session.id] = child_session
 
             # If the child agent dispatches (has a sub-roster), register
             # the same spawn_fn for it. The session_registry ensures each
@@ -293,6 +293,7 @@ class AgentSession:
                 agent_name=member, message=composite,
                 scope=self.scope, teaparty_home=self.teaparty_home,
                 worktree=worktree_path, mcp_port=mcp_port,
+                session_id=child_session.id,
                 on_stream_event=on_event,
             )
 

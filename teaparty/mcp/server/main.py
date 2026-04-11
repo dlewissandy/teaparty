@@ -1035,9 +1035,11 @@ def create_http_app(port: int = 8082):
         original_path = scope.get('path', '')
         parts = original_path.strip('/').split('/')
 
-        # Parse agent scope from path
+        # Parse agent scope from path:
+        #   /mcp/{scope}/{agent}              — legacy (no session)
+        #   /mcp/{scope}/{agent}/{session_id} — per-instance
         agent_info = None
-        if len(parts) == 3 and parts[0] == 'mcp':
+        if len(parts) >= 3 and parts[0] == 'mcp':
             agent_info = (parts[1], parts[2])
 
         # Rewrite path to /mcp for the FastMCP app
@@ -1053,8 +1055,11 @@ def create_http_app(port: int = 8082):
         cache_key = f'{scope_name}/{agent_name}'
 
         # Set the agent context so tool handlers know who's calling
-        from teaparty.mcp.registry import current_agent_name
+        from teaparty.mcp.registry import current_agent_name, current_session_id
         current_agent_name.set(agent_name)
+        # Session ID present in 4-part paths: /mcp/{scope}/{agent}/{session_id}
+        if len(parts) >= 4:
+            current_session_id.set(parts[3])
 
         # Load allowlist
         if cache_key not in _allowlist_cache:

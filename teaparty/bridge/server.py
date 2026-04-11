@@ -307,6 +307,7 @@ class TeaPartyBridge:
         # ── MCP server (shared, per-agent filtering) ─────────────────────────
         app.router.add_route('*', '/mcp', self._handle_mcp)
         app.router.add_route('*', '/mcp/{scope}/{agent}', self._handle_mcp)
+        app.router.add_route('*', '/mcp/{scope}/{agent}/{session_id}', self._handle_mcp)
 
         # ── Static files ──────────────────────────────────────────────────────
         if not os.path.isdir(self.static_dir):

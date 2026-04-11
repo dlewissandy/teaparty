@@ -20,6 +20,9 @@ _log = logging.getLogger('teaparty.mcp.registry')
 current_agent_name: contextvars.ContextVar[str] = contextvars.ContextVar(
     'current_agent_name', default='',
 )
+current_session_id: contextvars.ContextVar[str] = contextvars.ContextVar(
+    'current_session_id', default='',
+)
 
 # {agent_name: spawn_fn}
 # spawn_fn(member, composite, context_id) -> (session_id, worktree, result)
