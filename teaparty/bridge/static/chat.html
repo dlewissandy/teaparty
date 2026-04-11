@@ -26,7 +26,7 @@
 </head>
 <body>
 
-<div class="breadcrumb-bar" style="padding:6px 12px"><a href="index.html">Home</a></div>
+<div class="breadcrumb-bar" id="breadcrumb-bar" style="padding:6px 12px"><a href="index.html">Home</a></div>
 <div id="content" class="app-pane active"></div>
 
 <div id="withdraw-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:100;justify-content:center;align-items:center">
@@ -571,7 +571,10 @@ function renderMainArea(navHtml, headerTitle, headerScope, headerActions) {
     'style="background:transparent;border:1px solid var(--border);color:var(--text-dim);' +
     'padding:3px 10px;border-radius:3px;cursor:pointer;font-family:inherit;font-size:9px">Copy</button>';
 
-  if (minimal) document.getElementById('content').style.padding = '0';
+  if (minimal) {
+    document.getElementById('content').style.padding = '0';
+    document.getElementById('breadcrumb-bar').style.display = 'none';
+  }
   document.getElementById('content').innerHTML =
     '<div class="chat-layout">' + navHtml +
     '<div class="chat-main">' +
@@ -582,7 +585,7 @@ function renderMainArea(navHtml, headerTitle, headerScope, headerActions) {
     '<div class="chat-header-scope">' + headerScope + '</div></div>' +
     '<div style="display:flex;gap:6px;align-items:center">' + copyBtn + headerActions + '</div>' +
     '</div>' +
-    '<div class="chat-filters"' + (minimal ? ' style="display:none"' : '') + '>' + filterRow + '</div>' +
+    (minimal ? '' : '<div class="chat-filters">' + filterRow + '</div>') +
     '<div class="chat-messages"></div>' +
     '<div class="chat-input-area">' +
     '<textarea rows="1" placeholder="Type a message..." onkeydown="chatKeydown(event)" oninput="autoGrow(this)"></textarea>' +
