@@ -68,6 +68,7 @@ class AgentSession:
         dispatches: bool = False,
         post_invoke_hook: PostInvokeHook | None = None,
         build_prompt_hook: BuildPromptHook | None = None,
+        on_dispatch: Callable[[dict], Any] | None = None,
     ):
         self.teaparty_home = os.path.expanduser(teaparty_home)
         self.agent_name = agent_name
@@ -78,6 +79,7 @@ class AgentSession:
         self._dispatches = dispatches
         self._post_invoke_hook = post_invoke_hook
         self._build_prompt_hook = build_prompt_hook
+        self._on_dispatch = on_dispatch
 
         self.conversation_id = make_conversation_id(conversation_type, qualifier)
         self.claude_session_id: str | None = None
@@ -274,6 +276,15 @@ class AgentSession:
                           request_id=context_id,
                           child_session_id=child_session.id)
 
+            # Emit dispatch_started event for the dashboard accordion.
+            if self._on_dispatch:
+                self._on_dispatch({
+                    'type': 'dispatch_started',
+                    'parent_session_id': dispatcher_session.id,
+                    'child_session_id': child_session.id,
+                    'agent_name': member,
+                })
+
             # If the child agent dispatches (has a sub-roster), register
             # the same spawn_fn for it. The session_registry ensures each
             # agent's children are recorded in the right session.
@@ -312,6 +323,15 @@ class AgentSession:
             # Child completed — remove from dispatcher's conversation_map.
             # Frees the slot and removes the section from the accordion.
             _remove_child(dispatcher_session, request_id=context_id)
+
+            # Emit dispatch_completed event for the dashboard accordion.
+            if self._on_dispatch:
+                self._on_dispatch({
+                    'type': 'dispatch_completed',
+                    'parent_session_id': dispatcher_session.id,
+                    'child_session_id': child_session.id,
+                    'agent_name': member,
+                })
 
             _log.info('%s spawn_fn: dispatched to %s in %.2fs',
                       self.agent_name, member, _time.monotonic() - t0)

@@ -1244,6 +1244,7 @@ class TeaPartyBridge:
                     dispatches=dispatches,
                     post_invoke_hook=post_invoke_hook,
                     build_prompt_hook=build_prompt_hook,
+                    on_dispatch=self._broadcast_dispatch,
                 )
             session = self._agent_sessions[session_key]
             try:
@@ -1969,6 +1970,16 @@ class TeaPartyBridge:
         self._active_job_tasks[key] = task
 
     # ── Index handler ─────────────────────────────────────────────────────────
+
+    def _broadcast_dispatch(self, event: dict) -> None:
+        """Broadcast dispatch lifecycle events to WebSocket clients."""
+        import asyncio
+        payload = json.dumps(event)
+        for ws in list(self._ws_clients):
+            try:
+                asyncio.ensure_future(ws.send_str(payload))
+            except Exception:
+                pass
 
     async def _handle_index(self, request: web.Request) -> web.Response:
         index_path = os.path.join(self.static_dir, 'index.html')

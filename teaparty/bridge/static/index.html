@@ -628,6 +628,9 @@ function connectWS() {
         delete pageState.escalationConvMap[event.session_id];
         _handleSessionRemoval(event.session_id);
         fetchAll();
+      } else if (event.type === 'dispatch_started' || event.type === 'dispatch_completed') {
+        // Dispatch tree changed — refresh the accordion.
+        _updateAccordion();
       }
     } catch (err) {}
   };
