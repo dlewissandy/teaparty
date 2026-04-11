@@ -186,6 +186,70 @@ class TestClearClosesAgentContexts(unittest.TestCase):
         infra_bus.close()
 
 
+class TestClearReleasesChildWorktrees(unittest.TestCase):
+    """/clear must release child worktrees stored in agent context records."""
+
+    def setUp(self):
+        self._tmpdir = tempfile.mkdtemp()
+        self._session = _make_session(self._tmpdir)
+
+    def tearDown(self):
+        self._session._bus.close()
+
+    def test_clear_calls_git_worktree_remove_for_each_child(self):
+        """Worktree paths from open contexts are removed via git worktree remove."""
+        bus = self._session._bus
+        conv_id = self._session.conversation_id
+
+        infra_dir = os.path.join(
+            self._tmpdir, 'management', 'agents', 'office-manager',
+        )
+        os.makedirs(infra_dir, exist_ok=True)
+        infra_db_path = os.path.join(infra_dir, 'messages.db')
+        infra_bus = SqliteMessageBus(infra_db_path)
+
+        # Create contexts with worktree paths
+        infra_bus.create_agent_context(
+            'agent:om:lead:ctx-1',
+            initiator_agent_id='office-manager',
+            recipient_agent_id='teaparty-lead',
+        )
+        wt_path_1 = os.path.join(self._tmpdir, 'wt1')
+        os.makedirs(wt_path_1, exist_ok=True)
+        infra_bus.set_agent_context_worktree_path('agent:om:lead:ctx-1', wt_path_1)
+
+        infra_bus.create_agent_context(
+            'agent:om:lead:ctx-2',
+            initiator_agent_id='office-manager',
+            recipient_agent_id='config-lead',
+        )
+        wt_path_2 = os.path.join(self._tmpdir, 'wt2')
+        os.makedirs(wt_path_2, exist_ok=True)
+        infra_bus.set_agent_context_worktree_path('agent:om:lead:ctx-2', wt_path_2)
+        infra_bus.close()
+
+        bus.send(conv_id, 'human', '/clear')
+
+        removed_paths = []
+        original_run = __import__('subprocess').run
+
+        def capture_worktree_remove(*args, **kwargs):
+            cmd = args[0] if args else kwargs.get('args', [])
+            if isinstance(cmd, list) and 'worktree' in cmd and 'remove' in cmd:
+                removed_paths.append(cmd[-1])  # last arg is the path
+            return original_run(*args, **kwargs)
+
+        with patch.object(self._session, 'load_state'), \
+             patch.object(self._session, 'save_state'), \
+             patch('subprocess.run', side_effect=capture_worktree_remove):
+            asyncio.run(self._session.invoke(cwd=self._tmpdir))
+
+        self.assertIn(wt_path_1, removed_paths,
+                       'First child worktree should be removed')
+        self.assertIn(wt_path_2, removed_paths,
+                       'Second child worktree should be removed')
+
+
 class TestBuildContextEmptyAfterClear(unittest.TestCase):
     """build_context must return empty string after /clear."""
 

@@ -356,22 +356,33 @@ class AgentSession:
         }
 
     async def _clear(self, cwd: str) -> None:
-        """Full reset: clear bus messages, stop listener, close contexts.
+        """Full reset: clear bus, stop listener, release worktrees, close contexts.
 
         Called by /clear. Resets all session state so the next invocation
         starts completely fresh with no stale history or orphaned resources.
         """
+        import subprocess as _sp
+
         # 1. Stop the bus listener (kills sockets, tears down dispatch infra)
         await self.stop()
 
-        # 2. Close open agent context records in the infra bus DB
+        # 2. Release child worktrees and close agent contexts in the infra DB
         infra_dir = os.path.join(
             self.teaparty_home, self.scope, 'agents', self.agent_name,
         )
         infra_db_path = os.path.join(infra_dir, 'messages.db')
+        repo_root = os.path.dirname(self.teaparty_home)
         if os.path.exists(infra_db_path):
             infra_bus = SqliteMessageBus(infra_db_path)
             try:
+                # Read worktree paths before closing (closing loses the info)
+                for ctx in infra_bus.open_agent_contexts():
+                    wt = ctx.get('agent_worktree_path', '')
+                    if wt and os.path.isdir(wt):
+                        _sp.run(
+                            ['git', 'worktree', 'remove', '--force', wt],
+                            cwd=repo_root, capture_output=True,
+                        )
                 infra_bus.close_all_agent_contexts()
             finally:
                 infra_bus.close()
