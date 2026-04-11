@@ -310,8 +310,11 @@ class AgentSession:
                 for sender, content in _classify_event(ev, member, seen_tu, seen_tr):
                     if sender == member:
                         response_parts.append(content)
-                    # Write classified events to bus for the child chat section
-                    if content:
+                    # Write classified events to bus for the child chat section.
+                    # Skip tool_result — these are internal plumbing (Send/Reply
+                    # return values) that appear twice in the stream and aren't
+                    # conversational content.
+                    if content and sender != 'tool_result':
                         self._bus.send(child_conv_id, sender, content)
 
             mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
