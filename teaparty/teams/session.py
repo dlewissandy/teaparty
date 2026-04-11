@@ -268,6 +268,12 @@ class AgentSession:
             # dispatches are recorded in its own conversation_map.
             session_registry[child_session.id] = child_session
 
+            # Record the child in the dispatcher's conversation_map NOW
+            # (before launch) so the accordion shows it while running.
+            _record_child(dispatcher_session,
+                          request_id=context_id,
+                          child_session_id=child_session.id)
+
             # If the child agent dispatches (has a sub-roster), register
             # the same spawn_fn for it. The session_registry ensures each
             # agent's children are recorded in the right session.
@@ -302,9 +308,10 @@ class AgentSession:
             if result.session_id:
                 child_session.claude_session_id = result.session_id
                 _save_meta(child_session)
-                _record_child(dispatcher_session,
-                              request_id=context_id,
-                              child_session_id=result.session_id)
+
+            # Child completed — remove from dispatcher's conversation_map.
+            # Frees the slot and removes the section from the accordion.
+            _remove_child(dispatcher_session, request_id=context_id)
 
             _log.info('%s spawn_fn: dispatched to %s in %.2fs',
                       self.agent_name, member, _time.monotonic() - t0)
