@@ -292,15 +292,39 @@ def record_child_session(
     request_id: str,
     child_session_id: str,
 ) -> None:
-    """Record a child session in the dispatching agent's conversation map."""
+    """Record a child session in the dispatching agent's conversation map.
+
+    Uses read-modify-write on just the conversation_map field to avoid
+    overwriting claude_session_id or other fields that may have been
+    updated by a concurrent invoke.
+    """
     session.conversation_map[request_id] = child_session_id
-    _save_session_metadata(session)
+    _update_conversation_map(session)
 
 
 def remove_child_session(session: Session, *, request_id: str) -> None:
     """Remove a child session from the conversation map (free a slot)."""
     session.conversation_map.pop(request_id, None)
-    _save_session_metadata(session)
+    _update_conversation_map(session)
+
+
+def _update_conversation_map(session: Session) -> None:
+    """Read-modify-write only the conversation_map in metadata.json.
+
+    Other fields (claude_session_id, etc.) are preserved from disk,
+    not from the in-memory Session object which may be stale.
+    """
+    meta_path = os.path.join(session.path, 'metadata.json')
+    try:
+        with open(meta_path) as f:
+            meta = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        meta = {}
+    meta['conversation_map'] = session.conversation_map
+    tmp = meta_path + '.tmp'
+    with open(tmp, 'w') as f:
+        json.dump(meta, f, indent=2)
+    os.replace(tmp, meta_path)
 
 
 def check_slot_available(session: Session) -> bool:
