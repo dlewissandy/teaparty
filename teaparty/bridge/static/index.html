@@ -202,10 +202,10 @@ function _renderAccordion() {
     if (expandedId === _accordionExpanded) return;
   }
 
-  // If the expanded section no longer exists in the tree, expand the root.
+  // If the expanded section no longer exists in the tree, expand its parent.
   var expandedExists = flat.some(function(n) { return n.session_id === _accordionExpanded; });
   if (!expandedExists) {
-    _accordionExpanded = _dispatchTree.session_id;
+    _accordionExpanded = _findParent(_dispatchTree, _accordionExpanded) || _dispatchTree.session_id;
   }
 
   // Structure changed or expanded section changed — full rebuild
@@ -272,6 +272,16 @@ function _handleSessionRemoval(sessionId) {
     _accordionExpanded = idx > 0 ? flat[idx - 1].session_id : flat[0].session_id;
   }
   _updateAccordion();
+}
+
+function _findParent(tree, targetId) {
+  if (!tree.children) return null;
+  for (var i = 0; i < tree.children.length; i++) {
+    if (tree.children[i].session_id === targetId) return tree.session_id;
+    var found = _findParent(tree.children[i], targetId);
+    if (found) return found;
+  }
+  return null;
 }
 
 function _flattenTree(node) {
