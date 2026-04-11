@@ -23,10 +23,38 @@ def build_dispatch_tree(sessions_dir: str, root_session_id: str) -> dict:
     If a child session_id in a conversation_map cannot be resolved
     (no metadata.json), it appears as a stub with agent_name='unknown'.
     """
-    return _build_node(sessions_dir, root_session_id, set())
+    # Build a reverse index: claude_session_id → directory name.
+    # conversation_map values are Claude session UUIDs, but session
+    # directories use short hex IDs or named IDs.
+    claude_id_to_dir = _build_claude_id_index(sessions_dir)
+    return _build_node(sessions_dir, root_session_id, claude_id_to_dir, set())
 
 
-def _build_node(sessions_dir: str, session_id: str, visited: set) -> dict:
+def _build_claude_id_index(sessions_dir: str) -> dict[str, str]:
+    """Scan all session dirs and map claude_session_id → directory name."""
+    index: dict[str, str] = {}
+    if not os.path.isdir(sessions_dir):
+        return index
+    try:
+        for name in os.listdir(sessions_dir):
+            meta_path = os.path.join(sessions_dir, name, 'metadata.json')
+            if not os.path.isfile(meta_path):
+                continue
+            try:
+                with open(meta_path) as f:
+                    meta = json.load(f)
+                claude_sid = meta.get('claude_session_id', '')
+                if claude_sid:
+                    index[claude_sid] = name
+            except (json.JSONDecodeError, OSError):
+                continue
+    except OSError:
+        pass
+    return index
+
+
+def _build_node(sessions_dir: str, session_id: str,
+                claude_id_to_dir: dict[str, str], visited: set) -> dict:
     """Recursively build a tree node."""
     # Prevent cycles
     if session_id in visited:
@@ -39,11 +67,13 @@ def _build_node(sessions_dir: str, session_id: str, visited: set) -> dict:
 
     conversation_map = metadata.get('conversation_map', {})
     children = []
-    for _request_id, child_session_id in sorted(conversation_map.items()):
-        # conversation_map values may be session_ids (strings) or
-        # claude session ids — only follow those that resolve to a
-        # session directory with metadata.json
-        child_node = _build_node(sessions_dir, child_session_id, visited)
+    for _request_id, child_ref in sorted(conversation_map.items()):
+        # child_ref is a Claude session UUID. Resolve it to a directory name
+        # via the reverse index. Fall back to direct lookup (if someone
+        # stored a directory name directly).
+        child_dir = claude_id_to_dir.get(child_ref, child_ref)
+        child_node = _build_node(
+            sessions_dir, child_dir, claude_id_to_dir, visited)
         children.append(child_node)
 
     return {

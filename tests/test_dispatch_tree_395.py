@@ -119,6 +119,28 @@ class TestBuildDispatchTree(unittest.TestCase):
         tree = self._build_tree(sessions_dir, 'om-darrell')
         self.assertIn('status', tree)
 
+    def test_resolves_claude_session_uuid(self):
+        """conversation_map values are Claude UUIDs, resolved via index."""
+        sessions_dir = self._make_sessions_dir()
+        # OM's conversation_map points to a Claude UUID, not a dir name
+        _make_session_dir(sessions_dir, 'om-darrell', 'office-manager',
+                          conversation_map={'req-1': 'uuid-1234-abcd'})
+        # Child session dir has a different name but its claude_session_id matches
+        child_dir = os.path.join(sessions_dir, 'abc123')
+        os.makedirs(child_dir, exist_ok=True)
+        with open(os.path.join(child_dir, 'metadata.json'), 'w') as f:
+            json.dump({
+                'session_id': 'abc123',
+                'agent_name': 'jainai-lead',
+                'scope': 'management',
+                'claude_session_id': 'uuid-1234-abcd',
+                'conversation_map': {},
+                'conversation_id': '',
+            }, f)
+        tree = self._build_tree(sessions_dir, 'om-darrell')
+        self.assertEqual(len(tree['children']), 1)
+        self.assertEqual(tree['children'][0]['agent_name'], 'jainai-lead')
+
 
 class TestAccordionHTMLPresent(unittest.TestCase):
     """The index.html blade has accordion section rendering."""
