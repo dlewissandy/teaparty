@@ -168,7 +168,7 @@ The proxy agent's self-assessed confidence (from two-pass prediction) is the dec
 
 ### CLI Monitoring Tool
 
-`should_escalate()` in `scripts/approval_gate.py` is available as a CLI tool (`--decide`) for monitoring and audit. It is not called by the orchestrator.
+`should_escalate()` in `teaparty/proxy/approval_gate.py` is available as a CLI tool (`--decide`) for monitoring and audit.
 
 ---
 

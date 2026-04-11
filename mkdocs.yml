@@ -54,17 +54,27 @@ nav:
     - Hierarchical Teams: conceptual-design/hierarchical-teams.md
     - Human Proxy Agents: conceptual-design/human-proxies.md
     - Agent Dispatch: conceptual-design/agent-dispatch.md
+    - Messaging: conceptual-design/messaging.md
+    - Team Configuration: conceptual-design/team-configuration.md
+    - Office Manager: conceptual-design/office-manager.md
   - Detailed Design:
     - Overview: detailed-design/index.md
     - Agent Runtime: detailed-design/agent-runtime.md
+    - Unified Agent Launch: detailed-design/unified-agent-launch.md
     - CfA State Machine: detailed-design/cfa-state-machine.md
     - Approval Gate: detailed-design/approval-gate.md
+    - Messaging: detailed-design/messaging.md
+    - Team Configuration: detailed-design/team-configuration.md
+    - Context Budget: detailed-design/context-budget.md
     - Learning System: detailed-design/learning-system.md
+    - Heartbeat: detailed-design/heartbeat.md
     - ACT-R Adaptations: detailed-design/act-r.md
     - ACT-R Proxy Memory: detailed-design/act-r-proxy-memory.md
     - ACT-R Proxy Mapping: detailed-design/act-r-proxy-mapping.md
     - ACT-R Proxy Sensorium: detailed-design/act-r-proxy-sensorium.md
+  - Reference:
     - Folder Structure: reference/folder-structure.md
+    - Dashboard: reference/dashboard.md
   - Evaluation:
     - Overview: experimental-results/index.md
     - CfA Backtrack Effectiveness: experimental-results/cfa-backtrack-effectiveness.md
