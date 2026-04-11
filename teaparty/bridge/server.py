@@ -2004,10 +2004,11 @@ class TeaPartyBridge:
 
     # Conversation-ID prefix → agent name whose bus owns those conversations.
     _CONV_PREFIX_TO_AGENT: dict[str, str] = {
-        'om:':     'office-manager',
-        'pm:':     'project-manager',
-        'proxy:':  'proxy-review',
-        'config:': 'configuration-lead',
+        'om:':       'office-manager',
+        'pm:':       'project-manager',
+        'proxy:':    'proxy-review',
+        'config:':   'configuration-lead',
+        'dispatch:': 'office-manager',
     }
 
     def _get_agent_bus(self, agent_name: str) -> SqliteMessageBus:

@@ -202,6 +202,12 @@ function _renderAccordion() {
     if (expandedId === _accordionExpanded) return;
   }
 
+  // If the expanded section no longer exists in the tree, expand the root.
+  var expandedExists = flat.some(function(n) { return n.session_id === _accordionExpanded; });
+  if (!expandedExists) {
+    _accordionExpanded = _dispatchTree.session_id;
+  }
+
   // Structure changed or expanded section changed — full rebuild
   container.innerHTML = _renderNode(_dispatchTree, 0);
 }

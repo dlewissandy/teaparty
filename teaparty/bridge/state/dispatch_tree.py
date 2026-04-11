@@ -69,10 +69,14 @@ def _build_node(sessions_dir: str, session_id: str,
             sessions_dir, child_dir, claude_id_to_dir, visited)
         children.append(child_node)
 
+    # Child sessions use dispatch:{session_id} as conversation_id — this
+    # is where the parent writes stream events for the child's chat section.
+    conv_id = metadata.get('conversation_id', '') or f'dispatch:{session_id}'
+
     return {
         'session_id': session_id,
         'agent_name': metadata.get('agent_name', 'unknown'),
-        'conversation_id': metadata.get('conversation_id', ''),
+        'conversation_id': conv_id,
         'status': _derive_status(sessions_dir, session_id),
         'children': children,
     }

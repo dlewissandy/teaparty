@@ -295,7 +295,13 @@ class AgentSession:
             except Exception:
                 _log.debug('Sub-roster check failed for %s', member, exc_info=True)
 
-            # Capture assistant text from stream events.
+            # Write the dispatch request to the bus so it's visible in the
+            # child's chat section.
+            child_conv_id = f'dispatch:{child_session.id}'
+            self._bus.send(child_conv_id, self.agent_name, composite)
+
+            # Capture assistant text from stream events and write them to
+            # the bus under the child's conversation_id.
             response_parts: list[str] = []
             seen_tu: set[str] = set()
             seen_tr: set[str] = set()
@@ -304,6 +310,9 @@ class AgentSession:
                 for sender, content in _classify_event(ev, member, seen_tu, seen_tr):
                     if sender == member:
                         response_parts.append(content)
+                    # Write classified events to bus for the child chat section
+                    if content:
+                        self._bus.send(child_conv_id, sender, content)
 
             mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
             result = await _launch(
