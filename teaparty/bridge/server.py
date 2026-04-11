@@ -1868,6 +1868,8 @@ class TeaPartyBridge:
         sessions_dir = os.path.join(
             repo_root, '.teaparty', 'management', 'sessions')
         tree = build_dispatch_tree(sessions_dir, session_id)
+        _log.debug('dispatch-tree %s: %d children, sessions_dir=%s',
+                   session_id, len(tree.get('children', [])), sessions_dir)
         return web.json_response(tree)
 
     async def _handle_create_job(self, request: web.Request) -> web.Response:
