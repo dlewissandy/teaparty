@@ -196,6 +196,7 @@ class AgentSession:
             record_child_session as _record_child,
             remove_child_session as _remove_child,
             check_slot_available as _check_slot,
+            _save_session_metadata as _save_meta,
         )
 
         infra_dir = os.path.join(
@@ -270,6 +271,10 @@ class AgentSession:
             result_text = '\n'.join(response_parts)
 
             if result.session_id:
+                # Update child session's claude_session_id so the dispatch
+                # tree can resolve the UUID → directory mapping.
+                child_session.claude_session_id = result.session_id
+                _save_meta(child_session)
                 _record_child(dispatch_session,
                               request_id=context_id,
                               child_session_id=result.session_id)
