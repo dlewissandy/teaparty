@@ -146,8 +146,8 @@ class TestClearClosesAgentContexts(unittest.TestCase):
     def tearDown(self):
         self._session._bus.close()
 
-    def test_clear_closes_open_agent_contexts(self):
-        """Open agent context records are closed after /clear."""
+    def test_clear_closes_only_this_sessions_agent_contexts(self):
+        """Only contexts in this session's tree are closed; other sessions' survive."""
         bus = self._session._bus
         conv_id = self._session.conversation_id
 
@@ -159,19 +159,38 @@ class TestClearClosesAgentContexts(unittest.TestCase):
         os.makedirs(infra_dir, exist_ok=True)
         infra_db_path = os.path.join(infra_dir, 'messages.db')
         infra_bus = SqliteMessageBus(infra_db_path)
+
+        # This session's context tree
+        lead_ctx = 'agent:office-manager:lead:session-A'
+        self._session._bus_context_id = lead_ctx
         infra_bus.create_agent_context(
-            'agent:office-manager:lead:ctx-1',
+            lead_ctx,
             initiator_agent_id='office-manager',
             recipient_agent_id='office-manager',
         )
-        infra_bus.create_agent_context(
-            'agent:office-manager:teaparty-lead:ctx-2',
+        infra_bus.create_agent_context_and_increment_parent(
+            'agent:office-manager:teaparty-lead:child-1',
             initiator_agent_id='office-manager',
             recipient_agent_id='teaparty-lead',
+            parent_context_id=lead_ctx,
         )
-        # Verify they start open
-        open_contexts = infra_bus.open_agent_contexts()
-        self.assertEqual(len(open_contexts), 2)
+
+        # A DIFFERENT session's context (must survive /clear)
+        other_lead = 'agent:office-manager:lead:session-B'
+        infra_bus.create_agent_context(
+            other_lead,
+            initiator_agent_id='office-manager',
+            recipient_agent_id='office-manager',
+        )
+        infra_bus.create_agent_context_and_increment_parent(
+            'agent:office-manager:config-lead:other-child',
+            initiator_agent_id='office-manager',
+            recipient_agent_id='config-lead',
+            parent_context_id=other_lead,
+        )
+
+        # 4 total open contexts
+        self.assertEqual(len(infra_bus.open_agent_contexts()), 4)
 
         bus.send(conv_id, 'human', '/clear')
 
@@ -179,10 +198,16 @@ class TestClearClosesAgentContexts(unittest.TestCase):
              patch.object(self._session, 'save_state'):
             asyncio.run(self._session.invoke(cwd=self._tmpdir))
 
-        # All contexts should now be closed
+        # Session A's contexts (lead + child) should be closed
+        # Session B's contexts (lead + child) should still be open
         open_contexts = infra_bus.open_agent_contexts()
-        self.assertEqual(len(open_contexts), 0,
-                         'All agent contexts should be closed after /clear')
+        self.assertEqual(len(open_contexts), 2,
+                         'Only this session\'s contexts should be closed')
+        open_ids = {c['context_id'] for c in open_contexts}
+        self.assertIn(other_lead, open_ids,
+                       'Other session\'s lead context must survive')
+        self.assertIn('agent:office-manager:config-lead:other-child', open_ids,
+                       'Other session\'s child context must survive')
         infra_bus.close()
 
 
@@ -197,9 +222,13 @@ class TestClearReleasesChildWorktrees(unittest.TestCase):
         self._session._bus.close()
 
     def test_clear_calls_git_worktree_remove_for_each_child(self):
-        """Worktree paths from open contexts are removed via git worktree remove."""
+        """Worktree paths from this session's child contexts are removed."""
         bus = self._session._bus
         conv_id = self._session.conversation_id
+
+        # Set up this session's lead context
+        lead_ctx = 'agent:office-manager:lead:wt-session'
+        self._session._bus_context_id = lead_ctx
 
         infra_dir = os.path.join(
             self._tmpdir, 'management', 'agents', 'office-manager',
@@ -208,24 +237,33 @@ class TestClearReleasesChildWorktrees(unittest.TestCase):
         infra_db_path = os.path.join(infra_dir, 'messages.db')
         infra_bus = SqliteMessageBus(infra_db_path)
 
-        # Create contexts with worktree paths
+        # Create the lead context first
         infra_bus.create_agent_context(
-            'agent:om:lead:ctx-1',
+            lead_ctx,
+            initiator_agent_id='office-manager',
+            recipient_agent_id='office-manager',
+        )
+
+        # Create child contexts with worktree paths
+        infra_bus.create_agent_context_and_increment_parent(
+            'agent:om:teaparty-lead:ctx-1',
             initiator_agent_id='office-manager',
             recipient_agent_id='teaparty-lead',
+            parent_context_id=lead_ctx,
         )
         wt_path_1 = os.path.join(self._tmpdir, 'wt1')
         os.makedirs(wt_path_1, exist_ok=True)
-        infra_bus.set_agent_context_worktree_path('agent:om:lead:ctx-1', wt_path_1)
+        infra_bus.set_agent_context_worktree_path('agent:om:teaparty-lead:ctx-1', wt_path_1)
 
-        infra_bus.create_agent_context(
-            'agent:om:lead:ctx-2',
+        infra_bus.create_agent_context_and_increment_parent(
+            'agent:om:config-lead:ctx-2',
             initiator_agent_id='office-manager',
             recipient_agent_id='config-lead',
+            parent_context_id=lead_ctx,
         )
         wt_path_2 = os.path.join(self._tmpdir, 'wt2')
         os.makedirs(wt_path_2, exist_ok=True)
-        infra_bus.set_agent_context_worktree_path('agent:om:lead:ctx-2', wt_path_2)
+        infra_bus.set_agent_context_worktree_path('agent:om:config-lead:ctx-2', wt_path_2)
         infra_bus.close()
 
         bus.send(conv_id, 'human', '/clear')
@@ -320,6 +358,52 @@ class TestClearMessagesBusMethod(unittest.TestCase):
         self._bus.close_all_agent_contexts()
 
         self.assertEqual(len(self._bus.open_agent_contexts()), 0)
+
+    def test_close_agent_context_tree_scopes_to_parent(self):
+        """close_agent_context_tree only closes the parent and its children."""
+        # Tree A: parent + child
+        self._bus.create_agent_context(
+            'parent-A', initiator_agent_id='a', recipient_agent_id='a',
+        )
+        self._bus.create_agent_context_and_increment_parent(
+            'child-A1', initiator_agent_id='a', recipient_agent_id='b',
+            parent_context_id='parent-A',
+        )
+
+        # Tree B: parent + child (should survive)
+        self._bus.create_agent_context(
+            'parent-B', initiator_agent_id='a', recipient_agent_id='a',
+        )
+        self._bus.create_agent_context_and_increment_parent(
+            'child-B1', initiator_agent_id='a', recipient_agent_id='c',
+            parent_context_id='parent-B',
+        )
+
+        self.assertEqual(len(self._bus.open_agent_contexts()), 4)
+
+        self._bus.close_agent_context_tree('parent-A')
+
+        open_ctx = self._bus.open_agent_contexts()
+        self.assertEqual(len(open_ctx), 2)
+        open_ids = {c['context_id'] for c in open_ctx}
+        self.assertEqual(open_ids, {'parent-B', 'child-B1'})
+
+    def test_open_agent_contexts_for_parent(self):
+        """open_agent_contexts_for_parent returns only children of the given parent."""
+        self._bus.create_agent_context(
+            'parent-X', initiator_agent_id='a', recipient_agent_id='a',
+        )
+        self._bus.create_agent_context_and_increment_parent(
+            'child-X1', initiator_agent_id='a', recipient_agent_id='b',
+            parent_context_id='parent-X',
+        )
+        self._bus.create_agent_context(
+            'parent-Y', initiator_agent_id='a', recipient_agent_id='a',
+        )
+
+        children = self._bus.open_agent_contexts_for_parent('parent-X')
+        self.assertEqual(len(children), 1)
+        self.assertEqual(children[0]['context_id'], 'child-X1')
 
 
 class TestResumePathSendsOnlyLatestMessage(unittest.TestCase):

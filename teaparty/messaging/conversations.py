@@ -549,6 +549,46 @@ class SqliteMessageBus:
         )
         self._conn.commit()
 
+    def close_agent_context_tree(self, parent_context_id: str) -> None:
+        """Close the parent context and all its direct children.
+
+        Scoped to one conversation's context tree — other conversations'
+        contexts are not affected.
+        """
+        self._conn.execute(
+            "UPDATE agent_contexts SET status = 'closed' "
+            "WHERE status = 'open' AND "
+            "(context_id = ? OR parent_context_id = ?)",
+            (parent_context_id, parent_context_id),
+        )
+        self._conn.commit()
+
+    def open_agent_contexts_for_parent(self, parent_context_id: str) -> list[dict]:
+        """Return open agent context records that are children of the given parent."""
+        cursor = self._conn.execute(
+            'SELECT context_id, initiator_agent_id, recipient_agent_id, '
+            'parent_context_id, session_id, status, pending_count, created_at, '
+            'conversation_status, agent_worktree_path '
+            "FROM agent_contexts WHERE status = 'open' "
+            "AND parent_context_id = ? ORDER BY created_at",
+            (parent_context_id,),
+        )
+        return [
+            {
+                'context_id': row[0],
+                'initiator_agent_id': row[1],
+                'recipient_agent_id': row[2],
+                'parent_context_id': row[3],
+                'session_id': row[4],
+                'status': row[5],
+                'pending_count': row[6],
+                'created_at': row[7],
+                'conversation_status': row[8],
+                'agent_worktree_path': row[9],
+            }
+            for row in cursor.fetchall()
+        ]
+
     def open_agent_contexts(self) -> list[dict]:
         """Return all agent context records with status='open'."""
         cursor = self._conn.execute(
