@@ -75,17 +75,18 @@
   }
 
   /* Accordion sections in the blade */
-  .accord-section { display: flex; flex-direction: column; }
+  .accord-section { flex: 0 0 auto; }
+  .accord-section.expanded { flex: 1 1 0; display: flex; flex-direction: column; min-height: 0; }
   .accord-header {
     display: flex; align-items: center; justify-content: space-between;
     padding: 6px 10px; cursor: pointer; border-bottom: 1px solid var(--border);
     background: var(--surface); transition: background 0.15s;
-    gap: 6px; min-height: 24px;
+    gap: 6px; min-height: 24px; flex-shrink: 0;
   }
   .accord-header:hover { background: rgba(78,204,163,0.05); }
   .accord-header.expanded { background: var(--surface2); border-left: 2px solid var(--green); }
   .accord-label { font-size: 10px; font-weight: 600; color: var(--text); text-transform: capitalize; }
-  .accord-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+  .accord-body { flex: 1; min-height: 0; overflow: hidden; }
 </style>
 </head>
 <body>
@@ -167,6 +168,40 @@ function _updateAccordion() {
 function _renderAccordion() {
   var container = document.getElementById('dispatch-accordion');
   if (!container || !_dispatchTree) return;
+
+  // Collect current session_ids in the DOM to detect structural changes.
+  var currentSections = container.querySelectorAll('.accord-section');
+  var currentIds = [];
+  for (var i = 0; i < currentSections.length; i++) {
+    currentIds.push(currentSections[i].getAttribute('data-session'));
+  }
+
+  // Flatten the new tree to get the expected session_id list.
+  var flat = _flattenTree(_dispatchTree);
+  var newIds = flat.map(function(n) { return n.session_id; });
+
+  // If the structure hasn't changed and the expanded section is the same,
+  // only update status badges — don't rebuild (preserves iframe state).
+  if (JSON.stringify(currentIds) === JSON.stringify(newIds)) {
+    // Update status badges in-place
+    flat.forEach(function(node) {
+      var section = container.querySelector('[data-session="' + node.session_id + '"]');
+      if (section) {
+        var badge = section.querySelector('.item-badge');
+        if (badge) {
+          var statusCls = node.status === 'active' ? 'badge-active' : 'badge-idle';
+          badge.className = 'item-badge ' + statusCls;
+          badge.textContent = node.status;
+        }
+      }
+    });
+    // Check if expanded section changed — if so, full rebuild needed
+    var expandedSection = container.querySelector('.accord-section.expanded');
+    var expandedId = expandedSection ? expandedSection.getAttribute('data-session') : null;
+    if (expandedId === _accordionExpanded) return;
+  }
+
+  // Structure changed or expanded section changed — full rebuild
   container.innerHTML = _renderNode(_dispatchTree, 0);
 }
 
@@ -180,7 +215,8 @@ function _renderNode(node, depth) {
 
   var html = '';
   // Section header (always visible)
-  html += '<div class="accord-section" data-session="' + node.session_id + '" style="margin-left:' + indent + 'px">';
+  var sectionCls = 'accord-section' + (isExpanded ? ' expanded' : '');
+  html += '<div class="' + sectionCls + '" data-session="' + node.session_id + '" style="margin-left:' + indent + 'px">';
   html += '<div class="accord-header' + (isExpanded ? ' expanded' : '') + '" onclick="accordionToggle(\'' + node.session_id + '\')">';
   html += '<span class="accord-label">' + agentLabel + '</span>';
   html += '<span class="item-badge ' + statusCls + '" style="font-size:7px">' + node.status + '</span>';
