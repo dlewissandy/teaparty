@@ -17,6 +17,9 @@ projects:
 - name: comics
   path: /Users/darrell/git/comics
   config: .teaparty/project.yaml
+- name: joke-book
+  path: /Users/darrell/joke-book
+  config: .teaparty/project/project.yaml
 members:
   projects:
   - TeaParty

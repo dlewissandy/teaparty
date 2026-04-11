@@ -341,14 +341,22 @@ class TeaPartyBridge:
 
         body = await request.read()
 
-        # ASGI receive
+        # ASGI receive — after delivering the body, block until the
+        # client actually disconnects.  The MCP Streamable HTTP transport
+        # polls receive() to detect disconnection; returning
+        # http.disconnect immediately would kill SSE streams on the
+        # first poll.
         sent_body = False
+        disconnect_event = asyncio.Event()
+
         async def receive():
             nonlocal sent_body
             if not sent_body:
                 sent_body = True
                 return {'type': 'http.request', 'body': body, 'more_body': False}
-            # Wait for disconnect
+            # Block until the client drops the connection (or the ASGI
+            # app finishes and cancels this coroutine).
+            await disconnect_event.wait()
             return {'type': 'http.disconnect'}
 
         # ASGI send — collect response parts
@@ -358,22 +366,40 @@ class TeaPartyBridge:
         async def send(msg):
             nonlocal response_started
             if msg['type'] == 'http.response.start':
+                if response_started:
+                    return  # headers already sent
                 response.set_status(msg['status'])
                 for name, value in msg.get('headers', []):
                     # Skip content-length — aiohttp manages it
                     if name.lower() != b'content-length':
                         response.headers[name.decode()] = value.decode()
-                await response.prepare(request)
+                try:
+                    await response.prepare(request)
+                except ConnectionResetError:
+                    disconnect_event.set()
+                    return
                 response_started = True
             elif msg['type'] == 'http.response.body':
                 body_data = msg.get('body', b'')
                 if body_data and response_started:
-                    await response.write(body_data)
+                    try:
+                        await response.write(body_data)
+                    except ConnectionResetError:
+                        disconnect_event.set()
 
-        await self._mcp_asgi_app(scope, receive, send)
+        try:
+            await self._mcp_asgi_app(scope, receive, send)
+        except Exception:
+            _log.debug('ASGI app error (client may have disconnected)',
+                        exc_info=True)
+        finally:
+            disconnect_event.set()
 
         if response_started:
-            await response.write_eof()
+            try:
+                await response.write_eof()
+            except (ConnectionResetError, Exception):
+                pass
         return response
 
     async def _on_startup(self, app: web.Application) -> None:

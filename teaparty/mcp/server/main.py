@@ -95,7 +95,10 @@ def create_server(agent_tools: set[str] | None = None) -> FastMCP:
     import logging as _logging
     _cs_log = _logging.getLogger('teaparty.mcp.server.main.create')
 
-    server = FastMCP('teaparty-config', json_response=True)
+    # json_response=False → POST tool responses use SSE streaming.
+    # This is required for long-running tools like Send: SSE keepalive
+    # pings prevent the client from timing out while the tool blocks.
+    server = FastMCP('teaparty-config', json_response=False)
 
 
     @server.tool()
