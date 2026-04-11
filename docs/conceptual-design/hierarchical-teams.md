@@ -84,7 +84,7 @@ The overhead of the hierarchical dispatch is justified by the context isolation 
 
 **[Learning system](learning-system.md)** bridges the gap that scoping creates. Without learning, scoped agents lose access to organizational knowledge. Institutional learnings are always loaded at matching scope; task learnings are fuzzy-retrieved. The promotion chain moves validated learnings upward through the same hierarchy that teams operate in.
 
-**[Human proxies](human-proxies.md)** operate at each level of the hierarchy. The proxy's confidence model tracks state-task pairs per scope — the human may grant full autonomy for job-level plan approvals while retaining oversight for project-level strategic decisions.
+**[Human proxies](human-proxies.md)** operate at each level of the hierarchy, differentiated by D-A-I role. Each team has a **Decider** (exactly one, authoritative), optional **Advisors** (advisory input), and optional **Informed** participants (status recipients). The proxy stands in for the decider at each level — and the decider at the project level may be a different human than the decider at the workgroup level. The proxy's confidence model tracks state-task pairs per scope, so the human may grant full autonomy for job-level plan approvals while retaining oversight for project-level strategic decisions. See [team-configuration.md](team-configuration.md) for how D-A-I roles are assigned.
 
 ## Open Questions
 

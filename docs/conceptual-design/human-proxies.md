@@ -94,6 +94,28 @@ The interplay between prediction and questioning is what makes the intake dialog
 
 The progression is: dialog builds understanding, understanding enables prediction, accurate prediction earns autonomy. A proxy that cannot predict what the human would say has no business approving on their behalf.
 
+## D-A-I Roles and Proxy Behavior
+
+The [team configuration](team-configuration.md) assigns humans one of three roles at each level of the hierarchy: **Decider**, **Advisor**, or **Informed**. The proxy's behavior varies by role:
+
+**Decider.** The proxy's escalation decisions are authoritative — when it escalates to a decider, the decider's response is binding. The proxy's confidence threshold is calibrated to the decider's tolerance: escalating too rarely risks approving work the decider would reject; escalating too often wastes the decider's attention. There is exactly one decider per team.
+
+**Advisor.** The proxy's escalation to an advisor is advisory — the system incorporates the advisor's input but is not bound by it. The proxy may consult multiple advisors and weigh their input. Confidence thresholds for advisor escalation are typically lower (the proxy asks more freely), because the cost of an unnecessary question is lower than with the decider.
+
+**Informed.** Informed participants receive status updates but are not consulted for decisions. The proxy does not escalate to informed participants — it sends summaries.
+
+The D-A-I role assignment determines who the proxy stands in for at each level: the proxy at the project level stands in for the project's decider; the proxy at the workgroup level stands in for the workgroup's decider. These may be different humans with different preferences, or the same human in different roles.
+
+## Proxy Review Sessions
+
+The proxy is reachable directly via a chat blade on any dashboard screen. A proxy review session is a direct conversation between the human and their proxy — not mediated by the office manager or any agent team. The conversation is launched via the [unified launcher](../detailed-design/agent-runtime.md), sharing the same ACT-R memory database as all other proxy invocations.
+
+Two modes:
+
+**Self-review.** Full transparency. The human inspects what the proxy has learned, corrects wrong patterns, and reinforces accurate ones. The proxy exposes its internal model — confidence scores, prediction accuracy, correction patterns, activation levels — and the human calibrates it through conversation. Corrections made in self-review immediately influence proxy behavior everywhere: gate decisions, intake dialog, escalation thresholds.
+
+**Liaison mode** (future). The proxy mediates between the human and agents who are not currently active. The human asks about work history, pending decisions, or team status. The proxy draws on its memory of past sessions to answer, but does not expose internal model details (confidence, activation) — only work record. Privacy boundary: the proxy's internal learning state is visible only to the human it models, never to other agents or participants.
+
 ## Proxy Memory
 
 Proxy learning is stored in the same file-based format as other learning types in the [learning system](learning-system.md): `proxy.md` for preferential knowledge (always loaded) and `proxy-tasks/` for task-based decision patterns and ritual patterns (fuzzy-retrieved against the current decision context).
