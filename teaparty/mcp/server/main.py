@@ -165,19 +165,20 @@ def create_server(agent_tools: set[str] | None = None) -> FastMCP:
         return await reply_handler(message=message)
 
     @server.tool()
-    async def CloseConversation(context_id: str) -> str:
-        """Close a conversation thread you opened.
+    async def CloseConversation(conversation_id: str) -> str:
+        """Close a dispatch conversation you opened via Send.
 
-        Marks the conversation as closed so no further follow-up Sends
-        are accepted on this thread.  Only the originator of the thread
-        should call this.  Does not affect the session turn — use Reply
-        to close the current session turn.
+        Recursively tears down the child agent and any conversations it
+        opened. Kills running processes, cleans up worktrees, and frees
+        the conversation slot so you can dispatch again.
+
+        Only the originator of the conversation should call this.
 
         Args:
-            context_id: The conversation context ID returned by the
-                original Send call.
+            conversation_id: The conversation_id returned by Send
+                (e.g. "dispatch:abc123").
         """
-        return await close_conversation_handler(context_id=context_id)
+        return await close_conversation_handler(context_id=conversation_id)
 
     @server.tool()
     async def WithdrawSession(session_id: str) -> str:

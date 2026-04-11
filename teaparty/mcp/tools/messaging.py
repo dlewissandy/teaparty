@@ -225,7 +225,30 @@ async def close_conversation_handler(
 
 
 async def _default_close_conv_post(context_id: str) -> str:
-    """Default CloseConversation transport: bus or CLOSE_CONV_SOCKET fallback."""
+    """Default CloseConversation transport.
+
+    For dispatch: conversations, uses the in-process close_fn registry.
+    Falls back to bus or CLOSE_CONV_SOCKET for the CfA engine path.
+    """
+    import logging as _logging
+    _close_log = _logging.getLogger('teaparty.mcp.tools.messaging.close')
+
+    # Dispatch conversations: route through in-process registry
+    if context_id.startswith('dispatch:'):
+        from teaparty.mcp.registry import get_close_fn
+        close_fn = get_close_fn()
+        if close_fn is not None:
+            try:
+                await close_fn(context_id)
+                _close_log.info('close_registry: conv=%s', context_id)
+                return json.dumps({
+                    'status': 'closed',
+                    'conversation_id': context_id,
+                })
+            except Exception as exc:
+                _close_log.warning('close_registry failed: %s', exc)
+                return json.dumps({'status': 'error', 'reason': str(exc)})
+
     bus_path = os.environ.get('DISPATCH_BUS_PATH', '')
     dispatch_conv = os.environ.get('DISPATCH_CONV_ID', '')
 

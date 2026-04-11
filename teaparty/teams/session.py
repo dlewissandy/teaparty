@@ -412,8 +412,17 @@ class AgentSession:
         sockets = await self._bus_listener.start()
         self._bus_listener_sockets = sockets
 
-        from teaparty.mcp.registry import register_spawn_fn
+        from teaparty.mcp.registry import register_spawn_fn, register_close_fn
         register_spawn_fn(self.agent_name, spawn_fn)
+
+        async def close_fn(conversation_id):
+            from teaparty.workspace.close_conversation import close_conversation
+            close_conversation(
+                self._dispatch_session, conversation_id,
+                teaparty_home=self.teaparty_home, scope=self.scope,
+            )
+
+        register_close_fn(self.agent_name, close_fn)
 
         send, reply, close = sockets
         return {
