@@ -1861,8 +1861,10 @@ class TeaPartyBridge:
         """
         session_id = request.match_info['session_id']
         from teaparty.bridge.state.dispatch_tree import build_dispatch_tree
+        # _repo_root is the teaparty/ package; .teaparty/ is one level up
+        repo_root = os.path.dirname(self._repo_root)
         sessions_dir = os.path.join(
-            self._repo_root, '.teaparty', 'management', 'sessions')
+            repo_root, '.teaparty', 'management', 'sessions')
         tree = build_dispatch_tree(sessions_dir, session_id)
         return web.json_response(tree)
 
