@@ -31,7 +31,23 @@ _module_runner = None
 
 
 def _make_test_environment():
+    import subprocess
     repo_root = tempfile.mkdtemp()
+
+    # Git init so invoke() can create worktrees
+    subprocess.run(['git', 'init', '-q'], cwd=repo_root, check=True)
+    subprocess.run(['git', 'config', 'user.email', 'test@example.com'],
+                   cwd=repo_root, check=True)
+    subprocess.run(['git', 'config', 'user.name', 'test'],
+                   cwd=repo_root, check=True)
+
+    # Need at least one commit for worktree operations
+    with open(os.path.join(repo_root, 'README.md'), 'w') as f:
+        f.write('test\n')
+    subprocess.run(['git', 'add', 'README.md'], cwd=repo_root, check=True)
+    subprocess.run(['git', 'commit', '-q', '-m', 'init'],
+                   cwd=repo_root, check=True)
+
     teaparty_home = os.path.join(repo_root, '.teaparty')
     sessions_dir = os.path.join(teaparty_home, 'management', 'sessions')
     agents_dir = os.path.join(teaparty_home, 'management', 'agents')
@@ -52,11 +68,18 @@ description: An agent that dispatches to leaf-agent via Send then relays the res
 model: sonnet
 tools: mcp__teaparty-config__Send
 ---
-You are a test dispatcher. When you receive a message:
-1. Use Send to send the message to member 'leaf-agent'
-2. After Send returns, respond with "Dispatched. Handle: " followed by
-   the conversation_id from the Send result.
-Do not use any other tools.
+You MUST call the Send tool. Do not respond with text until you have
+called Send.
+
+Step 1: Call the Send tool with:
+  - member: "leaf-agent"
+  - message: (the message you received, verbatim)
+
+Step 2: After Send returns with status="message_sent" and a conversation_id,
+respond with exactly: "Dispatched. Handle: <conversation_id>"
+
+You have ONE tool available: mcp__teaparty-config__Send. You MUST use it.
+Do not respond without calling Send first. This is non-negotiable.
 """)
 
     wg_dir = os.path.join(teaparty_home, 'management', 'workgroups')
