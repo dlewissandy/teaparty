@@ -303,11 +303,14 @@ class AgentSession:
                 t0 = _time.monotonic()
                 seen_tu: set[str] = set()
                 seen_tr: set[str] = set()
+                response_parts: list[str] = []
 
                 def on_event(ev: dict) -> None:
                     for sender, content in _classify_event(ev, member, seen_tu, seen_tr):
                         if content and sender != 'tool_result':
                             self._bus.send(child_conv_id, sender, content)
+                        if sender == member and content:
+                            response_parts.append(content)
 
                 mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
                 try:
@@ -326,9 +329,6 @@ class AgentSession:
                 except Exception:
                     _log.exception('Child %s failed', member)
 
-                # Child finished — write its response to the parent's bus
-                # under the same conversation_id. The parent owns the
-                # conversation lifecycle and must close it explicitly.
                 if self._on_dispatch:
                     self._on_dispatch({
                         'type': 'dispatch_completed',
@@ -339,6 +339,21 @@ class AgentSession:
 
                 _log.info('%s spawn_fn: %s completed in %.2fs',
                           self.agent_name, member, _time.monotonic() - t0)
+
+                # ── Resume the parent ────────────────────────────────────
+                # Write the child's response to the parent's conversation
+                # so the parent sees it on resume. Then re-invoke.
+                response_text = '\n'.join(response_parts)
+                if response_text:
+                    reply_msg = (f'Reply from {member} '
+                                 f'(conversation {child_conv_id}):\n'
+                                 f'{response_text}')
+                    self._bus.send(self.conversation_id, member, reply_msg)
+                    try:
+                        await self.invoke(cwd=repo_root)
+                    except Exception:
+                        _log.exception('Failed to resume %s after %s reply',
+                                       self.agent_name, member)
 
             _asyncio.create_task(_run_child())
 
