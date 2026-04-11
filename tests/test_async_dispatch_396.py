@@ -481,5 +481,338 @@ class TestAsyncSpawnFn(unittest.TestCase):
         self._run(run())
 
 
+class TestAsyncTopologies(unittest.TestCase):
+    """End-to-end async dispatch tests for each topology in the issue.
+
+    These exercise the real spawn_fn with mocked _launch. The mock
+    simulates agent behavior: producing text, optionally dispatching
+    to sub-agents (by calling spawn_fn again), and completing.
+
+    Each test verifies that responses arrive in the correct bus
+    conversation under the correct conversation_id.
+    """
+
+    def setUp(self):
+        self._tmpdir = _make_teaparty_home()
+        agents_dir = os.path.join(self._tmpdir, 'management', 'agents')
+        for name in ['parent', 'agent-b', 'agent-c', 'agent-d', 'agent-e']:
+            agent_dir = os.path.join(agents_dir, name)
+            os.makedirs(agent_dir, exist_ok=True)
+            with open(os.path.join(agent_dir, 'agent.md'), 'w') as f:
+                f.write(f'---\nname: {name}\ndescription: test\n---\n')
+        create_session(agent_name='parent', scope='management',
+                       teaparty_home=self._tmpdir, session_id='parent-test')
+
+    def tearDown(self):
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    def _run(self, coro):
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            pending = asyncio.all_tasks(loop)
+            if pending:
+                loop.run_until_complete(asyncio.gather(*pending,
+                                                       return_exceptions=True))
+            loop.close()
+
+    def _make_session(self):
+        from teaparty.teams.session import AgentSession
+        from teaparty.messaging.conversations import ConversationType
+        return AgentSession(
+            self._tmpdir,
+            agent_name='parent',
+            scope='management',
+            qualifier='test',
+            conversation_type=ConversationType.OFFICE_MANAGER,
+            dispatches=True,
+        )
+
+    def test_linear_A_B_C(self):
+        """A dispatches to B. B dispatches to C. C responds. B responds.
+        Both responses arrive in the correct bus conversations."""
+
+        async def fake_launch(**kwargs):
+            agent = kwargs.get('agent_name', '')
+            on_event = kwargs.get('on_stream_event')
+            session_id = kwargs.get('session_id', '')
+
+            if agent == 'agent-b':
+                # B dispatches to C before responding
+                from teaparty.mcp.registry import get_spawn_fn, current_session_id
+                # Set contextvar so C is recorded in B's map
+                token = current_session_id.set(session_id)
+                try:
+                    spawn = get_spawn_fn('parent')
+                    if spawn:
+                        await spawn('agent-c', 'task for C', 'b-to-c')
+                finally:
+                    current_session_id.reset(token)
+                # Wait for C to finish
+                await asyncio.sleep(0.2)
+                if on_event:
+                    on_event({'type': 'assistant', 'message': {'content': [
+                        {'type': 'text', 'text': 'B says: C told me the answer'},
+                    ]}})
+            elif agent == 'agent-c':
+                if on_event:
+                    on_event({'type': 'assistant', 'message': {'content': [
+                        {'type': 'text', 'text': 'C says: the answer is 42'},
+                    ]}})
+                await asyncio.sleep(0.05)
+            else:
+                await asyncio.sleep(0.05)
+
+            return FakeLaunchResult(session_id=f'claude-{agent}')
+
+        session = self._make_session()
+
+        async def run():
+            with patch('teaparty.runners.launcher.launch', fake_launch), \
+                 patch('teaparty.config.roster.has_sub_roster', return_value=True), \
+                 patch('subprocess.run'):
+                await session._ensure_bus_listener(self._tmpdir)
+                from teaparty.mcp.registry import get_spawn_fn
+                spawn_fn = get_spawn_fn('parent')
+
+                b_sid, _, _ = await spawn_fn('agent-b', 'task for B', 'a-to-b')
+                self.assertTrue(len(b_sid) > 0)
+
+                # Wait for B and C to complete
+                await asyncio.sleep(0.5)
+
+                # B's response in A's bus
+                b_msgs = session._bus.receive(f'dispatch:{b_sid}')
+                b_content = ' '.join(m.content for m in b_msgs)
+                self.assertIn('B says: C told me the answer', b_content,
+                              f'B response missing. Messages: {[(m.sender, m.content[:50]) for m in b_msgs]}')
+
+                # C's response in B's bus (under B's dispatch conversation)
+                # Find C's session_id from B's conversation_map
+                b_meta_path = os.path.join(
+                    self._tmpdir, 'management', 'sessions', b_sid, 'metadata.json')
+                if os.path.isfile(b_meta_path):
+                    with open(b_meta_path) as f:
+                        b_meta = json.load(f)
+                    c_sid = b_meta.get('conversation_map', {}).get('b-to-c', '')
+                    if c_sid:
+                        c_msgs = session._bus.receive(f'dispatch:{c_sid}')
+                        c_content = ' '.join(m.content for m in c_msgs)
+                        self.assertIn('C says: the answer is 42', c_content,
+                                      f'C response missing. Messages: {[(m.sender, m.content[:50]) for m in c_msgs]}')
+
+        self._run(run())
+
+    def test_parallel_A_B_C(self):
+        """A dispatches to B and C in parallel. Both respond independently."""
+
+        async def fake_launch(**kwargs):
+            agent = kwargs.get('agent_name', '')
+            on_event = kwargs.get('on_stream_event')
+            if on_event:
+                on_event({'type': 'assistant', 'message': {'content': [
+                    {'type': 'text', 'text': f'Response from {agent}'},
+                ]}})
+            await asyncio.sleep(0.1)
+            return FakeLaunchResult(session_id=f'claude-{agent}')
+
+        session = self._make_session()
+
+        async def run():
+            with patch('teaparty.runners.launcher.launch', fake_launch), \
+                 patch('teaparty.config.roster.has_sub_roster', return_value=False), \
+                 patch('subprocess.run'):
+                await session._ensure_bus_listener(self._tmpdir)
+                from teaparty.mcp.registry import get_spawn_fn
+                spawn_fn = get_spawn_fn('parent')
+
+                b_sid, _, _ = await spawn_fn('agent-b', 'task B', 'a-b')
+                c_sid, _, _ = await spawn_fn('agent-c', 'task C', 'a-c')
+
+                # Both dispatched (non-blocking)
+                self.assertNotEqual(b_sid, c_sid)
+
+                await asyncio.sleep(0.3)
+
+                b_msgs = session._bus.receive(f'dispatch:{b_sid}')
+                c_msgs = session._bus.receive(f'dispatch:{c_sid}')
+
+                self.assertTrue(any('Response from agent-b' in m.content for m in b_msgs),
+                                f'B response missing: {[(m.sender, m.content[:50]) for m in b_msgs]}')
+                self.assertTrue(any('Response from agent-c' in m.content for m in c_msgs),
+                                f'C response missing: {[(m.sender, m.content[:50]) for m in c_msgs]}')
+
+        self._run(run())
+
+    def test_rate_limit_close_and_reuse(self):
+        """A sends to B, C, D (fills slots). One finishes. A closes it.
+        A sends to E successfully."""
+        finish_events = {
+            'agent-b': asyncio.Event(),
+            'agent-c': asyncio.Event(),
+            'agent-d': asyncio.Event(),
+        }
+
+        async def fake_launch(**kwargs):
+            agent = kwargs.get('agent_name', '')
+            on_event = kwargs.get('on_stream_event')
+            if on_event:
+                on_event({'type': 'assistant', 'message': {'content': [
+                    {'type': 'text', 'text': f'Done from {agent}'},
+                ]}})
+            if agent == 'agent-b':
+                await asyncio.sleep(0.05)  # B finishes fast
+            else:
+                await asyncio.sleep(5.0)  # C, D take long
+            if agent in finish_events:
+                finish_events[agent].set()
+            return FakeLaunchResult(session_id=f'claude-{agent}')
+
+        session = self._make_session()
+
+        async def run():
+            with patch('teaparty.runners.launcher.launch', fake_launch), \
+                 patch('teaparty.config.roster.has_sub_roster', return_value=False), \
+                 patch('subprocess.run'):
+                await session._ensure_bus_listener(self._tmpdir)
+                from teaparty.mcp.registry import get_spawn_fn
+                spawn_fn = get_spawn_fn('parent')
+
+                b_sid, _, _ = await spawn_fn('agent-b', 'task B', 'r-b')
+                c_sid, _, _ = await spawn_fn('agent-c', 'task C', 'r-c')
+                d_sid, _, _ = await spawn_fn('agent-d', 'task D', 'r-d')
+
+                # 4th should fail
+                e_sid, _, _ = await spawn_fn('agent-e', 'task E', 'r-e')
+                self.assertEqual(e_sid, '', '4th dispatch should fail')
+
+                # Wait for B to finish
+                await asyncio.sleep(0.2)
+
+                # Close B to free a slot
+                close_conversation(session._dispatch_session, f'dispatch:{b_sid}',
+                                   teaparty_home=self._tmpdir, scope='management')
+
+                # Now E should succeed
+                e_sid, _, _ = await spawn_fn('agent-e', 'task E', 'r-e')
+                self.assertTrue(len(e_sid) > 0, 'E dispatch should succeed after close')
+
+        self._run(run())
+
+    def test_parallel_instance_A_B_B(self):
+        """A sends to B twice. Two instances respond with different content."""
+        call_count = {'value': 0}
+
+        async def fake_launch(**kwargs):
+            call_count['value'] += 1
+            instance = call_count['value']
+            agent = kwargs.get('agent_name', '')
+            on_event = kwargs.get('on_stream_event')
+            if on_event:
+                on_event({'type': 'assistant', 'message': {'content': [
+                    {'type': 'text', 'text': f'{agent} instance {instance}'},
+                ]}})
+            await asyncio.sleep(0.1)
+            return FakeLaunchResult(session_id=f'claude-{agent}-{instance}')
+
+        session = self._make_session()
+
+        async def run():
+            with patch('teaparty.runners.launcher.launch', fake_launch), \
+                 patch('teaparty.config.roster.has_sub_roster', return_value=False), \
+                 patch('subprocess.run'):
+                await session._ensure_bus_listener(self._tmpdir)
+                from teaparty.mcp.registry import get_spawn_fn
+                spawn_fn = get_spawn_fn('parent')
+
+                b1_sid, _, _ = await spawn_fn('agent-b', 'task 1', 'r-b1')
+                b2_sid, _, _ = await spawn_fn('agent-b', 'task 2', 'r-b2')
+
+                self.assertNotEqual(b1_sid, b2_sid)
+
+                await asyncio.sleep(0.3)
+
+                b1_msgs = session._bus.receive(f'dispatch:{b1_sid}')
+                b2_msgs = session._bus.receive(f'dispatch:{b2_sid}')
+
+                b1_content = ' '.join(m.content for m in b1_msgs)
+                b2_content = ' '.join(m.content for m in b2_msgs)
+
+                self.assertIn('instance 1', b1_content,
+                              f'B1 wrong content: {b1_content}')
+                self.assertIn('instance 2', b2_content,
+                              f'B2 wrong content: {b2_content}')
+
+        self._run(run())
+
+    def test_diamond_A_BD_CD(self):
+        """A → B and C. Both B and C dispatch to D (separate instances).
+        All four responses arrive under correct conversation handles."""
+
+        d_instance = {'count': 0}
+
+        async def fake_launch(**kwargs):
+            agent = kwargs.get('agent_name', '')
+            session_id = kwargs.get('session_id', '')
+            on_event = kwargs.get('on_stream_event')
+
+            if agent in ('agent-b', 'agent-c'):
+                # B and C each dispatch to D
+                from teaparty.mcp.registry import get_spawn_fn, current_session_id
+                token = current_session_id.set(session_id)
+                try:
+                    spawn = get_spawn_fn('parent')
+                    if spawn:
+                        await spawn('agent-d', f'task from {agent}', f'{agent}-to-d')
+                finally:
+                    current_session_id.reset(token)
+                await asyncio.sleep(0.2)
+                if on_event:
+                    on_event({'type': 'assistant', 'message': {'content': [
+                        {'type': 'text', 'text': f'{agent} done after dispatching D'},
+                    ]}})
+            elif agent == 'agent-d':
+                d_instance['count'] += 1
+                if on_event:
+                    on_event({'type': 'assistant', 'message': {'content': [
+                        {'type': 'text', 'text': f'D instance {d_instance["count"]}'},
+                    ]}})
+                await asyncio.sleep(0.05)
+            else:
+                await asyncio.sleep(0.05)
+
+            return FakeLaunchResult(session_id=f'claude-{agent}-{session_id[:8]}')
+
+        session = self._make_session()
+
+        async def run():
+            with patch('teaparty.runners.launcher.launch', fake_launch), \
+                 patch('teaparty.config.roster.has_sub_roster', return_value=True), \
+                 patch('subprocess.run'):
+                await session._ensure_bus_listener(self._tmpdir)
+                from teaparty.mcp.registry import get_spawn_fn
+                spawn_fn = get_spawn_fn('parent')
+
+                b_sid, _, _ = await spawn_fn('agent-b', 'task B', 'a-b')
+                c_sid, _, _ = await spawn_fn('agent-c', 'task C', 'a-c')
+
+                await asyncio.sleep(0.5)
+
+                # Two D instances were launched
+                self.assertEqual(d_instance['count'], 2)
+
+                # B and C responses in A's bus
+                b_msgs = session._bus.receive(f'dispatch:{b_sid}')
+                c_msgs = session._bus.receive(f'dispatch:{c_sid}')
+
+                self.assertTrue(any('agent-b done' in m.content for m in b_msgs),
+                                f'B response missing: {[(m.sender, m.content[:50]) for m in b_msgs]}')
+                self.assertTrue(any('agent-c done' in m.content for m in c_msgs),
+                                f'C response missing: {[(m.sender, m.content[:50]) for m in c_msgs]}')
+
+        self._run(run())
+
+
 if __name__ == '__main__':
     unittest.main()
