@@ -206,10 +206,23 @@ class AgentSession:
         repo_root = os.path.dirname(self.teaparty_home)
 
         if self._dispatch_session is None:
-            self._dispatch_session = _create_session(
-                agent_name=self.agent_name, scope=self.scope,
-                teaparty_home=self.teaparty_home,
-            )
+            # Use the agent's named session — not a throwaway.
+            # This is the same session whose metadata.json the dispatch
+            # tree reads to discover children.
+            from teaparty.runners.launcher import load_session as _load_session
+            stable_id = f'{self.agent_name}-{self.qualifier}'
+            try:
+                self._dispatch_session = _load_session(
+                    agent_name=self.agent_name, scope=self.scope,
+                    teaparty_home=self.teaparty_home,
+                    session_id=stable_id,
+                )
+            except Exception:
+                self._dispatch_session = _create_session(
+                    agent_name=self.agent_name, scope=self.scope,
+                    teaparty_home=self.teaparty_home,
+                    session_id=stable_id,
+                )
         dispatch_session = self._dispatch_session
 
         async def spawn_fn(member, composite, context_id):
