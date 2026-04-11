@@ -274,6 +274,14 @@ function _handleSessionRemoval(sessionId) {
   _updateAccordion();
 }
 
+function _removeFromTree(node, sessionId) {
+  if (!node.children) return;
+  node.children = node.children.filter(function(c) { return c.session_id !== sessionId; });
+  for (var i = 0; i < node.children.length; i++) {
+    _removeFromTree(node.children[i], sessionId);
+  }
+}
+
 function _findParent(tree, targetId) {
   if (!tree.children) return null;
   for (var i = 0; i < tree.children.length; i++) {
@@ -644,9 +652,22 @@ function connectWS() {
         delete pageState.escalationConvMap[event.session_id];
         _handleSessionRemoval(event.session_id);
         fetchAll();
-      } else if (event.type === 'dispatch_started' || event.type === 'dispatch_completed') {
-        // Dispatch tree changed — refresh the accordion.
+      } else if (event.type === 'dispatch_started') {
+        // New child — must re-fetch tree to discover it.
         _updateAccordion();
+      } else if (event.type === 'dispatch_completed') {
+        // Child removed — apply locally for instant feedback.
+        // Don't re-fetch: the parent may still be running and we
+        // need to show it before its own completion event arrives.
+        if (_dispatchTree) {
+          // If we're viewing the child that just completed, expand its parent.
+          if (_accordionExpanded === event.child_session_id) {
+            _accordionExpanded = event.parent_session_id || _dispatchTree.session_id;
+          }
+          _removeFromTree(_dispatchTree, event.child_session_id);
+          var container = document.getElementById('dispatch-accordion');
+          if (container) container.innerHTML = _renderNode(_dispatchTree, 0);
+        }
       }
     } catch (err) {}
   };
