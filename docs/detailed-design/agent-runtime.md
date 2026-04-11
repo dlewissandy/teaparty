@@ -2,191 +2,203 @@
 
 ## Design Choice: Claude Code CLI
 
-All agent invocations go through `claude -p` — the Claude Code CLI in pipe mode. The CLI provides agent teams, tool use, permission modes, session persistence, and `stream-json` output as built-in capabilities. Using the CLI lets us move fast: we get multi-agent coordination, file system access, and tool orchestration without building any of it ourselves.
+All agent invocations go through `claude -p` -- the Claude Code CLI in pipe mode. The CLI provides `--agent` definitions, `--agents` team rosters, tool use, permission modes, session persistence via `--resume`, and `stream-json` output as built-in capabilities. Using the CLI lets us move fast: we get multi-agent coordination, file system access, and tool orchestration without building any of it ourselves.
 
-The tradeoff is clear. The CLI is not a stable API — it's a product interface that can change between releases. A production system would replace CLI invocations with direct Anthropic API calls, reimplementing team coordination, tool dispatch, and permission enforcement at the application layer. For a research POC, the CLI's capabilities far outweigh the coupling risk.
+The `--setting-sources user` flag is required on every invocation. This prevents Claude Code from reading project-level settings that could conflict with the launcher's composed configuration, and is required for OAuth token authentication under the Max SLA.
 
----
-
-## Orchestrator Architecture
-
-The agent runtime is the POC orchestrator (`projects/POC/orchestrator/`), which drives the CfA state machine through three phases:
-
-```
-Session.run()
-  └─ Orchestrator.run()
-       ├─ Start EscalationListener (Unix socket for AskQuestion MCP tool)
-       ├─ Intent phase    → AgentRunner → ClaudeRunner → claude -p (with --mcp-config)
-       │                    → ApprovalGate (INTENT_ASSERT)
-       ├─ Planning phase  → Skill lookup (System 1 fast path)
-       │                    ├─ Match found → write PLAN.md from skill, skip planning agent
-       │                    └─ No match   → AgentRunner → ClaudeRunner → claude -p
-       │                    → ApprovalGate (PLAN_ASSERT)
-       └─ Execution phase → AgentRunner → ClaudeRunner → claude -p
-                            → ApprovalGate (WORK_ASSERT)
-       └─ Stop EscalationListener
-```
-
-The orchestrator starts an `EscalationListener` before the first phase. This creates a Unix domain socket and builds an MCP server config that is passed to every `ClaudeRunner` invocation via `--mcp-config`. Agents can call the `AskQuestion` MCP tool to ask questions mid-turn — the question routes through the proxy, and the answer returns as a tool result without the agent exiting.
-
-Before entering cold-start planning, the orchestrator queries the skill library for matching skills ([#97](https://github.com/dlewissandy/teaparty/issues/97)). When a skill matches, the skill template is written directly as `PLAN.md` and CfA advances to `PLAN_ASSERT`, bypassing the planning agent entirely. The human reviews the skill-as-plan at the approval gate. If corrected, the system falls back to the cold-start planning path (System 2).
-
-Each phase invokes an **AgentRunner** (which wraps `ClaudeRunner`) to run a Claude agent team, then routes to the **ApprovalGate** at assertion states for proxy review.
+The tradeoff is clear. The CLI is not a stable API -- it's a product interface that can change between releases. A production system would replace CLI invocations with direct Anthropic API calls, reimplementing team coordination, tool dispatch, and permission enforcement at the application layer. For a research platform, the CLI's capabilities far outweigh the coupling risk.
 
 ---
 
-## CLI Invocation
+## Unified Launcher
 
-`ClaudeRunner` (`claude_runner.py`) builds and executes the subprocess command:
+Every agent in TeaParty launches through a single async function: `launch()` in `teaparty/runners/launcher.py`. No alternative codepaths exist. The launcher reads `.teaparty/` configuration to derive everything the agent needs, composes the worktree, builds the subprocess arguments, and delegates to `ClaudeRunner` for execution.
+
+```python
+async def launch(
+    *,
+    agent_name: str,
+    message: str,
+    scope: str,                   # 'management' or 'project'
+    teaparty_home: str,           # path to .teaparty/
+    worktree: str,                # path to session worktree
+    resume_session: str = '',     # claude session ID for --resume
+    mcp_port: int = 0,            # HTTP MCP server port (0 = no MCP)
+    on_stream_event: Callable | None = None,
+    event_bus: EventBus | None = None,
+    session_id: str = '',
+    heartbeat_file: str = '',
+    stall_timeout: int = 1800,
+) -> ClaudeResult:
+```
+
+The function:
+
+1. Calls `compose_launch_worktree()` to write `.claude/` into the worktree
+2. Reads agent frontmatter for tool permissions and permission mode
+3. Derives the roster JSON if the agent leads a workgroup
+4. Builds a sanitized environment (allowlisted env vars only)
+5. Instantiates `ClaudeRunner` with the derived configuration
+6. Runs the subprocess, streams events, returns `ClaudeResult`
+7. Records turn metrics to `{scope}/metrics.db`
+
+The launcher is stateless -- it does not cache, track, or persist anything between calls.
+
+---
+
+## CLI Invocation Format
+
+`ClaudeRunner._build_args()` (`teaparty/runners/claude.py`) assembles the subprocess command. Every invocation has this shape:
 
 ```bash
 claude -p \
   --output-format stream-json \
   --verbose \
   --setting-sources user \
-  --permission-mode acceptEdits \
-  --agents '<team-definition-JSON>' \
-  --agent intent-lead \
-  --settings /tmp/settings-overlay.json \
-  --add-dir /path/to/session/worktree \
-  --add-dir /path/to/project/dir \
-  --mcp-config /tmp/mcp-config.json
+  --permission-mode {mode} \
+  --agent {name} \
+  --settings {path}                # .claude/settings.json (tool permissions)
+  --agents {roster_json}           # if agent leads a workgroup
+  --mcp-config {path}              # .mcp.json in the worktree
+  --resume {session_id}            # if continuing a conversation
+  --add-dir {path}                 # additional visible directories
 ```
 
-Key parameters:
-- **`--agents`** — team definition JSON (composed from `.teaparty/project/agents/` and `.teaparty/project/workgroups/`, with placeholder substitution for `__POC_DIR__` and `__SESSION_DIR__`)
-- **`--agent`** — which agent to start with (the team lead)
-- **`--permission-mode`** — per-phase permission level (`acceptEdits`, `plan`, `default`)
-- **`--settings`** — overlay for allowed/disallowed tools
-- **`--add-dir`** — directories visible to the agent (session worktree, project dir)
-- **`--output-format stream-json`** — real-time JSONL event stream
-- **`--mcp-config`** — MCP server configuration (provides the `AskQuestion` tool to agents)
+Always present: `--output-format stream-json`, `--verbose`, `--setting-sources user`, `--permission-mode`, `--agent`, `--settings`. The rest are conditional on what `.teaparty/` config declares for that agent.
 
-The prompt is passed via stdin. Agent output streams as JSONL to `.{phase}-stream.jsonl` files. A stall watchdog kills the process if no output arrives within the configured timeout (default 1800 seconds).
+The prompt is passed via stdin. The process runs to completion, streams events, exits. Multi-turn continuity uses `--resume` with the previous session's Claude session ID. No persistent processes, no NDJSON stdin piping, no warm caching.
 
-Environment variables injected into every invocation:
-- `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`
-- `CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000`
-- `POC_PROJECT`, `POC_PROJECT_DIR`, `POC_SESSION_DIR`, `POC_SESSION_WORKTREE`
+Environment variables are stripped to an allowlist (`ClaudeRunner._ENV_ALLOWLIST`) so agent subprocesses do not inherit credentials, tokens, or other sensitive state from the orchestrator.
 
 ---
 
-## Agent Definitions
+## Worktree Composition
 
-Agent teams are defined in JSON files (`agents/*.json`). Each agent specifies:
+`compose_launch_worktree()` (`teaparty/runners/launcher.py`) writes the `.claude/` directory into an existing worktree without touching the repo's own `CLAUDE.md`. The repo checkout provides project-level instructions; agent-specific configuration is layered on top.
 
-| Field | Purpose |
-|-------|---------|
-| `description` | When to use this agent (shown to other agents) |
-| `prompt` | Full behavior instructions |
-| `model` | `sonnet`, `opus`, or `haiku` |
-| `maxTurns` | Turn limit before force-completion |
-| `disallowedTools` | Tools this agent cannot use |
+| Worktree file | Source | Notes |
+|---------------|--------|-------|
+| `.claude/CLAUDE.md` | Already in the repo checkout | Not composed, not touched |
+| `.claude/agents/{name}.md` | `{scope}/agents/{name}/agent.md` | Copied; old agent definitions are cleaned first |
+| `.claude/skills/{skill}/` | `{scope}/skills/{skill}/` | Symlinked; filtered by agent frontmatter `skills:` allowlist |
+| `.claude/settings.json` | `{scope}/settings.yaml` merged with `{scope}/agents/{name}/settings.yaml` | Agent settings win per-key via deep merge |
+| `.mcp.json` | Generated | Points to `http://localhost:{port}/mcp/{scope}/{agent}` |
 
-Teams are structured by phase:
-- **Intent**: `intent-team.json` — intent lead + research liaison
-- **Planning/Execution**: `uber-team.json` — project lead + one liaison per subteam (art, writing, editorial, research, coding)
-- **Subteams**: `coding-team.json`, `writing-team.json`, `art-team.json`, `research-team.json`, `editorial-team.json`
+Agent definition resolution (`resolve_agent_definition()`) checks the invocation scope first, then falls back to management scope. A project can override any management-level agent by providing its own version in `.teaparty/project/agents/`.
 
----
+Skills use the same resolution order: scope-specific first, then management. Only skills listed in the agent's frontmatter `skills:` key are composed. No `skills:` key means no skills.
 
-## Hierarchical Dispatch
-
-During execution, the project lead delegates tasks to subteams through liaison agents. Each liaison dispatches to its subteam by invoking `dispatch_cli.py` via the Bash tool:
-
-```bash
-python3 -m projects.POC.orchestrator.dispatch_cli \
-  --team art \
-  --task "Design the cover art"
-```
-
-Each dispatch:
-1. Creates an isolated **dispatch worktree** (child branch of the session branch)
-2. Initializes **child CfA state** linked to the parent via `make_child_state()` (carries parent_id, team_id, depth)
-3. Runs a **child orchestrator** with the subteam's agent file and lead, skipping intent (intent is inherited from parent)
-4. **Auto-approves** all review gates — `_NoInputProvider` returns `'approve'` for every request. No human interaction at the dispatch level.
-5. On failure, **retries** up to `max_dispatch_retries` (default 5) unless the failure is an escalation (which surfaces to the parent)
-6. On success, generates a commit message (LLM call via Haiku) and **squash-merges** results back into the parent session worktree
-7. Writes a `MEMORY.md` in the dispatch infra dir for the learning rollup chain
-8. Cleans up the dispatch worktree
-9. Returns JSON status with fields: `status` (completed/failed), `exit_reason` (completed, plan_escalation, work_escalation, failed), `terminal_state` (final CfA state), `backtrack_count`
-
-### Dispatch Result Schema
-
-The dispatch function returns a JSON object with the following fields:
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `status` | string | `completed` or `failed` |
-| `exit_reason` | string | `completed`, `plan_escalation`, `work_escalation`, `failed`, or `retry_limit_exceeded` |
-| `terminal_state` | object | Final CfA state (phase, state, actor, history, backtrack_count, etc.) |
-| `backtrack_count` | int | Total cross-phase backtracks during the dispatch |
-| `team` | string | Team slug that was dispatched |
-| `timestamp` | string | ISO timestamp of dispatch completion |
-
-The calling agent parses this JSON to determine whether to continue execution or escalate to the parent.
-
-### Process Isolation and Intent Scope
-
-Process boundaries provide context isolation by design — each subteam runs in its own `claude -p` process with its own context window. This ensures subteams don't pollute the parent's working memory and can focus on their narrow task without distraction.
-
-Child CfA skips intent gathering (inherited from parent). This is a policy choice to avoid redundant dialogue, justified by the assumption that intent is monotonic — if task X is part of project P, and project P is part of intent I, then task X is part of intent I. Future work could consider intent re-validation at narrower scope for tasks that specialize the parent's intent.
-
-**Issue [#144](https://github.com/dlewissandy/teaparty/issues/144)** tracked replacing this subprocess-based dispatch with bus-mediated MCP tools. Completed in issues #358 and #359: `Send` and `Reply` are the current dispatch tools; `AskTeam` and `DispatchListener` have been retired. Liaisons call `Send(member, message)` instead of invoking `dispatch_cli.py` via Bash.
-
----
-
-## Event Bus and Observability
-
-The orchestrator publishes events to an `EventBus` (`events.py`), which serves as the pub-sub backbone for observability. The bridge dashboard and logging systems subscribe to these events.
-
-Major event types:
-- `LOG` — text output (agent steps, orchestrator decisions)
-- `INPUT_REQUEST` — question asked to human
-- `ACTOR_START` — agent or approval gate invocation begins
-- `ACTOR_DONE` — agent or approval gate completes
-- `STATE_TRANSITION` — CfA state change
-- `APPROVAL_REQUIRED` — human review requested
-- `ESCALATION` — decision escalated to human
-
-The EventBus is created in the main orchestrator entry point and flows through `Session` → `Orchestrator` → individual actors. It survives across all phases and is the mechanism that the bridge dashboard uses to display real-time progress.
-
-This is infrastructure detail, not core to understanding CfA or agent runtime, but important for observability and debugging.
-
----
-
-## Phase Configuration
-
-Phase configuration is loaded by `phase_config.py:PhaseConfig.load()`; validation happens at orchestrator startup. The configuration file (`phase-config.json`) maps phases to agent files, leads, permission modes, artifact paths, and approval states:
-
-| Phase | Agent File | Lead | Permission Mode | Artifact | Approval State |
-|-------|-----------|------|-----------------|----------|----------------|
-| Intent | `intent-team.json` | `intent-lead` | `acceptEdits` | `INTENT.md` | `INTENT_ASSERT` |
-| Planning | `uber-team.json` | `project-lead` | `acceptEdits` | `PLAN.md` | `PLAN_ASSERT` |
-| Execution | `uber-team.json` | `project-lead` | `acceptEdits` | `.work-summary.md` | `WORK_ASSERT` |
-
-Each phase configures a `settings_overlay` controlling which tools are allowed. Intent phase allows Write, Edit, WebFetch, WebSearch. Execution phase additionally allows SendMessage, Bash, Task, TaskOutput.
-
-Subteam overrides are configured in the `teams` section — each team specifies its agent file, lead, and optional planning permission mode (subteams use `plan` mode for tactical planning).
+Settings merge uses `_merge_settings()` which loads the scope-level `settings.yaml` as the base, then deep-merges the agent-level `settings.yaml` on top. The result is written as `.claude/settings.json` and passed via `--settings`.
 
 ---
 
 ## Session Lifecycle
 
-The `Session` class (`session.py`) manages the full workflow:
+A session is a worktree. There is a 1:1:1 correspondence between sessions, worktrees, and Claude session IDs. This invariant is structural -- the `Session` dataclass (`teaparty/runners/launcher.py`) captures all three:
 
-1. Classify task → derive project slug
-2. Ensure project directory and git repo exist
-3. Create session worktree (isolated branch from main)
-4. Copy context files (`--intent-file`, `--plan-file`) if provided
-5. Retrieve memory context (institutional memory, proxy preferences, fuzzy retrieval)
-6. Run orchestrator (CfA state loop)
-7. Commit deliverables
-8. Squash-merge session into main
-9. Extract learnings (10 scopes in parallel)
-10. Clean up session worktree
+```python
+@dataclass
+class Session:
+    id: str                                    # session identifier
+    path: str                                  # {scope}/sessions/{id}/
+    agent_name: str
+    scope: str
+    claude_session_id: str = ''                # claude -p --resume value
+    conversation_map: dict[str, str] = ...     # request_id -> child session ID
+```
 
-Sessions can be resumed (`Session.resume_from_disk()`) by reloading CfA state, extracting Claude session IDs from stream JSONL files, and reconstructing actor data from the worktree.
+### Create
+
+`create_session()` allocates `{scope}/sessions/{session-id}/`, writes `metadata.json` with the agent name and empty conversation map. A git worktree is created inside the session directory at `worktree/`.
+
+### Resume
+
+`load_session()` reads `metadata.json` from the session directory. The stored `claude_session_id` is passed as `--resume` to the launcher. The conversation map is restored for dispatch slot tracking.
+
+### Close
+
+`CloseConversation` (MCP tool) removes the entry from the dispatching agent's conversation map (freeing a slot) and triggers worktree cleanup on the target session.
+
+### Withdraw
+
+Iterates the agent's conversation map, closes each open conversation, cleans up all child sessions recursively.
+
+### Metrics
+
+After each turn, the launcher writes to `{scope}/metrics.db` via `_record_metrics()`: cost, tokens, duration, keyed by session/agent/turn. The database survives session cleanup and supports queries across sessions, agents, and time ranges.
+
+---
+
+## Stream Processing
+
+Every launch streams JSONL events in real time. `ClaudeRunner.run()` tails stdout line-by-line, persists each line to the stream file, and publishes `STREAM_DATA` events to the `EventBus`.
+
+Stream relay (`teaparty/teams/stream.py`) provides:
+
+- **Deduplication**: `tool_use` and `tool_result` events are deduplicated by ID to prevent double-processing.
+- **Classification**: Events are classified by sender type via `_classify_event()` -- distinguishing agent output, tool use, system messages, and non-conversational senders.
+- **Bus relay**: `_make_live_stream_relay()` returns a callback that processes each event and relays it to the message bus. This is the baseline for all agents.
+
+The stream callback is passed to `ClaudeRunner` via the `on_stream_event` parameter. `AgentSession.invoke()` wires this up automatically.
+
+---
+
+## Session Health
+
+Two failure modes the launcher detects and recovers from:
+
+### Poisoned Session
+
+`detect_poisoned_session()` scans stream events for `system` events where an MCP server has `status: failed`. When this happens, `--resume` on that session will silently fail forever. The launcher returns an empty session ID so the caller starts fresh on the next invocation.
+
+### Empty Response
+
+`should_clear_session()` checks whether the runner completed with no assistant text. An empty response means the session is dead. The session ID is cleared so the next invocation creates a new session rather than resuming the broken one.
+
+Both checks run after every launch. The caller (typically `AgentSession`) inspects the result and clears `claude_session_id` when either condition is detected.
+
+---
+
+## Max SLA Constraints
+
+The launcher enforces these constraints on every invocation:
+
+- **Genuine binary only.** Invoke via the `claude` binary found on `PATH`. No wrappers, no shims.
+- **No OAuth extraction.** Never extract OAuth tokens for direct HTTP use.
+- **No throttle circumvention.** Never instrument around Claude Code's built-in rate limiting.
+- **System concurrency ceiling.** Configurable (default 10). The launcher does not exceed this.
+- **Per-agent concurrency limit.** Each dispatching agent's `metadata.json` holds a conversation map (request ID to child session ID). Maximum 3 concurrent conversations per agent (`MAX_CONVERSATIONS_PER_AGENT`). The fourth `Send` blocks until a slot frees, which forces agents to close conversations when done.
+- **CLI sets the pace.** The launcher does not retry, batch, or parallelize beyond what the CLI permits.
+- **Stable system prompts.** Agent definitions and settings are deterministic for a given config state.
+- **Session resumption.** Use `--resume` rather than reconstructing context from scratch.
+- **`--setting-sources user`** on every invocation. Required for Max OAuth authentication.
+- **Single user only.**
+
+---
+
+## AgentSession
+
+`AgentSession` (`teaparty/teams/session.py`) is the unified session class for all agent conversations. Every agent type -- office manager, project lead, project manager, configuration lead, proxy -- runs through this single class. There are no per-agent-type session subclasses.
+
+Variable behavior is handled through configuration and hooks, not inheritance:
+
+| Parameter | Purpose |
+|-----------|---------|
+| `agent_name` | Which agent definition to use |
+| `scope` | `'management'` or `'project'` |
+| `conversation_type` | How the conversation ID is keyed |
+| `dispatches` | Whether to start a `BusEventListener` for Send/Reply |
+| `post_invoke_hook` | Called after launch with the response text (e.g. proxy ACT-R processing) |
+| `build_prompt_hook` | Overrides default prompt construction (e.g. proxy memory retrieval) |
+
+`AgentSession` manages:
+
+- **Message bus**: Per-agent SQLite bus for conversation history. Human and agent messages are stored and retrieved for context building.
+- **Context building**: `build_context()` reconstructs the conversation from bus messages, filtering out non-conversational senders.
+- **State persistence**: `save_state()` / `load_state()` read and write session metadata through the launcher's `create_session()` / `load_session()`.
+- **Dispatch infrastructure**: Agents with rosters get a `BusEventListener` that handles `Send`, `Reply`, and `CloseConversation` MCP calls. The listener's `spawn_fn` creates child sessions with worktrees and routes through the launcher.
+
+The dispatch spawn function (`_ensure_bus_listener`) creates child sessions, allocates worktrees, checks slot availability, and recursively registers spawn functions for child agents that themselves dispatch. This is how the full team hierarchy -- OM to PM to project lead to workgroup agents -- operates through a single session class.
 
 ---
 
@@ -194,16 +206,10 @@ Sessions can be resumed (`Session.resume_from_disk()`) by reloading CfA state, e
 
 | File | Purpose |
 |------|---------|
-| `orchestrator/__main__.py` | CLI entry point |
-| `orchestrator/session.py` | Session lifecycle |
-| `orchestrator/engine.py` | CfA state machine loop |
-| `orchestrator/actors.py` | AgentRunner + ApprovalGate |
-| `orchestrator/claude_runner.py` | `claude -p` subprocess wrapper |
-| `orchestrator/dispatch_cli.py` | Subteam dispatch entry point |
-| `orchestrator/mcp_server.py` | AskQuestion MCP server (stdio) |
-| `orchestrator/escalation_listener.py` | Unix socket bridge for AskQuestion → proxy → human |
-| `orchestrator/phase_config.py` | Phase and team configuration loader |
-| `orchestrator/procedural_learning.py` | Skill candidate archival and crystallization |
-| `orchestrator/skill_lookup.py` | System 1 skill matching (threshold-based retrieval, default threshold=0.15) |
-| `phase-config.json` | Phase/team/permission configuration |
-| `agents/*.json` | Agent team definitions |
+| `teaparty/runners/launcher.py` | Unified launcher: `launch()`, session CRUD, worktree composition, metrics |
+| `teaparty/runners/claude.py` | `ClaudeRunner` -- subprocess wrapper, arg builder, stream processor |
+| `teaparty/teams/session.py` | `AgentSession` -- unified session class for all agent types |
+| `teaparty/teams/stream.py` | Stream event classification, deduplication, bus relay |
+| `teaparty/messaging/listener.py` | `BusEventListener` -- handles Send/Reply/Close for dispatching agents |
+| `teaparty/config/config_reader.py` | Agent frontmatter reader |
+| `teaparty/config/roster.py` | Roster derivation from workgroup/project config |

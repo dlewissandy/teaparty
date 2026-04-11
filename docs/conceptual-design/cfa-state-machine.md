@@ -2,7 +2,7 @@
 
 The Conversation for Action (CfA) protocol is formalized as a three-phase state machine: **Intent**, **Planning**, and **Execution**. Each phase has its own states, a synthesis loop that refines artifacts through iteration, and escalation paths for human involvement. Phases connect through explicit backtrack transitions that allow the system to revisit earlier decisions when new information warrants it. Making this a formal state machine — rather than a prompt convention — means approval gates and backtrack transitions are auditable: each transition is logged, counted, and visible in the system, not just implied by agent behavior.
 
-The state machine is defined in `cfa-state-machine.json` and implemented in `cfa_state.py`.
+The state machine is defined in `teaparty/cfa/statemachine/cfa-state-machine.json` and implemented in `teaparty/cfa/statemachine/cfa_state.py`.
 
 ---
 
@@ -16,11 +16,11 @@ TeaParty's CfA protocol has five actor types:
 
 **Human proxy.** A learned model of the human's preferences, risk tolerance, and decision patterns. The proxy participates in the conversation at every phase — not just at gates. Before agents produce artifacts, the proxy runs an intake dialog that builds shared understanding: it asks questions where its model of the human is uncertain, predicts answers where its model is confident, and calibrates from the delta between predictions and actual answers. At approval gates between phases, the proxy decides whether to approve or escalate — but a proxy that has built understanding through dialog makes better gate decisions than one that only sees the finished artifact. Between gates, the proxy answers clarifying questions from agent teams and engages in dialog about the human's preferences. Every interaction — intake answers, gate decisions, mid-work clarifications — is a learning opportunity that refines the proxy's model of the human.
 
-**Intent team.** An intent lead and a research liaison. The intent lead refines the human's idea into a specification (`INTENT.md`) through a synthesis loop. The research liaison dispatches to a research subteam when the intent lead needs background investigation. Communication follows a spoke-and-wheel pattern: the lead is the hub, members communicate through the lead via SendMessage, eliminating bottlenecks from sequential handoffs.
+**Intent team.** An intent lead and research agents. The intent lead refines the human's idea into a specification (`INTENT.md`) through a synthesis loop. When the intent lead needs background investigation, it dispatches to research agents via Send. Communication follows a spoke-and-wheel pattern: the lead is the hub, members communicate through the lead, eliminating bottlenecks from sequential handoffs.
 
-**Planning and execution team (uber team).** A project lead and liaisons for each discipline — art, writing, editorial, research, coding. The project lead coordinates strategy; liaisons dispatch to specialized subteams via `dispatch_cli.py`, each subteam running in its own process and git worktree. The project lead never sees raw subteam conversations; liaisons compress results at each boundary. Same spoke-and-wheel communication: the project lead is the hub.
+**Planning and execution team.** A project lead and workgroup agents for each discipline — coding, research, writing, art, editorial, and others as configured. The project lead coordinates strategy; workgroup agents are dispatched via Send, each running in its own process and git worktree. The project lead never sees raw workgroup conversations; context is compressed at each Send boundary. Same spoke-and-wheel communication: the project lead is the hub.
 
-**Subteams.** Each subteam is a multidisciplinary team with its own lead and specialists. The coding team has an architect, coder, reviewer, and tester. The research team has web, arxiv, video, and image researchers. Writing, art, and editorial teams follow the same pattern. Each subteam runs its own CfA cycle — planning and executing within its scoped context — and returns results to the parent team through its liaison. Subteams never communicate with each other; all coordination flows through the uber team.
+**Workgroups.** Each workgroup has its own lead and specialists. The coding workgroup has an architect, developer, reviewer, and test engineer. The research workgroup has web, arxiv, and other researchers. Writing, art, and editorial workgroups follow the same pattern. Each workgroup agent runs in its own session with its own context — and returns results to the project lead via Reply. Workgroup agents never communicate with each other directly; all coordination flows through the project lead.
 
 ---
 
@@ -57,7 +57,7 @@ stateDiagram-v2
     INTENT_ASSERT --> WITHDRAWN : withdraw
 ```
 
-The human starts with a raw idea. The intent lead takes that idea and develops it into a proposal — researching the problem space, identifying constraints, and surfacing tradeoffs the human may not have articulated. If the intent lead needs background information, it dispatches the research liaison to investigate.
+The human starts with a raw idea. The intent lead takes that idea and develops it into a proposal — researching the problem space, identifying constraints, and surfacing tradeoffs the human may not have articulated. If the intent lead needs background information, it dispatches research agents to investigate via Send.
 
 On the happy path, the intent lead produces a proposal and asserts it for the human's approval. The proposal arrives at INTENT_ASSERT, where the proxy frames the review as an alignment validation question: *Do you recognize this as your idea, completely and accurately articulated?* The proxy has access to the original task prompt as context, so it can compare the intent document against what the human actually asked for. The gate is a conversation, not a binary decision — the proxy may ask clarifying questions, suggest changes, or flag concerns before the human approves, corrects, or withdraws.
 
@@ -71,9 +71,9 @@ The human can withdraw at any point if the idea is no longer worth pursuing.
 
 The planning phase transforms an approved intent into a plan. What "plan" means depends on the level.
 
-The uber team produces a **strategic plan** — a reusable workflow that decomposes the work into large phases and sequences them. Strategic plans capture the shape of the work, not its details. They are largely independent of the specifics of any particular task. For example, a strategic plan for writing a research paper might be: survey the literature, construct the argument, draft sections in parallel, edit for coherence, typeset. That same workflow applies whether the paper is about hierarchical memory or human proxy agents.
+The project lead produces a **strategic plan** — a reusable workflow that decomposes the work into large phases and sequences them. Strategic plans capture the shape of the work, not its details. They are largely independent of the specifics of any particular task. For example, a strategic plan for writing a research paper might be: survey the literature, construct the argument, draft sections in parallel, edit for coherence, typeset. That same workflow applies whether the paper is about hierarchical memory or human proxy agents.
 
-Subteams develop **tactical plans** during execution, when they receive a specific assignment and must deal with its particulars. The research team assigned to "survey the literature on hierarchical memory" plans which databases to search, what keywords to use, and how to evaluate sources. Those details belong at the tactical level because they depend on the specific task.
+Workgroup agents develop **tactical plans** during execution, when they receive a specific assignment and must deal with its particulars. The research agent assigned to "survey the literature on hierarchical memory" plans which databases to search, what keywords to use, and how to evaluate sources. Those details belong at the tactical level because they depend on the specific task.
 
 The same state machine governs both levels; the difference is in what the plan contains, not how it is negotiated.
 
@@ -105,7 +105,7 @@ stateDiagram-v2
     PLAN_ASSERT --> WITHDRAWN : withdraw
 ```
 
-The project lead takes the approved intent and drafts a plan. It may dispatch research liaisons to investigate open questions — technical feasibility, prior art, resource availability. The research team returns findings, the project lead incorporates them, and the draft evolves.
+The project lead takes the approved intent and drafts a plan. It may dispatch research agents to investigate open questions — technical feasibility, prior art, resource availability. The research agents return findings, the project lead incorporates them, and the draft evolves.
 
 On the happy path, the project lead asserts the plan for approval. The plan arrives at PLAN_ASSERT, where the proxy frames the review as an alignment validation question: *Do you recognize this as a strategic plan to operationalize your idea well?* The proxy has access to INTENT.md as context, so it can compare the plan against the approved intent — verifying that every success criterion, open question, and decision boundary from the intent is addressed by the plan. The gate is a conversation: the proxy may question whether the plan's decomposition matches the intent's priorities, flag gaps in coverage, or suggest structural changes before the human approves, corrects, or backtracks to intent.
 
@@ -166,62 +166,38 @@ stateDiagram-v2
     TASK_ASSERT --> FAILED_TASK : reject
 ```
 
-The execution lead delegates tasks from the approved plan to subteams through liaison agents. Each liaison dispatches to a specialized subteam — coding, writing, research, art, editorial — which runs in its own process with its own context window. The subteam develops a tactical plan for its assigned task, executes it, and returns results through the liaison.
+The project lead delegates tasks from the approved plan to workgroup agents via Send. Each agent runs in its own process with its own context window and git worktree. The agent develops a tactical plan for its assigned task, executes it, and returns results via Reply.
 
-On the happy path, a worker accepts a task, produces the deliverable, and asserts it for the execution lead's review. The lead approves, synthesizes the completed task into the overall work in progress, and delegates the next task. When all tasks are complete, the lead asserts the assembled work for final approval by the human proxy. The assembled work arrives at WORK_ASSERT, where the proxy frames the review as an alignment validation question: *Do you recognize the deliverables and project files as your idea, completely and well implemented?* The proxy has access to both INTENT.md and PLAN.md as context, so it can evaluate the full chain — whether the deliverables faithfully implement the plan, and whether the plan faithfully operationalized the intent. This three-way comparison (intent → plan → execution) means alignment failures are attributed to the correct phase: a deliverable that follows the plan but misses the intent reveals a planning gap, not an execution failure.
+On the happy path, an agent accepts a task, produces the deliverable, and asserts it for the project lead's review. The lead approves, synthesizes the completed task into the overall work in progress, and delegates the next task. When all tasks are complete, the lead asserts the assembled work for final approval by the human proxy. The assembled work arrives at WORK_ASSERT, where the proxy frames the review as an alignment validation question: *Do you recognize the deliverables and project files as your idea, completely and well implemented?* The proxy has access to both INTENT.md and PLAN.md as context, so it can evaluate the full chain — whether the deliverables faithfully implement the plan, and whether the plan faithfully operationalized the intent. This three-way comparison (intent → plan → execution) means alignment failures are attributed to the correct phase: a deliverable that follows the plan but misses the intent reveals a planning gap, not an execution failure.
 
-Within each task, the synthesis loop handles the common case where work needs refinement. A worker may need research — dispatching questions to the research team. It may encounter a blocker and escalate to the approval gate, which either resolves it from the proxy model or escalates to the human. The execution lead may correct a worker's output, sending it back through the loop for revision. If a task fails outright, the worker can retry, or the lead can escalate or backtrack to replanning.
+Within each task, the synthesis loop handles the common case where work needs refinement. An agent may need research — dispatching questions to other agents via Send. It may encounter a blocker and escalate to the approval gate, which either resolves it from the proxy model or escalates to the human. The project lead may correct an agent's output, sending it back through the loop for revision. If a task fails outright, the agent can retry, or the lead can escalate or backtrack to replanning.
 
-At any decision point, the human or its proxy can ask clarifying questions before approving, correcting, or withdrawing. The human can withdraw at multiple points — during task escalation, during work assembly, or during final assertion — if the work has gone off track beyond recovery.
+At any decision point, the human or its proxy can ask clarifying questions before approving, correcting, or withdrawing. The human can withdraw at multiple points — during task escalation, during work assembly, or during final assertion — if the work has gone off track beyond recovery. See [Intervention and Withdrawal](#intervention-and-withdrawal) for the mechanics.
 
-Each subteam delegation creates a child CfA instance linked to its parent by a parent ID, team ID, and depth. Child instances enter at the planning phase — the delegated task already carries approved intent from the parent scope. The critical path here is escalation: when a subteam encounters a problem it cannot resolve, it escalates through the liaison back to the uber team. The uber team's execution lead can then correct the assignment, provide additional context, or backtrack to replanning if the issue is structural. This escalation path is what prevents subteams from going off track in isolation — they have a way to surface problems without needing to see the full strategic context.
+Each task dispatch creates a child CfA instance linked to its parent by a parent ID, team ID, and depth. Child instances enter at the planning phase — the delegated task already carries approved intent from the parent scope. The critical path here is escalation: when an agent encounters a problem it cannot resolve, it escalates back to the project lead. The project lead can then correct the assignment, provide additional context, or backtrack to replanning if the issue is structural. This escalation path is what prevents agents from going off track in isolation — they have a way to surface problems without needing to see the full strategic context.
 
 ```mermaid
 flowchart TB
     lead["Project Lead"]
 
-    subgraph liaisons[" "]
-        direction LR
-        l1["Subteam 1 Liaison"]
-        ldots["⋯"]:::nodots
-        ln["Subteam N Liaison"]
-    end
-
-    lead <-->|SendMessage| l1
-    lead <-->|SendMessage| ln
-
-    subgraph teams[" "]
+    subgraph agents["Workgroup Agents"]
         direction LR
 
-        subgraph sub1["Subteam 1"]
-            s1_lead["Subteam 1 Lead"]
-            s1_w1["Worker 1"]
-            s1_wdots["⋯"]:::nodots
-            s1_wn["Worker N"]
-            s1_lead <--> s1_w1
-            s1_lead <--> s1_wn
-        end
-
-        subgraph subn["Subteam N"]
-            sn_lead["Subteam N Lead"]
-            sn_w1["Worker 1"]
-            sn_wdots["⋯"]:::nodots
-            sn_wn["Worker N"]
-            sn_lead <--> sn_w1
-            sn_lead <--> sn_wn
-        end
+        a1["Agent 1"]
+        adots["⋯"]:::nodots
+        an["Agent N"]
     end
 
-    l1 -- "delegate task" --> s1_lead
-    s1_lead -. "results / escalate" .-> l1
+    lead -- "Send (task)" --> a1
+    a1 -. "Reply (result)" .-> lead
 
-    ln -- "delegate task" --> sn_lead
-    sn_lead -. "results / escalate" .-> ln
+    lead -- "Send (task)" --> an
+    an -. "Reply (result)" .-> lead
 
     classDef nodots fill:none,stroke:none,color:#888,font-size:20px
 ```
 
-Solid lines show task delegation flowing downward; dotted lines show results and escalations flowing back up. Each boundary is a process boundary — the uber team and each subteam run in separate processes with separate context windows. Liaisons are the only agents that cross this boundary.
+Solid lines show task delegation flowing downward via Send; dotted lines show results and escalations flowing back up via Reply. Each arrow is a process boundary — the project lead and each workgroup agent run in separate processes with separate context windows.
 
 ---
 
@@ -275,6 +251,18 @@ There are ten backtrack transitions, grouped by how far back they reach.
 **Task review → Planning or Intent (2 transitions).** When task-level review (TASK_ASSERT) reveals that the problem is not with this specific task but with the plan or intent, the execution lead can backtrack: revise-plan returns to PLANNING_RESPONSE so the plan can be revised, or refine-intent returns all the way to INTENT_RESPONSE.
 
 **Final review → Planning or Intent (2 transitions).** The most consequential backtracks happen at the end. During final assertion (WORK_ASSERT), the human or proxy reviews the assembled work and determines either that the plan needs revision (the work was executed correctly but the plan was wrong) or that the intent itself was wrong (the work faithfully implements an intent that turns out not to be what was wanted). The second case — backtracking all the way from final review to intent — is the most expensive transition in the system, but without it, the only option would be to ship work that misses the point.
+
+---
+
+## Intervention and Withdrawal
+
+Two events allow humans to alter the course of work in progress:
+
+**INTERVENE** — an unsolicited course correction delivered at turn boundaries via `--resume`. The decider's interventions are authoritative: the lead must reassess and decide whether to continue, backtrack, or withdraw. Advisor interventions are advisory — the lead considers them but is not bound by them. Intervention does not change the CfA state directly; it adds context that may cause the lead to trigger a state transition.
+
+**WITHDRAW** — a kill signal that cascades through the dispatch hierarchy immediately. Unlike intervention, withdrawal is not advisory. When a session is withdrawn, all child sessions are withdrawn recursively, worktrees are cleaned up, and the CfA state moves to the WITHDRAWN terminal state. There is no pause-and-assess for withdrawal — it is immediate cascading termination.
+
+Intervention propagates through the dispatch chain: an intervention on a job may trigger the project lead to reassess other related tasks. Withdrawal propagates downward unconditionally.
 
 ---
 

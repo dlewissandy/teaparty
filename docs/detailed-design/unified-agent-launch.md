@@ -1,0 +1,245 @@
+# Unified Agent Launch
+
+**Status:** Implemented
+**Issue:** #394
+**Implementation:** `launch()` in `teaparty/runners/launcher.py`
+
+## What
+
+TeaParty is a multi-agent system that uses its own `.teaparty/` folder to configure every aspect of agentic teams: roster, MCP access, skills, streaming, prompts. Those definitions are the source of truth for any interaction with agents while using the system. To facilitate research and rapid iteration, the designer uses a Claude Max account to avoid per-token costs. To stay within the Max SLA this means using `claude -p` (with `--resume` on warm restarts) rather than the Claude API.
+
+The current state uses multiple different launch patterns, which complicates the ability to ensure that agents are using the correct `.teaparty/` configuration and compliance with the SLA. At present the designer is concerned that the code has diverged from his intent on both counts.
+
+## Goal
+
+The `.teaparty/` config fully determines how an agent is launched. Every agent is launched via the same function, no exceptions. Launch uses `claude -p` in compliance with the Max SLA.
+
+## Why
+
+Multiple launch codepaths make it impossible to verify two things that must be verifiable: that `.teaparty/` config is honored, and that every invocation complies with the Max SLA. With eight codepaths, a fix to one leaves seven unaudited. A single function is the only structure where correctness can be established once and trusted everywhere.
+
+---
+
+## The Invocation
+
+Every launch produces a `claude -p` call of this shape:
+
+```
+claude -p \
+  --agent {name} \
+  --output-format stream-json \
+  --verbose \
+  --setting-sources user \
+  --settings {path}              # .claude/settings.json (tool permissions, etc.)
+  --agents {roster_json}         # if agent leads a workgroup or team
+  --mcp-config {path}            # if agent has MCP tools
+  --resume {session_id}          # if warm restart
+  {message}
+```
+
+Always present: `--agent`, `--output-format stream-json`, `--verbose`, `--setting-sources user`, `--settings`. The rest are conditional on what `.teaparty/` config declares for that agent. Nothing else.
+
+The process runs to completion, streams events, exits. One-shot with `--resume` for multi-turn continuity. No persistent processes, no NDJSON stdin, no warm caching.
+
+## The Worktree
+
+A session is a worktree. There is a 1:1 correspondence between sessions, worktrees, and Claude session IDs. Cold start creates both. `--resume` reuses both. CloseConversation cleans up both.
+
+The repo checkout gives the worktree the project's files, including `.claude/CLAUDE.md`. The launcher composes additional files into the worktree:
+
+| Worktree file | Source | Notes |
+|---------------|--------|-------|
+| `.claude/CLAUDE.md` | Already in the repo checkout | Not composed, not touched. Agent-specific instructions live in the agent definition. |
+| `.claude/agents/{name}.md` | `{scope}/agents/{name}/agent.md` | Copied into worktree |
+| `.claude/skills/{skill}/` | `{scope}/skills/{skill}/` | Filtered by agent frontmatter `skills:` allowlist. No `skills:` key means no skills. |
+| `.claude/settings.json` | `{scope}/settings.yaml` merged with `{scope}/agents/{name}/settings.yaml` | Agent wins per-key; includes tool permissions |
+| `.mcp.json` | Generated | Points to `http://localhost:{port}/mcp/{scope}/{agent}` |
+
+---
+
+## Directory Structure
+
+### Two scopes
+
+Every project repo has `.teaparty/project/` — the project-level configuration. The teaparty repo additionally has `.teaparty/management/` — the cross-project management configuration. Both scopes have the same internal structure:
+
+```
+.teaparty/{scope}/
+  agents/{name}/             # agent definitions (catalog)
+    agent.md
+    settings.yaml            # per-agent settings override (optional)
+  skills/{name}/             # skill definitions (catalog)
+  workgroups/{name}.yaml     # workgroup definitions (catalog)
+  settings.yaml              # base settings for this scope
+  metrics.db                 # session metrics (cost, tokens, duration, turn count)
+  sessions/                  # runtime: session storage
+    {session-id}/
+      worktree/              # git worktree (checkout of the scope's repo)
+      learnings.db           # session learning database
+      metadata.json          # session state (claude session id, agent name,
+                             #   conversation map: request id → child session id)
+```
+
+Config (agents, skills, workgroups, settings) is separate from runtime (sessions). Config is checked into git. Sessions are ephemeral.
+
+### Session placement rule
+
+Sessions live where the work lives, not where the agent is defined:
+
+- Management sessions (OM conversations, management configuration work) → `.teaparty/management/sessions/`
+- Project sessions (project work, project configuration, job tasks) → `{project}/.teaparty/project/sessions/`
+
+Agent definitions may be shared (e.g., the auditor definition lives in `.teaparty/management/agents/`), but the session and its learnings live with the project the agent is working on.
+
+### Agent definition resolution
+
+The launcher resolves agent definitions by looking in the invocation scope first, then falling back to management scope. A project can override any management-level agent definition by providing its own version in `.teaparty/project/agents/`. The definition source is independent of session placement.
+
+### Job catalog
+
+The job catalog maps user requests to the sessions working on them. It is an index, not a container — sessions live in the sessions folder, and the catalog points to them.
+
+Jobs are user-initiated work requests that go directly to the project lead, bypassing the PM. The PM exists for management-initiated coordination (OM dispatches to PM).
+
+---
+
+## Team Hierarchy
+
+Three things matter for each agent: who dispatches it, where its definition comes from, and where its session lives. These are independent.
+
+### Dispatch chain
+
+```
+OM
+├── PM (one per project)
+│   ├── project lead
+│   │   ├── workgroups
+│   │   └── proxies
+│   └── configuration lead (project)
+│       └── CRUD specialists
+├── configuration lead (management)
+│   └── project-specialist
+└── proxy
+```
+
+### Where each agent works
+
+| Agent | Repo | Session location |
+|-------|------|-----------------|
+| OM | teaparty | `.teaparty/management/sessions/` |
+| Configuration lead (mgmt) | teaparty | `.teaparty/management/sessions/` |
+| Project-specialist | teaparty | `.teaparty/management/sessions/` |
+| PM | project | `{project}/.teaparty/project/sessions/` |
+| Project lead | project | `{project}/.teaparty/project/sessions/` |
+| Configuration lead (project) | project | `{project}/.teaparty/project/sessions/` |
+| CRUD specialists (project) | project | `{project}/.teaparty/project/sessions/` |
+| Workgroup agents | project | `{project}/.teaparty/project/sessions/` |
+| Proxy | depends | session lives with the scope of the conversation |
+
+### Roster derivation
+
+| Agent role | Roster source |
+|------------|---------------|
+| Office manager | `teaparty.yaml` → PMs from `members.projects`, management config lead from `members.workgroups`, proxy from `humans:` |
+| Project manager | Project team config → project lead, project config lead |
+| Workgroup lead | Workgroup YAML `members.agents` |
+| Leaf agent | No roster |
+
+---
+
+## Entry Points and Session Lifecycle
+
+### Entry points
+
+There are four ways a conversation is initiated. All communication goes through the bus.
+
+- **OM chat.** Human interacts with the office manager in the management chat blade.
+- **PM chat.** Human interacts with a project manager in a project chat blade.
+- **Proxy 1:1.** Human interacts with the proxy on any screen.
+- **New job.** Human launches a job, which goes directly to the project lead.
+
+Everything below these entry points is agents dispatching to other agents via Send.
+
+### Session lifecycle
+
+- **Create/Resume:** The MCP Send handler checks the dispatching agent's `metadata.json` for open slot count (max 3). If a slot is available, it creates or resumes the target session and calls the launcher. The new conversation is recorded in the dispatching agent's conversation map.
+- **Work:** The agent runs to completion, streams events, returns a response.
+- **Follow-up or close:** The caller (the agent or human who initiated the conversation) decides whether to send another message or close. The target agent never unilaterally closes — it responds and waits.
+- **Close:** CloseConversation removes the entry from the dispatching agent's conversation map (freeing a slot) and triggers worktree cleanup on the target session.
+- **Withdraw:** Iterates the agent's conversation map, closes each open conversation, cleans up all child sessions.
+- **Metrics:** The stream processor writes to `{scope}/metrics.db` after each turn (cost, tokens, duration, keyed by session/agent/turn). The database survives session cleanup and supports queries across sessions, agents, and time ranges.
+
+The launcher is stateless — it does not cache, track, or persist anything between calls.
+
+### Session health
+
+Two failure modes the launcher must handle:
+
+- **Poisoned session.** MCP server fails to start → `--resume` on that session silently fails forever. Detect via `system` events, return empty session ID so caller starts fresh.
+- **Empty response.** Runner completes, no assistant text → session is dead. Return empty session ID.
+
+---
+
+## Max SLA Constraints
+
+The launcher must enforce these constraints on every invocation:
+
+- Invoke via the genuine `claude` binary only.
+- Never extract OAuth tokens for direct HTTP use.
+- Never instrument around Claude Code's built-in throttling.
+- System-wide concurrency ceiling of 10, configurable.
+- Per-agent concurrency limit of 3. Each dispatching agent's worktree holds a conversation map (request ID → session ID) in `metadata.json`. A slot is occupied until the conversation is closed. The fourth Send blocks until a slot frees, which forces the agent to close conversations when done. The map also enables graceful shutdown on withdraw.
+- Let the CLI set the pace, not the orchestrator.
+- Keep system prompts stable across invocations for a given agent/task.
+- Use session resumption (`--resume`) rather than reconstructing context from scratch.
+- Single user only.
+
+## Stream Processing
+
+Every launch streams events to the bus in real time: deduplicate tool_use/tool_result by ID, classify by sender type, relay immediately. This is baseline for all agents, not an OM privilege.
+
+---
+
+## Scope
+
+This is our initial assessment. Investigation will likely reveal additional places that need changes. Anything morally part of the same goal gets fixed in the same work — we do not file separate tickets for technical debt that exists because of the problem we are solving.
+
+### Known codepaths to unify or eliminate
+
+- `AgentPool._start_process` (`cfa/agent_pool.py`) — persistent NDJSON stdin, caller pre-composes
+- `AgentSpawner.spawn` (`cfa/agent_spawner.py`) — one-shot, self-composes via `compose_worktree`
+- `ClaudeRunner.run` (`runners/claude.py`) — per-turn with `--resume`, caller-composed
+- `OfficeManagerSession.invoke` (`teams/office_manager.py`) — builds roster JSON, starts bus listener, writes MCP config
+- `ConfigLeadSession.invoke` (`teams/config_lead.py`) — builds roster JSON, starts bus listener, scoped to entity
+- `ProjectLeadSession.invoke` (`teams/project_lead.py`) — no roster, no MCP, no dispatch
+- `ProjectManagerSession.invoke` (`teams/project_manager.py`) — same as project lead
+- `ProxyReviewSession.invoke` (`proxy/review.py`) — post-processes correction/reinforcement signals
+
+### Supporting code to absorb or delete
+
+- `compose_worktree` / `compose_agents` / `compose_skills` (`cfa/agent_spawner.py`)
+- `compose_claude_md` (`cfa/agent_spawner.py`) — overwrites repo CLAUDE.md with management.md; delete entirely
+- `populate_scoped_claude_dir` (`runners/claude.py`)
+- `_build_roster_agents_json` (`teams/office_manager.py`)
+- `_derive_roster` (`cfa/agent_spawner.py`)
+- `ensure_agent_worktree` (`workspace/worktree.py`)
+- `AgentPool` / `AgentProcess` (`cfa/agent_pool.py`)
+
+### Directory structure cleanup
+
+- Consolidate scattered runtime state (`om/`, `pm/`, `proxy/`, `config/`, `sockets/`) into `{scope}/sessions/`
+- Separate job catalog from job storage
+- Remove worktrees from agent config directories
+
+---
+
+## What Good Looks Like
+
+The OM is the only agent that currently works end-to-end. Not everything about its implementation is good — it's a special case that should not exist — but it demonstrates behaviors that the unified launcher must preserve:
+
+- **Config-driven roster.** `_derive_roster` (`agent_spawner.py:387`) derives roster from workgroup/project config for any agent. The OM's `_build_roster_agents_json` is a special-case duplicate.
+- **Stream event processing.** `_classify_event` and `_make_live_stream_relay` (`office_manager.py:210, 315`) deduplicate and relay stream events. Must become baseline.
+- **Poisoned session detection.** Scan `system` events for MCP failure, clear session ID. (`office_manager.py:838-857`)
+- **Empty response recovery.** Clear session ID when no assistant text produced. (`office_manager.py:859-871`)
+- **`--setting-sources user` on every invocation.** Required for OAuth token auth.
+- **Environment isolation.** `ClaudeRunner._build_env` (`runners/claude.py:404`) strips env to allowlist. Agents must not inherit orchestrator credentials.

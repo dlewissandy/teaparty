@@ -1,6 +1,6 @@
 # CfA State Machine
 
-The CfA state machine (`projects/POC/scripts/cfa_state.py`) implements the three-phase Conversation for Action protocol described in [conceptual-design/cfa-state-machine.md](../conceptual-design/cfa-state-machine.md). It is integrated with the orchestrator — `engine.py` takes `CfaState` as a core parameter, and `actors.py` routes to the appropriate actor (AgentRunner or ApprovalGate) based on CfA state.
+The CfA state machine (`teaparty/cfa/statemachine/cfa_state.py`) implements the three-phase Conversation for Action protocol described in [conceptual-design/cfa-state-machine.md](../conceptual-design/cfa-state-machine.md). It is integrated with the CfA engine — `teaparty/cfa/engine.py` takes `CfaState` as a core parameter, and `teaparty/cfa/actors.py` routes to the appropriate actor based on CfA state.
 
 ---
 

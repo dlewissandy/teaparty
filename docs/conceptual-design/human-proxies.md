@@ -2,7 +2,7 @@
 
 The proxy is the human's disciple. It learns to think the way the human thinks so that it can extend the human's reach — participating in every conversation the agent teams have, on the human's behalf, with increasing fidelity to what the human would actually say. This is TeaParty's fourth pillar: the mechanism by which agents earn autonomy through demonstrated understanding, not configuration.
 
-The proxy IS the human in all conversations with agent teams. It participates in intake dialog, planning, execution, and escalation. It is reachable directly from the dashboard, where the human can converse with it, inspect what it has learned, and correct it. The approval gate decision — approve or escalate — is one downstream consequence of this, not the defining purpose. An implementer who builds the proxy as a gate decision engine has missed the point.
+The proxy IS the human in all conversations with agent teams. It participates in intake dialog, planning, execution, and escalation. It is reachable directly from the dashboard via a chat blade on any screen, where the human can converse with it, inspect what it has learned, and correct it. Each proxy review session is an independent conversation launched via the [unified launcher](../detailed-design/agent-runtime.md), sharing the same memory database as all other proxy invocations. The approval gate decision — approve or escalate — is one downstream consequence of this, not the defining purpose. An implementer who builds the proxy as a gate decision engine has missed the point.
 
 The proxy is not a gatekeeper. It is a dialog partner. At approval gates it decides whether to approve or escalate, but that is the least interesting thing it does. Its primary role is to participate in the ongoing conversation between human and agent teams — during intent gathering, during planning, during execution — building a model of the human's thinking that becomes more accurate with every interaction. The proxy that only says yes or no has failed at its job. The proxy that asks the questions the human would have asked, flags the concerns the human would have flagged, and provides the context the human would have provided — that proxy has earned the right to act autonomously.
 
@@ -93,6 +93,28 @@ Prediction answers "what would they say?" but the proxy must also answer "what d
 The interplay between prediction and questioning is what makes the intake dialog a calibration instrument rather than a questionnaire. The proxy predicts where it can, questions where it cannot, and calibrates from the delta between every prediction and the human's actual response.
 
 The progression is: dialog builds understanding, understanding enables prediction, accurate prediction earns autonomy. A proxy that cannot predict what the human would say has no business approving on their behalf.
+
+## D-A-I Roles and Proxy Behavior
+
+The [team configuration](team-configuration.md) assigns humans one of three roles at each level of the hierarchy: **Decider**, **Advisor**, or **Informed**. The proxy's behavior varies by role:
+
+**Decider.** The proxy's escalation decisions are authoritative — when it escalates to a decider, the decider's response is binding. The proxy's confidence threshold is calibrated to the decider's tolerance: escalating too rarely risks approving work the decider would reject; escalating too often wastes the decider's attention. There is exactly one decider per team.
+
+**Advisor.** The proxy's escalation to an advisor is advisory — the system incorporates the advisor's input but is not bound by it. The proxy may consult multiple advisors and weigh their input. Confidence thresholds for advisor escalation are typically lower (the proxy asks more freely), because the cost of an unnecessary question is lower than with the decider.
+
+**Informed.** Informed participants receive status updates but are not consulted for decisions. The proxy does not escalate to informed participants — it sends summaries.
+
+The D-A-I role assignment determines who the proxy stands in for at each level: the proxy at the project level stands in for the project's decider; the proxy at the workgroup level stands in for the workgroup's decider. These may be different humans with different preferences, or the same human in different roles.
+
+## Proxy Review Sessions
+
+The proxy is reachable directly via a chat blade on any dashboard screen. A proxy review session is a direct conversation between the human and their proxy — not mediated by the office manager or any agent team. The conversation is launched via the [unified launcher](../detailed-design/agent-runtime.md), sharing the same ACT-R memory database as all other proxy invocations.
+
+Two modes:
+
+**Self-review.** Full transparency. The human inspects what the proxy has learned, corrects wrong patterns, and reinforces accurate ones. The proxy exposes its internal model — confidence scores, prediction accuracy, correction patterns, activation levels — and the human calibrates it through conversation. Corrections made in self-review immediately influence proxy behavior everywhere: gate decisions, intake dialog, escalation thresholds.
+
+**Liaison mode** (future). The proxy mediates between the human and agents who are not currently active. The human asks about work history, pending decisions, or team status. The proxy draws on its memory of past sessions to answer, but does not expose internal model details (confidence, activation) — only work record. Privacy boundary: the proxy's internal learning state is visible only to the human it models, never to other agents or participants.
 
 ## Proxy Memory
 

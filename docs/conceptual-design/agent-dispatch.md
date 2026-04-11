@@ -1,69 +1,123 @@
 # Agent Dispatch
 
-How TeaParty routes messages to agents and how agent responses are produced.
+How TeaParty routes messages between agents and humans, launches agent processes, and maintains session continuity across restarts.
 
-TeaParty does not select speakers or orchestrate turn-taking. It dispatches user messages to Claude, which handles all coordination autonomously. Multi-agent collaboration uses Claude's native team sessions with streaming I/O.
-
----
-
-## Routing
-
-Messages are routed by conversation kind. Job conversations with multiple agents use persistent team sessions; single-agent and direct conversations use isolated per-agent invocations. Fan-out (`@each`) runs one invocation per agent independently. Admin conversations are handled by a deterministic command handler without LLM selection. Activity conversations produce no auto-response.
-
-Only user messages trigger responses in job conversations. Agent messages are ignored to prevent re-triggering loops.
+All communication flows through the message bus. Every agent is an independent process with its own context window. No agent shares memory, state, or a process boundary with any other agent. Coordination happens through messages, not through shared sessions.
 
 ---
 
-## Multi-Agent Team Sessions
+## The Bus as Universal Transport
 
-When multiple agents need to collaborate, TeaParty uses **persistent team sessions** — long-lived `claude` processes with bidirectional `stream-json` I/O.
+The message bus is the single transport layer for all communication in TeaParty. Human-to-agent messages, agent-to-agent messages, escalations, and system events all travel through the same bus. There is no secondary channel — no stdin pipe, no in-process delegation, no shared context.
 
-A user message is dispatched to an existing team session or starts a new one. The session spawns a `claude` process with all agent definitions and designates the lead. Agents contribute messages one at a time as they respond; each message is committed to the database immediately and picked up by the frontend's polling.
+This uniformity means every interaction is stored, routable, and visible. The bus is a durable persistent store, not a transient message queue. Conversation records survive process restarts. An agent that exits and is later re-invoked finds its conversation history intact.
 
-**Session lifecycle**: Created on the first message to a multi-agent job conversation. Reused for all follow-up messages in the same conversation (the process retains full context). Stopped when the conversation is cancelled or the server shuts down.
-
-**Lead agent**: The agent with `is_lead=True` is the team lead. Its prompt includes a teammates roster so it knows who to delegate to. Other agents receive the same file context but not the teammate list.
-
-**File access**: Workspace-enabled workgroups use git worktrees; non-workspace workgroups use virtual files materialized to a temporary directory. After each exchange, file changes on disk are synced back to the workgroup's virtual file store.
+See [messaging.md](messaging.md) (forthcoming) for the bus storage model and adapter interface.
 
 ---
 
-## Independent Fan-Out (`@each`)
+## Send and Reply
 
-When a message is addressed `@each`, every agent receives the same conversation history and responds independently via separate `claude -p` invocations. No agent sees another's response. Fan-out takes priority over team invocation when both are present.
+Two operations handle all inter-agent communication.
 
----
+**Send(member, message)** delivers a message to a named roster member, opening a new conversation thread. The caller decides what context to include in the message — task description, relevant state, pointers to files. Context compression happens at the Send boundary: the caller distills what the recipient needs to know into the message body. No intermediate agent reformulates or relays the content.
 
-## Lead Agents
+**Reply(message)** responds to whoever opened the current thread and closes it. The conversation context is already established from the opening Send.
 
-Every organizational level has an explicit lead agent (`is_lead=True`) that serves as the default responder and the top-level agent in multi-agent team sessions.
-
-| Level | Created when | Role |
-|---|---|---|
-| Home | User first login | Creates orgs, manages partnerships |
-| Organization | Organization is created | Orchestrates engagements, projects; decomposes work to workgroups |
-| Workgroup | Workgroup is created | Manages jobs, onboards agents |
-
-See [overview.md](../overview.md) for the full hierarchy and how lead agents interact across levels.
+Each conversation thread has an open/close lifecycle owned by the originator. The originator opens the thread with Send; the recipient closes it with Reply. A single agent can have multiple threads open simultaneously — a lead that sends three parallel requests has three open threads tracked in its conversation history.
 
 ---
 
-## Hierarchical Team Dispatch
+## One-Shot Launch with Resume
 
-Projects and engagements create hierarchical teams — multiple independent Claude Code team sessions connected by liaison agents. See [hierarchical-teams.md](hierarchical-teams.md) for the full design.
+Every agent — office manager, project lead, workgroup agent — runs as an independent `claude -p` process. There are no persistent agent processes. Each invocation receives the agent's definition file, its workspace, and its conversation history via `--resume`.
 
-When a project starts, a team session is created with the org lead as team lead and one liaison per participating workgroup. The org lead coordinates work using native team primitives; liaisons relay tasks to sub-teams and results back up.
+The execution model is **write-then-exit-then-resume**:
 
-When a liaison dispatches to a subteam for the first time, a job and job conversation are created, a new team session is launched, and the liaison's message becomes the initial task prompt. Subsequent liaison calls send messages to the existing session.
+1. An agent is invoked with a message (from a human, from another agent, or from the system).
+2. The agent processes the message, produces output, and may Send messages to other agents.
+3. The agent's process exits.
+4. When replies arrive or new messages are delivered, the agent is re-invoked with `--resume` against the same session, picking up where it left off.
 
-**Async notification bridge**: When a sub-team produces notable output (completion, question, stall), TeaParty injects a notification into the parent team session addressed to the relevant liaison. The liaison relays it to the team lead. This bridges the async gap between independent processes without the liaison needing to poll.
-
-**Engagement dispatch** follows the same pattern in two phases: single-agent dispatch during negotiation, then a full team session (org lead + internal liaisons + external liaison) once work begins.
-
-**Job teams inherit configuration** from their workgroup defaults, optionally overridden by the parent project: model, permission mode, max turns, and cost/time limits.
+The agent's state lives on the bus, not in process memory. An agent that sends three parallel requests records all three outstanding threads before exiting. When workers Reply, the bus tracks completions; the caller is re-invoked only when all pending threads close. Durability across restarts and partial failures follows from this — there is no in-memory state to lose.
 
 ---
 
-## Feedback Routing
+## Routing Rules
 
-When agents need human input, feedback flows up the hierarchy: job agent → workgroup lead → org lead → human. The response routes back down the same path. Each level filters and contextualizes before escalating.
+Bus routing determines which agents can communicate with which others. Routing policy is derived from workgroup membership as defined in [team-configuration.md](team-configuration.md).
+
+An agent's roster — the set of members it can reach via Send — is composed at launch time from the workgroup definition. A coding agent does not have a route to a config specialist in another workgroup. Cross-workgroup requests within a project go through the project lead.
+
+Cross-project communication is always mediated by the office manager. Project-scoped agents have no direct bus routes to agents in other projects. The office manager holds cross-project context and translates between project boundaries.
+
+---
+
+## Conversation Kinds
+
+Different conversations serve different coordination functions. Each kind has a stable identity tied to what it represents.
+
+**Office manager conversation.** One per human. The entry point for all human interaction with TeaParty. Always available, persists across sessions.
+
+**Project manager conversation.** One per active project session. Gate questions, corrections, project-level coordination. Closes when the session ends.
+
+**Proxy conversation.** The human proxy participates on behalf of the human in agent-level work. The human can observe and intervene.
+
+**Agent dispatch conversation.** Created when one agent Sends to another. Scoped to the task being delegated. Closes when the recipient Replies.
+
+**Config lead conversation.** Configuration management interactions — agent definitions, workgroup structure, project setup.
+
+---
+
+## The Dispatch Chain
+
+Work flows down through a chain of independent processes, each with its own context window:
+
+```
+Office Manager
+  └── Project Manager (per project)
+        └── Project Lead
+              └── Workgroup Agents
+```
+
+The office manager receives human requests and routes them to the appropriate project. The project manager coordinates cross-workgroup planning. The project lead decomposes work into tasks for workgroup agents. Each level communicates with the level below via Send/Reply on the bus.
+
+Every level is a separate `claude -p` process. The office manager does not hold the project lead's context. The project lead does not hold its workers' reasoning. Each process boundary is a hard context isolation guarantee — not a prompt instruction that might be forgotten, but a physical separation that cannot be breached.
+
+Context compression happens naturally at each boundary. When a project lead sends a task to a worker, it includes only what the worker needs. When the worker replies, it summarizes its result. The office manager sees project-level outcomes, not agent-level deliberation. This is the structural solution to context rot described in [hierarchical-teams.md](hierarchical-teams.md).
+
+---
+
+## Real-Time Event Streaming
+
+All agents stream events to the bus as they execute. Every event type is stored: thinking blocks, tool invocations, tool results, and final text responses. System events carry session initialization and state transitions.
+
+Events relay from the bus to WebSocket connections for dashboard visibility. The dashboard receives a live stream of all agent activity across all active conversations. Stream filtering determines what the human sees by default; all event types are stored and available for inspection.
+
+---
+
+## Concurrency
+
+The system enforces a ceiling of **10 concurrent agent processes**. This is a system-wide limit — across all projects, all workgroups, all conversation kinds.
+
+Each agent may have at most **3 open conversations** tracked in its `metadata.json`. An agent that has sent three requests and is awaiting replies cannot open a fourth until one closes. This per-agent limit prevents any single lead from monopolizing the concurrency pool.
+
+The combination of the two limits bounds total system resource consumption while allowing meaningful parallelism within a project.
+
+---
+
+## Context Compression
+
+There are no dedicated intermediary agents that exist solely to reformulate or relay messages between levels. Context compression is the responsibility of the sender at each boundary.
+
+When an agent composes a Send, it decides what context to include. A project lead sending a task to a worker includes a scoped task description, relevant file pointers, and whatever job state the worker needs — not the full project planning history. A worker replying to its lead summarizes its result — not its internal reasoning chain.
+
+Each hop compresses. The further down the chain, the more specific and narrow the context becomes. The further up, the more summarized. This cascading compression keeps every agent's context window focused on what is relevant to its role.
+
+---
+
+## Relationship to Other Designs
+
+- [messaging.md](messaging.md) (forthcoming) — bus storage, conversation identity, adapter interface, durability guarantees
+- [hierarchical-teams.md](hierarchical-teams.md) — the structural rationale for process-isolated teams and context compression at boundaries
+- [team-configuration.md](team-configuration.md) — workgroup membership definitions that drive roster composition and routing rules

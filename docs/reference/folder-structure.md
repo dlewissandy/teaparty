@@ -1,87 +1,196 @@
 # Folder Structure
 
-This document describes TeaParty's directory layout on disk: where packages live, how memory is scoped, how worktrees isolate concurrent work, and how the dogfooding setup works.
+This document describes TeaParty's directory layout on disk: the source package, the configuration tree, and the runtime session hierarchy.
 
 ---
 
-## Repo Layout
+## Source Code
+
+All source code lives under a single `teaparty/` top-level Python package. Subpackages are domain-aligned for progressive discovery — the top-level listing reveals the system's shape.
 
 ```
-teaparty/                               # repo root
-├── orchestrator/                       # CfA engine, actors, session lifecycle
-│   ├── engine.py                       # CfA state machine execution
-│   ├── session.py                      # session lifecycle
-│   ├── actors.py                       # actor definitions
-│   ├── phase-config.json               # per-phase Claude Code config
-│   └── ...
-├── bridge/                             # HTML dashboard + bridge server
-│   ├── server.py                       # aiohttp bridge server
-│   └── ...
-├── scripts/                            # CfA state machine, proxy model, learning
-│   ├── cfa_state.py                    # state machine operations
-│   ├── approval_gate.py                # confidence-based proxy model
-│   └── ...
-├── agents/                             # team and workgroup definitions
-│   ├── uber-team.json
-│   ├── coding-team.json
-│   └── ...
-├── hooks/                              # Claude Code hook scripts
-├── tests/                              # all tests (flat, no sub-packages)
-├── cfa-state-machine.json              # state machine definition
-├── teaparty.sh                         # launcher script
-└── ...
+teaparty/                           # top-level package
+  __main__.py                       # CLI entry point
+  cfa/                              # CfA protocol engine
+    engine.py                       # state machine execution, approval gates
+    session.py                      # session lifecycle, phase orchestration
+    actors.py                       # actor definitions (agent runner, gate)
+    dispatch.py                     # hierarchical dispatch
+    phase_config.py                 # per-phase Claude Code configuration
+    statemachine/                   # CfA state definitions
+      cfa_state.py                  # state operations
+      cfa_machine.py                # state machine
+      cfa-state-machine.json        # state machine definition
+    gates/                          # approval / escalation pipeline
+      queue.py                      # gate queue
+      escalation.py                 # escalation listener
+      intervention.py               # intervention handling
+      intervention_listener.py      # intervention socket
+  proxy/                            # human proxy system (independent of CfA)
+    agent.py                        # proxy agent, consult_proxy()
+    approval_gate.py                # confidence-based gate decisions
+    memory.py                       # ACT-R memory retrieval
+    metrics.py                      # prediction tracking
+    human_proxy.py                  # proxy script
+    hooks.py                        # proxy hook handlers
+  learning/                         # hierarchical memory & learning (independent of CfA)
+    extract.py                      # post-session learning extraction
+    consolidation.py                # learning consolidation
+    cluster.py                      # learning clustering
+    promotion.py                    # session → project → global promotion
+    episodic/                       # session entries, indexing, compaction
+    procedural/                     # skill and pattern acquisition
+    research/                       # PDF extraction, arXiv, Semantic Scholar
+  bridge/                           # HTML dashboard + bridge server
+    server.py                       # aiohttp bridge server (localhost:8081)
+    message_relay.py                # WebSocket message relay
+    poller.py                       # state polling
+    stats.py                        # statistics computation
+    state/                          # state management
+      reader.py                     # state reader
+      writer.py                     # state writer
+      heartbeat.py                  # session heartbeat / liveness
+      dashboard_stats.py            # dashboard statistics
+      navigation.py                 # navigation state
+    static/                         # HTML/CSS/JS frontend
+  mcp/                              # MCP server
+    server/main.py                  # MCP server entry point
+    tools/                          # MCP tool implementations
+      config_crud.py                # configuration CRUD (19 tools)
+      escalation.py                 # escalation tools
+      intervention.py               # intervention tools
+      messaging.py                  # Send, Reply, CloseConversation, etc.
+  runners/                          # LLM execution backends
+    launcher.py                     # unified agent launch function
+    claude.py                       # ClaudeRunner subprocess wrapper
+    ollama.py                       # Ollama backend
+    deterministic.py                # deterministic backend (testing)
+    machine.py                      # runner state machine
+  messaging/                        # event bus, conversations, routing
+    bus.py                          # event bus
+    conversations.py                # SqliteMessageBus, conversation state
+    dispatcher.py                   # message dispatch
+    listener.py                     # BusEventListener, agent contexts
+  teams/                            # agent session management
+    session.py                      # AgentSession (unified, all agent types)
+    stream.py                       # stream event relay
+    office_manager_tools.py         # OM-specific MCP tool handlers
+  workspace/                        # git worktree and job lifecycle
+    worktree.py                     # worktree creation and management
+    job_store.py                    # job catalog
+    merge.py                        # task merge
+    withdraw.py                     # withdrawal and cleanup
+  config/                           # runtime config loading
+    config_reader.py                # YAML config reader, catalog merging
+    roster.py                       # roster derivation
+  scheduling/                       # cron execution
+    scheduler.py                    # task scheduler
+    driver.py                       # scheduler driver
+  scripts/                          # LLM-powered utility scripts
+  util/                             # shared utilities
+    context_budget.py               # context budget monitoring
+    scratch.py                      # scratch file lifecycle
+    cost_tracker.py                 # cost tracking
 ```
-
-Projects are discovered from the registry (`~/.teaparty/teaparty.yaml`) — they can live anywhere on disk and are not co-located with the TeaParty codebase. Each project has its own `.teaparty/` config directory and `.sessions/` directory for session history.
 
 ---
 
-## Memory Hierarchy
+## Configuration Tree
 
-Memory files are scoped to the hierarchy level where the learning occurred. The [promotion chain](../conceptual-design/learning-system.md) moves validated learnings upward:
+The `.teaparty/` directory holds all agent, workgroup, and project configuration. It has two scopes with identical internal structure:
 
 ```
-~/.teaparty/MEMORY.md                                          # global scope
-<project>/.sessions/MEMORY.md                                  # project scope
-<project>/.sessions/<ts>/MEMORY.md                             # session scope
-<project>/.sessions/<ts>/<team>/MEMORY.md                      # team scope
-<project>/.sessions/<ts>/<team>/<dispatch>/MEMORY.md           # dispatch scope
+.teaparty/
+  teaparty.yaml                     # management-level config (projects, humans, etc.)
+  management/                       # management scope (cross-project)
+    teaparty.yaml                   # management team definition
+    management.md                   # management CLAUDE.md
+    settings.yaml                   # base settings for management agents
+    agents/{name}/                  # agent definitions (catalog)
+      agent.md                      # agent definition (YAML frontmatter + prose)
+      settings.yaml                 # per-agent settings override (optional)
+      pins.yaml                     # pinned artifacts (optional)
+    workgroups/{name}.yaml          # workgroup definitions
+    skills/{name}/                  # skill definitions
+      SKILL.md                      # skill entry point
+    sessions/                       # runtime: management sessions
+      {session-id}/
+        worktree/                   # git worktree
+        metadata.json               # session state, conversation map
+    metrics.db                      # session metrics (cost, tokens, duration)
+
+{project_root}/.teaparty/
+  project.yaml                      # project-level config
+  project/                          # project scope
+    agents/{name}/agent.md          # project-specific agent overrides
+    workgroups/{name}.yaml          # project-scoped workgroups
+    skills/{name}/                  # project-scoped skills
+    settings.yaml                   # base settings for project agents
+    sessions/                       # runtime: project sessions
+      {session-id}/
+        worktree/                   # git worktree
+        metadata.json               # session state
+    metrics.db                      # project metrics
 ```
 
-Each scope level also has typed memory stores — `institutional.md` (always loaded) and task-based stores (fuzzy-retrieved). See [Learning System](../conceptual-design/learning-system.md) for the full design.
+Config (agents, skills, workgroups, settings) is checked into git. Sessions are ephemeral.
+
+### Agent definition resolution
+
+The launcher resolves agent definitions by looking in the invocation scope first, then falling back to management scope. A project can override any management-level agent definition by providing its own version.
+
+### Session placement
+
+Sessions live where the work lives, not where the agent is defined:
+
+- Management sessions (OM conversations, management config work) → `.teaparty/management/sessions/`
+- Project sessions (project work, project config, job tasks) → `{project}/.teaparty/project/sessions/`
 
 ---
 
-## Git Worktree Isolation
+## Job Worktrees
 
-Each session and dispatch runs in an isolated git worktree. This provides:
+Jobs are user-initiated work requests tracked per project:
 
-- **Concurrent sessions** — multiple sessions can modify the codebase simultaneously without conflicts
-- **Branch isolation** — each session's changes are on a separate branch until approved and merged
-- **Clean rollback** — if a session fails, its worktree is discarded with no impact on the main branch
+```
+{project_root}/.teaparty/
+  jobs/
+    jobs.json                       # index (derived, not authoritative)
+    job-{id}--{slug}/
+      worktree/                     # git worktree for the job
+      job.json                      # job state
+      tasks/
+        tasks.json                  # task index
+        task-{id}--{slug}/
+          worktree/                 # git worktree for the task
+          task.json                 # task state
+```
 
-Completed sessions merge their worktree back into the parent branch.
+Every job and every task gets its own git worktree. Task branches fork from the job branch; the lead merges them back. Removing a job directory removes all child tasks.
 
 ---
 
-## Dogfooding
+## Tests
 
-TeaParty uses itself. The TeaParty repo is registered in `~/.teaparty/teaparty.yaml` as its own managed project. Session worktrees are created from the repo, allowing agents to modify the TeaParty codebase directly.
-
-The uber team (`uber-team.json`) coordinates strategy — a project lead delegates to liaison agents, each bridging to a subteam. Subteams (`coding-team.json`, `writing-team.json`, etc.) execute tactical work. Each subteam runs as a separate Claude Code CLI process with its own agent pool and context window. Results flow back through the liaison to the uber team.
-
-```
-User Task
-  └── Orchestrator
-        ├── Intent Phase   → align on what to do
-        ├── Planning Phase → uber team plans strategy
-        ├── Approval Gate  → human proxy / human review
-        └── Execution Phase
-              └── uber team
-                    ├── coding-liaison   → coding-team (lead + workers)
-                    ├── writing-liaison  → writing-team (lead + workers)
-                    ├── art-liaison      → art-team (lead + workers)
-                    └── ...
-```
+All tests live in `tests/` at the repo root. Tests use `unittest.TestCase` with `_make_*()` helpers, not pytest fixtures.
 
 ---
+
+## Dashboard
+
+The dashboard is an HTML application served by `teaparty/bridge/server.py` on `localhost:8081`. Static files live in `teaparty/bridge/static/`:
+
+- `index.html` — main dashboard with project cards
+- `config.html` — hierarchical config screens (management → project → workgroup → agent)
+- `chat.html` — chat window with filters and subtask navigation
+- `artifacts.html` — file viewer with chat-in-context blade
+- `stats.html` — statistics and charts
+- `styles.css` — shared stylesheet
+
+---
+
+## Further Reading
+
+- [Overview](../overview.md) — master conceptual model
+- [Team Configuration](../conceptual-design/team-configuration.md) — `.teaparty/` config tree design
+- [Agent Dispatch](../conceptual-design/agent-dispatch.md) — message routing and dispatch
