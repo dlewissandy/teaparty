@@ -210,6 +210,7 @@ function _renderAccordion() {
 
   // Structure changed or expanded section changed — full rebuild
   container.innerHTML = _renderNode(_dispatchTree, 0);
+  _syncFiltersToIframe();
 }
 
 function _renderNode(node, depth) {
@@ -250,13 +251,7 @@ function _renderNode(node, depth) {
 function accordionToggle(sessionId) {
   _accordionExpanded = sessionId;
   _renderAccordion();
-  // Send current filter state to the new iframe after it loads
-  setTimeout(function() {
-    var iframe = document.querySelector('.accord-section.expanded iframe');
-    if (iframe && iframe.contentWindow) {
-      iframe.contentWindow.postMessage({ type: 'setFilters', filters: bladeActiveFilters }, '*');
-    }
-  }, 500);
+  _syncFiltersToIframe();
 }
 
 // When a session completes, remove it and expand the one above
@@ -306,6 +301,15 @@ function _flattenTree(node) {
 var BLADE_FILTERS = ['agent', 'human', 'thinking', 'tools', 'results', 'system', 'state', 'cost', 'log'];
 var bladeActiveFilters = { agent: true, human: true };
 
+function _syncFiltersToIframe() {
+  setTimeout(function() {
+    var iframe = document.querySelector('.accord-section.expanded iframe');
+    if (iframe && iframe.contentWindow) {
+      iframe.contentWindow.postMessage({ type: 'setFilters', filters: bladeActiveFilters }, '*');
+    }
+  }, 300);
+}
+
 function renderBladeFilters() {
   var html = BLADE_FILTERS.map(function(f) {
     var on = bladeActiveFilters[f] ? ' on' : '';
@@ -317,11 +321,7 @@ function renderBladeFilters() {
 function toggleBladeFilter(f) {
   bladeActiveFilters[f] = !bladeActiveFilters[f];
   renderBladeFilters();
-  // Send filter state to the active iframe
-  var iframe = document.querySelector('.accord-section.expanded iframe');
-  if (iframe && iframe.contentWindow) {
-    iframe.contentWindow.postMessage({ type: 'setFilters', filters: bladeActiveFilters }, '*');
-  }
+  _syncFiltersToIframe();
 }
 
 renderBladeFilters();
@@ -667,6 +667,7 @@ function connectWS() {
           _removeFromTree(_dispatchTree, event.child_session_id);
           var container = document.getElementById('dispatch-accordion');
           if (container) container.innerHTML = _renderNode(_dispatchTree, 0);
+          _syncFiltersToIframe();
         }
       }
     } catch (err) {}
