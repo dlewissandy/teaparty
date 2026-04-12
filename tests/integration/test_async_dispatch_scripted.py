@@ -609,11 +609,13 @@ class TestClearFiresDispatchCompleted(unittest.TestCase):
     descendant so the UI accordion tears down, rmtree the child session
     dirs, free the slots.
 
-    Regression: before this fix /clear cancelled the background tasks
-    and reset in-memory state but never invoked close_fn, so the UI
-    kept showing the accordion blades indefinitely (until page reload,
-    at which point the stale on-disk conversation_map brought them
-    back anyway)."""
+    Two regression scenarios:
+      A) Live session — user types /clear on an active session that
+         has in-memory _dispatch_session and registered close_fn.
+      B) Fresh server — server restart, stale on-disk state from prior
+         run, user types /clear before any other invoke. _dispatch_session
+         is None and close_fn isn't even registered yet. _clear must
+         still walk the on-disk state and tear it down."""
 
     def test_clear_closes_every_open_dispatch(self):
         dispatch_events_seen: list = []
@@ -683,6 +685,99 @@ class TestClearFiresDispatchCompleted(unittest.TestCase):
 
         # 3. In-memory state fully reset.
         self.assertIsNone(session._dispatch_session)
+
+    def test_clear_on_fresh_session_walks_disk_state(self):
+        """Scenario B: server restart, stale on-disk dispatch from a
+        prior run, user types /clear before anything else. In this
+        state _dispatch_session is None (lazy-initialized later in
+        invoke) and close_fn is not registered yet. _clear must still
+        load the dispatch session from disk and tear down the
+        descendants so the UI accordion and session dirs clean up."""
+        dispatch_events_seen: list = []
+
+        # --- Phase 1: create a stale dispatch on disk ------------------
+        scripts1 = {
+            'coordinator': _stateful_coordinator_script(
+                expected_replies={'hello'},
+                dispatch_events=[
+                    tool_use_event('mcp__teaparty-config__Send',
+                                   {'member': 'leaf-agent', 'message': 'say hello'}),
+                    text_event('Dispatched.'),
+                    cost_event(),
+                ]),
+            'leaf-agent': {
+                'say hello': [text_event('hello'), cost_event()],
+            },
+        }
+        session1 = _make_coordinator(
+            'clear-fresh-scripted',
+            make_scripted_caller(scripts1))
+
+        async def run1():
+            _send_human(session1, 'Say hello')
+            await session1.invoke(cwd=_module_env[1])
+            return await _wait_for_result(session1, timeout=10)
+
+        _run(run1(), timeout=30)
+        self.assertEqual(len(session1._dispatch_session.conversation_map), 1)
+        child_sid = next(
+            iter(session1._dispatch_session.conversation_map.values()))
+        sessions_dir = os.path.join(
+            _module_env[0], 'management', 'sessions')
+        child_path = os.path.join(sessions_dir, child_sid)
+        self.assertTrue(os.path.isdir(child_path))
+
+        # Simulate server shutdown: stop the bus listener and drop the
+        # AgentSession entirely. The on-disk session dirs remain.
+        async def stop1():
+            await session1.stop()
+        _run(stop1(), timeout=10)
+        del session1
+
+        # --- Phase 2: new AgentSession (fresh server) ------------------
+        # Same qualifier → same session_key → loads the same on-disk
+        # dispatch_session metadata. But _dispatch_session in memory
+        # is None until _ensure_bus_listener runs, and close_fn isn't
+        # in the registry yet.
+        scripts2 = {
+            'coordinator': lambda m: [text_event('ack'), cost_event()],
+            'leaf-agent': {
+                'say hello': [text_event('hello'), cost_event()],
+            },
+        }
+        session2 = _make_coordinator(
+            'clear-fresh-scripted',
+            make_scripted_caller(scripts2),
+            on_dispatch=lambda ev: dispatch_events_seen.append(ev))
+
+        # Sanity: at this point session2 has not been invoked, so
+        # _dispatch_session is None — the fresh-server state.
+        self.assertIsNone(session2._dispatch_session)
+
+        # But the stale child is still on disk.
+        self.assertTrue(os.path.isdir(child_path))
+
+        # Run /clear. This must walk the on-disk state and tear it down.
+        async def do_clear():
+            _send_human(session2, '/clear')
+            return await session2.invoke(cwd=_module_env[1])
+
+        _run(do_clear(), timeout=30)
+
+        # 1. dispatch_completed fired for the stale child.
+        completed = [e for e in dispatch_events_seen
+                     if e.get('type') == 'dispatch_completed']
+        self.assertTrue(
+            any(e['child_session_id'] == child_sid for e in completed),
+            '/clear on a fresh server must load stale dispatch state '
+            'from disk and fire dispatch_completed for every child; '
+            'saw only %r' % dispatch_events_seen)
+
+        # 2. Stale session directory is gone.
+        self.assertFalse(
+            os.path.isdir(child_path),
+            '/clear on a fresh server must rmtree stale child session '
+            'dirs — otherwise the accordion comes back on next reload.')
 
 
 class TestRateLimitRetryScripted(unittest.TestCase):
