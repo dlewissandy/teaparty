@@ -94,7 +94,7 @@
 <div class="blade-layout">
 <div class="home" id="content" style="flex:1;min-width:0"></div>
 <div class="blade" id="blade">
-  <div class="blade-tab" id="blade-tab" onclick="toggleBlade()">&lt;</div>
+  <div class="blade-tab" onclick="toggleBlade()"><span id="blade-tab-chevron" style="writing-mode:horizontal-tb;display:inline-block;font-size:14px;line-height:1">&lt;</span></div>
   <div class="blade-body">
     <div class="blade-header"><span class="blade-title" id="blade-title">Office Manager</span><button class="blade-close" onclick="toggleBlade()">&#215;</button></div>
     <div class="blade-filters" id="blade-filters"></div>
@@ -139,14 +139,14 @@ function toggleBlade() {
   _bladeOpen = !_bladeOpen;
   localStorage.setItem('bladeOpen', _bladeOpen ? '1' : '0');
   var el = document.getElementById('blade');
-  var tab = document.getElementById('blade-tab');
+  var chev = document.getElementById('blade-tab-chevron');
   if (_bladeOpen) {
     el.classList.add('open');
-    if (tab) tab.innerHTML = '&gt;';
+    if (chev) chev.innerHTML = '&gt;';
     _updateAccordion();
   } else {
     el.classList.remove('open');
-    if (tab) tab.innerHTML = '&lt;';
+    if (chev) chev.innerHTML = '&lt;';
   }
 }
 
@@ -351,8 +351,8 @@ renderBladeFilters();
 if (localStorage.getItem('bladeOpen') === '1') {
   _bladeOpen = true;
   document.getElementById('blade').classList.add('open');
-  var _tab0 = document.getElementById('blade-tab');
-  if (_tab0) _tab0.innerHTML = '&gt;';
+  var _chev0 = document.getElementById('blade-tab-chevron');
+  if (_chev0) _chev0.innerHTML = '&gt;';
 }
 
 // Show a modal dialog for project onboarding (add or create).
