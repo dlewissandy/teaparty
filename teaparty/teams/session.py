@@ -687,14 +687,34 @@ class AgentSession:
         same agent are not affected.
         """
         import subprocess as _sp
+        from teaparty.mcp.registry import get_close_fn
 
-        # 0. Cancel any in-flight dispatches before tearing down infra
+        # 0. Close every open top-level dispatch the same way the agent
+        # would via CloseConversation: cancel descendant tasks, rmtree
+        # session dirs, fire dispatch_completed per removed session so
+        # the UI accordion tears the nested blades down. /clear is the
+        # operator-initiated equivalent of "close everything you own."
+        close_fn = get_close_fn(self.agent_name)
+        if close_fn is not None and self._dispatch_session is not None:
+            top_level_ids = list(
+                self._dispatch_session.conversation_map.values())
+            for child_sid in top_level_ids:
+                try:
+                    await close_fn(f'dispatch:{child_sid}')
+                except Exception:
+                    _log.exception(
+                        '%s _clear: close_fn failed for %s',
+                        self.agent_name, child_sid)
+
+        # 1. Cancel any in-flight dispatches that close_fn didn't cover
+        # (belt-and-suspenders — close_fn above already cancels the
+        # subtrees it walks).
         await self._cancel_background_tasks()
 
-        # 1. Stop the bus listener (kills sockets, tears down dispatch infra)
+        # 2. Stop the bus listener (kills sockets, tears down dispatch infra)
         await self.stop()
 
-        # 2. Release child worktrees and close this session's context tree
+        # 3. Release child worktrees and close this session's context tree
         bus_context_id = self._bus_context_id
         if bus_context_id:
             infra_dir = os.path.join(
@@ -717,10 +737,10 @@ class AgentSession:
                 finally:
                     infra_bus.close()
 
-        # 3. Clear all messages from the conversation bus
+        # 4. Clear all messages from the conversation bus
         self._bus.clear_messages(self.conversation_id)
 
-        # 4. Reset session state
+        # 5. Reset session state
         self.claude_session_id = None
         self._bus_context_id = None
         self._dispatch_session = None

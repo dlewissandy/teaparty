@@ -602,6 +602,89 @@ class TestCloseAfterCompletionScripted(unittest.TestCase):
         self.assertFalse(os.path.isdir(child_path))
 
 
+class TestClearFiresDispatchCompleted(unittest.TestCase):
+    """/clear is the operator-initiated equivalent of 'close everything
+    you own'. It must close every open top-level dispatch the same way
+    CloseConversation would: fire dispatch_completed per removed
+    descendant so the UI accordion tears down, rmtree the child session
+    dirs, free the slots.
+
+    Regression: before this fix /clear cancelled the background tasks
+    and reset in-memory state but never invoked close_fn, so the UI
+    kept showing the accordion blades indefinitely (until page reload,
+    at which point the stale on-disk conversation_map brought them
+    back anyway)."""
+
+    def test_clear_closes_every_open_dispatch(self):
+        dispatch_events_seen: list = []
+
+        scripts = {
+            'coordinator': _stateful_coordinator_script(
+                expected_replies={'hello'},
+                dispatch_events=[
+                    tool_use_event('mcp__teaparty-config__Send',
+                                   {'member': 'leaf-agent', 'message': 'say hello'}),
+                    text_event('Dispatched.'),
+                    cost_event(),
+                ]),
+            'leaf-agent': {
+                'say hello': [text_event('hello'), cost_event()],
+            },
+        }
+        session = _make_coordinator(
+            'clear-scripted',
+            make_scripted_caller(scripts),
+            on_dispatch=lambda ev: dispatch_events_seen.append(ev))
+
+        async def run():
+            _send_human(session, 'Say hello')
+            await session.invoke(cwd=_module_env[1])
+            return await _wait_for_result(session, timeout=10)
+
+        result = _run(run(), timeout=30)
+        self.assertIsNotNone(result)
+
+        # Confirm the dispatched child is present on disk before /clear.
+        self.assertEqual(len(session._dispatch_session.conversation_map), 1)
+        child_sid = next(
+            iter(session._dispatch_session.conversation_map.values()))
+        sessions_dir = os.path.join(
+            _module_env[0], 'management', 'sessions')
+        child_path = os.path.join(sessions_dir, child_sid)
+        self.assertTrue(os.path.isdir(child_path))
+
+        # Snapshot dispatch_started events up to this point so we can
+        # isolate the close events from /clear.
+        events_before_clear = len(dispatch_events_seen)
+
+        # Run /clear via the invoke path (the human types '/clear').
+        async def do_clear():
+            _send_human(session, '/clear')
+            return await session.invoke(cwd=_module_env[1])
+
+        _run(do_clear(), timeout=30)
+
+        # 1. dispatch_completed must have fired for the child so the UI
+        # accordion removes its blade.
+        new_events = dispatch_events_seen[events_before_clear:]
+        completed = [e for e in new_events
+                     if e.get('type') == 'dispatch_completed']
+        self.assertTrue(
+            any(e['child_session_id'] == child_sid for e in completed),
+            '/clear must fire dispatch_completed for every open '
+            'dispatch so the UI accordion tears down; saw only %r' % new_events)
+
+        # 2. Child session directory must be gone.
+        self.assertFalse(
+            os.path.isdir(child_path),
+            '/clear must rmtree child session dirs — otherwise a page '
+            'reload would resurrect the accordion blades from stale '
+            'on-disk state.')
+
+        # 3. In-memory state fully reset.
+        self.assertIsNone(session._dispatch_session)
+
+
 class TestRateLimitRetryScripted(unittest.TestCase):
     """After the 4th Send is denied, the coordinator closes one child
     and the retry Send succeeds."""
