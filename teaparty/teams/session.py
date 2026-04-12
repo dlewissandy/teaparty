@@ -687,28 +687,95 @@ class AgentSession:
         same agent are not affected.
         """
         import subprocess as _sp
-        from teaparty.mcp.registry import get_close_fn
+        from teaparty.runners.launcher import load_session as _load_session
+        from teaparty.workspace.close_conversation import (
+            close_conversation, collect_descendants_with_parents,
+        )
 
         # 0. Close every open top-level dispatch the same way the agent
         # would via CloseConversation: cancel descendant tasks, rmtree
         # session dirs, fire dispatch_completed per removed session so
         # the UI accordion tears the nested blades down. /clear is the
         # operator-initiated equivalent of "close everything you own."
-        close_fn = get_close_fn(self.agent_name)
-        if close_fn is not None and self._dispatch_session is not None:
+        #
+        # Critical: on a FRESH server process where the OM hasn't been
+        # invoked yet, self._dispatch_session is None (lazy-initialized
+        # in _ensure_bus_listener) and close_fn isn't even registered.
+        # But the on-disk conversation_map still holds stale children
+        # from a prior run. We must load the dispatch session from disk
+        # here and tear down whatever it points to, independently of
+        # whether the bus listener ever started.
+        dispatch_session = self._dispatch_session
+        if dispatch_session is None:
+            try:
+                dispatch_session = _load_session(
+                    agent_name=self.agent_name, scope=self.scope,
+                    teaparty_home=self.teaparty_home,
+                    session_id=self._session_key(),
+                )
+            except Exception:
+                dispatch_session = None
+
+        if dispatch_session is not None and dispatch_session.conversation_map:
+            sessions_dir = os.path.join(
+                self.teaparty_home, self.scope, 'sessions')
             top_level_ids = list(
-                self._dispatch_session.conversation_map.values())
+                dispatch_session.conversation_map.values())
+
             for child_sid in top_level_ids:
+                # Walk subtree to enumerate every descendant that
+                # needs a dispatch_completed event.
+                subtree = collect_descendants_with_parents(
+                    sessions_dir, child_sid,
+                    root_parent=dispatch_session.id)
+
+                # Read agent_name from each descendant's metadata
+                # before close_conversation removes the dir.
+                agent_names: dict[str, str] = {}
+                for csid, _parent in subtree:
+                    meta_path = os.path.join(
+                        sessions_dir, csid, 'metadata.json')
+                    try:
+                        import json as _json
+                        with open(meta_path) as f:
+                            agent_names[csid] = _json.load(f).get(
+                                'agent_name', '')
+                    except (OSError, ValueError):
+                        agent_names[csid] = ''
+
+                # Cancel any live tasks in this subtree (fresh-server
+                # case has no live tasks; re-invocation case might).
+                for csid, _parent in subtree:
+                    t = self._tasks_by_child.pop(csid, None)
+                    if t is not None and not t.done():
+                        t.cancel()
+
+                # Filesystem teardown: rmtree session dirs, remove
+                # entry from parent's conversation_map on disk.
                 try:
-                    await close_fn(f'dispatch:{child_sid}')
+                    close_conversation(
+                        dispatch_session, f'dispatch:{child_sid}',
+                        teaparty_home=self.teaparty_home,
+                        scope=self.scope)
                 except Exception:
                     _log.exception(
-                        '%s _clear: close_fn failed for %s',
+                        '%s _clear: close_conversation failed for %s',
                         self.agent_name, child_sid)
 
-        # 1. Cancel any in-flight dispatches that close_fn didn't cover
-        # (belt-and-suspenders — close_fn above already cancels the
-        # subtrees it walks).
+                # Fire dispatch_completed per removed session,
+                # leaves-first, so the UI accordion walks upward
+                # cleanly (same semantics as close_fn).
+                if self._on_dispatch:
+                    for csid, parent_sid in reversed(subtree):
+                        self._on_dispatch({
+                            'type': 'dispatch_completed',
+                            'parent_session_id': parent_sid,
+                            'child_session_id': csid,
+                            'agent_name': agent_names.get(csid, ''),
+                        })
+
+        # 1. Cancel any in-flight dispatches not covered above
+        # (belt-and-suspenders).
         await self._cancel_background_tasks()
 
         # 2. Stop the bus listener (kills sockets, tears down dispatch infra)
