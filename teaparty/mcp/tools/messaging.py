@@ -239,15 +239,42 @@ async def _default_close_conv_post(context_id: str) -> str:
         close_fn = get_close_fn()
         if close_fn is not None:
             try:
-                await close_fn(context_id)
+                fn_result = await close_fn(context_id)
                 _close_log.info('close_registry: conv=%s', context_id)
-                return json.dumps({
-                    'status': 'closed',
-                    'conversation_id': context_id,
-                })
             except Exception as exc:
                 _close_log.warning('close_registry failed: %s', exc)
                 return json.dumps({'status': 'error', 'reason': str(exc)})
+
+            # close_fn may return a structured merge result when a
+            # subchat's worktree fails to merge back into its parent.
+            # Surface the status + message to the calling agent so it
+            # can resolve the conflict via git and retry.
+            if isinstance(fn_result, dict):
+                status = fn_result.get('status', 'closed')
+                if status == 'ok':
+                    return json.dumps({
+                        'status': 'closed',
+                        'conversation_id': context_id,
+                        'message': fn_result.get('message', ''),
+                    })
+                if status == 'noop':
+                    return json.dumps({
+                        'status': 'closed',
+                        'conversation_id': context_id,
+                    })
+                return json.dumps({
+                    'status': status,
+                    'conversation_id': context_id,
+                    'message': fn_result.get('message', ''),
+                    'conflicts': fn_result.get('conflicts', []),
+                    'worktree_path': fn_result.get('worktree_path', ''),
+                    'target_worktree': fn_result.get('target_worktree', ''),
+                    'target_branch': fn_result.get('target_branch', ''),
+                })
+            return json.dumps({
+                'status': 'closed',
+                'conversation_id': context_id,
+            })
 
     bus_path = os.environ.get('DISPATCH_BUS_PATH', '')
     dispatch_conv = os.environ.get('DISPATCH_CONV_ID', '')

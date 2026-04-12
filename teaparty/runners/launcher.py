@@ -30,11 +30,25 @@ from teaparty.runners.claude import ClaudeResult
 class Session:
     """An agent session — 1:1 with a Claude session ID.
 
-    For the chat tier there is no git worktree; ``launch_cwd`` records
-    the real repo directory where the agent subprocess was launched
-    (teaparty repo root for management agents, the project repo for
-    project leads). For the job tier (CfA) a worktree is still composed
-    — see ``compose_launch_worktree``.
+    Three launch modes live in this dataclass:
+
+    - **Privileged top-level chat** (OM, a project lead as top-level of
+      its project's chat): ``launch_cwd`` is the real repo root; no
+      worktree fields are set; no merge target.
+
+    - **Dispatched chat** (everyone else that runs in a subchat):
+      ``worktree_path`` is the per-session worktree dir on branch
+      ``worktree_branch`` (``session/{session_id}``). The merge_target_*
+      fields record where ``CloseConversation`` must squash-merge the
+      session branch back to. For same-repo dispatches the target is
+      the dispatcher's worktree/branch (the dispatcher's working state
+      is the integration branch). For the cross-repo exception (OM
+      dispatches a project lead whose repo differs) the target is the
+      project repo's **default branch**, in the project's main checkout.
+
+    - **CfA job**: ``launch_cwd`` holds the worktree path (legacy field
+      name); merge_target fields empty. The CfA engine owns its
+      worktree lifecycle separately from CloseConversation.
     """
     id: str
     path: str
@@ -43,6 +57,11 @@ class Session:
     claude_session_id: str = ''
     conversation_map: dict[str, str] = field(default_factory=dict)
     launch_cwd: str = ''
+    worktree_path: str = ''
+    worktree_branch: str = ''
+    merge_target_repo: str = ''
+    merge_target_branch: str = ''
+    merge_target_worktree: str = ''
 
 
 # ── Agent definition resolution ──────────────────────────────────────────────
@@ -403,6 +422,11 @@ def load_session(
             claude_session_id=meta.get('claude_session_id', ''),
             conversation_map=meta.get('conversation_map', {}),
             launch_cwd=meta.get('launch_cwd', ''),
+            worktree_path=meta.get('worktree_path', ''),
+            worktree_branch=meta.get('worktree_branch', ''),
+            merge_target_repo=meta.get('merge_target_repo', ''),
+            merge_target_branch=meta.get('merge_target_branch', ''),
+            merge_target_worktree=meta.get('merge_target_worktree', ''),
         )
     except (json.JSONDecodeError, OSError):
         return None
@@ -417,6 +441,11 @@ def _save_session_metadata(session: Session) -> None:
         'claude_session_id': session.claude_session_id,
         'conversation_map': session.conversation_map,
         'launch_cwd': session.launch_cwd,
+        'worktree_path': session.worktree_path,
+        'worktree_branch': session.worktree_branch,
+        'merge_target_repo': session.merge_target_repo,
+        'merge_target_branch': session.merge_target_branch,
+        'merge_target_worktree': session.merge_target_worktree,
     }
     meta_path = os.path.join(session.path, 'metadata.json')
     tmp = meta_path + '.tmp'
