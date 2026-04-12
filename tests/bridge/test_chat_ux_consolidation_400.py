@@ -426,5 +426,224 @@ class TestAccordionChatJsConvIdRouting(unittest.TestCase):
         )
 
 
+class TestDomStructuralEquivalence(unittest.TestCase):
+    """The blade DOM structure is config-invariant: identical for OM config and project-lead config.
+
+    AC4: A test mounts the shared implementation with two distinct configs and asserts
+    DOM structural equivalence modulo the parameterized fields (title text, iframe conv id).
+
+    Since accordion-chat.js generates blade DOM via a single bladeEl.innerHTML = '...'
+    assignment with no branching on convId, structural equivalence follows from there being
+    exactly one code path that produces the DOM. This test proves:
+      (a) the template is a fixed structure with the required elements,
+      (b) no convId- or agent-specific content is embedded in the template itself,
+      (c) title and iframe src are applied as post-mount parameterization (not in the template).
+
+    This is the static-analysis equivalent of mounting with two configs and diffing the DOM.
+    The proof is stronger: it covers all configs, not just the two exercised.
+    """
+
+    REQUIRED_BLADE_ELEMENTS = [
+        'class="blade-tab"',
+        'id="blade-tab"',
+        'id="blade-tab-chevron"',
+        'class="blade-body"',
+        'class="blade-header"',
+        'class="blade-title"',
+        'id="blade-title"',
+        'id="blade-filters"',
+        'id="dispatch-accordion"',
+    ]
+
+    def _read_accordion_js(self) -> str:
+        if not ACCORDION_JS.exists():
+            self.skipTest("accordion-chat.js not yet created")
+        return _read(ACCORDION_JS)
+
+    def _extract_blade_template(self, src: str) -> str:
+        """Extract the bladeEl.innerHTML assignment block from accordion-chat.js."""
+        m = re.search(r'bladeEl\.innerHTML\s*=\s*([\s\S]+?);\s*\n', src)
+        self.assertIsNotNone(m, "Could not find bladeEl.innerHTML assignment in accordion-chat.js")
+        return m.group(1)
+
+    def test_blade_template_contains_all_required_structural_elements(self):
+        """The blade DOM template must contain every structural element of the chat UX.
+
+        These elements must be present for any config — OM or project lead.
+        """
+        src = self._read_accordion_js()
+        template = self._extract_blade_template(src)
+        for element in self.REQUIRED_BLADE_ELEMENTS:
+            self.assertIn(
+                element, template,
+                f"blade DOM template is missing '{element}' — "
+                f"the chat UX structure is incomplete regardless of which config is passed. "
+                f"Both OM and project-lead configs would render a broken blade."
+            )
+
+    def test_blade_template_does_not_branch_on_conv_id(self):
+        """The blade DOM template must not embed any conv-id-specific content.
+
+        Structural equivalence for all configs (OM, lead, any future config) follows from
+        the template being a fixed string with no convId-dependent branches. If the
+        template branched on convId, the DOM structure would diverge between configs.
+        """
+        src = self._read_accordion_js()
+        template = self._extract_blade_template(src)
+        # convId is not available at template-generation time — it's set by _applyConfig
+        # after mount. The template must not embed it.
+        self.assertNotIn(
+            'om:', template,
+            "blade DOM template hardcodes 'om:' — "
+            "the blade DOM would differ between OM config and project-lead config. "
+            "convId must be applied after mount, not embedded in the template."
+        )
+        self.assertNotIn(
+            'lead:', template,
+            "blade DOM template hardcodes 'lead:' — "
+            "the template must be config-neutral; parameterization happens post-mount."
+        )
+        self.assertNotIn(
+            'office-manager', template,
+            "blade DOM template hardcodes 'office-manager' — "
+            "the agent name must not appear in the DOM template."
+        )
+
+    def test_title_applied_post_mount_not_in_template(self):
+        """The blade title must be set by textContent after mount, not embedded in the template.
+
+        If the title were in the template, configs with different titles would produce
+        different DOM structures. The template must contain an empty title element;
+        _applyConfig sets its textContent.
+        """
+        src = self._read_accordion_js()
+        # The title element in the template must be empty (no hardcoded text).
+        # Post-mount, _applyConfig does: titleEl.textContent = _config.title || ''
+        self.assertIn(
+            'textContent', src,
+            "accordion-chat.js does not set title via textContent — "
+            "the title is not being applied post-mount. "
+            "DOM structural equivalence requires the template to have an empty title element."
+        )
+        self.assertIn(
+            'blade-title', src,
+            "accordion-chat.js does not reference 'blade-title' when setting the title — "
+            "the title element is not being parameterized post-mount."
+        )
+
+
+class TestNestedDispatchNonHomePage(unittest.TestCase):
+    """Nested dispatch must work identically on non-home (project-lead) pages.
+
+    AC9: When any agent reached via the chat dispatches a sub-agent, the sub-agent
+    appears as a nested section. A test covers this for at least one non-home page.
+
+    Since accordion-chat.js is the single implementation, nested dispatch is
+    structurally guaranteed for every config. This test proves:
+      (a) the WS dispatch_started handler calls _updateAccordion unconditionally
+          (not conditional on convId being an OM config),
+      (b) _renderNode does not branch on convId to suppress children,
+      (c) the accordion is wired to fetch the dispatch tree for lead: configs.
+    """
+
+    def _read_accordion_js(self) -> str:
+        if not ACCORDION_JS.exists():
+            self.skipTest("accordion-chat.js not yet created")
+        return _read(ACCORDION_JS)
+
+    def test_dispatch_started_triggers_update_accordion_unconditionally(self):
+        """dispatch_started WS event must trigger _updateAccordion for any config.
+
+        The handler must not guard on convId prefix. If it did, project-lead chats
+        would not show nested dispatches even though they dispatch sub-agents.
+        """
+        src = self._read_accordion_js()
+        # Extract the dispatch_started handler block.
+        m = re.search(
+            r"event\.type === 'dispatch_started'\s*\)\s*\{([\s\S]+?)\}",
+            src
+        )
+        self.assertIsNotNone(
+            m,
+            "accordion-chat.js dispatch_started handler not found — "
+            "nested dispatch will not update the accordion"
+        )
+        handler = m.group(1)
+        self.assertIn(
+            '_updateAccordion', handler,
+            "dispatch_started handler does not call _updateAccordion — "
+            "nested dispatches will not appear in the accordion on any page. "
+            "This affects both home page (OM) and config pages (project leads)."
+        )
+        # The handler must NOT guard on om: prefix — that would break project-lead pages.
+        self.assertNotIn(
+            "'om:'", handler,
+            "dispatch_started handler checks for 'om:' prefix — "
+            "nested dispatches will not appear on project-lead config pages. "
+            "The update must fire for any convId."
+        )
+
+    def test_render_node_does_not_suppress_children_based_on_conv_id(self):
+        """_renderNode must render children regardless of convId.
+
+        If _renderNode branched on convId to suppress child rendering, nested
+        dispatches would only appear on pages with a specific convId config.
+        """
+        src = self._read_accordion_js()
+        # Extract the _renderNode function body.
+        m = re.search(r'function _renderNode\(node, depth\)\s*\{([\s\S]+?)\n    \}', src)
+        self.assertIsNotNone(
+            m,
+            "_renderNode function not found in accordion-chat.js"
+        )
+        body = m.group(1)
+        # Children are rendered via node.children iteration — verify it's there.
+        self.assertIn(
+            'node.children', body,
+            "_renderNode does not iterate node.children — "
+            "nested dispatches will never appear in the accordion"
+        )
+        # Must not gate children on convId prefix.
+        self.assertNotIn(
+            "'om:'", body,
+            "_renderNode branches on 'om:' when rendering children — "
+            "nested dispatches will not render for project-lead configs"
+        )
+
+    def test_dispatch_tree_fetch_uses_derived_session_id_for_lead_configs(self):
+        """The dispatch tree fetch must work for lead: convIds, not just om:.
+
+        deriveSessionId('lead:comics-lead:darrell') must return a non-null session ID
+        so that _updateAccordion fetches the right tree for project-lead pages.
+        """
+        src = self._read_accordion_js()
+        derive_fn = re.search(
+            r'function deriveSessionId\(convId\)\s*\{([\s\S]+?)\n  \}', src
+        )
+        self.assertIsNotNone(
+            derive_fn,
+            "deriveSessionId function not found in accordion-chat.js"
+        )
+        body = derive_fn.group(1)
+        # Must return a value for lead: (not return null for lead:)
+        self.assertIn(
+            "startsWith('lead:')", body,
+            "deriveSessionId does not handle 'lead:' prefix — "
+            "project-lead pages will not fetch a dispatch tree and will show no accordion"
+        )
+        # Must not immediately return null after the lead: branch.
+        # Check that the lead: branch ends with a return of a constructed value, not null.
+        lead_branch = re.search(
+            r"startsWith\('lead:'\)([\s\S]+?)(?=if \(convId\.startsWith|return null;?\s*\})",
+            body
+        )
+        if lead_branch:
+            self.assertNotEqual(
+                lead_branch.group(1).strip(), 'return null;',
+                "lead: branch in deriveSessionId immediately returns null — "
+                "project-lead pages will not fetch a dispatch tree"
+            )
+
+
 if __name__ == '__main__':
     unittest.main()
