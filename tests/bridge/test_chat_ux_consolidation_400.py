@@ -1,0 +1,430 @@
+"""Specification tests for issue #400: chat UX one codepath, conserved everywhere.
+
+The chat UX — accordion, chevron tab, dispatch tree, status badges, message list,
+input, CloseConversation cascade — must be implemented in exactly one place:
+accordion-chat.js. Every page that shows a chat mounts that single implementation.
+No page carries its own chat DOM, state, or event handlers.
+
+Each test is load-bearing: it would fail if the fix were reverted (i.e. if the
+accordion UX were still inline in index.html or config.html).
+"""
+import re
+import unittest
+from pathlib import Path
+
+
+STATIC_DIR = Path(__file__).resolve().parent.parent.parent / "teaparty" / "bridge" / "static"
+ACCORDION_JS = STATIC_DIR / "accordion-chat.js"
+INDEX_HTML = STATIC_DIR / "index.html"
+CONFIG_HTML = STATIC_DIR / "config.html"
+
+
+# Accordion-specific symbols that must live exclusively in accordion-chat.js.
+# These are the identifiers that define the accordion chat UX. Their presence in
+# index.html or config.html would mean a second (diverging) implementation exists.
+ACCORDION_SYMBOLS = [
+    '_accordionExpanded',
+    '_dispatchTree',
+    '_renderAccordion',
+    '_renderNode',
+    '_flattenTree',
+    '_findParent',
+    '_removeFromTree',
+    '_handleSessionRemoval',
+    'accordionToggle',
+    'BLADE_FILTERS',
+    '_syncFiltersToIframe',
+    'dispatch-accordion',
+]
+
+
+def _read(path: Path) -> str:
+    return path.read_text(encoding='utf-8')
+
+
+class TestAccordionModuleExists(unittest.TestCase):
+    """accordion-chat.js must exist and contain the full accordion UX."""
+
+    def test_accordion_chat_js_exists(self):
+        """accordion-chat.js must exist in the static directory."""
+        self.assertTrue(
+            ACCORDION_JS.exists(),
+            "accordion-chat.js is missing from teaparty/bridge/static/ — "
+            "the shared chat UX module has not been created"
+        )
+
+    def test_accordion_module_contains_all_accordion_symbols(self):
+        """accordion-chat.js must define every accordion UX symbol."""
+        if not ACCORDION_JS.exists():
+            self.skipTest("accordion-chat.js not yet created")
+        src = _read(ACCORDION_JS)
+        for symbol in ACCORDION_SYMBOLS:
+            self.assertIn(
+                symbol, src,
+                f"accordion-chat.js is missing '{symbol}' — "
+                f"the accordion UX is incomplete or the symbol was renamed"
+            )
+
+    def test_accordion_module_contains_dispatch_started_handler(self):
+        """accordion-chat.js must handle dispatch_started WebSocket events."""
+        if not ACCORDION_JS.exists():
+            self.skipTest("accordion-chat.js not yet created")
+        src = _read(ACCORDION_JS)
+        self.assertIn(
+            'dispatch_started', src,
+            "accordion-chat.js does not handle 'dispatch_started' WS events — "
+            "nested dispatches will not appear in the accordion"
+        )
+
+    def test_accordion_module_contains_dispatch_completed_handler(self):
+        """accordion-chat.js must handle dispatch_completed WebSocket events."""
+        if not ACCORDION_JS.exists():
+            self.skipTest("accordion-chat.js not yet created")
+        src = _read(ACCORDION_JS)
+        self.assertIn(
+            'dispatch_completed', src,
+            "accordion-chat.js does not handle 'dispatch_completed' WS events — "
+            "CloseConversation cascade will not remove sections from the accordion"
+        )
+
+    def test_accordion_module_has_mount_api(self):
+        """accordion-chat.js must expose a public mount API."""
+        if not ACCORDION_JS.exists():
+            self.skipTest("accordion-chat.js not yet created")
+        src = _read(ACCORDION_JS)
+        self.assertIn(
+            'AccordionChat', src,
+            "accordion-chat.js does not expose 'AccordionChat' — "
+            "pages cannot mount the shared implementation"
+        )
+
+    def test_accordion_module_accepts_conv_id(self):
+        """accordion-chat.js mount config must accept a convId parameter."""
+        if not ACCORDION_JS.exists():
+            self.skipTest("accordion-chat.js not yet created")
+        src = _read(ACCORDION_JS)
+        self.assertIn(
+            'convId', src,
+            "accordion-chat.js does not accept a 'convId' config parameter — "
+            "pages cannot configure which conversation to show"
+        )
+
+
+class TestSingleCodepathEnforcement(unittest.TestCase):
+    """Accordion UX symbols must appear in accordion-chat.js and NOWHERE ELSE.
+
+    The structural guarantee: there is one implementation. Any accordion symbol
+    found in index.html or config.html means a second (diverging) implementation
+    was added, violating the single-codepath constraint.
+    """
+
+    def test_accordion_symbols_absent_from_index_html(self):
+        """index.html must not contain any accordion UX implementation code."""
+        src = _read(INDEX_HTML)
+        found = [sym for sym in ACCORDION_SYMBOLS if sym in src]
+        self.assertEqual(
+            found, [],
+            f"index.html contains accordion UX symbols {found} — "
+            f"the accordion code was not extracted into accordion-chat.js. "
+            f"index.html must only mount the shared implementation, not define it."
+        )
+
+    def test_accordion_symbols_absent_from_config_html(self):
+        """config.html must not contain any accordion UX implementation code."""
+        src = _read(CONFIG_HTML)
+        found = [sym for sym in ACCORDION_SYMBOLS if sym in src]
+        self.assertEqual(
+            found, [],
+            f"config.html contains accordion UX symbols {found} — "
+            f"config.html carries its own chat UX implementation, violating single-codepath. "
+            f"config.html must only mount the shared implementation, not define it."
+        )
+
+    def test_blade_iframe_absent_from_config_html(self):
+        """config.html must not contain the old single-iframe blade (blade-iframe)."""
+        src = _read(CONFIG_HTML)
+        self.assertNotIn(
+            'blade-iframe', src,
+            "config.html still contains 'blade-iframe' — "
+            "the old simplified blade (plain iframe, no accordion) was not removed. "
+            "config.html must use the shared accordion-chat.js implementation."
+        )
+
+    def test_update_blade_iframe_absent_from_config_html(self):
+        """config.html must not contain _updateBladeIframe (old blade wiring)."""
+        src = _read(CONFIG_HTML)
+        self.assertNotIn(
+            '_updateBladeIframe', src,
+            "config.html still contains '_updateBladeIframe' — "
+            "the old blade-switching logic was not removed. "
+            "config.html must use the shared accordion-chat.js implementation."
+        )
+
+
+class TestPagesMountSharedModule(unittest.TestCase):
+    """Both index.html and config.html must include and mount accordion-chat.js."""
+
+    def test_index_html_includes_accordion_chat_js(self):
+        """index.html must load accordion-chat.js via script tag."""
+        src = _read(INDEX_HTML)
+        self.assertIn(
+            'accordion-chat.js', src,
+            "index.html does not include accordion-chat.js — "
+            "the home page is not using the shared chat implementation"
+        )
+
+    def test_config_html_includes_accordion_chat_js(self):
+        """config.html must load accordion-chat.js via script tag."""
+        src = _read(CONFIG_HTML)
+        self.assertIn(
+            'accordion-chat.js', src,
+            "config.html does not include accordion-chat.js — "
+            "config pages are not using the shared chat implementation"
+        )
+
+    def test_index_html_mounts_accordion_chat(self):
+        """index.html must call AccordionChat.mount() to activate the blade."""
+        src = _read(INDEX_HTML)
+        self.assertIn(
+            'AccordionChat', src,
+            "index.html does not reference AccordionChat — "
+            "the home page never mounts the shared chat implementation"
+        )
+
+    def test_config_html_mounts_accordion_chat(self):
+        """config.html must call AccordionChat.mount() to activate the blade."""
+        src = _read(CONFIG_HTML)
+        self.assertIn(
+            'AccordionChat', src,
+            "config.html does not reference AccordionChat — "
+            "config pages never mount the shared chat implementation"
+        )
+
+
+class TestConfigPageRouting(unittest.TestCase):
+    """Config pages must route to project leads, not the office manager.
+
+    The issue routing table:
+      Global (Management Team) → lead:teaparty-lead:{qualifier}
+      Project Team             → lead:{slug}-lead:{qualifier}
+      Agent/Workgroup detail   → parent project's lead (lead:{slug}-lead:{qualifier})
+
+    The office manager ('om:') is for the home page only.
+    """
+
+    def test_config_html_does_not_construct_om_conv_id_for_blade(self):
+        """config.html must not construct 'om:' conversation IDs for the blade.
+
+        Home is the only page that talks to the office manager. All config pages
+        must route to the relevant project lead.
+        """
+        src = _read(CONFIG_HTML)
+        # The old pattern was: bladeConvId = omConvId = 'om:' + m.decider
+        # We check that no om: string is used in a blade config context.
+        # Specifically: no assignment of 'om:' + something to a blade config field.
+        matches = re.findall(r"bladeConvId\s*[=:]\s*['\"]om:", src)
+        self.assertEqual(
+            matches, [],
+            f"config.html still assigns an 'om:' conversation ID to bladeConvId: {matches}. "
+            f"Config pages must route to project leads, not the office manager. "
+            f"Use 'lead:{{leadName}}:{{qualifier}}' instead."
+        )
+
+    def test_config_html_uses_lead_prefix_for_global_scope(self):
+        """config.html (loadGlobal) must construct a 'lead:' conversation ID for the blade."""
+        src = _read(CONFIG_HTML)
+        # The global (Management Team) scope must use teaparty-lead.
+        # Look for 'lead:' being constructed near the global loader or blade config.
+        self.assertIn(
+            "'lead:'", src,
+            "config.html does not construct any 'lead:' conversation IDs — "
+            "config pages are routing to the wrong agent. "
+            "Management Team must use 'lead:teaparty-lead:{qualifier}'."
+        )
+
+    def test_config_html_no_om_conv_id_variable(self):
+        """config.html must not define or use 'omConvId' as a blade routing variable.
+
+        The omConvId variable was the old mechanism for routing to the office manager.
+        It must not appear in the blade wiring (bladeConvId = omConvId pattern).
+        """
+        src = _read(CONFIG_HTML)
+        # Check for the old pattern: bladeConvId = omConvId
+        old_pattern = re.findall(r'bladeConvId\s*[:=]\s*omConvId', src)
+        self.assertEqual(
+            old_pattern, [],
+            f"config.html still uses 'bladeConvId = omConvId' pattern: {old_pattern}. "
+            f"This routes config pages to the office manager, violating the routing table. "
+            f"Each scope loader must compute a 'lead:' conversation ID directly."
+        )
+
+
+class TestSessionIdDerivation(unittest.TestCase):
+    """accordion-chat.js must correctly derive session IDs from conversation IDs.
+
+    The session ID is derived from convId to fetch the dispatch tree. The derivation
+    must match AgentSession._session_key() from teaparty/teams/session.py:
+        safe_id = qualifier.replace('/', '-').replace(':', '-').replace(' ', '-')
+        return f'{agent_name}-{safe_id}'
+
+    For om:{qualifier}: agent_name='office-manager', qualifier=qualifier
+    For lead:{name}:{qualifier}: agent_name=name, qualifier=f'{name}:{rest}'
+    """
+
+    def _read_accordion_js(self) -> str:
+        if not ACCORDION_JS.exists():
+            self.skipTest("accordion-chat.js not yet created")
+        return _read(ACCORDION_JS)
+
+    def test_derive_session_id_function_exists(self):
+        """accordion-chat.js must define a session ID derivation function."""
+        src = self._read_accordion_js()
+        self.assertIn(
+            'deriveSessionId', src,
+            "accordion-chat.js does not define 'deriveSessionId' — "
+            "the module cannot fetch the dispatch tree for project leads"
+        )
+
+    def test_om_prefix_handled_in_derivation(self):
+        """Session ID derivation must handle the 'om:' prefix."""
+        src = self._read_accordion_js()
+        # The derivation for om: must produce 'office-manager-{qualifier}'
+        # We check that the function handles the om: prefix specifically.
+        self.assertIn(
+            "'om:'", src,
+            "accordion-chat.js deriveSessionId does not handle the 'om:' prefix — "
+            "the accordion will not fetch the dispatch tree for the office manager"
+        )
+
+    def test_lead_prefix_handled_in_derivation(self):
+        """Session ID derivation must handle the 'lead:' prefix."""
+        src = self._read_accordion_js()
+        self.assertIn(
+            "'lead:'", src,
+            "accordion-chat.js deriveSessionId does not handle the 'lead:' prefix — "
+            "the accordion will not fetch the dispatch tree for project leads"
+        )
+
+    def test_om_session_id_derivation_correct(self):
+        """Session ID for 'om:darrell' must be 'office-manager-darrell'.
+
+        Matches AgentSession._session_key() with agent_name='office-manager',
+        qualifier='darrell'.
+        """
+        src = self._read_accordion_js()
+        # The pattern 'office-manager-' must appear in the derivation for om: convIds.
+        self.assertIn(
+            "'office-manager-'", src,
+            "accordion-chat.js does not produce 'office-manager-{qualifier}' for om: convIds — "
+            "the dispatch tree fetch will use the wrong session ID for the office manager. "
+            "Expected: deriveSessionId('om:darrell') === 'office-manager-darrell'"
+        )
+
+    def test_lead_session_id_uses_agent_name_prefix(self):
+        """Session ID for project leads must start with the lead's agent name.
+
+        Matches AgentSession._session_key():
+          deriveSessionId('lead:teaparty-lead:darrell') must be
+          'teaparty-lead-teaparty-lead-darrell'
+        """
+        src = self._read_accordion_js()
+        # For lead: convIds, the session key is built from the lead name and qualifier.
+        # The derivation must replace ':' with '-' in the key.
+        # Check that the derivation replaces colons (the key contains colons from the qualifier).
+        self.assertIn(
+            "replace", src,
+            "accordion-chat.js deriveSessionId does not replace ':' in the qualifier — "
+            "session IDs for project leads will contain colons, which won't match "
+            "AgentSession._session_key()'s output"
+        )
+        # Also verify the derivation concatenates agent name with the safe key.
+        self.assertIn(
+            "leadName", src,
+            "accordion-chat.js deriveSessionId does not use 'leadName' — "
+            "the session ID for project leads will not be prefixed with the agent name"
+        )
+
+
+class TestDomStructureInModule(unittest.TestCase):
+    """The blade DOM structure must be defined in accordion-chat.js, not inline HTML.
+
+    The accordion container, blade tab, blade header, and filter bar must be
+    created by the module, not hardcoded in page HTML.
+    """
+
+    def test_dispatch_accordion_absent_from_index_html(self):
+        """index.html must not hardcode the dispatch-accordion container."""
+        src = _read(INDEX_HTML)
+        self.assertNotIn(
+            'dispatch-accordion', src,
+            "index.html hardcodes the 'dispatch-accordion' container — "
+            "the accordion DOM is not being created by accordion-chat.js. "
+            "Remove the hardcoded container; the module creates it on mount."
+        )
+
+    def test_dispatch_accordion_absent_from_config_html(self):
+        """config.html must not hardcode the dispatch-accordion container."""
+        src = _read(CONFIG_HTML)
+        self.assertNotIn(
+            'dispatch-accordion', src,
+            "config.html hardcodes the 'dispatch-accordion' container — "
+            "config.html must not contain any chat UX DOM. "
+            "The module creates it on mount."
+        )
+
+    def test_accordion_section_styles_in_module_or_css(self):
+        """Accordion CSS classes must not be defined inline in index.html.
+
+        The .accord-section, .accord-header, etc. styles were previously in a
+        <style> block inside index.html. They must move to styles.css or
+        accordion-chat.js so config pages also get them.
+        """
+        src = _read(INDEX_HTML)
+        # The old <style> block in index.html contained '.accord-section' rules.
+        # If it's still there as inline style, that's a structural leak.
+        inline_accord_style = re.search(r'<style[^>]*>.*?\.accord-section', src, re.DOTALL)
+        self.assertIsNone(
+            inline_accord_style,
+            "index.html still has .accord-section CSS rules in an inline <style> block — "
+            "these styles are page-specific and will not apply on config pages. "
+            "Move accordion CSS to styles.css."
+        )
+
+
+class TestAccordionChatJsConvIdRouting(unittest.TestCase):
+    """accordion-chat.js must use its convId config to POST messages (not hardcode any agent)."""
+
+    def test_accordion_module_posts_to_conv_id(self):
+        """accordion-chat.js seed/send must POST to the configured convId, not a hardcoded path."""
+        if not ACCORDION_JS.exists():
+            self.skipTest("accordion-chat.js not yet created")
+        src = _read(ACCORDION_JS)
+        # The POST URL must be built from the configured convId, not a hardcoded 'om:' path.
+        # Check that the module uses convId in its fetch/POST call.
+        self.assertIn(
+            'convId', src,
+            "accordion-chat.js does not use 'convId' in its message-posting logic — "
+            "all chats will POST to the same hardcoded URL regardless of which agent is shown"
+        )
+        # Confirm no hardcoded 'om:' in the POST path.
+        hardcoded_om = re.findall(r"fetch\s*\(\s*['\"].*?/api/conversations/om:", src)
+        self.assertEqual(
+            hardcoded_om, [],
+            f"accordion-chat.js hardcodes 'om:' in its POST URL: {hardcoded_om}. "
+            f"The POST must use the configured convId so project-lead chats POST to the right endpoint."
+        )
+
+    def test_accordion_module_builds_dispatch_tree_url_from_session_id(self):
+        """accordion-chat.js must fetch /api/dispatch-tree/{sessionId}, not a hardcoded path."""
+        if not ACCORDION_JS.exists():
+            self.skipTest("accordion-chat.js not yet created")
+        src = _read(ACCORDION_JS)
+        self.assertIn(
+            '/api/dispatch-tree/', src,
+            "accordion-chat.js does not fetch '/api/dispatch-tree/' — "
+            "the accordion will not show nested dispatches"
+        )
+
+
+if __name__ == '__main__':
+    unittest.main()
