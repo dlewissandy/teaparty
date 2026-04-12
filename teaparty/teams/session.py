@@ -183,6 +183,21 @@ class AgentSession:
                 return msg.content
         return ''
 
+    def _latest_incoming_message(self) -> str:
+        """Return the latest message not from the agent itself.
+
+        Used for --resume: claude already has prior context, so we only
+        send the newest incoming event. Could be a human message OR a
+        reply from a dispatched child (written by _run_child).
+        """
+        messages = self.get_messages()
+        for msg in reversed(messages):
+            if (msg.sender != self.agent_role
+                    and msg.sender not in NON_CONVERSATIONAL_SENDERS
+                    and not msg.sender.startswith('unknown:')):
+                return msg.content
+        return ''
+
     # ── Dispatch (Send/Reply) ────────────────────────────────────────────
 
     async def _ensure_bus_listener(self, cwd: str) -> dict:
@@ -543,11 +558,15 @@ class AgentSession:
 
         is_fresh_session = self.claude_session_id is None
 
-        # Build prompt — use hook if provided, else standard pattern
+        # Build prompt — use hook if provided, else standard pattern.
+        # Fresh session: full context. Resume: only the latest unseen
+        # incoming message (human or agent reply). On resume, claude
+        # already has the prior context via --resume; we just need to
+        # deliver the new event.
         if self._build_prompt_hook:
             prompt = self._build_prompt_hook(self, latest)
         elif self.claude_session_id:
-            prompt = self._latest_human_message()
+            prompt = self._latest_incoming_message()
         else:
             prompt = self.build_context()
 
