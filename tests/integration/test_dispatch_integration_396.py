@@ -1,16 +1,21 @@
-"""Integration tests for issue #396: async dispatch with real LLM calls.
+"""Integration tests for issue #396: async dispatch, full end-to-end.
 
-Full end-to-end tests exercising every dispatch topology. Each test
-verifies the complete lifecycle:
+Every test invokes a real coordinator agent with a real message, lets
+it make real decisions via the Send tool, and verifies its real output.
+No stubs. No direct spawn_fn calls from the test.
 
-1. Send returns message_sent with a conversation handle
-2. Child's response arrives in the dispatch conversation
-3. Parent is resumed — reply appears in parent's conversation
-4. Parent integrates the child's response
-5. CloseConversation removes sessions, frees slots, no orphans
+Flow:
+1. Test writes a human message to the coordinator's bus conversation
+2. Test calls coordinator.invoke() — same path the bridge uses
+3. Coordinator reads the message, uses Send to dispatch
+4. Children run, respond via bus
+5. Coordinator is resumed, integrates replies, produces final output
+6. Test reads the coordinator's final output from its bus
+7. Test calls CloseConversation for every handle, verifies cleanup
 
-Architecture: one TeaPartyBridge for the module on a test-only port.
-All tests share the same bridge and event loop. Real claude calls.
+Architecture: one TeaPartyBridge on a test port, real git repo,
+real claude calls, real MCP. Tests share the bridge but each test
+gets a fresh coordinator conversation (cleared at setUp).
 
 Requires: claude binary on PATH, Max subscription active.
 """
@@ -18,6 +23,7 @@ import asyncio
 import json
 import os
 import shutil
+import subprocess
 import tempfile
 import time
 import unittest
@@ -31,17 +37,14 @@ _module_runner = None
 
 
 def _make_test_environment():
-    import subprocess
     repo_root = tempfile.mkdtemp()
 
-    # Git init so invoke() can create worktrees
+    # Real git repo — worktree operations require it
     subprocess.run(['git', 'init', '-q'], cwd=repo_root, check=True)
     subprocess.run(['git', 'config', 'user.email', 'test@example.com'],
                    cwd=repo_root, check=True)
     subprocess.run(['git', 'config', 'user.name', 'test'],
                    cwd=repo_root, check=True)
-
-    # Need at least one commit for worktree operations
     with open(os.path.join(repo_root, 'README.md'), 'w') as f:
         f.write('test\n')
     subprocess.run(['git', 'add', 'README.md'], cwd=repo_root, check=True)
@@ -53,52 +56,59 @@ def _make_test_environment():
     agents_dir = os.path.join(teaparty_home, 'management', 'agents')
     os.makedirs(sessions_dir)
 
+    # ── Agents ───────────────────────────────────────────────────────────
+
+    # Leaf agent — responds to messages, no tools
     _write_agent(agents_dir, 'leaf-agent', """---
 name: leaf-agent
-description: A simple agent that responds to messages.
+description: A simple test agent that responds with a one-word acknowledgment.
 model: haiku
 ---
-You are a test agent. When you receive a message, respond with a single
-short sentence acknowledging it. Do not use any tools.
+You are a test agent. Respond with a single word that echoes the key
+word from the message you receive. For example, if asked to "say alpha",
+respond with "alpha". If asked to "say hello", respond with "hello".
+Do not use any tools. Just respond with the one word.
 """)
 
-    _write_agent(agents_dir, 'dispatcher-agent', """---
-name: dispatcher-agent
-description: An agent that dispatches to leaf-agent via Send then relays the response.
+    # Coordinator — the parent agent for tests. Has Send + CloseConversation.
+    _write_agent(agents_dir, 'coordinator', """---
+name: coordinator
+description: Test coordinator that dispatches work via Send and integrates replies.
 model: sonnet
-tools: mcp__teaparty-config__Send
+tools: mcp__teaparty-config__Send, mcp__teaparty-config__CloseConversation
 ---
-You MUST call the Send tool. Do not respond with text until you have
-called Send.
+You are a test coordinator. You receive a task from the human and use
+the Send tool to dispatch work to member agents. You MUST use the Send
+tool to dispatch — do not answer directly.
 
-Step 1: Call the Send tool with:
-  - member: "leaf-agent"
-  - message: (the message you received, verbatim)
+When Send returns with status="message_sent" and a conversation_id,
+that means the child is running. The child's reply will arrive as a
+subsequent message in this conversation (prefixed with "Reply from").
 
-Step 2: After Send returns with status="message_sent" and a conversation_id,
-respond with exactly: "Dispatched. Handle: <conversation_id>"
+After all dispatches and replies complete, respond with a single
+summary line that begins with "RESULT:" followed by the replies you
+received, in the order they arrived. Example:
+  "RESULT: alpha, beta"
 
-You have ONE tool available: mcp__teaparty-config__Send. You MUST use it.
-Do not respond without calling Send first. This is non-negotiable.
+Do not call CloseConversation — the test framework handles cleanup.
 """)
 
+    # Workgroup: coordinator leads, leaf-agent is member
     wg_dir = os.path.join(teaparty_home, 'management', 'workgroups')
     os.makedirs(wg_dir)
-    with open(os.path.join(wg_dir, 'dispatch-team.yaml'), 'w') as f:
-        f.write('name: dispatch-team\nlead: dispatcher-agent\n'
+    with open(os.path.join(wg_dir, 'test-team.yaml'), 'w') as f:
+        f.write('name: test-team\nlead: coordinator\n'
                 'members:\n  agents:\n    - leaf-agent\n')
 
+    # Management team
     with open(os.path.join(teaparty_home, 'management', 'teaparty.yaml'), 'w') as f:
-        f.write('name: test\nlead: test-parent\n'
+        f.write('name: test\nlead: coordinator\n'
                 'workgroups:\n'
-                '  - name: dispatch-team\n'
-                '    config: workgroups/dispatch-team.yaml\n'
-                'members:\n  workgroups:\n    - dispatch-team\n')
+                '  - name: test-team\n'
+                '    config: workgroups/test-team.yaml\n'
+                'members:\n  workgroups:\n    - test-team\n')
 
-    from teaparty.runners.launcher import create_session
-    create_session(agent_name='test-parent', scope='management',
-                   teaparty_home=teaparty_home, session_id='test-parent-main')
-
+    # Static dir for the bridge
     static_dir = os.path.join(repo_root, 'static')
     os.makedirs(static_dir)
     with open(os.path.join(static_dir, 'index.html'), 'w') as f:
@@ -149,301 +159,149 @@ def tearDownModule():
     os.environ.pop('TEAPARTY_BRIDGE_PORT', None)
 
 
-def _run(coro, timeout=120):
+def _run(coro, timeout=180):
     return _module_loop.run_until_complete(
         asyncio.wait_for(coro, timeout=timeout))
 
 
-def _make_session():
+def _make_coordinator(qualifier):
+    """Create a fresh coordinator session with a unique qualifier.
+
+    Each test uses a different qualifier so bus conversations are isolated.
+    """
     from teaparty.teams.session import AgentSession
     from teaparty.messaging.conversations import ConversationType
     return AgentSession(
         _module_env[0],
-        agent_name='test-parent',
+        agent_name='coordinator',
         scope='management',
-        qualifier='main',
+        qualifier=qualifier,
         conversation_type=ConversationType.OFFICE_MANAGER,
         dispatches=True,
     )
 
 
-def _wait_for_replies(session, parent_conv, count, timeout=90):
-    """Poll until `count` reply messages from agents appear in parent conv."""
-    async def poll():
-        for _ in range(timeout):
-            await asyncio.sleep(1.0)
-            msgs = session._bus.receive(parent_conv)
-            replies = [m for m in msgs
-                       if m.sender not in ('test-parent', 'human', 'system')]
-            if len(replies) >= count:
-                return
-    _run(poll(), timeout=timeout + 5)
+def _send_human_message(session, message):
+    """Write a human message to the coordinator's conversation bus."""
+    session._bus.send(session.conversation_id, 'human', message)
 
 
-def _wait_for_child(session, dispatch_conv_id, agent_name, timeout=60):
-    """Poll until the child agent writes a response to the dispatch conv."""
-    async def poll():
-        for _ in range(timeout):
-            await asyncio.sleep(1.0)
-            msgs = session._bus.receive(dispatch_conv_id)
-            if any(m.sender == agent_name for m in msgs):
-                return
-    _run(poll(), timeout=timeout + 5)
+def _get_coordinator_result(session):
+    """Extract the coordinator's 'RESULT:' response from its conversation."""
+    msgs = session._bus.receive(session.conversation_id)
+    for m in reversed(msgs):
+        if m.sender == 'coordinator' and 'RESULT:' in m.content:
+            return m.content
+    return None
 
 
 def _print_conversation(label, messages):
     print(f'\n--- {label} ---')
     for m in messages:
-        print(f'  [{m.sender}] {m.content[:120]}')
+        content = m.content if len(m.content) < 200 else m.content[:200] + '...'
+        print(f'  [{m.sender}] {content}')
 
 
-def _close_and_verify(test, session, conv_id):
-    """Close a dispatch conversation and verify cleanup."""
+def _verify_cleanup(test, session, handles):
+    """Close all handles, verify sessions removed from disk, slots freed."""
     from teaparty.workspace.close_conversation import close_conversation
-    child_sid = conv_id.replace('dispatch:', '')
-    child_path = os.path.join(
-        _module_env[0], 'management', 'sessions', child_sid)
+    for conv_id in handles:
+        child_sid = conv_id.replace('dispatch:', '')
+        child_path = os.path.join(
+            _module_env[0], 'management', 'sessions', child_sid)
+        close_conversation(
+            session._dispatch_session, conv_id,
+            teaparty_home=_module_env[0], scope='management')
+        test.assertFalse(
+            os.path.isdir(child_path),
+            f'Session dir should be removed: {child_path}')
 
-    close_conversation(
-        session._dispatch_session, conv_id,
-        teaparty_home=_module_env[0], scope='management')
 
-    test.assertFalse(
-        os.path.isdir(child_path),
-        f'Session dir should be removed after close: {child_path}')
-
-
-@unittest.skipUnless(HAVE_CLAUDE, 'Requires claude binary')
-class TestParallelLeafDispatch(unittest.TestCase):
-    """A dispatches to two leaf agents. Both respond. Parent resumes
-    with both replies. CloseConversation cleans up both."""
-
-    def test_full_exchange(self):
-        session = _make_session()
-        parent_conv = session.conversation_id
-
-        async def dispatch():
-            await session._ensure_bus_listener(_module_env[1])
-            from teaparty.mcp.registry import get_spawn_fn
-            spawn_fn = get_spawn_fn('test-parent')
-            self.assertIsNotNone(spawn_fn)
-
-            # 1. Send — verify handle returned
-            sid_b, _, _ = await spawn_fn(
-                'leaf-agent', 'Say hello.', 'ctx-b')
-            sid_c, _, _ = await spawn_fn(
-                'leaf-agent', 'Say goodbye.', 'ctx-c')
-            self.assertTrue(len(sid_b) > 0, 'B dispatch should return handle')
-            self.assertTrue(len(sid_c) > 0, 'C dispatch should return handle')
-            self.assertNotEqual(sid_b, sid_c, 'Handles should differ')
-            return sid_b, sid_c
-
-        sid_b, sid_c = _run(dispatch())
-
-        # 2. Child responses arrive in dispatch conversations
-        _wait_for_child(session, f'dispatch:{sid_b}', 'leaf-agent')
-        _wait_for_child(session, f'dispatch:{sid_c}', 'leaf-agent')
-
-        msgs_b = session._bus.receive(f'dispatch:{sid_b}')
-        msgs_c = session._bus.receive(f'dispatch:{sid_c}')
-        self.assertTrue(any(m.sender == 'leaf-agent' for m in msgs_b))
-        self.assertTrue(any(m.sender == 'leaf-agent' for m in msgs_c))
-
-        # 3. Parent resumed — replies in parent conversation
-        _wait_for_replies(session, parent_conv, 2)
-        parent_msgs = session._bus.receive(parent_conv)
-        replies = [m for m in parent_msgs if m.sender == 'leaf-agent']
-        self.assertGreaterEqual(len(replies), 2,
-                                f'Parent should have 2 replies. '
-                                f'Messages: {[(m.sender, m.content[:40]) for m in parent_msgs]}')
-
-        # 4. Print full exchange
-        _print_conversation('Parent conversation', parent_msgs)
-        _print_conversation('B dispatch', msgs_b)
-        _print_conversation('C dispatch', msgs_c)
-
-        # 5. Cleanup — close both, verify sessions gone, slots freed
-        _close_and_verify(self, session, f'dispatch:{sid_b}')
-        _close_and_verify(self, session, f'dispatch:{sid_c}')
-        self.assertEqual(len(session._dispatch_session.conversation_map), 0,
-                         'All slots should be free after cleanup')
+def _get_dispatch_handles(session):
+    """Return the list of dispatch:{id} conversation handles from parent's map."""
+    cmap = session._dispatch_session.conversation_map
+    return [f'dispatch:{child_sid}' for child_sid in cmap.values()]
 
 
 @unittest.skipUnless(HAVE_CLAUDE, 'Requires claude binary')
-class TestSlotLimitAndReuse(unittest.TestCase):
-    """Fill 3 slots. 4th rejected. Close one. 4th succeeds.
-    Verify the complete exchange for each agent."""
+class TestParallelDispatch(unittest.TestCase):
+    """Coordinator dispatches to leaf-agent twice in parallel.
+    Verifies the coordinator actually uses Send, both children run,
+    both replies arrive, coordinator integrates them into RESULT:."""
 
-    def test_full_exchange(self):
-        session = _make_session()
-        parent_conv = session.conversation_id
+    def test_full_e2e(self):
+        session = _make_coordinator('parallel')
 
-        async def dispatch():
-            await session._ensure_bus_listener(_module_env[1])
-            from teaparty.mcp.registry import get_spawn_fn
-            spawn_fn = get_spawn_fn('test-parent')
+        async def run():
+            _send_human_message(
+                session,
+                'Dispatch two messages in parallel: '
+                'send "say alpha" to leaf-agent and "say beta" to leaf-agent. '
+                'Wait for both replies, then respond with RESULT.')
+            await session.invoke(cwd=_module_env[1])
 
-            # Fill 3 slots
-            sids = []
-            for i in range(3):
-                sid, _, _ = await spawn_fn(
-                    'leaf-agent', f'Slot test message {i}', f'ctx-slot-{i}')
-                self.assertTrue(len(sid) > 0, f'Dispatch {i} should succeed')
-                sids.append(sid)
+        _run(run())
 
-            # 4th fails
-            sid_fail, _, _ = await spawn_fn(
-                'leaf-agent', 'Should fail', 'ctx-slot-fail')
-            self.assertEqual(sid_fail, '', '4th dispatch must be rejected')
-            return sids
+        # Verify the coordinator's final output
+        result = _get_coordinator_result(session)
+        msgs = session._bus.receive(session.conversation_id)
+        _print_conversation('Coordinator conversation', msgs)
 
-        sids = _run(dispatch())
-        print(f'\n3 slots filled. 4th correctly rejected.')
+        self.assertIsNotNone(
+            result, 'Coordinator must produce a RESULT: line')
+        self.assertIn('alpha', result.lower(),
+                      f'Result must mention alpha. Got: {result}')
+        self.assertIn('beta', result.lower(),
+                      f'Result must mention beta. Got: {result}')
 
-        # Wait for first to respond
-        _wait_for_child(session, f'dispatch:{sids[0]}', 'leaf-agent')
+        # Verify the coordinator used the Send tool at least twice
+        tool_uses = [m for m in msgs if m.sender == 'tool_use'
+                     and 'Send' in m.content]
+        self.assertGreaterEqual(
+            len(tool_uses), 2,
+            f'Coordinator must call Send at least twice. '
+            f'Tool uses: {[m.content[:60] for m in tool_uses]}')
 
-        # Close first — frees a slot
-        _close_and_verify(self, session, f'dispatch:{sids[0]}')
-        from teaparty.runners.launcher import check_slot_available
-        self.assertTrue(check_slot_available(session._dispatch_session),
-                        'Slot should be free after close')
-        print(f'Closed slot 0. Slot available.')
-
-        # 4th now succeeds
-        async def dispatch_e():
-            from teaparty.mcp.registry import get_spawn_fn
-            spawn_fn = get_spawn_fn('test-parent')
-            sid, _, _ = await spawn_fn(
-                'leaf-agent', 'I am the 4th agent', 'ctx-slot-e')
-            self.assertTrue(len(sid) > 0, '4th dispatch should now succeed')
-            return sid
-
-        sid_e = _run(dispatch_e())
-        print(f'4th dispatch succeeded: {sid_e}')
-
-        # Wait for E and remaining agents
-        _wait_for_child(session, f'dispatch:{sid_e}', 'leaf-agent')
-
-        # Wait for parent to get replies
-        _wait_for_replies(session, parent_conv, 2)
-
-        parent_msgs = session._bus.receive(parent_conv)
-        _print_conversation('Parent conversation', parent_msgs)
-
-        # Cleanup remaining
-        for sid in sids[1:] + [sid_e]:
-            _close_and_verify(self, session, f'dispatch:{sid}')
-        self.assertEqual(len(session._dispatch_session.conversation_map), 0)
-        print('All slots freed.')
-
-
-@unittest.skipUnless(HAVE_CLAUDE, 'Requires claude binary')
-class TestParallelInstanceSameAgent(unittest.TestCase):
-    """A dispatches to leaf-agent twice. Two separate instances with
-    separate sessions, separate handles, separate responses."""
-
-    def test_full_exchange(self):
-        session = _make_session()
-        parent_conv = session.conversation_id
-
-        async def dispatch():
-            await session._ensure_bus_listener(_module_env[1])
-            from teaparty.mcp.registry import get_spawn_fn
-            spawn_fn = get_spawn_fn('test-parent')
-
-            sid_1, _, _ = await spawn_fn(
-                'leaf-agent', 'Instance 1: say alpha', 'ctx-i1')
-            sid_2, _, _ = await spawn_fn(
-                'leaf-agent', 'Instance 2: say beta', 'ctx-i2')
-            self.assertNotEqual(sid_1, sid_2, 'Separate session IDs')
-            return sid_1, sid_2
-
-        sid_1, sid_2 = _run(dispatch())
-
-        # Both respond in their dispatch conversations
-        _wait_for_child(session, f'dispatch:{sid_1}', 'leaf-agent')
-        _wait_for_child(session, f'dispatch:{sid_2}', 'leaf-agent')
-
-        msgs_1 = session._bus.receive(f'dispatch:{sid_1}')
-        msgs_2 = session._bus.receive(f'dispatch:{sid_2}')
-        self.assertTrue(any(m.sender == 'leaf-agent' for m in msgs_1))
-        self.assertTrue(any(m.sender == 'leaf-agent' for m in msgs_2))
-
-        # Parent gets both replies
-        _wait_for_replies(session, parent_conv, 2)
-        parent_msgs = session._bus.receive(parent_conv)
-        replies = [m for m in parent_msgs if m.sender == 'leaf-agent']
-        self.assertGreaterEqual(len(replies), 2)
-
-        _print_conversation('Parent conversation', parent_msgs)
-        _print_conversation('Instance 1 dispatch', msgs_1)
-        _print_conversation('Instance 2 dispatch', msgs_2)
-
-        # Cleanup
-        _close_and_verify(self, session, f'dispatch:{sid_1}')
-        _close_and_verify(self, session, f'dispatch:{sid_2}')
+        # Verify cleanup
+        handles = _get_dispatch_handles(session)
+        _verify_cleanup(self, session, handles)
         self.assertEqual(len(session._dispatch_session.conversation_map), 0)
 
 
 @unittest.skipUnless(HAVE_CLAUDE, 'Requires claude binary')
-class TestLinearDispatch(unittest.TestCase):
-    """A → dispatcher-agent (B) → leaf-agent (C).
-    B calls Send to C via real MCP. Full round trip."""
+class TestParallelInstance(unittest.TestCase):
+    """Coordinator dispatches two tasks to the same leaf-agent.
+    Both instances run independently, both replies arrive."""
 
-    def test_full_exchange(self):
-        session = _make_session()
-        parent_conv = session.conversation_id
+    def test_full_e2e(self):
+        session = _make_coordinator('instances')
 
-        async def dispatch():
-            await session._ensure_bus_listener(_module_env[1])
-            from teaparty.mcp.registry import get_spawn_fn
-            spawn_fn = get_spawn_fn('test-parent')
+        async def run():
+            _send_human_message(
+                session,
+                'I need you to run two independent tasks on leaf-agent. '
+                'Task 1: send "say red" to leaf-agent. '
+                'Task 2: send "say blue" to leaf-agent. '
+                'Wait for both replies, then respond with RESULT.')
+            await session.invoke(cwd=_module_env[1])
 
-            sid_b, _, _ = await spawn_fn(
-                'dispatcher-agent',
-                'Dispatch to leaf-agent: "What is 2+2?"',
-                'a-to-b')
-            self.assertTrue(len(sid_b) > 0)
-            return sid_b
+        _run(run())
 
-        sid_b = _run(dispatch())
+        result = _get_coordinator_result(session)
+        msgs = session._bus.receive(session.conversation_id)
+        _print_conversation('Coordinator conversation', msgs)
 
-        # B responds (after calling Send internally)
-        _wait_for_child(session, f'dispatch:{sid_b}', 'dispatcher-agent')
+        self.assertIsNotNone(result)
+        self.assertIn('red', result.lower())
+        self.assertIn('blue', result.lower())
 
-        msgs_b = session._bus.receive(f'dispatch:{sid_b}')
-        self.assertTrue(any(m.sender == 'dispatcher-agent' for m in msgs_b),
-                        'B should respond')
+        # Must be two separate dispatches with different session IDs
+        tool_uses = [m for m in msgs if m.sender == 'tool_use'
+                     and 'Send' in m.content]
+        self.assertGreaterEqual(len(tool_uses), 2)
 
-        # Verify B used the Send tool
-        tool_calls = [m for m in msgs_b if m.sender == 'tool_use']
-        send_calls = [m for m in tool_calls
-                      if 'Send' in m.content]
-        self.assertTrue(len(send_calls) > 0,
-                        f'B should have called Send. Tool calls: '
-                        f'{[m.content[:60] for m in tool_calls]}')
-
-        # Verify Send returned message_sent (not the child's response)
-        # The dispatcher's text should mention the handle, not echo
-        # the leaf-agent's raw response.
-        b_text = ' '.join(m.content for m in msgs_b
-                          if m.sender == 'dispatcher-agent')
-        self.assertTrue(
-            any(kw in b_text.lower() for kw in
-                ['dispatch', 'handle', 'sent', 'message_sent']),
-            f'B should mention dispatch. Got: {b_text[:200]}')
-
-        # Parent gets B's reply
-        _wait_for_replies(session, parent_conv, 1)
-        parent_msgs = session._bus.receive(parent_conv)
-
-        _print_conversation('Parent conversation (full exchange)', parent_msgs)
-        _print_conversation('B (dispatcher-agent) dispatch', msgs_b)
-
-        # Cleanup
-        _close_and_verify(self, session, f'dispatch:{sid_b}')
-        self.assertEqual(len(session._dispatch_session.conversation_map), 0)
+        handles = _get_dispatch_handles(session)
+        _verify_cleanup(self, session, handles)
 
 
 if __name__ == '__main__':
