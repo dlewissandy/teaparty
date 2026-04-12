@@ -631,5 +631,151 @@ class TestPauseResumeIntegration(unittest.IsolatedAsyncioTestCase):
             await session.stop()
 
 
+class TestCrossRestartResume(unittest.IsolatedAsyncioTestCase):
+    """Cross-restart faithful resume (issue #403).
+
+    A realistic failure mode: user clicks Pause All, machine suspends,
+    bridge server process dies. On restart, a fresh AgentSession has
+    no in-memory factories. The resume handler must rebuild factories
+    from disk via ``rehydrate_paused_factories`` so that resume walks
+    the subtree and re-creates tasks.
+
+    Faithfulness under cross-restart: a 'complete' session still
+    returns its stored response_text; a 'launching' session re-runs
+    one claude turn via --resume.
+    """
+
+    def setUp(self):
+        self._tmpdir = _make_teaparty_home()
+        for name in ['parent', 'agent-b']:
+            agent_dir = os.path.join(
+                self._tmpdir, 'management', 'agents', name)
+            os.makedirs(agent_dir, exist_ok=True)
+            with open(os.path.join(agent_dir, 'agent.md'), 'w') as f:
+                f.write(f'---\nname: {name}\ndescription: test\n---\n')
+        create_session(
+            agent_name='parent', scope='management',
+            teaparty_home=self._tmpdir, session_id='parent-test')
+
+    def tearDown(self):
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    def _make_session(self, project_slug='alpha'):
+        from teaparty.teams.session import AgentSession
+        return AgentSession(
+            self._tmpdir,
+            agent_name='parent',
+            scope='management',
+            qualifier='test',
+            conversation_type=ConversationType.OFFICE_MANAGER,
+            dispatches=True,
+            project_slug=project_slug,
+        )
+
+    async def test_complete_phase_resumes_across_restart(self):
+        """A 'complete' session on disk resumes faithfully even when the
+        AgentSession that originally spawned it no longer exists."""
+        # Simulate a prior session run: manually persist a completed
+        # child session with stored response_text.
+        b_sid = 'child-b-persisted'
+        b_path = os.path.join(
+            self._tmpdir, 'management', 'sessions', b_sid)
+        os.makedirs(os.path.join(b_path, 'worktree'), exist_ok=True)
+        meta = {
+            'session_id': b_sid,
+            'agent_name': 'agent-b',
+            'scope': 'management',
+            'claude_session_id': 'claude-b',
+            'conversation_map': {},
+            'phase': 'complete',
+            'response_text': 'B final answer across restart',
+            'project_slug': 'alpha',
+            'parent_session_id': 'parent-test',
+            'current_message': '',
+            'in_flight_gc_ids': [],
+            'initial_message': 'original task B',
+        }
+        with open(os.path.join(b_path, 'metadata.json'), 'w') as f:
+            json.dump(meta, f)
+
+        # Fresh AgentSession — no in-memory factories, simulates a
+        # bridge restart.
+        session = self._make_session()
+        self.assertEqual(session._run_child_factories, {})
+
+        sessions_dir = os.path.join(
+            self._tmpdir, 'management', 'sessions')
+        registered = session.rehydrate_paused_factories(
+            'alpha', sessions_dir)
+        self.assertIn(b_sid, registered)
+
+        resumed = await resume_project_subtree(
+            'alpha', sessions_dir, session)
+        self.assertEqual(resumed, [b_sid])
+
+        task = session._tasks_by_child[b_sid]
+        result = await task
+        self.assertEqual(result, 'B final answer across restart')
+
+    async def test_launching_phase_reruns_one_turn_across_restart(self):
+        """A 'launching' session on disk resumes via --resume across a
+        restart, re-running exactly one claude turn with the persisted
+        current_message."""
+        b_sid = 'child-b-launching'
+        b_path = os.path.join(
+            self._tmpdir, 'management', 'sessions', b_sid)
+        os.makedirs(os.path.join(b_path, 'worktree'), exist_ok=True)
+        meta = {
+            'session_id': b_sid,
+            'agent_name': 'agent-b',
+            'scope': 'management',
+            'claude_session_id': 'claude-b-mid',
+            'conversation_map': {},
+            'phase': 'launching',
+            'response_text': '',
+            'project_slug': 'alpha',
+            'parent_session_id': 'parent-test',
+            'current_message': 'mid-turn prompt at pause time',
+            'in_flight_gc_ids': [],
+            'initial_message': 'mid-turn prompt at pause time',
+        }
+        with open(os.path.join(b_path, 'metadata.json'), 'w') as f:
+            json.dump(meta, f)
+
+        launch_calls: list[dict] = []
+
+        async def fake_launch(**kwargs):
+            launch_calls.append({
+                'agent_name': kwargs.get('agent_name'),
+                'message': kwargs.get('message'),
+                'resume_session': kwargs.get('resume_session'),
+            })
+            on_event = kwargs.get('on_stream_event')
+            if on_event:
+                on_event({'type': 'assistant', 'message': {'content': [
+                    {'type': 'text', 'text': 'B regenerated answer'}]}})
+            return FakeLaunchResult(session_id='claude-b-mid')
+
+        session = self._make_session()
+        sessions_dir = os.path.join(
+            self._tmpdir, 'management', 'sessions')
+
+        with patch('teaparty.runners.launcher.launch', fake_launch), \
+                patch('subprocess.run'):
+            session.rehydrate_paused_factories('alpha', sessions_dir)
+            await resume_project_subtree('alpha', sessions_dir, session)
+            task = session._tasks_by_child[b_sid]
+            result = await task
+
+        self.assertEqual(result, 'B regenerated answer')
+        # Exactly one claude turn re-run.
+        self.assertEqual(len(launch_calls), 1)
+        self.assertEqual(launch_calls[0]['agent_name'], 'agent-b')
+        self.assertEqual(
+            launch_calls[0]['message'], 'mid-turn prompt at pause time')
+        # --resume with the persisted claude_session_id.
+        self.assertEqual(launch_calls[0]['resume_session'], 'claude-b-mid')
+
+
 if __name__ == '__main__':
     unittest.main()

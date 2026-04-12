@@ -1155,6 +1155,11 @@ class TeaPartyBridge:
             if sessions_dir:
                 for agent_session in list(self._agent_sessions.values()):
                     try:
+                        try:
+                            agent_session.rehydrate_paused_factories(
+                                paused_slug, sessions_dir)
+                        except Exception:
+                            _log.exception('factory rehydration failed')
                         if target_root_sid:
                             await resume_session_subtree(
                                 target_root_sid, sessions_dir, agent_session)
@@ -1923,6 +1928,14 @@ class TeaPartyBridge:
         all_resumed: list[str] = []
         for agent_session in list(self._agent_sessions.values()):
             try:
+                # Cross-restart: rebuild factories from disk before the
+                # walker consults them. Idempotent — factories from a
+                # live pause simply get replaced with equivalent ones.
+                try:
+                    agent_session.rehydrate_paused_factories(
+                        slug, sessions_dir)
+                except Exception:
+                    _log.exception('factory rehydration failed')
                 resumed = await resume_project_subtree(
                     slug, sessions_dir, agent_session)
                 all_resumed.extend(resumed)
