@@ -18,6 +18,7 @@ the same pattern used by #395/#396 regression tests. They verify:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import shutil
@@ -25,7 +26,7 @@ import subprocess
 import tempfile
 import unittest
 from dataclasses import dataclass
-from unittest.mock import patch
+from unittest.mock import patch, AsyncMock
 
 from teaparty.messaging.conversations import ConversationType
 from teaparty.runners.launcher import (
@@ -44,10 +45,33 @@ from teaparty.workspace.pause_resume import (
 )
 
 
-def _make_teaparty_home():
+def _make_teaparty_home(agents=None):
+    """Create a temp .teaparty with management/sessions/, agent defs,
+    workgroup config, and teaparty.yaml so resolve_launch_cwd succeeds."""
+    if agents is None:
+        agents = ['parent']
     tmpdir = tempfile.mkdtemp()
-    os.makedirs(os.path.join(tmpdir, 'management', 'sessions'))
-    os.makedirs(os.path.join(tmpdir, 'management', 'agents', 'parent'))
+    mgmt = os.path.join(tmpdir, 'management')
+    os.makedirs(os.path.join(mgmt, 'sessions'))
+    for name in agents:
+        agent_dir = os.path.join(mgmt, 'agents', name)
+        os.makedirs(agent_dir, exist_ok=True)
+        with open(os.path.join(agent_dir, 'agent.md'), 'w') as f:
+            f.write(f'---\nname: {name}\ndescription: test\n---\n')
+    # Workgroup config so resolve_launch_cwd can find members.
+    wg_dir = os.path.join(mgmt, 'workgroups')
+    os.makedirs(wg_dir, exist_ok=True)
+    members = [a for a in agents if a != agents[0]]
+    with open(os.path.join(wg_dir, 'test-team.yaml'), 'w') as f:
+        f.write(f'name: test-team\nlead: {agents[0]}\nmembers:\n  agents:\n')
+        for m in members:
+            f.write(f'    - {m}\n')
+    with open(os.path.join(mgmt, 'teaparty.yaml'), 'w') as f:
+        f.write(f'name: test-mgmt\ndescription: test\nlead: {agents[0]}\n'
+                f'projects: []\nmembers:\n  projects: []\n  agents: []\n'
+                f'  workgroups:\n    - test-team\n'
+                f'workgroups:\n  - name: test-team\n'
+                f'    config: workgroups/test-team.yaml\n')
     return tmpdir
 
 
@@ -59,6 +83,22 @@ class FakeLaunchResult:
     input_tokens: int = 0
     output_tokens: int = 0
     duration_ms: int = 100
+
+
+@contextlib.contextmanager
+def spawn_env(fake_launch, tmpdir):
+    """Patch spawn_fn's external deps for test: launch, worktree creation,
+    launch-cwd resolution, sub-roster detection."""
+    async def fake_create_wt(**kwargs):
+        wt = kwargs.get('worktree_path', '')
+        if wt:
+            os.makedirs(wt, exist_ok=True)
+
+    with patch('teaparty.runners.launcher.launch', fake_launch), \
+            patch('teaparty.config.roster.has_sub_roster', return_value=False), \
+            patch('teaparty.config.roster.resolve_launch_cwd', return_value=tmpdir), \
+            patch('teaparty.workspace.worktree.create_subchat_worktree', fake_create_wt):
+        yield
 
 
 class TestPhaseFieldPersistence(unittest.TestCase):
@@ -327,13 +367,8 @@ class TestPausedSpawnRefusal(unittest.IsolatedAsyncioTestCase):
     paused (the flag is checked via the paused_check callable)."""
 
     def setUp(self):
-        self._tmpdir = _make_teaparty_home()
-        for name in ['parent', 'agent-b']:
-            agent_dir = os.path.join(
-                self._tmpdir, 'management', 'agents', name)
-            os.makedirs(agent_dir, exist_ok=True)
-            with open(os.path.join(agent_dir, 'agent.md'), 'w') as f:
-                f.write(f'---\nname: {name}\ndescription: test\n---\n')
+        self._tmpdir = _make_teaparty_home(
+            agents=['parent', 'agent-b'])
         create_session(
             agent_name='parent', scope='management',
             teaparty_home=self._tmpdir, session_id='parent-test')
@@ -362,9 +397,7 @@ class TestPausedSpawnRefusal(unittest.IsolatedAsyncioTestCase):
         async def fake_launch(**kwargs):
             return FakeLaunchResult(session_id='x')
 
-        with patch('teaparty.runners.launcher.launch', fake_launch), \
-                patch('teaparty.config.roster.has_sub_roster', return_value=False), \
-                patch('subprocess.run'):
+        with spawn_env(fake_launch, self._tmpdir):
             await session._ensure_bus_listener(self._tmpdir)
             from teaparty.mcp.registry import get_spawn_fn
             spawn_fn = get_spawn_fn('parent')
@@ -380,9 +413,7 @@ class TestPausedSpawnRefusal(unittest.IsolatedAsyncioTestCase):
         async def fake_launch(**kwargs):
             return FakeLaunchResult(session_id='x')
 
-        with patch('teaparty.runners.launcher.launch', fake_launch), \
-                patch('teaparty.config.roster.has_sub_roster', return_value=False), \
-                patch('subprocess.run'):
+        with spawn_env(fake_launch, self._tmpdir):
             await session._ensure_bus_listener(self._tmpdir)
             from teaparty.mcp.registry import get_spawn_fn
             spawn_fn = get_spawn_fn('parent')
@@ -433,13 +464,8 @@ class TestPauseResumeIntegration(unittest.IsolatedAsyncioTestCase):
     """
 
     def setUp(self):
-        self._tmpdir = _make_teaparty_home()
-        for name in ['parent', 'agent-b', 'agent-c']:
-            agent_dir = os.path.join(
-                self._tmpdir, 'management', 'agents', name)
-            os.makedirs(agent_dir, exist_ok=True)
-            with open(os.path.join(agent_dir, 'agent.md'), 'w') as f:
-                f.write(f'---\nname: {name}\ndescription: test\n---\n')
+        self._tmpdir = _make_teaparty_home(
+            agents=['parent', 'agent-b', 'agent-c'])
         create_session(
             agent_name='parent', scope='management',
             teaparty_home=self._tmpdir, session_id='parent-test')
@@ -484,9 +510,7 @@ class TestPauseResumeIntegration(unittest.IsolatedAsyncioTestCase):
 
         session = self._make_session()
 
-        with patch('teaparty.runners.launcher.launch', fake_launch), \
-                patch('teaparty.config.roster.has_sub_roster', return_value=False), \
-                patch('subprocess.run'):
+        with spawn_env(fake_launch, self._tmpdir):
             await session._ensure_bus_listener(self._tmpdir)
             from teaparty.mcp.registry import get_spawn_fn
             spawn_fn = get_spawn_fn('parent')
@@ -579,12 +603,12 @@ class TestPauseResumeIntegration(unittest.IsolatedAsyncioTestCase):
 
         session = self._make_session()
 
-        with patch('teaparty.runners.launcher.launch', fake_launch), \
-                patch('teaparty.config.roster.has_sub_roster', return_value=True), \
-                patch('subprocess.run'):
-            await session._ensure_bus_listener(self._tmpdir)
-            from teaparty.mcp.registry import get_spawn_fn
-            spawn_fn = get_spawn_fn('parent')
+        with spawn_env(fake_launch, self._tmpdir):
+            # Override has_sub_roster to True for B→C dispatch chain.
+            with patch('teaparty.config.roster.has_sub_roster', return_value=True):
+                await session._ensure_bus_listener(self._tmpdir)
+                from teaparty.mcp.registry import get_spawn_fn
+                spawn_fn = get_spawn_fn('parent')
 
             b_sid, _, _ = await spawn_fn('agent-b', 'task B', 'a-b')
 
@@ -646,13 +670,8 @@ class TestCrossRestartResume(unittest.IsolatedAsyncioTestCase):
     """
 
     def setUp(self):
-        self._tmpdir = _make_teaparty_home()
-        for name in ['parent', 'agent-b']:
-            agent_dir = os.path.join(
-                self._tmpdir, 'management', 'agents', name)
-            os.makedirs(agent_dir, exist_ok=True)
-            with open(os.path.join(agent_dir, 'agent.md'), 'w') as f:
-                f.write(f'---\nname: {name}\ndescription: test\n---\n')
+        self._tmpdir = _make_teaparty_home(
+            agents=['parent', 'agent-b'])
         create_session(
             agent_name='parent', scope='management',
             teaparty_home=self._tmpdir, session_id='parent-test')
@@ -760,8 +779,7 @@ class TestCrossRestartResume(unittest.IsolatedAsyncioTestCase):
         sessions_dir = os.path.join(
             self._tmpdir, 'management', 'sessions')
 
-        with patch('teaparty.runners.launcher.launch', fake_launch), \
-                patch('subprocess.run'):
+        with spawn_env(fake_launch, self._tmpdir):
             session.rehydrate_paused_factories('alpha', sessions_dir)
             await resume_project_subtree('alpha', sessions_dir, session)
             task = session._tasks_by_child[b_sid]
@@ -794,13 +812,8 @@ class TestResumeAgentSessionFiltering(unittest.IsolatedAsyncioTestCase):
     """
 
     def setUp(self):
-        self._tmpdir = _make_teaparty_home()
-        for name in ['office-manager', 'alpha-lead', 'agent-b']:
-            agent_dir = os.path.join(
-                self._tmpdir, 'management', 'agents', name)
-            os.makedirs(agent_dir, exist_ok=True)
-            with open(os.path.join(agent_dir, 'agent.md'), 'w') as f:
-                f.write(f'---\nname: {name}\ndescription: test\n---\n')
+        self._tmpdir = _make_teaparty_home(
+            agents=['office-manager', 'alpha-lead', 'agent-b'])
         # Persist a 'complete' child session in the management sessions
         # dir so both AgentSessions see it on disk.
         b_path = os.path.join(
