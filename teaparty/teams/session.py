@@ -71,6 +71,8 @@ class AgentSession:
         build_prompt_hook: BuildPromptHook | None = None,
         on_dispatch: Callable[[dict], Any] | None = None,
         llm_caller: Callable | None = None,
+        project_slug: str = '',
+        paused_check: Callable[[], bool] | None = None,
     ):
         self.teaparty_home = os.path.expanduser(teaparty_home)
         self.agent_name = agent_name
@@ -83,6 +85,8 @@ class AgentSession:
         self._build_prompt_hook = build_prompt_hook
         self._on_dispatch = on_dispatch
         self._llm_caller = llm_caller  # None → use launcher default
+        self.project_slug = project_slug
+        self._paused_check = paused_check
 
         self.conversation_id = make_conversation_id(conversation_type, qualifier)
         self.claude_session_id: str | None = None
@@ -111,6 +115,13 @@ class AgentSession:
         # child_session_id → running _run_child task, so close_fn can
         # cancel a specific in-flight conversation.
         self._tasks_by_child: dict[str, asyncio.Task] = {}
+        # child_session_id → factory that re-creates the _run_child
+        # coroutine for that child. Populated by spawn_fn; consulted by
+        # the pause/resume walker (issue #403) to rebuild the task
+        # chain without having to duplicate spawn_fn's closure state.
+        # Signature: factory(start_at_phase, initial_gc_task_ids,
+        #                    resume_claude_session) -> Coroutine
+        self._run_child_factories: dict[str, Any] = {}
 
     # ── Message bus ──────────────────────────────────────────────────────
 
@@ -245,6 +256,9 @@ class AgentSession:
             remove_child_session as _remove_child,
             check_slot_available as _check_slot,
             _save_session_metadata as _save_meta,
+            mark_launching as _mark_launching,
+            mark_awaiting as _mark_awaiting,
+            mark_complete as _mark_complete,
         )
 
         infra_dir = os.path.join(
@@ -300,6 +314,14 @@ class AgentSession:
                 _log.warning(
                     '%s spawn_fn: at conversation limit, dispatch to %s blocked',
                     self.agent_name, member,
+                )
+                return ('', '', '')
+
+            # Refuse new dispatches while the project is paused (issue #403).
+            if self._paused_check is not None and self._paused_check():
+                _log.warning(
+                    '%s spawn_fn: project %s paused, dispatch to %s refused',
+                    self.agent_name, self.project_slug, member,
                 )
                 return ('', '', '')
 
@@ -405,6 +427,16 @@ class AgentSession:
 
             _save_meta(child_session)
 
+            # Record parent/project on the child so the pause walker can
+            # reconstruct the tree from disk (issue #403).
+            child_session.parent_session_id = dispatcher_session.id
+            child_session.project_slug = getattr(
+                self, 'project_slug', '') or ''
+            child_session.initial_message = composite
+            # phase and current_message are set by mark_launching on
+            # every loop iteration — do not pre-seed them here.
+            _save_meta(child_session)
+
             # Register the child's session so its dispatches are recorded
             # in its own conversation_map.
             session_registry[child_session.id] = child_session
@@ -440,167 +472,25 @@ class AgentSession:
             # The child runs asynchronously; its response is written to
             # the parent's bus when it completes.
 
-            async def _run_child() -> str:
-                """Run the dispatched child through its full lifecycle.
+            async def _run_child(
+                start_at_phase: str = 'launching',
+                initial_gc_task_ids: list[str] | None = None,
+                resume_claude_session: str = '',
+            ) -> str:
+                return await self._child_lifecycle_loop(
+                    member=member,
+                    child_session=child_session,
+                    worktree_path=worktree_path,
+                    composite=composite,
+                    child_conv_id=child_conv_id,
+                    dispatcher_session=dispatcher_session,
+                    repo_root=repo_root,
+                    start_at_phase=start_at_phase,
+                    initial_gc_task_ids=initial_gc_task_ids,
+                    resume_claude_session=resume_claude_session,
+                )
 
-                Loops until the child's turn emits no new Send tool_uses:
-                  1. Launch the child (first turn runs to end-of-turn).
-                  2. If the child spawned grandchildren during this turn,
-                     await their _run_child tasks (which return their own
-                     final replies) and re-launch the child with
-                     ``--resume`` passing the grandchildren's replies as
-                     the new prompt.
-                  3. Repeat until a turn produces no new dispatches — at
-                     that point the child has integrated everything and
-                     response_parts holds its final answer.
-
-                Only the **top-level** dispatched child (one whose
-                dispatcher is the coordinator's own dispatch_session)
-                fires ``self.invoke`` with the final reply; nested
-                children return their reply text so their parent's loop
-                can collect it via ``await task``. This is what makes a
-                linear A→B→C chain wait for C before OM sees B's answer.
-
-                Returns the child's final integrated reply text.
-                """
-                t0 = _time.monotonic()
-                seen_tu: set[str] = set()
-                seen_tr: set[str] = set()
-                response_parts: list[str] = []
-
-                def on_event(ev: dict) -> None:
-                    for sender, content in _classify_event(ev, member, seen_tu, seen_tr):
-                        if content and sender != 'tool_result':
-                            self._bus.send(child_conv_id, sender, content)
-                        if sender == member and content:
-                            response_parts.append(content)
-
-                mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
-                current_claude_session = ''
-                current_message = composite
-                while True:
-                    # Snapshot which children this session already
-                    # has before the turn — anything new after the
-                    # launch was spawned *during* this turn.
-                    before_ids = set(
-                        child_session.conversation_map.values())
-                    response_parts.clear()
-
-                    if worktree_path:
-                        # Same-repo dispatch: child runs inside its own
-                        # per-session git worktree (job tier).
-                        launch_kwargs = dict(
-                            agent_name=member, message=current_message,
-                            scope=self.scope, teaparty_home=self.teaparty_home,
-                            worktree=worktree_path,
-                            mcp_port=mcp_port,
-                            session_id=child_session.id,
-                            stream_file=os.path.join(child_session.path, 'stream.jsonl'),
-                            on_stream_event=on_event,
-                        )
-                    else:
-                        # Cross-repo dispatch: child is a project lead running
-                        # directly at its own repo root (chat tier). Config
-                        # files are composed under the dispatcher's teaparty
-                        # home, same as a top-level invoke().
-                        from teaparty.runners.launcher import chat_config_dir as _chat_cfg_dir
-                        child_config_dir = _chat_cfg_dir(
-                            self.teaparty_home, self.scope,
-                            member, child_session.id,
-                        )
-                        launch_kwargs = dict(
-                            agent_name=member, message=current_message,
-                            scope=self.scope, teaparty_home=self.teaparty_home,
-                            tier='chat',
-                            launch_cwd=member_natural_repo,
-                            config_dir=child_config_dir,
-                            mcp_port=mcp_port,
-                            session_id=child_session.id,
-                            stream_file=os.path.join(child_session.path, 'stream.jsonl'),
-                            on_stream_event=on_event,
-                        )
-                    if current_claude_session:
-                        launch_kwargs['resume_session'] = current_claude_session
-                    if self._llm_caller is not None:
-                        launch_kwargs['llm_caller'] = self._llm_caller
-
-                    try:
-                        result = await _launch(**launch_kwargs)
-                        if result.session_id:
-                            child_session.claude_session_id = result.session_id
-                            current_claude_session = result.session_id
-                            _save_meta(child_session)
-                    except Exception:
-                        _log.exception('Child %s failed', member)
-                        break
-
-                    after_ids = set(
-                        child_session.conversation_map.values())
-                    new_gc_ids = after_ids - before_ids
-                    if not new_gc_ids:
-                        # Child's turn produced no new dispatches —
-                        # response_parts now holds its final answer.
-                        break
-
-                    # Wait for the grandchildren spawned this turn
-                    # to resolve. Each grandchild's _run_child
-                    # returns its own final integrated reply text.
-                    gc_tasks = [
-                        self._tasks_by_child[g] for g in new_gc_ids
-                        if g in self._tasks_by_child
-                    ]
-                    if not gc_tasks:
-                        break
-                    gc_results = await _asyncio.gather(
-                        *gc_tasks, return_exceptions=True)
-                    gc_replies: list[str] = []
-                    for gid, r in zip(new_gc_ids, gc_results):
-                        if isinstance(r, str) and r:
-                            gc_replies.append(
-                                f'[dispatch:{gid}] {r}')
-                        elif isinstance(r, Exception) and not isinstance(
-                                r, _asyncio.CancelledError):
-                            _log.warning(
-                                'Grandchild %s raised: %s', gid, r)
-                    if not gc_replies:
-                        break
-                    current_message = '\n'.join(gc_replies)
-                    # Loop: re-launch child with --resume and the
-                    # grandchildren's replies, so the child can
-                    # integrate them before answering.
-
-                # NOTE: no dispatch_completed event here. Natural
-                # completion is NOT a conversation-lifecycle signal —
-                # the conversation stays open (slot occupied, session
-                # dir intact) until the caller explicitly invokes
-                # CloseConversation, at which point close_fn fires
-                # dispatch_completed per removed descendant. The UI
-                # accordion handler treats dispatch_completed as "gone
-                # from the tree", so firing it on natural completion
-                # would prematurely remove idle-but-still-open blades.
-
-                _log.info('%s spawn_fn: %s completed in %.2fs',
-                          self.agent_name, member, _time.monotonic() - t0)
-
-                response_text = '\n'.join(response_parts)
-                if not response_text:
-                    return ''
-
-                # Top-level dispatches (whose dispatcher is the
-                # coordinator's own dispatch session) drive the OM's
-                # resume directly. Nested dispatches just return —
-                # their parent's loop above awaits the task and
-                # collects this value as its next turn's input.
-                if dispatcher_session is self._dispatch_session:
-                    reply = f'[{child_conv_id}] {member}: {response_text}'
-                    try:
-                        await self.invoke(cwd=repo_root, resume_message=reply)
-                    except Exception:
-                        _log.exception('Failed to resume %s after %s reply',
-                                       self.agent_name, member)
-
-                return response_text
-
+            self._run_child_factories[child_session.id] = _run_child
             task = _asyncio.create_task(_run_child())
             self._background_tasks.add(task)
             self._tasks_by_child[child_session.id] = task
@@ -975,6 +865,254 @@ class AgentSession:
             await self._bus_listener.stop()
             self._bus_listener = None
             self._bus_listener_sockets = None
+
+    # ── Subtree lifecycle loop (shared by spawn_fn and resume walker) ──
+
+    async def _child_lifecycle_loop(
+        self,
+        *,
+        member: str,
+        child_session,
+        worktree_path: str,
+        composite: str,
+        child_conv_id: str,
+        dispatcher_session,
+        repo_root: str,
+        start_at_phase: str = 'launching',
+        initial_gc_task_ids: list[str] | None = None,
+        resume_claude_session: str = '',
+    ) -> str:
+        """Run a dispatched child through its full subtree lifecycle.
+
+        Shared by spawn_fn's newly-spawned children and by the cross-
+        restart resume walker (issue #403). Caller supplies everything
+        that would normally live in spawn_fn's closure.
+
+        Loop:
+          1. Launch — writes phase='launching' + current_message before
+             the await so a pause cancellation lands accurately.
+          2. If new grandchildren spawned, writes phase='awaiting' with
+             their ids and gathers on their tasks.
+          3. Re-enters launch with --resume and the integrated replies.
+          4. Repeats until a turn produces no new dispatches.
+
+        ``start_at_phase='awaiting'`` skips the initial _launch and
+        enters directly at gather — the path that avoids re-running an
+        already-completed turn on awaiting-phase resume.
+        """
+        import asyncio as _asyncio
+        import time as _time
+        from teaparty.teams.stream import _classify_event
+        from teaparty.runners.launcher import (
+            launch as _launch,
+            _save_session_metadata as _save_meta,
+            mark_launching as _mark_launching,
+            mark_awaiting as _mark_awaiting,
+            mark_complete as _mark_complete,
+        )
+
+        t0 = _time.monotonic()
+        seen_tu: set[str] = set()
+        seen_tr: set[str] = set()
+        response_parts: list[str] = []
+
+        def on_event(ev: dict) -> None:
+            for sender, content in _classify_event(ev, member, seen_tu, seen_tr):
+                if content and sender != 'tool_result':
+                    self._bus.send(child_conv_id, sender, content)
+                if sender == member and content:
+                    response_parts.append(content)
+
+        mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
+        current_claude_session = resume_claude_session or ''
+        current_message = composite
+
+        if start_at_phase == 'awaiting':
+            gc_tasks = [
+                self._tasks_by_child[g]
+                for g in (initial_gc_task_ids or [])
+                if g in self._tasks_by_child
+            ]
+            if gc_tasks:
+                _mark_awaiting(
+                    child_session, list(initial_gc_task_ids or []))
+                gc_results = await _asyncio.gather(
+                    *gc_tasks, return_exceptions=True)
+                gc_replies: list[str] = []
+                for gid, r in zip(initial_gc_task_ids or [], gc_results):
+                    if isinstance(r, str) and r:
+                        gc_replies.append(f'[dispatch:{gid}] {r}')
+                if gc_replies:
+                    current_message = '\n'.join(gc_replies)
+
+        while True:
+            before_ids = set(child_session.conversation_map.values())
+            response_parts.clear()
+
+            if worktree_path:
+                # Same-repo dispatch: child runs inside its own
+                # per-session git worktree (job tier).
+                launch_kwargs = dict(
+                    agent_name=member, message=current_message,
+                    scope=self.scope, teaparty_home=self.teaparty_home,
+                    worktree=worktree_path,
+                    mcp_port=mcp_port,
+                    session_id=child_session.id,
+                    stream_file=os.path.join(child_session.path, 'stream.jsonl'),
+                    on_stream_event=on_event,
+                )
+            else:
+                # Cross-repo dispatch: child is a project lead running
+                # directly at its own repo root (chat tier). Config
+                # files are composed under the dispatcher's teaparty
+                # home, same as a top-level invoke().
+                from teaparty.runners.launcher import chat_config_dir as _chat_cfg_dir
+                child_config_dir = _chat_cfg_dir(
+                    self.teaparty_home, self.scope,
+                    member, child_session.id,
+                )
+                launch_kwargs = dict(
+                    agent_name=member, message=current_message,
+                    scope=self.scope, teaparty_home=self.teaparty_home,
+                    tier='chat',
+                    launch_cwd=child_session.launch_cwd,
+                    config_dir=child_config_dir,
+                    mcp_port=mcp_port,
+                    session_id=child_session.id,
+                    stream_file=os.path.join(child_session.path, 'stream.jsonl'),
+                    on_stream_event=on_event,
+                )
+            if current_claude_session:
+                launch_kwargs['resume_session'] = current_claude_session
+            if self._llm_caller is not None:
+                launch_kwargs['llm_caller'] = self._llm_caller
+
+            try:
+                _mark_launching(child_session, current_message)
+                result = await _launch(**launch_kwargs)
+                if result.session_id:
+                    child_session.claude_session_id = result.session_id
+                    current_claude_session = result.session_id
+                    _save_meta(child_session)
+            except Exception:
+                _log.exception('Child %s failed', member)
+                break
+
+            after_ids = set(child_session.conversation_map.values())
+            new_gc_ids = after_ids - before_ids
+            if not new_gc_ids:
+                break
+
+            gc_tasks = [
+                self._tasks_by_child[g] for g in new_gc_ids
+                if g in self._tasks_by_child
+            ]
+            if not gc_tasks:
+                break
+            _mark_awaiting(child_session, list(new_gc_ids))
+            gc_results = await _asyncio.gather(
+                *gc_tasks, return_exceptions=True)
+            gc_replies: list[str] = []
+            for gid, r in zip(new_gc_ids, gc_results):
+                if isinstance(r, str) and r:
+                    gc_replies.append(f'[dispatch:{gid}] {r}')
+                elif isinstance(r, Exception) and not isinstance(
+                        r, _asyncio.CancelledError):
+                    _log.warning('Grandchild %s raised: %s', gid, r)
+            if not gc_replies:
+                break
+            current_message = '\n'.join(gc_replies)
+
+        _log.info('%s subtree: %s completed in %.2fs',
+                  self.agent_name, member, _time.monotonic() - t0)
+
+        response_text = '\n'.join(response_parts)
+        _mark_complete(child_session, response_text)
+        if not response_text:
+            return ''
+
+        if dispatcher_session is self._dispatch_session:
+            reply = f'[{child_conv_id}] {member}: {response_text}'
+            try:
+                await self.invoke(cwd=repo_root, resume_message=reply)
+            except Exception:
+                _log.exception('Failed to resume %s after %s reply',
+                               self.agent_name, member)
+        return response_text
+
+    def rehydrate_paused_factories(
+        self, project_slug: str, sessions_dir: str,
+    ) -> list[str]:
+        """Rebuild _run_child_factories for every session in a project
+        subtree, reading state from disk.
+
+        The cross-restart resume path (issue #403). When the bridge
+        restarts with a paused project on disk, the in-memory factories
+        are gone. This walker re-creates a factory for each session by
+        loading its metadata and binding a closure that calls
+        _child_lifecycle_loop with the reconstructed state.
+
+        Idempotent — called again on a live pause, each factory is
+        replaced with an equivalent one.
+        """
+        from teaparty.runners.launcher import load_session as _load_session
+        from teaparty.workspace.pause_resume import collect_project_subtree
+
+        repo_root = os.path.dirname(self.teaparty_home)
+        subtree = collect_project_subtree(sessions_dir, project_slug)
+        registered: list[str] = []
+
+        for sid, _parent in subtree:
+            child_session = _load_session(
+                agent_name='', scope=self.scope,
+                teaparty_home=self.teaparty_home, session_id=sid,
+            )
+            if child_session is None:
+                continue
+            worktree_path = os.path.join(child_session.path, 'worktree')
+            child_conv_id = f'dispatch:{child_session.id}'
+            composite = (
+                child_session.current_message
+                or child_session.initial_message
+            )
+
+            dispatcher_sid = child_session.parent_session_id
+            dispatcher_session = None
+            if dispatcher_sid:
+                dispatcher_session = _load_session(
+                    agent_name='', scope=self.scope,
+                    teaparty_home=self.teaparty_home,
+                    session_id=dispatcher_sid,
+                )
+
+            def _make_factory(
+                cs=child_session, wt=worktree_path, cv=child_conv_id,
+                co=composite, ds=dispatcher_session,
+                mem=child_session.agent_name,
+            ):
+                async def _factory(
+                    start_at_phase: str = 'launching',
+                    initial_gc_task_ids: list[str] | None = None,
+                    resume_claude_session: str = '',
+                ) -> str:
+                    return await self._child_lifecycle_loop(
+                        member=mem,
+                        child_session=cs,
+                        worktree_path=wt,
+                        composite=co,
+                        child_conv_id=cv,
+                        dispatcher_session=ds,
+                        repo_root=repo_root,
+                        start_at_phase=start_at_phase,
+                        initial_gc_task_ids=initial_gc_task_ids,
+                        resume_claude_session=resume_claude_session,
+                    )
+                return _factory
+
+            self._run_child_factories[sid] = _make_factory()
+            registered.append(sid)
+
+        return registered
 
     # ── Invoke ───────────────────────────────────────────────────────────
 

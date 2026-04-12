@@ -215,6 +215,10 @@ class TeaPartyBridge:
         self._agent_locks: dict[str, asyncio.Lock] = {}
         self._agent_sessions: dict[str, AgentSession] = {}
         self._active_job_tasks: dict[str, asyncio.Task] = {}
+        # Per-project paused flag (issue #403). When a project slug is in
+        # this set, new dispatches for it are refused and sending a
+        # message to any of its agents implicitly triggers a resume.
+        self._paused_projects: set[str] = set()
         # StateReader uses registry-based project discovery.
         self._state_reader = StateReader(
             repo_root=self._repo_root,
@@ -225,6 +229,10 @@ class TeaPartyBridge:
         # One-time on startup so compute_stats stays read-only.
         self._migrate_legacy_sessions()
 
+        # Restore paused-project flags from disk (issue #403).
+        # Each paused project has a marker file at {project}/.teaparty/paused.
+        self._restore_paused_flags()
+
     def _migrate_legacy_sessions(self) -> None:
         """Migrate .sessions/ data to .teaparty/jobs/ for all registered projects."""
         from teaparty.workspace.job_store import migrate_legacy_sessions
@@ -234,6 +242,36 @@ class TeaPartyBridge:
                 migrate_legacy_sessions(entry['path'])
         except Exception:
             _log.warning('Legacy session migration failed', exc_info=True)
+
+    def _restore_paused_flags(self) -> None:
+        """Read paused marker files from disk into _paused_projects."""
+        try:
+            team = load_management_team(teaparty_home=self.teaparty_home)
+            for entry in discover_projects(team):
+                marker = os.path.join(entry['path'], '.teaparty', 'paused')
+                if os.path.isfile(marker):
+                    slug = os.path.basename(entry['path'].rstrip('/'))
+                    self._paused_projects.add(slug)
+                    _log.info('Restored paused flag for project %s', slug)
+        except Exception:
+            _log.warning('Failed to restore paused flags', exc_info=True)
+
+    @staticmethod
+    def _write_paused_marker(project_path: str) -> None:
+        """Write the paused marker file for a project."""
+        marker = os.path.join(project_path, '.teaparty', 'paused')
+        os.makedirs(os.path.dirname(marker), exist_ok=True)
+        with open(marker, 'w') as f:
+            f.write('')
+
+    @staticmethod
+    def _remove_paused_marker(project_path: str) -> None:
+        """Remove the paused marker file for a project."""
+        marker = os.path.join(project_path, '.teaparty', 'paused')
+        try:
+            os.unlink(marker)
+        except FileNotFoundError:
+            pass
 
     def run(self, port: int = 8081) -> None:
         """Start the bridge server and block until interrupted."""
@@ -300,6 +338,12 @@ class TeaPartyBridge:
         # ── Project management endpoints ──────────────────────────────────────
         app.router.add_post('/api/projects/add', self._handle_projects_add)
         app.router.add_post('/api/projects/create', self._handle_projects_create)
+
+        # ── Project pause / resume (issue #403) ────────────────────────────
+        app.router.add_post(
+            '/api/projects/{slug}/pause', self._handle_project_pause)
+        app.router.add_post(
+            '/api/projects/{slug}/resume', self._handle_project_resume)
 
         # ── WebSocket ─────────────────────────────────────────────────────────
         app.router.add_get('/ws', self._handle_websocket)
@@ -474,6 +518,12 @@ class TeaPartyBridge:
     async def _handle_state_all(self, request: web.Request) -> web.Response:
         projects = self._state_reader.reload()
         data = [self._serialize_project(p) for p in projects]
+        # Stamp the paused flag (issue #403) so a fresh page load shows
+        # the paused status pill without waiting for a WebSocket event.
+        for entry in data:
+            slug = entry.get('slug', '')
+            if slug and slug in self._paused_projects:
+                entry['paused'] = True
         return web.json_response(data)
 
     async def _handle_state_project(self, request: web.Request) -> web.Response:
@@ -1111,6 +1161,57 @@ class TeaPartyBridge:
         except ValueError as exc:
             return web.json_response({'error': str(exc)}, status=409)
 
+        # Implicit resume (issue #403): if this message targets a session
+        # in a paused project, resume the smallest subtree containing
+        # the target before invoking the agent.
+        #
+        #   lead:{lead}:{qualifier}       → resume every top-level job
+        #                                   dispatched by that lead
+        #                                   (project-wide)
+        #   job:{slug}:{session_id}[:{d}] → resume just that job's
+        #                                   subtree
+        paused_slug = ''
+        target_root_sid = ''  # empty → resume whole project
+        if conv_id.startswith('lead:'):
+            parts = conv_id.split(':', 2)
+            if len(parts) > 1:
+                paused_slug = self._slug_for_lead(parts[1])
+        elif conv_id.startswith('job:'):
+            parts = conv_id.split(':')
+            if len(parts) >= 3:
+                paused_slug = parts[1]
+                target_root_sid = parts[2]
+        if paused_slug and paused_slug in self._paused_projects:
+            from teaparty.workspace.pause_resume import (
+                resume_project_subtree, resume_session_subtree,
+            )
+            sessions_dir = self._sessions_dir_for_project(paused_slug)
+            if sessions_dir:
+                for agent_session in self._project_owner_sessions(paused_slug):
+                    try:
+                        try:
+                            agent_session.rehydrate_paused_factories(
+                                paused_slug, sessions_dir)
+                        except Exception:
+                            _log.exception('factory rehydration failed')
+                        if target_root_sid:
+                            await resume_session_subtree(
+                                target_root_sid, sessions_dir, agent_session)
+                        else:
+                            await resume_project_subtree(
+                                paused_slug, sessions_dir, agent_session)
+                    except Exception:
+                        _log.exception(
+                            'implicit resume failed for %s', paused_slug)
+            # Only clear the project-paused flag if the entire subtree
+            # was resumed. A per-job resume leaves other jobs paused,
+            # so keep the flag set for the project.
+            if not target_root_sid:
+                self._paused_projects.discard(paused_slug)
+                project_path = self._lookup_project_path(paused_slug)
+                if project_path:
+                    self._remove_paused_marker(project_path)
+
         # Invoke the agent asynchronously; reply will appear in the bus and
         # be broadcast by MessageRelay.
         if conv_id.startswith('om:'):
@@ -1220,6 +1321,7 @@ class TeaPartyBridge:
         dispatches: bool = False,
         post_invoke_hook=None,
         build_prompt_hook=None,
+        project_slug: str = '',
     ) -> None:
         """Unified agent invocation — one codepath for all agent types.
 
@@ -1250,6 +1352,11 @@ class TeaPartyBridge:
                     post_invoke_hook=post_invoke_hook,
                     build_prompt_hook=build_prompt_hook,
                     on_dispatch=self._broadcast_dispatch,
+                    project_slug=project_slug,
+                    paused_check=(
+                        (lambda s=project_slug: s in self._paused_projects)
+                        if project_slug else None
+                    ),
                 )
             session = self._agent_sessions[session_key]
             try:
@@ -1392,6 +1499,7 @@ class TeaPartyBridge:
             teaparty_home=project_tp,
             scope='project',
             cwd=cwd,
+            project_slug=self._slug_for_lead(lead_name),
         )
 
     def _cwd_for_config_qualifier(self, qualifier: str) -> str:
@@ -1792,6 +1900,133 @@ class TeaPartyBridge:
                 team, discovered_skills=discovered_skills,
             ),
         })
+
+    # ── Project pause / resume (issue #403) ───────────────────────────────
+
+    def _sessions_dir_for_project(self, slug: str) -> str | None:
+        """Return the sessions dir where the project lead's dispatch
+        tree lives. The project lead runs with scope='project' and
+        teaparty_home={project}/.teaparty, so its dispatched children
+        are under {project}/.teaparty/project/sessions/.
+        """
+        path = self._lookup_project_path(slug)
+        if not path:
+            return None
+        return os.path.join(path, '.teaparty', 'project', 'sessions')
+
+    def _project_owner_sessions(self, slug: str) -> list:
+        """Return the AgentSessions that own the project's dispatch tree.
+
+        The duplication bug (issue #403 /chide review): iterating every
+        live AgentSession for pause/resume populates unrelated OM /
+        config-lead / proxy sessions with factories and tasks bound to
+        the wrong bus, scope, and teaparty_home. The correct owner is
+        the project-lead AgentSession whose ``project_slug`` matches.
+
+        Multiple leads can match if two humans are chatting with the
+        same project lead under different qualifiers — each has its own
+        dispatch tree; pause/resume applies to all of them.
+        """
+        return [
+            s for s in self._agent_sessions.values()
+            if getattr(s, 'project_slug', '') == slug
+        ]
+
+    async def _handle_project_pause(self, request: web.Request) -> web.Response:
+        """POST /api/projects/{slug}/pause — stop every running claude
+        process for the project and set the per-project paused flag.
+        """
+        from teaparty.workspace.pause_resume import pause_project_subtree
+        slug = request.match_info['slug']
+        if not self._lookup_project_path(slug):
+            return web.json_response(
+                {'error': f'project not found: {slug}'}, status=404)
+        sessions_dir = self._sessions_dir_for_project(slug)
+        if sessions_dir is None:
+            return web.json_response({'error': 'no sessions dir'}, status=500)
+
+        owners = self._project_owner_sessions(slug)
+        if not owners:
+            return web.json_response(
+                {'error': f'no active project-lead session for {slug}; '
+                          f'open the lead chat first'},
+                status=409)
+        all_paused: list[str] = []
+        for agent_session in owners:
+            try:
+                paused = await pause_project_subtree(
+                    slug, sessions_dir, agent_session)
+                all_paused.extend(paused)
+            except Exception:
+                _log.exception('pause failed for agent_session')
+        self._paused_projects.add(slug)
+        project_path = self._lookup_project_path(slug)
+        if project_path:
+            self._write_paused_marker(project_path)
+        payload = json.dumps({
+            'type': 'project_paused',
+            'project': slug,
+            'session_ids': sorted(set(all_paused)),
+        })
+        for ws in list(self._ws_clients):
+            try:
+                await ws.send_str(payload)
+            except Exception:
+                pass
+        return web.json_response(
+            {'ok': True, 'paused': sorted(set(all_paused))})
+
+    async def _handle_project_resume(self, request: web.Request) -> web.Response:
+        """POST /api/projects/{slug}/resume — rebuild the task chain
+        per persisted phase and clear the paused flag.
+        """
+        from teaparty.workspace.pause_resume import resume_project_subtree
+        slug = request.match_info['slug']
+        if not self._lookup_project_path(slug):
+            return web.json_response(
+                {'error': f'project not found: {slug}'}, status=404)
+        sessions_dir = self._sessions_dir_for_project(slug)
+        if sessions_dir is None:
+            return web.json_response({'error': 'no sessions dir'}, status=500)
+
+        owners = self._project_owner_sessions(slug)
+        if not owners:
+            return web.json_response(
+                {'error': f'no active project-lead session for {slug}; '
+                          f'open the lead chat first'},
+                status=409)
+        all_resumed: list[str] = []
+        for agent_session in owners:
+            try:
+                # Cross-restart: rebuild factories from disk before the
+                # walker consults them. Idempotent — factories from a
+                # live pause simply get replaced with equivalent ones.
+                try:
+                    agent_session.rehydrate_paused_factories(
+                        slug, sessions_dir)
+                except Exception:
+                    _log.exception('factory rehydration failed')
+                resumed = await resume_project_subtree(
+                    slug, sessions_dir, agent_session)
+                all_resumed.extend(resumed)
+            except Exception:
+                _log.exception('resume failed for agent_session')
+        self._paused_projects.discard(slug)
+        project_path = self._lookup_project_path(slug)
+        if project_path:
+            self._remove_paused_marker(project_path)
+        payload = json.dumps({
+            'type': 'project_resumed',
+            'project': slug,
+            'session_ids': sorted(set(all_resumed)),
+        })
+        for ws in list(self._ws_clients):
+            try:
+                await ws.send_str(payload)
+            except Exception:
+                pass
+        return web.json_response(
+            {'ok': True, 'resumed': sorted(set(all_resumed))})
 
     # ── Action handlers ───────────────────────────────────────────────────────
 
@@ -2196,6 +2431,22 @@ class TeaPartyBridge:
             except Exception:
                 pass
         return None
+
+    def _slug_for_lead(self, lead_name: str) -> str:
+        """Return the project slug whose lead is ``lead_name``, or ''.
+
+        Used by pause/resume wiring so a project-lead AgentSession can
+        refuse new dispatches while its project is paused (issue #403).
+        """
+        from teaparty.config.roster import resolve_lead_project_path
+        try:
+            project_path = resolve_lead_project_path(
+                lead_name, self.teaparty_home)
+        except Exception:
+            return ''
+        if not project_path:
+            return ''
+        return os.path.basename(project_path.rstrip('/'))
 
     def _lookup_project_path(self, slug: str) -> str | None:
         """Return the project directory for a given slug, or None if not found.
