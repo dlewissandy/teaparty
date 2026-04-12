@@ -434,6 +434,68 @@ class TestLinearDispatchScripted(unittest.TestCase):
         self.assertEqual(len(session._dispatch_session.conversation_map), 0)
 
 
+class TestTasksByChildRetention(unittest.TestCase):
+    """Regression for the linear-chain race: in real claude a
+    grandchild subprocess often finishes WHILE its parent's first
+    _launch is still in flight (they run concurrently on the event
+    loop). The parent's _run_child loop then checks _tasks_by_child
+    for the grandchild's task to await it — if the dict entry was
+    eagerly popped by the task's done_callback, the loop finds
+    nothing, breaks, and finalizes the parent with stale first-turn
+    text. OM ends up resumed with 'I'll forward…' instead of the
+    actual child reply.
+
+    Invariant: tasks must stay in _tasks_by_child after completion
+    so a lagging parent loop can still find them. Cleanup happens
+    on close_fn / /clear / _cancel_background_tasks, not on done.
+    """
+
+    def test_completed_task_stays_in_tasks_by_child(self):
+        scripts = {
+            'coordinator': _stateful_coordinator_script(
+                expected_replies={'hello'},
+                dispatch_events=[
+                    tool_use_event('mcp__teaparty-config__Send',
+                                   {'member': 'leaf-agent', 'message': 'say hello'}),
+                    text_event('Dispatched.'),
+                    cost_event(),
+                ]),
+            'leaf-agent': {
+                'say hello': [text_event('hello'), cost_event()],
+            },
+        }
+        session = _make_coordinator('retention-scripted',
+                                    make_scripted_caller(scripts))
+
+        async def run():
+            _send_human(session, 'start')
+            await session.invoke(cwd=_module_env[1])
+            return await _wait_for_result(session, timeout=10)
+
+        result = _run(run(), timeout=30)
+        self.assertIsNotNone(result)
+
+        # Child finished. Its conversation_map entry is still present
+        # (slot not yet freed — the ticket says slots persist until
+        # explicit CloseConversation). The in-flight task reference
+        # must ALSO still be present in _tasks_by_child, otherwise a
+        # lagging grandparent loop that tries to collect the task's
+        # result on the next yield will find nothing and break.
+        child_ids = list(session._dispatch_session.conversation_map.values())
+        self.assertEqual(len(child_ids), 1)
+        csid = child_ids[0]
+        self.assertIn(
+            csid, session._tasks_by_child,
+            'Completed grandchild task was removed from _tasks_by_child '
+            '— a lagging parent _run_child loop awaiting this task '
+            'will break and finalize with stale first-turn text. '
+            'Tasks must stay in the dict until close_fn / /clear.')
+        self.assertTrue(session._tasks_by_child[csid].done(),
+                        'task should be in the dict AND be done')
+
+        _close_all(session)
+
+
 class TestRateLimitScripted(unittest.TestCase):
     """Coordinator tries to dispatch 4 children — 4th is denied by the
     slot limit (3). After closing one, a retry succeeds."""
