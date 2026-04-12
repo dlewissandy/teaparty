@@ -17,6 +17,7 @@
     background: var(--surface); border: 1px solid var(--border); border-radius: 5px;
     padding: 10px 14px; cursor: pointer; transition: border-color 0.15s;
     display: flex; align-items: center; gap: 8px; min-width: 140px;
+    color: inherit; text-decoration: none;
   }
   .org-card:hover { border-color: var(--green); }
   .org-card .oc-icon { font-size: 14px; }
@@ -30,7 +31,8 @@
   }
   .pc-header {
     padding: 10px 14px; display: flex; justify-content: space-between; align-items: center;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--border); cursor: pointer;
+    color: inherit; text-decoration: none;
   }
   .pc-name { font-size: 13px; font-weight: 600; }
   .pc-status { }
@@ -71,7 +73,7 @@
   }
   .attention-dot {
     width: 6px; height: 6px; border-radius: 50%; background: var(--red);
-    animation: pulse 1.5s infinite;
+    animation: pulse 1.5s infinite; display: inline-block;
   }
 
   /* Accordion sections in the blade */
@@ -104,8 +106,6 @@
 </div>
 
 <script>
-function openPage(url) { window.open(url, '_blank'); }
-
 function createJob(projectSlug) {
   var task = prompt('Describe the job:');
   if (!task) return;
@@ -542,15 +542,15 @@ function render() {
 
   // Org row
   var orgHtml = '<div class="org-row">';
-  orgHtml += '<div class="org-card" onclick="openPage(\'config.html\')">';
+  orgHtml += '<a class="org-card" href="config.html">';
   orgHtml += '<span class="oc-icon">&#9881;</span>';
   orgHtml += '<div><div class="oc-label">Management Team</div><div class="oc-meta">Organization catalog</div></div>';
-  orgHtml += '</div>';
+  orgHtml += '</a>';
 
-  orgHtml += '<div class="org-card" onclick="openPage(\'stats.html\')">';
+  orgHtml += '<a class="org-card" href="stats.html">';
   orgHtml += '<span class="oc-icon">&#9733;</span>';
   orgHtml += '<div><div class="oc-label">Statistics</div><div class="oc-meta">Org-wide metrics</div></div>';
-  orgHtml += '</div>';
+  orgHtml += '</a>';
 
   if (totalEsc > 0) {
     orgHtml += '<div class="org-card" style="border-color:var(--red)">';
@@ -575,10 +575,10 @@ function render() {
     projectsHtml += '<div class="project-card">';
 
     // Header — click navigates to project config
-    projectsHtml += '<div class="pc-header" style="cursor:pointer" onclick="openPage(\'config.html?project=' + p.slug + '\')">';
+    projectsHtml += '<a class="pc-header" href="config.html?project=' + encodeURIComponent(p.slug) + '">';
     projectsHtml += '<div class="pc-name">' + p.slug + '</div>';
     projectsHtml += '<span class="item-badge badge-' + status + '">' + status.toUpperCase() + '</span>';
-    projectsHtml += '</div>';
+    projectsHtml += '</a>';
 
     // Description (only shown when config provides one)
     if (description) {
@@ -604,7 +604,7 @@ function render() {
         var convId = 'job:' + p.slug + ':' + s.session_id;
         var pIdx = phaseIndex(s.cfa_phase, s.cfa_state);
         var jobName = s.task || s.session_id;
-        projectsHtml += '<div class="pc-esc-item" style="padding:5px 14px;gap:6px" data-session="' + s.session_id + '" onclick="openPage(\'chat.html?conv=' + convId + '\')">';
+        projectsHtml += '<div class="pc-esc-item" style="padding:5px 14px;gap:6px" data-session="' + s.session_id + '">';
         // Show badge from escalationConvMap (sticky) OR REST needs_input (initial load).
         var stickyConvId = pageState.escalationConvMap[s.session_id];
         if (s.needs_input || stickyConvId) {
@@ -615,14 +615,16 @@ function render() {
           var escUrl = (escParts[0] === 'task' && escParts.length === 4)
             ? ('chat.html?conv=job:' + escParts[1] + ':' + escParts[2] + '&task=' + escParts[3])
             : ('chat.html?conv=' + convId);
-          projectsHtml += '<span class="attention-dot" onclick="event.stopPropagation();openPage(\'' + escUrl + '\')"></span>';
+          projectsHtml += '<a class="attention-dot" href="' + escUrl + '"></a>';
         } else {
-          projectsHtml += '<span style="width:6px"></span>';
+          projectsHtml += '<a style="width:6px;display:inline-block"></a>';
         }
+        projectsHtml += '<a href="chat.html?conv=' + convId + '" style="flex:1;display:flex;align-items:center;gap:6px;color:inherit;text-decoration:none;min-width:0">';
         projectsHtml += '<span style="flex-shrink:0;width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;color:var(--text)">' + jobName + '</span>';
         projectsHtml += '<span style="flex:1">' + renderWorkflow(pIdx, false, s.needs_input || !!stickyConvId) + '</span>';
         var liveness = s.heartbeat_status === 'alive' ? 'active' : 'idle';
         projectsHtml += '<span class="item-badge badge-' + liveness + '" style="flex-shrink:0">' + liveness + '</span>';
+        projectsHtml += '</a>';
         projectsHtml += '</div>';
       });
       projectsHtml += '</div>';
@@ -779,8 +781,8 @@ function onInputRequested(sessionId, convId) {
       dotSlot.className = 'attention-dot';
     }
     if (dotSlot) {
-      var url = dotUrl;
-      dotSlot.onclick = function(e) { e.stopPropagation(); openPage(url); };
+      dotSlot.setAttribute('href', dotUrl);
+      dotSlot.style.width = '';
     }
   }
   // Keep page state in sync so re-renders preserve the escalation dot
@@ -807,7 +809,7 @@ function onEscalationCleared(sessionId) {
     if (dotSlot && dotSlot.classList.contains('attention-dot')) {
       dotSlot.className = '';
       dotSlot.style.width = '6px';
-      dotSlot.onclick = null;
+      dotSlot.removeAttribute('href');
     }
   }
   pageState.projects.forEach(function(p) {

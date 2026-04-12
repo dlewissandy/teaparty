@@ -5,6 +5,9 @@ function breadcrumbBar(parts) {
   if (!parts || parts.length === 0) return '';
   return '<div class="breadcrumb-bar">' + parts.map(function(p, i) {
     var sep = i > 0 ? ' <span class="sep">/</span> ' : '';
+    if (p.href) {
+      return sep + '<a href="' + p.href + '">' + p.label + '</a>';
+    }
     if (p.onClick) {
       return sep + '<a onclick="' + p.onClick + '" style="cursor:pointer">' + p.label + '</a>';
     }
