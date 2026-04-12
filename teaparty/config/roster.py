@@ -134,6 +134,31 @@ def resolve_lead_project_path(
     return None
 
 
+def resolve_launch_cwd(
+    member: str,
+    teaparty_home: str,
+    *,
+    fallback: str = '',
+) -> str:
+    """Return the absolute repo directory a chat-tier agent should launch in.
+
+    Project leads launch in their own project's repo (derived from
+    teaparty.yaml). Management agents, management leads, and workgroup
+    agents dispatched under a project inherit the *fallback* (typically
+    the dispatcher's launch_cwd). When no fallback is given the teaparty
+    repo root is used.
+    """
+    try:
+        project_path = resolve_lead_project_path(member, teaparty_home)
+    except FileNotFoundError:
+        project_path = None
+    if project_path:
+        return project_path
+    if fallback:
+        return fallback
+    return os.path.dirname(os.path.abspath(teaparty_home))
+
+
 def derive_project_roster(
     project_dir: str,
     teaparty_home: str,
