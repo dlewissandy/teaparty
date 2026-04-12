@@ -94,3 +94,11 @@ refinement/
 /triage/
 # Worktrees
 .worktrees/
+# Per-launch infrastructure — not agent work product
+.mcp.json
+.claude/
+stream.jsonl
+# Per-launch infrastructure — not agent work product
+.mcp.json
+.claude/
+stream.jsonl

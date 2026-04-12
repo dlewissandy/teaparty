@@ -1,1 +1,0 @@
-../../.teaparty/management/agents/comics-lead/agent.md

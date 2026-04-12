@@ -1,1 +1,0 @@
-../../.teaparty/management/agents/office-manager/agent.md

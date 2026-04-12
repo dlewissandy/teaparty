@@ -1,1 +1,0 @@
-../../.teaparty/management/agents/workgroup-specialist/agent.md

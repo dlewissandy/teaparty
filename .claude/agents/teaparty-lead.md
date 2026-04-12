@@ -1,1 +1,0 @@
-../../.teaparty/management/agents/teaparty-lead/agent.md

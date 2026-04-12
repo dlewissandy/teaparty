@@ -1,1 +1,0 @@
-../../.teaparty/management/agents/proxy-review/agent.md

@@ -1,1 +1,0 @@
-../../.teaparty/management/agents/researcher/agent.md

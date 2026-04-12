@@ -1,1 +1,0 @@
-../../.teaparty/management/agents/auditor/agent.md

@@ -1,1 +1,0 @@
-../../.teaparty/management/agents/skills-specialist/agent.md
