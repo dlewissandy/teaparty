@@ -146,13 +146,34 @@ def setUpModule():
 
 def tearDownModule():
     global _module_env, _module_loop, _module_runner
-    if _module_runner:
-        _module_loop.run_until_complete(_module_runner.cleanup())
-    if _module_loop:
-        pending = asyncio.all_tasks(_module_loop)
+
+    async def _shutdown():
+        # Cancel all pending tasks (StatePoller, MessageRelay, background
+        # _run_child tasks that haven't completed)
+        pending = [t for t in asyncio.all_tasks(_module_loop)
+                   if t is not asyncio.current_task()]
+        for t in pending:
+            t.cancel()
+        # Wait for cancellation with timeout
         if pending:
-            _module_loop.run_until_complete(
-                asyncio.gather(*pending, return_exceptions=True))
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*pending, return_exceptions=True),
+                    timeout=5.0)
+            except asyncio.TimeoutError:
+                pass
+        # Now cleanup the bridge runner
+        if _module_runner:
+            try:
+                await asyncio.wait_for(_module_runner.cleanup(), timeout=5.0)
+            except asyncio.TimeoutError:
+                pass
+
+    if _module_loop:
+        try:
+            _module_loop.run_until_complete(_shutdown())
+        except Exception:
+            pass
         _module_loop.close()
     if _module_env:
         shutil.rmtree(_module_env[1], ignore_errors=True)
