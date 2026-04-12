@@ -389,19 +389,30 @@ class TestLinearDispatchScripted(unittest.TestCase):
         self.assertIn('done', result)
 
         # Reload invariant: rebuilding the dispatch tree from disk
-        # must NOT show completed children. Before this fix, reloading
-        # the UI after a dispatch completed brought the child blades
-        # back with all their content — even though the live session
-        # had removed them client-side via dispatch_completed events.
+        # MUST still show completed children, because they aren't
+        # closed. Slots are only freed by explicit CloseConversation
+        # (ticket #396). Natural completion leaves the conversation
+        # open — the parent owns its lifecycle and decides when to
+        # close it. The accordion should therefore show the nested
+        # blades with a 'completed' status until the caller cleans up.
         from teaparty.bridge.state.dispatch_tree import build_dispatch_tree
         sessions_dir = os.path.join(
             _module_env[0], 'management', 'sessions')
         tree = build_dispatch_tree(
             sessions_dir, session._dispatch_session.id)
+        children = tree.get('children', [])
         self.assertEqual(
-            tree.get('children', []), [],
-            'dispatch tree must be empty after all children complete; '
-            'reload would otherwise show stale blades. tree=%r' % tree)
+            len(children), 1,
+            'mid-agent is completed but NOT closed — must still be in '
+            'the dispatch tree until the caller explicitly closes it. '
+            'tree=%r' % tree)
+        self.assertEqual(children[0]['agent_name'], 'mid-agent')
+        self.assertEqual(
+            len(children[0].get('children', [])), 1,
+            'leaf-agent is also completed-but-not-closed and must '
+            'stay nested under mid-agent in the tree.')
+        self.assertEqual(
+            children[0]['children'][0]['agent_name'], 'leaf-agent')
 
         # Regression: coordinator must be resumed EXACTLY ONCE — with
         # mid's final 'done'. Before the subtree-loop fix, mid's first

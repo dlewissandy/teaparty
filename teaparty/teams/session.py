@@ -383,95 +383,80 @@ class AgentSession:
                 mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
                 current_claude_session = ''
                 current_message = composite
-                completed_normally = False
-                try:
-                    while True:
-                        # Snapshot which children this session already
-                        # has before the turn — anything new after the
-                        # launch was spawned *during* this turn.
-                        before_ids = set(
-                            child_session.conversation_map.values())
-                        response_parts.clear()
+                while True:
+                    # Snapshot which children this session already
+                    # has before the turn — anything new after the
+                    # launch was spawned *during* this turn.
+                    before_ids = set(
+                        child_session.conversation_map.values())
+                    response_parts.clear()
 
-                        launch_kwargs = dict(
-                            agent_name=member, message=current_message,
-                            scope=self.scope, teaparty_home=self.teaparty_home,
-                            worktree=worktree_path, mcp_port=mcp_port,
-                            session_id=child_session.id,
-                            on_stream_event=on_event,
-                        )
-                        if current_claude_session:
-                            launch_kwargs['resume_session'] = current_claude_session
-                        if self._llm_caller is not None:
-                            launch_kwargs['llm_caller'] = self._llm_caller
+                    launch_kwargs = dict(
+                        agent_name=member, message=current_message,
+                        scope=self.scope, teaparty_home=self.teaparty_home,
+                        worktree=worktree_path, mcp_port=mcp_port,
+                        session_id=child_session.id,
+                        on_stream_event=on_event,
+                    )
+                    if current_claude_session:
+                        launch_kwargs['resume_session'] = current_claude_session
+                    if self._llm_caller is not None:
+                        launch_kwargs['llm_caller'] = self._llm_caller
 
-                        try:
-                            result = await _launch(**launch_kwargs)
-                            if result.session_id:
-                                child_session.claude_session_id = result.session_id
-                                current_claude_session = result.session_id
-                                _save_meta(child_session)
-                        except Exception:
-                            _log.exception('Child %s failed', member)
-                            break
+                    try:
+                        result = await _launch(**launch_kwargs)
+                        if result.session_id:
+                            child_session.claude_session_id = result.session_id
+                            current_claude_session = result.session_id
+                            _save_meta(child_session)
+                    except Exception:
+                        _log.exception('Child %s failed', member)
+                        break
 
-                        after_ids = set(
-                            child_session.conversation_map.values())
-                        new_gc_ids = after_ids - before_ids
-                        if not new_gc_ids:
-                            # Child's turn produced no new dispatches —
-                            # response_parts now holds its final answer.
-                            break
+                    after_ids = set(
+                        child_session.conversation_map.values())
+                    new_gc_ids = after_ids - before_ids
+                    if not new_gc_ids:
+                        # Child's turn produced no new dispatches —
+                        # response_parts now holds its final answer.
+                        break
 
-                        # Wait for the grandchildren spawned this turn
-                        # to resolve. Each grandchild's _run_child
-                        # returns its own final integrated reply text.
-                        gc_tasks = [
-                            self._tasks_by_child[g] for g in new_gc_ids
-                            if g in self._tasks_by_child
-                        ]
-                        if not gc_tasks:
-                            break
-                        gc_results = await _asyncio.gather(
-                            *gc_tasks, return_exceptions=True)
-                        gc_replies: list[str] = []
-                        for gid, r in zip(new_gc_ids, gc_results):
-                            if isinstance(r, str) and r:
-                                gc_replies.append(
-                                    f'[dispatch:{gid}] {r}')
-                            elif isinstance(r, Exception) and not isinstance(
-                                    r, _asyncio.CancelledError):
-                                _log.warning(
-                                    'Grandchild %s raised: %s', gid, r)
-                        if not gc_replies:
-                            break
-                        current_message = '\n'.join(gc_replies)
-                        # Loop: re-launch child with --resume and the
-                        # grandchildren's replies, so the child can
-                        # integrate them before answering.
-                    completed_normally = True
-                finally:
-                    # Mark the session as completed in metadata so the
-                    # dispatch tree filters it out on the next page
-                    # reload. Only do this on normal exit — cancellation
-                    # (CloseConversation teardown) will rmtree the dir.
-                    if completed_normally:
-                        try:
-                            from teaparty.runners.launcher import (
-                                mark_session_completed as _mark_done,
-                            )
-                            _mark_done(child_session)
-                        except Exception:
-                            _log.debug(
-                                'Failed to mark %s completed', member,
-                                exc_info=True)
-                    if self._on_dispatch:
-                        self._on_dispatch({
-                            'type': 'dispatch_completed',
-                            'parent_session_id': dispatcher_session.id,
-                            'child_session_id': child_session.id,
-                            'agent_name': member,
-                        })
+                    # Wait for the grandchildren spawned this turn
+                    # to resolve. Each grandchild's _run_child
+                    # returns its own final integrated reply text.
+                    gc_tasks = [
+                        self._tasks_by_child[g] for g in new_gc_ids
+                        if g in self._tasks_by_child
+                    ]
+                    if not gc_tasks:
+                        break
+                    gc_results = await _asyncio.gather(
+                        *gc_tasks, return_exceptions=True)
+                    gc_replies: list[str] = []
+                    for gid, r in zip(new_gc_ids, gc_results):
+                        if isinstance(r, str) and r:
+                            gc_replies.append(
+                                f'[dispatch:{gid}] {r}')
+                        elif isinstance(r, Exception) and not isinstance(
+                                r, _asyncio.CancelledError):
+                            _log.warning(
+                                'Grandchild %s raised: %s', gid, r)
+                    if not gc_replies:
+                        break
+                    current_message = '\n'.join(gc_replies)
+                    # Loop: re-launch child with --resume and the
+                    # grandchildren's replies, so the child can
+                    # integrate them before answering.
+
+                # NOTE: no dispatch_completed event here. Natural
+                # completion is NOT a conversation-lifecycle signal —
+                # the conversation stays open (slot occupied, session
+                # dir intact) until the caller explicitly invokes
+                # CloseConversation, at which point close_fn fires
+                # dispatch_completed per removed descendant. The UI
+                # accordion handler treats dispatch_completed as "gone
+                # from the tree", so firing it on natural completion
+                # would prematurely remove idle-but-still-open blades.
 
                 _log.info('%s spawn_fn: %s completed in %.2fs',
                           self.agent_name, member, _time.monotonic() - t0)
