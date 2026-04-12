@@ -1988,6 +1988,7 @@ class Orchestrator:
             from teaparty.telemetry import events as _telem_events
             _scope = self.project_slug or 'management'
             old_phase = phase_for_state(old_state)
+            self._phase_entry_ts = time.time()
             record_event(
                 _telem_events.PHASE_CHANGED,
                 scope=_scope,
@@ -2008,6 +2009,22 @@ class Orchestrator:
             if self.cfa.backtrack_count > (
                 getattr(self, '_last_backtrack_count', 0)
             ):
+                # Estimate cost being discarded by summing turn_complete
+                # costs for this session recorded since the backtracked
+                # phase was entered. Falls back to 0 if unavailable.
+                _discarded = 0.0
+                try:
+                    from teaparty.telemetry import query as _tq
+                    _discarded = _tq.total_cost(
+                        scope=_scope,
+                        time_range=(
+                            getattr(self, '_phase_entry_ts', 0.0),
+                            time.time(),
+                        ),
+                    )
+                except Exception:
+                    pass
+
                 record_event(
                     _telem_events.PHASE_BACKTRACK,
                     scope=_scope,
@@ -2017,6 +2034,7 @@ class Orchestrator:
                         'triggering_gate': old_state,
                         'action':          action,
                         'backtrack_count': self.cfa.backtrack_count,
+                        'cost_of_work_being_discarded': _discarded,
                     },
                 )
                 self._last_backtrack_count = self.cfa.backtrack_count

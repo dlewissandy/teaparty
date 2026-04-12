@@ -26,15 +26,25 @@ _log = logging.getLogger('teaparty.telemetry.migration')
 
 def _iter_old_metrics_dbs(teaparty_home: str) -> Iterator[tuple[str, str]]:
     """Yield ``(scope, db_path)`` for every un-migrated ``metrics.db``
-    found under ``teaparty_home``. Scope is the parent directory name."""
+    found under ``teaparty_home``.
+
+    Legacy layout is ``{teaparty_home}/{scope}/metrics.db`` — exactly
+    one level deep. Scope is the child directory name. We scan only
+    direct children to avoid mis-migrating nested SQLite files in
+    session infra dirs, worktrees, or job subtrees.
+    """
     if not os.path.isdir(teaparty_home):
         return
-    for root, dirs, files in os.walk(teaparty_home):
-        # Do not descend into the telemetry DB itself or any .migrated files.
-        if 'metrics.db' in files:
-            db_path = os.path.join(root, 'metrics.db')
-            scope = os.path.basename(root) or 'management'
-            yield scope, db_path
+    try:
+        entries = os.scandir(teaparty_home)
+    except OSError:
+        return
+    for entry in entries:
+        if not entry.is_dir(follow_symlinks=False):
+            continue
+        db_path = os.path.join(entry.path, 'metrics.db')
+        if os.path.isfile(db_path):
+            yield entry.name or 'management', db_path
 
 
 def migrate_metrics_db(teaparty_home: str) -> int:

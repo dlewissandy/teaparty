@@ -519,7 +519,7 @@ async def launch(
         env_vars=env_vars or {},
     )
 
-    # Emit turn_complete — replaces the old per-scope metrics.db write.
+    # Emit turn_complete with per-turn cost, tokens, and duration.
     record_event(
         _telem_events.TURN_COMPLETE,
         scope=scope,

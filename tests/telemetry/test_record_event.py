@@ -127,6 +127,20 @@ class RecordEventTests(unittest.TestCase):
             'record_event must return None when the INSERT fails',
         )
 
+    # ── WAL mode ──────────────────────────────────────────────────────────
+    def test_telemetry_db_uses_wal_journal_mode(self) -> None:
+        telemetry.record_event(E.TURN_START, scope='management')
+        db = os.path.join(self.home, 'telemetry.db')
+        conn = sqlite3.connect(db)
+        try:
+            mode = conn.execute('PRAGMA journal_mode').fetchone()[0]
+            self.assertEqual(
+                mode.lower(), 'wal',
+                f'telemetry.db must use WAL journal mode, got {mode}',
+            )
+        finally:
+            conn.close()
+
     # ── Idempotent schema application ────────────────────────────────────
     def test_apply_schema_is_idempotent(self) -> None:
         db = os.path.join(self.home, 'telemetry.db')
@@ -179,14 +193,14 @@ class RecordEventTests(unittest.TestCase):
         """When the broadcaster is async, record_event must schedule it
         on the event loop set via set_broadcaster."""
         received: list[dict] = []
-        done = threading.Event()
+        done_event = asyncio.Event()
 
         async def main() -> None:
             loop = asyncio.get_running_loop()
 
             async def async_broadcaster(payload: dict) -> None:
                 received.append(payload)
-                done.set()
+                done_event.set()
 
             telemetry.set_broadcaster(async_broadcaster, loop)
 
@@ -198,13 +212,14 @@ class RecordEventTests(unittest.TestCase):
             t = threading.Thread(target=worker)
             t.start()
             t.join()
-            # Allow scheduled coroutine to run.
-            await asyncio.sleep(0.05)
+            # The coroutine is scheduled on this loop — yield so it runs.
+            # Use asyncio.wait_for with a generous timeout for determinism.
+            try:
+                await asyncio.wait_for(done_event.wait(), timeout=5.0)
+            except asyncio.TimeoutError:
+                self.fail('async broadcaster was never scheduled')
 
         asyncio.run(main())
-        self.assertTrue(
-            done.is_set(), 'async broadcaster was never scheduled',
-        )
         self.assertEqual(len(received), 1)
         self.assertEqual(received[0]['event_type'], E.TURN_START)
 

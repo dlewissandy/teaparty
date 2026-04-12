@@ -79,6 +79,7 @@ class EscalationListener:
         self.team = team
         self.socket_path = ''
         self._server: asyncio.AbstractServer | None = None
+        self._last_escalation_source: str = ''
 
     async def start(self) -> str:
         """Start listening.  Returns the socket path."""
@@ -122,8 +123,41 @@ class EscalationListener:
             if not question:
                 response = {'answer': ''}
             else:
+                # Telemetry: escalation_requested (Issue #405)
+                try:
+                    from teaparty.telemetry import record_event
+                    from teaparty.telemetry import events as _telem_events
+                    record_event(
+                        _telem_events.ESCALATION_REQUESTED,
+                        scope=self.project_slug or 'management',
+                        session_id=self.session_id,
+                        data={
+                            'source': 'ask_question_tool',
+                            'question_len': len(question),
+                            'initiating_session_id': self.session_id,
+                        },
+                    )
+                except Exception:
+                    pass
+
                 answer = await self._route_through_proxy(question, context)
                 response = {'answer': answer}
+
+                # Telemetry: escalation_resolved (Issue #405)
+                try:
+                    from teaparty.telemetry import record_event
+                    from teaparty.telemetry import events as _telem_events
+                    record_event(
+                        _telem_events.ESCALATION_RESOLVED,
+                        scope=self.project_slug or 'management',
+                        session_id=self.session_id,
+                        data={
+                            'final_answer_source': self._last_escalation_source,
+                            'total_latency_ms': 0,
+                        },
+                    )
+                except Exception:
+                    pass
 
             writer.write(json.dumps(response).encode() + b'\n')
             await writer.drain()
@@ -187,13 +221,64 @@ class EscalationListener:
             session_id=self.session_id,
         ))
 
+        # Telemetry: proxy_considered (Issue #405)
+        try:
+            from teaparty.telemetry import record_event
+            from teaparty.telemetry import events as _telem_events
+            record_event(
+                _telem_events.PROXY_CONSIDERED,
+                scope=self.project_slug or 'management',
+                session_id=self.session_id,
+                data={'proxy_name': 'proxy-review', 'wait_ms': 0},
+            )
+        except Exception:
+            pass
+
         # Confident → return proxy answer directly
         if confident and prediction:
             _log.info('Proxy answered question confidently: %s', question[:80])
+            self._last_escalation_source = 'proxy'
+            # Telemetry: proxy_answered (Issue #405)
+            try:
+                record_event(
+                    _telem_events.PROXY_ANSWERED,
+                    scope=self.project_slug or 'management',
+                    session_id=self.session_id,
+                    data={
+                        'proxy_name': 'proxy-review',
+                        'response_len': len(prediction),
+                    },
+                )
+            except Exception:
+                pass
             return prediction
 
         # Not confident → ask human
+        # Telemetry: proxy_escalated_to_human (Issue #405)
+        try:
+            record_event(
+                _telem_events.PROXY_ESCALATED_TO_HUMAN,
+                scope=self.project_slug or 'management',
+                session_id=self.session_id,
+                data={
+                    'proxy_name': 'proxy-review',
+                    'reason_for_escalation': 'not_confident',
+                },
+            )
+        except Exception:
+            pass
         human_answer = await self._ask_human(question)
+        self._last_escalation_source = 'human'
+        # Telemetry: human_answered (Issue #405)
+        try:
+            record_event(
+                _telem_events.HUMAN_ANSWERED,
+                scope=self.project_slug or 'management',
+                session_id=self.session_id,
+                data={'response_len': len(human_answer)},
+            )
+        except Exception:
+            pass
 
         # Record the differential for learning
         if self.proxy_model_path:

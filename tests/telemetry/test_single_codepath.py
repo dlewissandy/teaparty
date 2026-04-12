@@ -82,8 +82,13 @@ class SingleCodepathTests(unittest.TestCase):
         )
 
     def test_no_metrics_db_path_references_outside_telemetry(self) -> None:
-        # Only telemetry/migration.py may mention the legacy filename.
-        offenders = self._offenders(re.compile(r"['\"]metrics\.db['\"]"))
+        # Any mention of metrics.db (quoted, f-string, constant, comment)
+        # outside teaparty/telemetry/ is a violation. The negative
+        # lookahead excludes .migrated (referenced in docs/tests for the
+        # post-migration filename).
+        offenders = self._offenders(
+            re.compile(r'metrics\.db(?!\.migrated)'),
+        )
         self.assertEqual(
             offenders, [],
             'References to legacy metrics.db must live only under '

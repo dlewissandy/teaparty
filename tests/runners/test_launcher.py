@@ -533,30 +533,47 @@ class TestTelemetry(_TempDirMixin, unittest.TestCase):
         telemetry.reset_for_tests()
         super().tearDown()
 
-    def test_turn_complete_event_records_cost_tokens_duration(self):
+    def test_launch_emits_turn_start_and_turn_complete(self):
+        """launch() must emit TURN_START before the subprocess and
+        TURN_COMPLETE after it returns — through the real launch() path,
+        not through record_event called directly."""
+        import asyncio
         from teaparty import telemetry
         from teaparty.telemetry import events as E
-        from teaparty.telemetry.record import record_event
+        from teaparty.runners.launcher import launch
+        from teaparty.runners.claude import ClaudeResult
 
-        record_event(
-            E.TURN_COMPLETE,
-            scope='management',
-            agent_name='test-agent',
-            session_id='sess-abc',
-            data={
-                'cost_usd':      0.05,
-                'input_tokens':  1000,
-                'output_tokens': 500,
-                'duration_ms':   3000,
-                'exit_code':     0,
-            },
-        )
+        wt = os.path.join(self._tmpdir, 'wt')
+        os.makedirs(os.path.join(wt, '.claude'), exist_ok=True)
+        with open(os.path.join(wt, '.claude', 'CLAUDE.md'), 'w') as f:
+            f.write('# stub\n')
 
-        rows = telemetry.query_events(
-            event_type=E.TURN_COMPLETE, session='sess-abc',
+        async def stub_caller(**kwargs):
+            return ClaudeResult(
+                exit_code=0, cost_usd=0.05,
+                input_tokens=1000, output_tokens=500, duration_ms=3000,
+            )
+
+        async def run():
+            return await launch(
+                agent_name='test-agent', message='hello',
+                scope='management', teaparty_home=self._tp,
+                worktree=wt, llm_caller=stub_caller,
+            )
+
+        asyncio.run(run())
+
+        starts = telemetry.query_events(event_type=E.TURN_START)
+        completes = telemetry.query_events(event_type=E.TURN_COMPLETE)
+        self.assertEqual(
+            len(starts), 1,
+            'launch() must emit exactly one TURN_START',
         )
-        self.assertEqual(len(rows), 1)
-        ev = rows[0]
+        self.assertEqual(
+            len(completes), 1,
+            'launch() must emit exactly one TURN_COMPLETE',
+        )
+        ev = completes[0]
         self.assertEqual(ev.agent_name, 'test-agent')
         self.assertEqual(ev.scope, 'management')
         self.assertAlmostEqual(ev.data['cost_usd'], 0.05)
@@ -564,31 +581,14 @@ class TestTelemetry(_TempDirMixin, unittest.TestCase):
         self.assertEqual(ev.data['output_tokens'], 500)
         self.assertEqual(ev.data['duration_ms'], 3000)
 
-    def test_turn_events_accumulate_in_single_telemetry_db(self):
-        from teaparty import telemetry
-        from teaparty.telemetry import events as E
-        from teaparty.telemetry.record import record_event
-
-        for i in range(3):
-            record_event(
-                E.TURN_COMPLETE,
-                scope='management',
-                agent_name='test-agent',
-                session_id=f'sess-{i}',
-                data={'cost_usd': 0.01 * (i + 1)},
-            )
-
-        self.assertEqual(telemetry.turn_count(), 3)
-        self.assertAlmostEqual(telemetry.total_cost(), 0.06)
-
-        # Legacy location must not exist.
+        # No legacy metrics.db created.
         self.assertFalse(
             os.path.exists(os.path.join(self._tp, 'management', 'metrics.db')),
-            'legacy metrics.db must not be created anywhere',
+            'launch() must not create legacy metrics.db',
         )
         self.assertTrue(
             os.path.exists(os.path.join(self._tp, 'telemetry.db')),
-            'unified telemetry.db must live at teaparty_home root',
+            'telemetry.db must be at teaparty_home root',
         )
 
     def test_legacy_record_metrics_is_removed(self):

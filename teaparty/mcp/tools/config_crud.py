@@ -16,7 +16,8 @@ def _emit_config_event(event_type: str, **data) -> None:
     Best-effort — swallows all failures so config CRUD never breaks
     because of a telemetry hiccup. ``event_type`` is looked up against
     ``teaparty.telemetry.events`` by upper-cased name; if the constant
-    does not exist, the event is dropped silently.
+    does not exist, an AssertionError is raised to surface the typo
+    at development time (no silent fallbacks).
     """
     try:
         from teaparty import telemetry
@@ -24,9 +25,14 @@ def _emit_config_event(event_type: str, **data) -> None:
         const_name = event_type.upper()
         et = getattr(_telem_events, const_name, None)
         if et is None:
-            et = event_type
+            raise AssertionError(
+                f'_emit_config_event: unknown event type {event_type!r} '
+                f'(no constant {const_name} in teaparty.telemetry.events)'
+            )
         scope = data.get('project') or 'management'
         telemetry.record_event(et, scope=scope, data=dict(data))
+    except AssertionError:
+        raise
     except Exception:
         pass
 

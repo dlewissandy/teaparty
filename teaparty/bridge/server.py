@@ -436,7 +436,7 @@ class TeaPartyBridge:
             from teaparty.telemetry import events as telem_events
             telemetry.set_teaparty_home(self.teaparty_home)
             telemetry.set_broadcaster(broadcast, asyncio.get_running_loop())
-            # One-time migration of any legacy {scope}/metrics.db files.
+            # One-time migration of pre-telemetry per-scope data files.
             try:
                 telemetry.migrate_metrics_db(self.teaparty_home)
             except Exception:
@@ -1320,6 +1320,24 @@ class TeaPartyBridge:
 
         if response.get('status') == 'error':
             return web.json_response({'error': response.get('reason', 'unknown error')}, status=409)
+
+        # Telemetry: interjection_received — human typed into an agent
+        # conversation that wasn't awaiting input (Issue #405).
+        try:
+            from teaparty import telemetry
+            from teaparty.telemetry import events as _telem_events
+            telemetry.record_event(
+                _telem_events.INTERJECTION_RECEIVED,
+                scope='management',
+                data={
+                    'conv_id': conv_id,
+                    'content_len': len(content),
+                    'was_session_awaiting_child': False,
+                },
+            )
+        except Exception:
+            pass
+
         return web.json_response({'status': 'ok'})
 
     def _find_interjection_socket(self, conv_id: str) -> str:
