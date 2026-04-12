@@ -16,6 +16,7 @@ Issue #394.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -69,6 +70,7 @@ class AgentSession:
         post_invoke_hook: PostInvokeHook | None = None,
         build_prompt_hook: BuildPromptHook | None = None,
         on_dispatch: Callable[[dict], Any] | None = None,
+        llm_caller: Callable | None = None,
     ):
         self.teaparty_home = os.path.expanduser(teaparty_home)
         self.agent_name = agent_name
@@ -80,6 +82,7 @@ class AgentSession:
         self._post_invoke_hook = post_invoke_hook
         self._build_prompt_hook = build_prompt_hook
         self._on_dispatch = on_dispatch
+        self._llm_caller = llm_caller  # None → use launcher default
 
         self.conversation_id = make_conversation_id(conversation_type, qualifier)
         self.claude_session_id: str | None = None
@@ -95,6 +98,19 @@ class AgentSession:
         self._bus_listener_sockets: tuple[str, str, str] | None = None
         self._bus_context_id: str | None = None
         self._dispatch_session = None
+
+        # Serialize concurrent invocations — only one claude process per
+        # agent session at a time. When multiple children reply at once,
+        # each _run_child triggers a resume; the lock queues them.
+        self._invoke_lock: asyncio.Lock | None = None
+
+        # Background tasks spawned by this session (one per dispatched
+        # child running _run_child). Tracked so /clear and withdraw can
+        # cancel them.
+        self._background_tasks: set[asyncio.Task] = set()
+        # child_session_id → running _run_child task, so close_fn can
+        # cancel a specific in-flight conversation.
+        self._tasks_by_child: dict[str, asyncio.Task] = {}
 
     # ── Message bus ──────────────────────────────────────────────────────
 
@@ -171,10 +187,42 @@ class AgentSession:
                 pass
 
     def _latest_human_message(self) -> str:
+        """Return the raw content of the latest incoming message.
+
+        Returns the content as stored in the bus, with no prefix.
+        Used for /clear detection and other internal checks that need
+        to match against exact content.
+
+        The sender is not included — callers that need to know who
+        sent the message should use _latest_incoming_with_sender().
+        """
         messages = self.get_messages()
         for msg in reversed(messages):
-            if msg.sender == 'human':
+            if (msg.sender != self.agent_role
+                    and msg.sender not in NON_CONVERSATIONAL_SENDERS
+                    and not msg.sender.startswith('unknown:')):
                 return msg.content
+        return ''
+
+    def _latest_incoming_with_sender(self) -> str:
+        """Return the latest incoming message prefixed with its sender role.
+
+        Used on resume: claude already has prior context via --resume,
+        so we just deliver the new event. The sender prefix lets claude
+        correlate agent replies to the dispatches that produced them.
+
+        Returns:
+            'Human: {text}' for a human message
+            '{agent_name}: {text}' for an agent reply
+            '' if no incoming message
+        """
+        messages = self.get_messages()
+        for msg in reversed(messages):
+            if (msg.sender != self.agent_role
+                    and msg.sender not in NON_CONVERSATIONAL_SENDERS
+                    and not msg.sender.startswith('unknown:')):
+                role = 'Human' if msg.sender == 'human' else msg.sender
+                return f'{role}: {msg.content}'
         return ''
 
     # ── Dispatch (Send/Reply) ────────────────────────────────────────────
@@ -303,21 +351,27 @@ class AgentSession:
                 t0 = _time.monotonic()
                 seen_tu: set[str] = set()
                 seen_tr: set[str] = set()
+                response_parts: list[str] = []
 
                 def on_event(ev: dict) -> None:
                     for sender, content in _classify_event(ev, member, seen_tu, seen_tr):
                         if content and sender != 'tool_result':
                             self._bus.send(child_conv_id, sender, content)
+                        if sender == member and content:
+                            response_parts.append(content)
 
                 mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
+                launch_kwargs = dict(
+                    agent_name=member, message=composite,
+                    scope=self.scope, teaparty_home=self.teaparty_home,
+                    worktree=worktree_path, mcp_port=mcp_port,
+                    session_id=child_session.id,
+                    on_stream_event=on_event,
+                )
+                if self._llm_caller is not None:
+                    launch_kwargs['llm_caller'] = self._llm_caller
                 try:
-                    result = await _launch(
-                        agent_name=member, message=composite,
-                        scope=self.scope, teaparty_home=self.teaparty_home,
-                        worktree=worktree_path, mcp_port=mcp_port,
-                        session_id=child_session.id,
-                        on_stream_event=on_event,
-                    )
+                    result = await _launch(**launch_kwargs)
 
                     if result.session_id:
                         child_session.claude_session_id = result.session_id
@@ -326,9 +380,6 @@ class AgentSession:
                 except Exception:
                     _log.exception('Child %s failed', member)
 
-                # Child finished — write its response to the parent's bus
-                # under the same conversation_id. The parent owns the
-                # conversation lifecycle and must close it explicitly.
                 if self._on_dispatch:
                     self._on_dispatch({
                         'type': 'dispatch_completed',
@@ -340,7 +391,30 @@ class AgentSession:
                 _log.info('%s spawn_fn: %s completed in %.2fs',
                           self.agent_name, member, _time.monotonic() - t0)
 
-            _asyncio.create_task(_run_child())
+                # ── Send child's reply back to the parent ────────────────
+                # The child's stdout output is automatically delivered to
+                # the parent's conversation as a message from the child.
+                # The conversation handle is embedded so the parent can
+                # correlate the reply to its original Send call (critical
+                # when multiple instances of the same agent are in flight).
+                response_text = '\n'.join(response_parts)
+                if response_text:
+                    reply_content = (
+                        f'[conversation {child_conv_id}]\n{response_text}')
+                    self._bus.send(self.conversation_id, member, reply_content)
+                    try:
+                        await self.invoke(cwd=repo_root)
+                    except Exception:
+                        _log.exception('Failed to resume %s after %s reply',
+                                       self.agent_name, member)
+
+            task = _asyncio.create_task(_run_child())
+            self._background_tasks.add(task)
+            self._tasks_by_child[child_session.id] = task
+            def _done(t, _csid=child_session.id):
+                self._background_tasks.discard(t)
+                self._tasks_by_child.pop(_csid, None)
+            task.add_done_callback(_done)
 
             # Return immediately — child runs in background.
             _log.info('%s spawn_fn: dispatched to %s (async)',
@@ -412,8 +486,45 @@ class AgentSession:
         sockets = await self._bus_listener.start()
         self._bus_listener_sockets = sockets
 
-        from teaparty.mcp.registry import register_spawn_fn
+        from teaparty.mcp.registry import register_spawn_fn, register_close_fn
         register_spawn_fn(self.agent_name, spawn_fn)
+
+        async def close_fn(conversation_id):
+            from teaparty.workspace.close_conversation import (
+                close_conversation, collect_descendants,
+            )
+            # Collect every descendant session in the subtree rooted at
+            # this conversation (walks metadata on disk, depth-first).
+            # Cancel their in-flight _run_child tasks before
+            # close_conversation rmtrees the dirs — otherwise the tasks
+            # outlive the filesystem state they depend on.
+            if conversation_id.startswith('dispatch:'):
+                root_csid = conversation_id[len('dispatch:'):]
+                sessions_dir = os.path.join(
+                    self.teaparty_home, self.scope, 'sessions')
+                to_cancel = collect_descendants(sessions_dir, root_csid)
+                tasks = []
+                for csid in to_cancel:
+                    task = self._tasks_by_child.pop(csid, None)
+                    if task is not None and not task.done():
+                        task.cancel()
+                        tasks.append(task)
+                if tasks:
+                    try:
+                        await asyncio.wait_for(
+                            asyncio.shield(
+                                asyncio.gather(*tasks, return_exceptions=True)),
+                            timeout=2.0)
+                    except asyncio.TimeoutError:
+                        _log.warning(
+                            '%s close_fn: tasks did not cancel within 2s',
+                            self.agent_name)
+            close_conversation(
+                self._dispatch_session, conversation_id,
+                teaparty_home=self.teaparty_home, scope=self.scope,
+            )
+
+        register_close_fn(self.agent_name, close_fn)
 
         send, reply, close = sockets
         return {
@@ -423,6 +534,27 @@ class AgentSession:
             'AGENT_ID': self.agent_name,
             'PYTHONPATH': cwd,
         }
+
+    async def _cancel_background_tasks(self) -> None:
+        """Cancel all background _run_child tasks this session spawned.
+
+        Called by /clear, stop(), and withdraw. Each task is cancelled
+        and awaited with a timeout so we don't block indefinitely on a
+        stuck child.
+        """
+        if not self._background_tasks:
+            return
+        tasks = list(self._background_tasks)
+        for t in tasks:
+            t.cancel()
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*tasks, return_exceptions=True),
+                timeout=5.0)
+        except asyncio.TimeoutError:
+            _log.warning('%s: background tasks did not cancel within 5s',
+                         self.agent_name)
+        self._background_tasks.clear()
 
     async def _clear(self, cwd: str) -> None:
         """Full reset: clear bus, stop listener, release worktrees, close contexts.
@@ -434,6 +566,9 @@ class AgentSession:
         same agent are not affected.
         """
         import subprocess as _sp
+
+        # 0. Cancel any in-flight dispatches before tearing down infra
+        await self._cancel_background_tasks()
 
         # 1. Stop the bus listener (kills sockets, tears down dispatch infra)
         await self.stop()
@@ -471,7 +606,12 @@ class AgentSession:
         self.save_state()
 
     async def stop(self):
-        """Stop the bus event listener. Call on session teardown."""
+        """Stop the session: cancel background dispatches, stop bus listener.
+
+        Call on session teardown. Ensures no orphan asyncio tasks
+        continue running after the session is torn down.
+        """
+        await self._cancel_background_tasks()
         if self._bus_listener is not None:
             await self._bus_listener.stop()
             self._bus_listener = None
@@ -482,16 +622,17 @@ class AgentSession:
     async def invoke(self, *, cwd: str) -> str:
         """Invoke the agent via the unified launcher.
 
-        The one invoke path for all agents:
-        1. Load state
-        2. Build prompt (fresh or resume)
-        3. Create/load session, create worktree inside it
-        4. Start bus listener if agent dispatches
-        5. Launch via unified launcher
-        6. Detect poisoned session / empty response
-        7. Run post_invoke_hook if provided
-        8. Save state
+        Concurrent invocations are serialized via an asyncio lock. When
+        multiple children complete in parallel and each triggers a resume,
+        the resumes queue up and run sequentially — each sees the previous
+        turn's claude_session_id for --resume continuity.
         """
+        if self._invoke_lock is None:
+            self._invoke_lock = asyncio.Lock()
+        async with self._invoke_lock:
+            return await self._invoke_inner(cwd=cwd)
+
+    async def _invoke_inner(self, *, cwd: str) -> str:
         import time as _time
         from teaparty.runners.launcher import (
             launch, detect_poisoned_session,
@@ -512,11 +653,13 @@ class AgentSession:
 
         is_fresh_session = self.claude_session_id is None
 
-        # Build prompt — use hook if provided, else standard pattern
+        # Build prompt — use hook if provided, else standard pattern.
+        # On resume, deliver only the latest incoming message (sender
+        # prefixed). On fresh start, deliver the full conversation.
         if self._build_prompt_hook:
             prompt = self._build_prompt_hook(self, latest)
         elif self.claude_session_id:
-            prompt = self._latest_human_message()
+            prompt = self._latest_incoming_with_sender()
         else:
             prompt = self.build_context()
 
@@ -558,7 +701,7 @@ class AgentSession:
 
         mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
 
-        result = await launch(
+        launch_kwargs = dict(
             agent_name=self.agent_name,
             message=prompt,
             scope=self.scope,
@@ -568,6 +711,9 @@ class AgentSession:
             mcp_port=mcp_port,
             on_stream_event=stream_callback,
         )
+        if self._llm_caller is not None:
+            launch_kwargs['llm_caller'] = self._llm_caller
+        result = await launch(**launch_kwargs)
 
         response_text = '\n'.join(
             c for s, c in events if s == self.agent_role

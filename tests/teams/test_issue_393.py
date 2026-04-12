@@ -444,8 +444,9 @@ class TestResumePathSendsOnlyLatestMessage(unittest.TestCase):
             asyncio.run(self._session.invoke(cwd=self._tmpdir))
 
         prompt = captured_kwargs.get('message', '')
-        self.assertEqual(prompt, 'Second message',
-                         'Resume should send only the latest human message')
+        self.assertEqual(prompt, 'Human: Second message',
+                         'Resume should send the latest incoming message '
+                         'prefixed with its sender role')
         self.assertNotIn('First message', prompt,
                          'Resume must not include earlier messages')
 

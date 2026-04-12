@@ -13,6 +13,7 @@ from typing import Any
 
 from teaparty.config.config_reader import (
     load_management_team,
+    load_management_workgroups,
     load_project_team,
     load_workgroup,
     read_agent_frontmatter,
@@ -259,6 +260,16 @@ def has_sub_roster(
                 if wg.lead == agent_name and wg.members_agents:
                     return True
         except FileNotFoundError:
+            pass
+
+    # Check management-level workgroups
+    if team.workgroups:
+        try:
+            mgmt_workgroups = load_management_workgroups(team, teaparty_home)
+            for wg in mgmt_workgroups:
+                if wg.lead == agent_name and wg.members_agents:
+                    return True
+        except Exception:
             pass
 
     return False
