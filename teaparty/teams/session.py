@@ -498,10 +498,20 @@ class AgentSession:
             task = _asyncio.create_task(_run_child())
             self._background_tasks.add(task)
             self._tasks_by_child[child_session.id] = task
-            def _done(t, _csid=child_session.id):
-                self._background_tasks.discard(t)
-                self._tasks_by_child.pop(_csid, None)
-            task.add_done_callback(_done)
+            # Only discard from _background_tasks on done; keep the
+            # entry in _tasks_by_child so a parent _run_child's loop
+            # can still find the (already completed) grandchild task
+            # and collect its result via `await task`. The race here
+            # is: a grandchild often completes while its parent is
+            # still inside its first _launch call (they run concurrently
+            # on the event loop), so by the time the parent's loop gets
+            # to gc_tasks the grandchild's task may already be done.
+            # Popping eagerly dropped the task reference and broke the
+            # resume chain — the parent thought there was nothing to
+            # wait for and finalized with stale first-turn text.
+            # close_fn / _cancel_background_tasks clean up the dict on
+            # explicit teardown; /clear clears it at session reset.
+            task.add_done_callback(self._background_tasks.discard)
 
             # Return immediately — child runs in background.
             _log.info('%s spawn_fn: dispatched to %s (async)',
@@ -680,6 +690,7 @@ class AgentSession:
             _log.warning('%s: background tasks did not cancel within 5s',
                          self.agent_name)
         self._background_tasks.clear()
+        self._tasks_by_child.clear()
 
     async def _clear(self, cwd: str) -> None:
         """Full reset: clear bus, stop listener, release worktrees, close contexts.

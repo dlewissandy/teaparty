@@ -178,6 +178,14 @@ def make_scripted_caller(scripts: dict[str, Script]) -> Callable:
             session_id=kwargs.get('session_id', ''),
         )
 
+        # Yield to let any tasks spawned during _invoke_tool_uses make
+        # progress before the caller returns. This models real-claude
+        # timing, where a child subprocess keeps running (on the event
+        # loop) while the parent's turn is still in flight. Tests that
+        # exercise the race where a grandchild completes *before* its
+        # parent's _launch returns depend on this yield.
+        await asyncio.sleep(0)
+
         if stream_file:
             try:
                 with open(stream_file, 'a') as f:
