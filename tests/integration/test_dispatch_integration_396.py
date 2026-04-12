@@ -240,7 +240,9 @@ def _print_conversation(label, messages):
 
 def _verify_cleanup(test, session, handles):
     """Close all handles, verify sessions removed from disk, slots freed."""
-    from teaparty.workspace.close_conversation import close_conversation
+    from teaparty.workspace.close_conversation import (
+        close_conversation_sync as close_conversation,
+    )
     for conv_id in handles:
         child_sid = conv_id.replace('dispatch:', '')
         child_path = os.path.join(

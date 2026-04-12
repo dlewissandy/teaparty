@@ -28,13 +28,40 @@ from teaparty.runners.claude import ClaudeResult
 
 @dataclass
 class Session:
-    """An agent session — 1:1 with a worktree and a Claude session ID."""
+    """An agent session — 1:1 with a Claude session ID.
+
+    Three launch modes live in this dataclass:
+
+    - **Privileged top-level chat** (OM, a project lead as top-level of
+      its project's chat): ``launch_cwd`` is the real repo root; no
+      worktree fields are set; no merge target.
+
+    - **Dispatched chat** (everyone else that runs in a subchat):
+      ``worktree_path`` is the per-session worktree dir on branch
+      ``worktree_branch`` (``session/{session_id}``). The merge_target_*
+      fields record where ``CloseConversation`` must squash-merge the
+      session branch back to. For same-repo dispatches the target is
+      the dispatcher's worktree/branch (the dispatcher's working state
+      is the integration branch). For the cross-repo exception (OM
+      dispatches a project lead whose repo differs) the target is the
+      project repo's **default branch**, in the project's main checkout.
+
+    - **CfA job**: ``launch_cwd`` holds the worktree path (legacy field
+      name); merge_target fields empty. The CfA engine owns its
+      worktree lifecycle separately from CloseConversation.
+    """
     id: str
     path: str
     agent_name: str
     scope: str
     claude_session_id: str = ''
     conversation_map: dict[str, str] = field(default_factory=dict)
+    launch_cwd: str = ''
+    worktree_path: str = ''
+    worktree_branch: str = ''
+    merge_target_repo: str = ''
+    merge_target_branch: str = ''
+    merge_target_worktree: str = ''
 
 
 # ── Agent definition resolution ──────────────────────────────────────────────
@@ -168,6 +195,135 @@ def compose_launch_worktree(
             json.dump(mcp_data, f, indent=2)
 
 
+def chat_config_dir(
+    teaparty_home: str,
+    scope: str,
+    agent_name: str,
+    qualifier: str,
+) -> str:
+    """Return the per-launch config directory for a chat-tier agent.
+
+    Issue #397 fixes the location at
+    ``{teaparty_home}/{scope}/agents/{agent_name}/{qualifier}/config/``.
+    Parallel instances of the same agent use different *qualifier*
+    strings (child session id for dispatches, ``AgentSession.qualifier``
+    for top-level invokes) so they do not clobber each other.
+    """
+    safe_qualifier = qualifier.replace('/', '-').replace(':', '-').replace(' ', '-')
+    return os.path.join(
+        teaparty_home, scope, 'agents', agent_name, safe_qualifier, 'config',
+    )
+
+
+def compose_launch_config(
+    *,
+    config_dir: str,
+    agent_name: str,
+    scope: str,
+    teaparty_home: str,
+    mcp_port: int = 0,
+    session_id: str = '',
+) -> dict[str, str]:
+    """Compose per-launch config files for a chat-tier agent launch.
+
+    Writes three files into *config_dir* (the spec'd location under
+    ``{teaparty_home}/{scope}/agents/{agent_name}/{qualifier}/config/``):
+
+    - ``settings.json`` — merged scope + agent settings with tool allow list.
+    - ``mcp.json`` — scoped HTTP MCP endpoint.
+    - ``agent.json`` — the persona as a ``--agents`` JSON payload.
+
+    Does NOT write into the launch cwd. The real repo's ``.claude/`` and
+    ``.mcp.json`` are never touched.
+
+    Returns a dict with:
+        settings_path: absolute path to the composed settings.json
+        mcp_path: absolute path to the composed mcp.json (or '')
+        agents_file: absolute path to the on-disk agent.json (or '')
+        agents_json: the same agents payload as an inline JSON string
+    """
+    from teaparty.config.config_reader import read_agent_frontmatter
+
+    os.makedirs(config_dir, exist_ok=True)
+
+    # Settings: scope base + agent override (same merge as worktree path).
+    settings = _merge_settings(agent_name, scope, teaparty_home)
+    try:
+        agent_def_path = resolve_agent_definition(agent_name, scope, teaparty_home)
+        fm = read_agent_frontmatter(agent_def_path)
+    except FileNotFoundError:
+        agent_def_path = ''
+        fm = {}
+
+    tools_str = fm.get('tools', '')
+    if tools_str:
+        all_tools_list = [t.strip() for t in tools_str.split(',') if t.strip()]
+        perms = settings.get('permissions') or {}
+        perms['allow'] = all_tools_list
+        settings['permissions'] = perms
+
+    settings_path = os.path.join(config_dir, 'settings.json')
+    with open(settings_path, 'w') as f:
+        json.dump(settings, f, indent=2)
+
+    # MCP endpoint — scoped to this agent/session so tools can route.
+    mcp_path = ''
+    if mcp_port:
+        if session_id:
+            mcp_url = f'http://localhost:{mcp_port}/mcp/{scope}/{agent_name}/{session_id}'
+        else:
+            mcp_url = f'http://localhost:{mcp_port}/mcp/{scope}/{agent_name}'
+        mcp_data = {
+            'mcpServers': {
+                'teaparty-config': {
+                    'type': 'http',
+                    'url': mcp_url,
+                },
+            },
+        }
+        mcp_path = os.path.join(config_dir, 'mcp.json')
+        with open(mcp_path, 'w') as f:
+            json.dump(mcp_data, f, indent=2)
+
+    # Agent definition. Pulls the agent.md body as the system prompt so
+    # Claude Code loads the persona without needing a .claude/agents/
+    # file in the cwd. Written to disk as agent.json AND returned as an
+    # inline JSON string so the caller can choose --agents-file or
+    # --agents (both are wired through ClaudeRunner).
+    agents_json = ''
+    agents_file = ''
+    if agent_def_path:
+        try:
+            with open(agent_def_path) as f:
+                raw = f.read()
+        except OSError:
+            raw = ''
+        body = raw
+        if raw.startswith('---'):
+            parts = raw.split('---', 2)
+            if len(parts) == 3:
+                body = parts[2].lstrip('\n')
+        entry: dict[str, Any] = {
+            'description': fm.get('description', '') or agent_name,
+            'prompt': body,
+        }
+        model = fm.get('model')
+        if model:
+            entry['model'] = model
+        payload = {agent_name: entry}
+        agents_json = json.dumps(payload)
+        agents_file = os.path.join(config_dir, 'agent.json')
+        with open(agents_file, 'w') as f:
+            json.dump(payload, f, indent=2)
+
+    return {
+        'settings_path': settings_path,
+        'mcp_path': mcp_path,
+        'agents_json': agents_json,
+        'agents_file': agents_file,
+    }
+
+
 def _merge_settings(
     agent_name: str,
     scope: str,
@@ -265,6 +421,12 @@ def load_session(
             scope=meta.get('scope', scope),
             claude_session_id=meta.get('claude_session_id', ''),
             conversation_map=meta.get('conversation_map', {}),
+            launch_cwd=meta.get('launch_cwd', ''),
+            worktree_path=meta.get('worktree_path', ''),
+            worktree_branch=meta.get('worktree_branch', ''),
+            merge_target_repo=meta.get('merge_target_repo', ''),
+            merge_target_branch=meta.get('merge_target_branch', ''),
+            merge_target_worktree=meta.get('merge_target_worktree', ''),
         )
     except (json.JSONDecodeError, OSError):
         return None
@@ -278,6 +440,12 @@ def _save_session_metadata(session: Session) -> None:
         'scope': session.scope,
         'claude_session_id': session.claude_session_id,
         'conversation_map': session.conversation_map,
+        'launch_cwd': session.launch_cwd,
+        'worktree_path': session.worktree_path,
+        'worktree_branch': session.worktree_branch,
+        'merge_target_repo': session.merge_target_repo,
+        'merge_target_branch': session.merge_target_branch,
+        'merge_target_worktree': session.merge_target_worktree,
     }
     meta_path = os.path.join(session.path, 'metadata.json')
     tmp = meta_path + '.tmp'
@@ -440,6 +608,18 @@ async def _default_claude_caller(**kwargs) -> ClaudeResult:
     return await runner.run()
 
 
+def _sanitize_caller_kwargs(kwargs: dict) -> dict:
+    """Strip chat-tier-only kwargs that scripted/legacy callers don't accept.
+
+    The unified launcher passes settings_path/mcp_config_path/strict_mcp_config
+    so the real ClaudeRunner can wire up per-launch config, but scripted
+    test callers and older adapters don't accept them — drop them here.
+    """
+    for k in ('settings_path', 'mcp_config_path', 'strict_mcp_config'):
+        kwargs.pop(k, None)
+    return kwargs
+
+
 # ── The launcher ─────────────────────────────────────────────────────────────
 
 async def launch(
@@ -448,7 +628,10 @@ async def launch(
     message: str,
     scope: str,
     teaparty_home: str,
-    worktree: str,
+    worktree: str = '',
+    tier: str = 'job',
+    launch_cwd: str = '',
+    config_dir: str = '',
     resume_session: str = '',
     mcp_port: int = 0,
     on_stream_event: Callable[[dict], None] | None = None,
@@ -486,8 +669,34 @@ async def launch(
     from teaparty.config.config_reader import read_agent_frontmatter
     from teaparty.runners.claude import ClaudeRunner
 
-    # Compose worktree from .teaparty/ config
-    compose_launch_worktree(
+    # Two launch tiers:
+    #   job:  CfA jobs — compose a worktree, run subprocess inside it.
+    #   chat: management chat — run at the real repo, config via CLI flags.
+    is_chat = (tier == 'chat')
+    chat_settings_path = ''
+    chat_mcp_path = ''
+    chat_agents_json = ''
+    chat_agents_file = ''
+    if is_chat:
+        if not launch_cwd:
+            raise ValueError('launch(tier="chat") requires launch_cwd')
+        if not config_dir:
+            raise ValueError('launch(tier="chat") requires config_dir')
+        os.makedirs(config_dir, exist_ok=True)
+        cfg = compose_launch_config(
+            config_dir=config_dir,
+            agent_name=agent_name,
+            scope=scope,
+            teaparty_home=teaparty_home,
+            mcp_port=mcp_port,
+            session_id=session_id,
+        )
+        chat_settings_path = cfg['settings_path']
+        chat_mcp_path = cfg['mcp_path']
+        chat_agents_json = cfg['agents_json']
+        chat_agents_file = cfg.get('agents_file', '')
+    else:
+        compose_launch_worktree(
             worktree=worktree,
             agent_name=agent_name,
             scope=scope,
@@ -528,17 +737,35 @@ async def launch(
             perms['allow'] = all_tools_list
             settings['permissions'] = perms
 
-    effective_stream = stream_file or os.path.join(worktree, '.stream.jsonl')
+    if is_chat:
+        effective_cwd = launch_cwd
+        effective_stream = stream_file or os.path.join(config_dir, 'stream.jsonl')
+        # Prefer inline --agents JSON composed into the config dir over
+        # whatever the caller passed; chat tier owns the agent definition.
+        effective_agents_json = agents_json or chat_agents_json
+        effective_settings_path = chat_settings_path
+        effective_mcp_path = chat_mcp_path
+        strict_mcp = True
+    else:
+        effective_cwd = worktree
+        effective_stream = stream_file or os.path.join(worktree, '.stream.jsonl')
+        effective_agents_json = agents_json
+        effective_settings_path = ''
+        effective_mcp_path = ''
+        strict_mcp = False
 
     # Delegate to the llm_caller. Default is _default_claude_caller
     # which wraps ClaudeRunner. Tests inject a scripted caller.
     result = await llm_caller(
         agent_name=agent_name,
         message=message,
-        cwd=worktree,
+        cwd=effective_cwd,
         stream_file=effective_stream,
         lead=agent_name,
         settings=settings,
+        settings_path=effective_settings_path,
+        mcp_config_path=effective_mcp_path,
+        strict_mcp_config=strict_mcp,
         permission_mode=permission_mode,
         tools=tools,
         add_dirs=add_dirs or [],
@@ -550,7 +777,7 @@ async def launch(
         parent_heartbeat=parent_heartbeat,
         children_file=children_file,
         stall_timeout=stall_timeout,
-        agents_json=agents_json,
+        agents_json=effective_agents_json,
         agents_file=agents_file,
         env_vars=env_vars or {},
     )

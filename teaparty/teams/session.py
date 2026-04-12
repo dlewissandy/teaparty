@@ -276,10 +276,16 @@ class AgentSession:
         session_registry: dict[str, object] = {}
 
         async def spawn_fn(member, composite, context_id):
-            import subprocess as _sp
             import time as _time
             import asyncio as _asyncio
             from teaparty.teams.stream import _classify_event
+            from teaparty.config.roster import (
+                resolve_launch_cwd, LaunchCwdNotResolved,
+            )
+            from teaparty.workspace.worktree import (
+                default_branch_of, current_branch_of, head_commit_of,
+                create_subchat_worktree,
+            )
             from teaparty.mcp.registry import (
                 register_spawn_fn as _register,
                 current_session_id as _current_session_var,
@@ -297,18 +303,107 @@ class AgentSession:
                 )
                 return ('', '', '')
 
-            # Session = worktree (1:1). Create session, worktree inside it.
+            # Resolve the member's natural repo (the repo whose
+            # configuration places this agent). Unknown members are a
+            # configuration error — refuse the dispatch.
+            try:
+                member_natural_repo = resolve_launch_cwd(
+                    member, self.teaparty_home,
+                )
+            except LaunchCwdNotResolved as exc:
+                _log.error(
+                    '%s spawn_fn: refusing dispatch to %s — %s',
+                    self.agent_name, member, exc,
+                )
+                return ('', '', '')
+
+            # The dispatcher's current working state is the integration
+            # branch for same-repo dispatches. For a privileged top-level
+            # (OM or a project lead at top), the dispatcher works
+            # directly in the real repo; for a nested dispatcher it
+            # works inside its own session worktree.
+            if dispatcher_session.worktree_path:
+                dispatcher_worktree = dispatcher_session.worktree_path
+                dispatcher_repo = (
+                    dispatcher_session.merge_target_repo or repo_root
+                )
+            else:
+                dispatcher_worktree = (
+                    dispatcher_session.launch_cwd or repo_root
+                )
+                dispatcher_repo = dispatcher_worktree
+
+            is_cross_repo = (
+                os.path.realpath(member_natural_repo)
+                != os.path.realpath(dispatcher_repo)
+            )
+
+            # Pick the fork source and the merge-back target.
+            if is_cross_repo:
+                source_repo = member_natural_repo
+                source_ref = await default_branch_of(source_repo)
+                merge_target_repo = source_repo
+                merge_target_branch = source_ref
+                merge_target_worktree = source_repo
+            else:
+                source_repo = dispatcher_repo
+                # Fork from the dispatcher's current HEAD — parent's
+                # committed state is the integration point. Uncommitted
+                # edits in the dispatcher's worktree are intentionally
+                # invisible to the child.
+                source_ref = await head_commit_of(dispatcher_worktree) or 'HEAD'
+                merge_target_repo = dispatcher_repo
+                merge_target_worktree = dispatcher_worktree
+                merge_target_branch = (
+                    await current_branch_of(dispatcher_worktree)
+                )
+
+            # Create the child session record first so the worktree can
+            # live under its directory.
             child_session = _create_session(
                 agent_name=member, scope=self.scope,
                 teaparty_home=self.teaparty_home,
             )
-            worktree_path = os.path.join(child_session.path, 'worktree')
-            wt_result = _sp.run(
-                ['git', 'worktree', 'add', '--detach', worktree_path],
-                cwd=repo_root, capture_output=True, text=True,
-            )
-            if wt_result.returncode != 0:
-                os.makedirs(worktree_path, exist_ok=True)
+
+            if is_cross_repo:
+                # Cross-repo dispatch (e.g. OM → project lead): the project
+                # lead works directly at its own repo root — no worktree.
+                # Config files are composed under the dispatcher's teaparty
+                # home just like a top-level invoke().
+                worktree_path = ''
+                session_branch = ''
+                child_session.launch_cwd = member_natural_repo
+                child_session.worktree_path = ''
+                child_session.worktree_branch = ''
+                child_session.merge_target_repo = ''
+                child_session.merge_target_branch = ''
+                child_session.merge_target_worktree = ''
+                member_launch_cwd = member_natural_repo
+            else:
+                worktree_path = os.path.join(child_session.path, 'worktree')
+                session_branch = f'session/{child_session.id}'
+                try:
+                    await create_subchat_worktree(
+                        source_repo=source_repo,
+                        source_ref=source_ref,
+                        dest_path=worktree_path,
+                        branch_name=session_branch,
+                    )
+                except Exception:
+                    _log.exception(
+                        '%s spawn_fn: git worktree add failed for %s',
+                        self.agent_name, member,
+                    )
+                    return ('', '', '')
+                child_session.launch_cwd = worktree_path
+                child_session.worktree_path = worktree_path
+                child_session.worktree_branch = session_branch
+                child_session.merge_target_repo = merge_target_repo
+                child_session.merge_target_branch = merge_target_branch
+                child_session.merge_target_worktree = merge_target_worktree
+                member_launch_cwd = worktree_path
+
+            _save_meta(child_session)
 
             # Register the child's session so its dispatches are recorded
             # in its own conversation_map.
@@ -391,13 +486,39 @@ class AgentSession:
                         child_session.conversation_map.values())
                     response_parts.clear()
 
-                    launch_kwargs = dict(
-                        agent_name=member, message=current_message,
-                        scope=self.scope, teaparty_home=self.teaparty_home,
-                        worktree=worktree_path, mcp_port=mcp_port,
-                        session_id=child_session.id,
-                        on_stream_event=on_event,
-                    )
+                    if worktree_path:
+                        # Same-repo dispatch: child runs inside its own
+                        # per-session git worktree (job tier).
+                        launch_kwargs = dict(
+                            agent_name=member, message=current_message,
+                            scope=self.scope, teaparty_home=self.teaparty_home,
+                            worktree=worktree_path,
+                            mcp_port=mcp_port,
+                            session_id=child_session.id,
+                            stream_file=os.path.join(child_session.path, 'stream.jsonl'),
+                            on_stream_event=on_event,
+                        )
+                    else:
+                        # Cross-repo dispatch: child is a project lead running
+                        # directly at its own repo root (chat tier). Config
+                        # files are composed under the dispatcher's teaparty
+                        # home, same as a top-level invoke().
+                        from teaparty.runners.launcher import chat_config_dir as _chat_cfg_dir
+                        child_config_dir = _chat_cfg_dir(
+                            self.teaparty_home, self.scope,
+                            member, child_session.id,
+                        )
+                        launch_kwargs = dict(
+                            agent_name=member, message=current_message,
+                            scope=self.scope, teaparty_home=self.teaparty_home,
+                            tier='chat',
+                            launch_cwd=member_natural_repo,
+                            config_dir=child_config_dir,
+                            mcp_port=mcp_port,
+                            session_id=child_session.id,
+                            stream_file=os.path.join(child_session.path, 'stream.jsonl'),
+                            on_stream_event=on_event,
+                        )
                     if current_claude_session:
                         launch_kwargs['resume_session'] = current_claude_session
                     if self._llm_caller is not None:
@@ -498,30 +619,46 @@ class AgentSession:
             # explicit teardown; /clear clears it at session reset.
             task.add_done_callback(self._background_tasks.discard)
 
-            # Return immediately — child runs in background.
+            # Return immediately — child runs in background. The second
+            # element used to be a worktree path; chat tier returns the
+            # launch_cwd instead (the agent's real repo). Callers that
+            # stored this as ``agent_worktree_path`` use it only as an
+            # opaque cwd handle for resume.
             _log.info('%s spawn_fn: dispatched to %s (async)',
                       self.agent_name, member)
-            return (child_session.id, worktree_path, '')
+            return (child_session.id, member_launch_cwd, '')
 
         async def resume_fn(member, composite, session_id, context_id):
-            agent_dir = ''
-            if os.path.exists(bus_db_path) and context_id:
-                bus = SqliteMessageBus(bus_db_path)
-                try:
-                    ctx = bus.get_agent_context(context_id)
-                    if ctx:
-                        agent_dir = ctx.get('agent_worktree_path', '')
-                finally:
-                    bus.close()
-            if not agent_dir:
-                agent_dir = repo_root
+            # Resume path: a peer Send landed on an existing open
+            # subchat. The child session is still alive in its
+            # per-session worktree; re-launch at that same worktree
+            # with --resume so claude picks the conversation up.
+            child_session_id = ''
+            if context_id and context_id.startswith('dispatch:'):
+                child_session_id = context_id[len('dispatch:'):]
+
+            existing = None
+            if child_session_id:
+                existing = _load_session(
+                    agent_name=member, scope=self.scope,
+                    teaparty_home=self.teaparty_home,
+                    session_id=child_session_id,
+                )
+            if existing is None or not existing.worktree_path:
+                _log.error(
+                    '%s resume_fn: no live worktree for child session '
+                    '%s — cannot resume %s',
+                    self.agent_name, child_session_id, member,
+                )
+                return ''
 
             mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
             result = await _launch(
                 agent_name=member, message=composite,
                 scope=self.scope, teaparty_home=self.teaparty_home,
-                worktree=agent_dir, resume_session=session_id,
-                mcp_port=mcp_port,
+                worktree=existing.worktree_path,
+                resume_session=session_id, mcp_port=mcp_port,
+                session_id=child_session_id,
             )
             return result.session_id
 
@@ -536,12 +673,12 @@ class AgentSession:
                       self.agent_name, context_id)
 
         async def cleanup_fn(worktree_path):
-            import subprocess as _sp
-            if worktree_path and os.path.isdir(worktree_path):
-                _sp.run(
-                    ['git', 'worktree', 'remove', '--force', worktree_path],
-                    cwd=repo_root, capture_output=True,
-                )
+            # Chat tier no longer creates git worktrees for dispatched
+            # children — the cwd is the real repo and must not be
+            # removed. Session dir teardown is handled separately by
+            # close_conversation. This function is a no-op for chat,
+            # retained so the bus listener contract stays stable.
+            return
 
         if not self._bus_context_id:
             self._bus_context_id = f'agent:{self.agent_name}:lead:{uuid.uuid4()}'
@@ -625,10 +762,17 @@ class AgentSession:
                     except (OSError, _json.JSONDecodeError):
                         agent_names[csid] = ''
 
-            close_conversation(
+            close_result = await close_conversation(
                 self._dispatch_session, conversation_id,
                 teaparty_home=self.teaparty_home, scope=self.scope,
             )
+            # If the merge failed, return the structured result so the
+            # calling agent's CloseConversation tool surface can show
+            # the conflict details. Do NOT emit dispatch_completed
+            # events — the subchat is still open, its worktree is
+            # still on disk, and the accordion must keep it visible.
+            if close_result.get('status') not in ('ok', 'noop'):
+                return close_result
 
             # Notify the UI so the accordion re-renders and auto-expands
             # the parent of each removed session (in particular, the
@@ -643,6 +787,7 @@ class AgentSession:
                         'child_session_id': csid,
                         'agent_name': agent_names.get(csid, ''),
                     })
+            return close_result
 
         register_close_fn(self.agent_name, close_fn)
 
@@ -753,7 +898,7 @@ class AgentSession:
                 # Filesystem teardown: rmtree session dirs, remove
                 # entry from parent's conversation_map on disk.
                 try:
-                    close_conversation(
+                    await close_conversation(
                         dispatch_session, f'dispatch:{child_sid}',
                         teaparty_home=self.teaparty_home,
                         scope=self.scope)
@@ -781,7 +926,12 @@ class AgentSession:
         # 2. Stop the bus listener (kills sockets, tears down dispatch infra)
         await self.stop()
 
-        # 3. Release child worktrees and close this session's context tree
+        # 3. Close this session's context tree. Chat-tier children no
+        # longer have git worktrees, so the previous
+        # ``git worktree remove`` pass is a no-op — the cwd is the real
+        # repo and must not be removed. Any remaining worktree paths from
+        # a mixed-tier run (e.g. legacy sessions) are still checked, but
+        # only removed if the path is actually a worktree.
         bus_context_id = self._bus_context_id
         if bus_context_id:
             infra_dir = os.path.join(
@@ -792,10 +942,11 @@ class AgentSession:
             if os.path.exists(infra_db_path):
                 infra_bus = SqliteMessageBus(infra_db_path)
                 try:
-                    # Release worktrees from child contexts before closing
                     for ctx in infra_bus.open_agent_contexts_for_parent(bus_context_id):
                         wt = ctx.get('agent_worktree_path', '')
-                        if wt and os.path.isdir(wt):
+                        # Only treat as a worktree if it has a .git file
+                        # (worktrees have .git as a file, not a dir).
+                        if wt and os.path.isfile(os.path.join(wt, '.git')):
                             _sp.run(
                                 ['git', 'worktree', 'remove', '--force', wt],
                                 cwd=repo_root, capture_output=True,
@@ -855,7 +1006,10 @@ class AgentSession:
             launch, detect_poisoned_session,
             create_session as _create_session, load_session as _load_session,
         )
-        from teaparty.workspace.worktree import ensure_agent_worktree
+        from teaparty.config.roster import (
+            resolve_launch_cwd, LaunchCwdNotResolved,
+        )
+        from teaparty.runners.launcher import chat_config_dir as _chat_cfg_dir
 
         t_start = _time.monotonic()
         self.load_state()
@@ -897,12 +1051,30 @@ class AgentSession:
                 teaparty_home=self.teaparty_home, session_id=session_key,
             )
 
-        infra_dir = os.path.join(
-            self.teaparty_home, self.scope, 'agents', self.agent_name,
-        )
-        effective_cwd = await ensure_agent_worktree(
-            self.agent_name, cwd, infra_dir,
-            session_path=session.path,
+        # Chat tier: launch at the real repo root (teaparty for
+        # management agents, the project repo for project leads). No
+        # worktree is composed — per-launch config travels via CLI flags
+        # pointed at files under .teaparty/{scope}/agents/{name}/{qualifier}/config/.
+        try:
+            launch_cwd = resolve_launch_cwd(
+                self.agent_name, self.teaparty_home,
+            )
+        except LaunchCwdNotResolved:
+            # Top-level AgentSessions can legitimately run before the
+            # management registry is fully populated (e.g. in unit tests
+            # that exercise invoke() without a management/teaparty.yaml).
+            # Fall back to the caller-supplied cwd rather than crashing
+            # the whole session — this is a deliberate fallback with a
+            # logged reason, not a silent one.
+            _log.info(
+                '%s invoke: registry resolution unavailable; '
+                'falling back to caller cwd %s', self.agent_name, cwd,
+            )
+            launch_cwd = cwd
+        session.launch_cwd = launch_cwd
+        effective_cwd = launch_cwd
+        config_dir = _chat_cfg_dir(
+            self.teaparty_home, self.scope, self.agent_name, self.qualifier,
         )
 
         # Start bus listener for agents that dispatch
@@ -914,9 +1086,9 @@ class AgentSession:
             self._bus, self.conversation_id, self.agent_role,
         )
 
-        # The launcher writes stream events to {worktree}/.stream.jsonl.
+        # The launcher writes stream events to {session_dir}/stream.jsonl.
         # We read the slug from that same file after launch completes.
-        stream_path = os.path.join(effective_cwd, '.stream.jsonl')
+        stream_path = os.path.join(session.path, 'stream.jsonl')
 
         mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
 
@@ -925,9 +1097,13 @@ class AgentSession:
             message=prompt,
             scope=self.scope,
             teaparty_home=self.teaparty_home,
-            worktree=effective_cwd,
+            tier='chat',
+            launch_cwd=launch_cwd,
+            config_dir=config_dir,
+            stream_file=stream_path,
             resume_session=self.claude_session_id or '',
             mcp_port=mcp_port,
+            session_id=session.id,
             on_stream_event=stream_callback,
         )
         if self._llm_caller is not None:

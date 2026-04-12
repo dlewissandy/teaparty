@@ -1,8 +1,34 @@
 # Unified Agent Launch
 
 **Status:** Implemented
-**Issue:** #394
+**Issue:** #394 (initial), #397 (chat-tier split)
 **Implementation:** `launch()` in `teaparty/runners/launcher.py`
+
+## Two launch tiers (issue #397)
+
+TeaParty launches agents in two distinct tiers that share the same
+`launch()` function but take different branches:
+
+| Tier | Used by | cwd | Per-launch config | Worktree |
+|------|---------|-----|-------------------|----------|
+| **chat** | Management chat, OM, project leads, workgroup leads, and any agent dispatched through `teaparty/teams/session.py::AgentSession` | **The real repo** — teaparty for management agents, `<project>` for project leads, inherited from the dispatcher otherwise | Written to the session directory under `.teaparty/{scope}/sessions/{id}/` and passed to `claude` via `--settings`, `--mcp-config --strict-mcp-config`, `--setting-sources user`, `--agents <inline JSON>` | **None** — the real repo is never mutated |
+| **job**  | CfA jobs/tasks (`teaparty/cfa/`), where the agent's turn mutates code | A detached git worktree at `.teaparty/{scope}/sessions/{id}/worktree/` | Composed into the worktree's `.claude/` and `.mcp.json` by `compose_launch_worktree` | **Yes** — filesystem isolation for concurrent code mutations |
+
+Chat-tier agents read, reason, and dispatch — they do not mutate code,
+so a worktree per conversation is pure churn and produces two concrete
+bugs: project leads run in the wrong repo, and per-session `.claude/`
+composition is structurally incompatible with launching at the real
+repo. The chat tier solves both by injecting per-launch config via CLI
+flags pointing at files outside the cwd. CfA jobs continue to use
+worktrees because their agents do mutate code.
+
+**Chat-tier launch_cwd resolution.** When spawn_fn dispatches a member,
+`teaparty.config.roster.resolve_launch_cwd()` walks the registry: if
+the member is a project lead listed in `teaparty.yaml`, it returns
+that project's path; otherwise it returns the dispatcher's cwd
+(fallback: the teaparty repo root). Each `Session` records its
+`launch_cwd` so nested dispatches (workgroup leads under project leads)
+inherit the correct repo.
 
 ## What
 
