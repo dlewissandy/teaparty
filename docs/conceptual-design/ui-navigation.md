@@ -3,15 +3,28 @@
 **Internal navigation is in-place. New tabs are the user's choice via
 browser-native gestures, not the app's choice.**
 
-Every link or click target that points at another page inside the TeaParty
-UI replaces the current page in the same tab. The app never calls
-`window.open` for internal navigation, and internal `<a>` tags never carry
-`target="_blank"`. Programmatic navigation uses `location.href = url`.
+Every clickable element that navigates to another page inside the
+TeaParty UI is an `<a href="...">` anchor. The app never calls
+`window.open` for internal navigation, and internal anchors never carry
+`target="_blank"`. Inline `onclick` handlers must not navigate via
+`location.href` assignment — that strips browser-native gestures
+(Cmd-click, middle-click) from the element. Assignments to
+`location.href` inside plain JS function bodies — e.g. post-fetch
+navigation after `POST /api/jobs` — are allowed because there is no
+click target to make into an anchor.
 
-Browser-native gestures for opening a link in a new tab — `Cmd+click`,
-`Ctrl+click`, middle-click, right-click → *Open Link in New Tab* — continue
-to work exactly as the browser provides them. The app stays out of the
-way; if a user wants a new tab, they know how to get one.
+Browser-native gestures — `Cmd+click`, `Ctrl+click`, middle-click,
+right-click → *Open Link in New Tab* — continue to work exactly as the
+browser provides them, and only because every navigating element is an
+anchor. The app stays out of the way; if a user wants a new tab, they
+know how to get one.
+
+Cards that wrap complex layouts (project headers, configuration rows,
+etc.) become anchors with `display:contents` or flex-container styling
+so children participate in the card's layout without the anchor box
+interfering. Interactive sub-elements that need their own click target
+— e.g. catalog toggle buttons — live as siblings outside the anchor,
+not as descendants, so they don't compete with anchor activation.
 
 **External links are out of scope for this rule.** Links in rendered
 Markdown inside agent message content (the generic `<a>` renderer in

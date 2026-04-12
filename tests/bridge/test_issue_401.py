@@ -1,16 +1,23 @@
 """Issue #401: Internal links must open in place, never in a new tab.
 
-The TeaParty UI must not programmatically spawn tabs or windows for internal
-navigation. Concretely, under ``teaparty/bridge/static/``:
+The TeaParty UI must not programmatically spawn tabs or windows for
+internal navigation, AND any element that navigates to a new page must
+be an ``<a href>`` so browser-native gestures (Cmd-click, middle-click)
+work. Concretely, under ``teaparty/bridge/static/``:
 
-1. No occurrence of ``window.open`` may exist in any text source file. The
-   intent is absolute — every programmatic navigation to another internal
-   page assigns to ``location.href`` instead.
+1. No occurrence of ``window.open`` may exist in any text source file.
 
 2. No ``target="_blank"`` (or single-quoted / unquoted equivalent) may
    appear on an internal anchor. An allowlist covers exactly one
    external-link exception: the generic Markdown renderer in ``chat.html``
    that produces anchors for arbitrary URLs inside agent message content.
+
+3. No inline ``onclick`` handler may navigate via ``location.href`` or
+   ``window.location`` assignment. Navigation handlers must be ``<a
+   href>`` elements so Cmd-click, Ctrl-click, and middle-click open the
+   destination in a new tab natively. Assignments to ``location.href``
+   inside plain JS function bodies (e.g. post-fetch navigation) are
+   allowed because there is no click target to make into an anchor.
 
 See ``docs/conceptual-design/ui-navigation.md`` for the convention these
 tests enforce.
@@ -155,6 +162,42 @@ class NavigationInPlaceTests(unittest.TestCase):
                 f"matches at lines {[h[0] for h in hits]}. "
                 f"Duplicate renderer branches are silent regressions.",
             )
+
+    def test_no_onclick_navigation_via_location_href(self) -> None:
+        """No onclick handler may navigate via location.href assignment.
+
+        Anything that changes the page must be an `<a href>` so
+        browser-native gestures (Cmd-click, middle-click, etc.) work.
+        An `onclick="location.href='...'"` handler strips those
+        gestures — plain click works, but the user can no longer
+        choose to open the target in a new tab.
+
+        This test is deliberately scoped to inline event attributes
+        (``onclick="..."``, ``onClick: "..."``), not to assignments
+        inside plain JS function bodies. Post-fetch navigation
+        (e.g. createJob → POST → location.href = new_url) has no
+        click target to convert into an anchor and is exempt.
+        """
+        inline_onclick = re.compile(
+            r'''on[cC]lick\s*[=:]\s*["'][^"']*\blocation\s*\.\s*href\b'''
+        )
+        offenders: list[str] = []
+        for path in _iter_scannable_files():
+            text = path.read_text()
+            rel = path.relative_to(STATIC_DIR).as_posix()
+            for lineno, line in enumerate(text.splitlines(), start=1):
+                if inline_onclick.search(line):
+                    offenders.append(f"{rel}:{lineno}: {line.strip()}")
+        self.assertEqual(
+            offenders,
+            [],
+            f"Issue #401: teaparty/bridge/static contains onclick "
+            f"handlers that navigate via location.href. Use an "
+            f"<a href=\"...\"> element instead so Cmd-click / "
+            f"middle-click open the target in a new tab. See "
+            f"{CONVENTION_DOC}. Offenders:\n  "
+            + "\n  ".join(offenders),
+        )
 
     def test_allowlist_entries_still_exist(self) -> None:
         """Every TARGET_BLANK_ALLOWLIST entry must still match a real line.

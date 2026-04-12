@@ -76,16 +76,6 @@ if (localStorage.getItem('bladeOpen') === '1') {
   document.getElementById('blade').classList.add('open');
 }
 
-function openChat(convId) {
-  window.location.href = 'chat.html?conv=' + encodeURIComponent(convId);
-}
-
-function openChatWithSeed(convId, seed) {
-  var url = 'chat.html?conv=' + encodeURIComponent(convId);
-  if (seed) url += '&seed=' + encodeURIComponent(seed);
-  window.location.href = url;
-}
-
 function seedBlade(seed) {
   if (!omConvId) return;
   if (!_bladeOpen) toggleBlade();
@@ -116,21 +106,30 @@ function sectionCard(title, items, opts) {
 
 // opts: { icon, iconClass, iconStyle, title, meta, source, overrides,
 //         badge, badgeClass, active, toggleScope, toggleType, toggleName,
-//         toggleExtra, onClick, trailing }
+//         toggleExtra, href, onClick, trailing }
+// href: a URL that triggers real page navigation — rendered as an anchor
+// wrapping icon+body so Cmd-click / middle-click open a new tab natively.
+// onClick: a JS expression for in-page state change (e.g. configNav) —
+// rendered as an onclick handler on the outer div, unchanged.
 function itemCard(opts) {
   var o = opts || {};
   var isActive = o.active;
   var cls = 'item';
   if (isActive === true) cls += ' item-catalog-active';
   else if (isActive === false) cls += ' item-catalog-inactive';
-  var click = o.onClick ? ' onclick="' + o.onClick + '" style="cursor:pointer"' : '';
+  var click = (!o.href && o.onClick) ? ' onclick="' + o.onClick + '" style="cursor:pointer"' : '';
   var iconStyle = o.iconStyle ? ' style="' + o.iconStyle + '"' : '';
   var iconCls = o.iconClass ? ' ' + o.iconClass : '';
   var html = '<div class="' + cls + '"' + click + '>';
-  html += '<div class="item-icon' + iconCls + '"' + iconStyle + '>' + (o.icon || '') + '</div>';
-  html += '<div class="item-body"><div class="item-title">' + (o.title || '') + '</div>';
-  if (o.meta) html += '<div class="item-meta">' + o.meta + '</div>';
-  html += '</div>';
+  var iconHtml = '<div class="item-icon' + iconCls + '"' + iconStyle + '>' + (o.icon || '') + '</div>';
+  var bodyHtml = '<div class="item-body"><div class="item-title">' + (o.title || '') + '</div>';
+  if (o.meta) bodyHtml += '<div class="item-meta">' + o.meta + '</div>';
+  bodyHtml += '</div>';
+  if (o.href) {
+    html += '<a class="item-link" href="' + o.href + '" style="display:contents;color:inherit;text-decoration:none">' + iconHtml + bodyHtml + '</a>';
+  } else {
+    html += iconHtml + bodyHtml;
+  }
   if (o.toggleScope) {
     var onCls = isActive ? ' toggle-on' : '';
     var tExtra = o.toggleExtra ? ",'" + o.toggleExtra + "'" : '';
@@ -152,7 +151,7 @@ function renderPinItems(pins) {
       icon: p.is_dir ? '&#9654;' : '&#9679;',
       iconStyle: 'background:rgba(78,204,163,0.15);color:var(--green)',
       title: p.label, meta: displayPath, active: true,
-      onClick: "location.href='" + fileUrl + "'",
+      href: fileUrl,
     });
   });
 }
@@ -177,7 +176,7 @@ function skillItems(skills, toggleScope) {
     var file = typeof s === 'object' ? s.file : null;
     var source = typeof s === 'object' ? s.source : null;
     var isActive = typeof s === 'object' ? s.active !== false : true;
-    return itemCard({ icon: '&#9881;', iconClass: 'icon-skill', title: name, source: source, active: isActive, toggleScope: toggleScope, toggleType: 'skill', toggleName: name, onClick: file ? "location.href='artifacts.html?file=' + encodeURIComponent('" + file + "')" : null });
+    return itemCard({ icon: '&#9881;', iconClass: 'icon-skill', title: name, source: source, active: isActive, toggleScope: toggleScope, toggleType: 'skill', toggleName: name, href: file ? 'artifacts.html?file=' + encodeURIComponent(file) : null });
   });
 }
 
@@ -189,7 +188,7 @@ function hookItems(hooks, toggleScope, projectSlug) {
       (h.matcher ? '&hook_matcher=' + encodeURIComponent(h.matcher) : '') +
       (h.type ? '&hook_type=' + encodeURIComponent(h.type) : '');
     var scope = h.source === 'yaml' ? toggleScope : null;
-    return itemCard({ icon: '&#9889;', iconClass: 'icon-hook', title: (h.event || '') + (h.matcher ? ' [' + h.matcher + ']' : ''), meta: h.type || '', active: isActive, toggleScope: scope, toggleType: 'hook', toggleName: h.event || '', onClick: h.file ? "location.href='artifacts.html?file=' + encodeURIComponent('" + h.file + "') + '" + meta + "'" : null });
+    return itemCard({ icon: '&#9889;', iconClass: 'icon-hook', title: (h.event || '') + (h.matcher ? ' [' + h.matcher + ']' : ''), meta: h.type || '', active: isActive, toggleScope: scope, toggleType: 'hook', toggleName: h.event || '', href: h.file ? 'artifacts.html?file=' + encodeURIComponent(h.file) + meta : null });
   });
 }
 
@@ -197,7 +196,7 @@ function cronItems(scheduled, toggleScope, projectSlug) {
   return (scheduled || []).map(function(c) {
     var isActive = c.enabled !== false;
     var projParam = projectSlug ? encodeURIComponent(projectSlug) : 'org';
-    return itemCard({ icon: '&#9200;', iconClass: 'icon-cron', title: c.name, meta: c.schedule + (c.skill ? ' · ' + c.skill : ''), active: isActive, toggleScope: toggleScope, toggleType: 'scheduled_task', toggleName: c.name, onClick: c.file ? "location.href='artifacts.html?file=' + encodeURIComponent('" + c.file + "') + '&project=" + projParam + "'" : null });
+    return itemCard({ icon: '&#9200;', iconClass: 'icon-cron', title: c.name, meta: c.schedule + (c.skill ? ' · ' + c.skill : ''), active: isActive, toggleScope: toggleScope, toggleType: 'scheduled_task', toggleName: c.name, href: c.file ? 'artifacts.html?file=' + encodeURIComponent(c.file) + '&project=' + projParam : null });
   });
 }
 
@@ -237,7 +236,7 @@ function renderConfigPage(spec) {
 // before the fetch resolves and survives a rejection. The scope loaders
 // return a richer trail (resolved team.name, etc.) on success.
 function scopeCrumbs(scope) {
-  var crumbs = [{ label: 'Home', onClick: "location.href='index.html'" }];
+  var crumbs = [{ label: 'Home', href: 'index.html' }];
   if (!scope || scope.level === 'global') {
     crumbs.push({ label: 'Management Team' });
     return crumbs;
@@ -302,7 +301,7 @@ async function loadGlobal() {
 
   return {
     crumbs: [
-      { label: 'Home', onClick: "location.href='index.html'" },
+      { label: 'Home', href: 'index.html' },
       { label: 'Management Team' },
     ],
     description: m.description || 'Cross-project coordination, human interaction, organizational strategy, and configuration management.',
@@ -362,7 +361,7 @@ async function loadProject(slug) {
 
   return {
     crumbs: [
-      { label: 'Home', onClick: "location.href='index.html'" },
+      { label: 'Home', href: 'index.html' },
       { label: 'Management Team', onClick: "configNav('global')" },
       { label: (team.name || slug) + ' Team' },
     ],
@@ -426,7 +425,7 @@ async function loadWorkgroup(name, projectSlug) {
     });
   });
 
-  var crumbs = [{ label: 'Home', onClick: "location.href='index.html'" }, { label: 'Management Team', onClick: "configNav('global')" }];
+  var crumbs = [{ label: 'Home', href: 'index.html' }, { label: 'Management Team', onClick: "configNav('global')" }];
   if (projectSlug) crumbs.push({ label: projectSlug + ' Team', onClick: "configNav('project','" + projectSlug + "')" });
   crumbs.push({ label: name });
 
@@ -515,7 +514,7 @@ function _buildAgentSpec() {
     return '<div class="item' + cls + '"><div class="item-icon icon-member">&#9679;</div><div class="item-body"><div class="item-title">' + tool + '</div></div>' + toggle + '</div>';
   });
 
-  var crumbs = [{ label: 'Home', onClick: "location.href='index.html'" }, { label: 'Management Team', onClick: "configNav('global')" }];
+  var crumbs = [{ label: 'Home', href: 'index.html' }, { label: 'Management Team', onClick: "configNav('global')" }];
   if (projectSlug) crumbs.push({ label: projectSlug + ' Team', onClick: "configNav('project','" + projectSlug + "')" });
   crumbs.push({ label: name });
 

@@ -51,7 +51,7 @@
   .artifact-job-link {
     display: inline-block; font-size: 9px; padding: 2px 8px; border-radius: 3px;
     background: rgba(78,204,163,0.15); color: var(--green); cursor: pointer;
-    margin-bottom: 12px;
+    margin-bottom: 12px; text-decoration: none;
   }
   .artifact-content {
     background: var(--surface); border: 1px solid var(--border); border-radius: 5px;
@@ -399,7 +399,7 @@ function render() {
   document.title = 'TeaParty \u2014 ' + displayName + ' Artifacts';
 
   document.getElementById('breadcrumb-slot').innerHTML = breadcrumbBar([
-    { label: 'Home', onClick: "location.href='index.html'" },
+    { label: 'Home', href: 'index.html' },
     { label: displayName + ' Artifacts' },
   ]);
 
@@ -506,7 +506,7 @@ function renderFileView(path, content) {
   if (isJobArtifact(path)) {
     var convId = jobConvId(path);
     if (convId) {
-      html += '<div class="artifact-job-link" onclick="openJobChat(' + JSON.stringify(convId) + ')">View job conversation &#8594;</div>';
+      html += '<a class="artifact-job-link" href="chat.html?conv=' + encodeURIComponent(convId) + '">View job conversation &#8594;</a>';
     }
   }
 
@@ -602,10 +602,6 @@ async function loadFile(path) {
     loadError = 'Could not load file: ' + e.message;
   }
   render();
-}
-
-function openJobChat(convId) {
-  location.href = 'chat.html?conv=' + encodeURIComponent(convId);
 }
 
 function closeFile(path) {
