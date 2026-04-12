@@ -285,6 +285,24 @@ class Session:
             session_id=self.session_id,
         ))
 
+        # Telemetry: session_create (Issue #405)
+        try:
+            from teaparty.telemetry import record_event
+            from teaparty.telemetry import events as _telem_events
+            record_event(
+                _telem_events.SESSION_CREATE,
+                scope=self.project_slug or 'management',
+                session_id=self.session_id,
+                data={
+                    'qualifier': self._conversation_id,
+                    'parent_session_id': '',
+                    'dispatch_message_len': len(self.task),
+                    'purpose': 'normal',
+                },
+            )
+        except Exception:
+            pass
+
         # 7. Initialize CfA state at the correct starting point
         from teaparty.cfa.statemachine.cfa_state import transition, set_state_direct
         cfa = make_initial_state(task_id=self.session_id)
@@ -418,6 +436,24 @@ class Session:
 
         # 14. Clean up session worktree (after learnings, before publish)
         await release_worktree(worktree_path)
+
+        # Telemetry: session_complete (Issue #405)
+        try:
+            from teaparty.telemetry import record_event
+            from teaparty.telemetry import events as _telem_events
+            record_event(
+                _telem_events.SESSION_COMPLETE,
+                scope=self.project_slug or 'management',
+                session_id=self.session_id,
+                data={
+                    'final_phase': result.terminal_state,
+                    'total_turns': 0,
+                    'total_cost_usd': 0.0,
+                    'response_text_len': 0,
+                },
+            )
+        except Exception:
+            pass
 
         # 15. Publish session complete
         await self.event_bus.publish(Event(

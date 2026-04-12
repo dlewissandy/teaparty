@@ -294,6 +294,10 @@ class TeaPartyBridge:
         # ── Stats endpoint ────────────────────────────────────────────────────
         app.router.add_get('/api/stats', self._handle_stats)
 
+        # ── Telemetry endpoints (Issue #405) ──────────────────────────────────
+        app.router.add_get('/api/telemetry/events', self._handle_telemetry_events)
+        app.router.add_get('/api/telemetry/stats/{scope}', self._handle_telemetry_stats)
+
         # ── Config endpoints ──────────────────────────────────────────────────
         app.router.add_get('/api/config', self._handle_config)
         app.router.add_post('/api/config/management/toggle', self._handle_config_management_toggle)
@@ -466,6 +470,35 @@ class TeaPartyBridge:
                 except Exception:
                     pass
 
+        # ── Telemetry store (Issue #405) ──────────────────────────────────
+        # One SQLite database at {teaparty_home}/telemetry.db. Every write
+        # path in the codebase routes through telemetry.record_event; this
+        # wires the broadcast hook so each write fans out to WebSocket
+        # clients via the local `broadcast` closure.
+        try:
+            from teaparty import telemetry
+            from teaparty.telemetry import events as telem_events
+            telemetry.set_teaparty_home(self.teaparty_home)
+            telemetry.set_broadcaster(broadcast, asyncio.get_running_loop())
+            # One-time migration of pre-telemetry per-scope data files.
+            try:
+                telemetry.migrate_metrics_db(self.teaparty_home)
+            except Exception:
+                _log.warning(
+                    'telemetry migration failed', exc_info=True,
+                )
+            telemetry.record_event(
+                telem_events.SERVER_START,
+                scope='management',
+                data={
+                    'teaparty_home_path': self.teaparty_home,
+                },
+            )
+        except Exception:
+            _log.warning(
+                'failed to initialize telemetry store', exc_info=True,
+            )
+
         def bus_factory(infra_dir: str) -> SqliteMessageBus:
             db_path = os.path.join(infra_dir, 'messages.db')
             bus = SqliteMessageBus(db_path)
@@ -487,6 +520,19 @@ class TeaPartyBridge:
             self._get_agent_bus(agent_name)
 
     async def _on_cleanup(self, app: web.Application) -> None:
+        # Emit server_shutdown telemetry before tearing anything down.
+        try:
+            from teaparty import telemetry
+            from teaparty.telemetry import events as telem_events
+            telemetry.record_event(
+                telem_events.SERVER_SHUTDOWN,
+                scope='management',
+                data={'graceful': True},
+            )
+            telemetry.set_broadcaster(None)
+        except Exception:
+            pass
+
         # Shut down MCP session manager
         if hasattr(self, '_mcp_session_ctx') and self._mcp_session_ctx:
             try:
@@ -556,6 +602,79 @@ class TeaPartyBridge:
         from teaparty.bridge.stats import compute_stats
         data = compute_stats(self.teaparty_home)
         return web.json_response(data)
+
+    # ── Telemetry handlers (Issue #405) ────────────────────────────────────
+    async def _handle_telemetry_events(
+        self, request: web.Request,
+    ) -> web.Response:
+        """Raw event query. Supports scope, agent, session, event_type,
+        start_ts, end_ts, limit. Used by admin dashboards."""
+        from teaparty import telemetry
+
+        def qp(name):
+            v = request.query.get(name)
+            return v if v else None
+
+        def fp(name):
+            v = request.query.get(name)
+            try:
+                return float(v) if v else None
+            except (TypeError, ValueError):
+                return None
+
+        def ip(name):
+            v = request.query.get(name)
+            try:
+                return int(v) if v else None
+            except (TypeError, ValueError):
+                return None
+
+        events = telemetry.query_events(
+            scope=qp('scope'),
+            agent=qp('agent'),
+            session=qp('session'),
+            event_type=qp('event_type'),
+            start_ts=fp('start_ts'),
+            end_ts=fp('end_ts'),
+            limit=ip('limit') or 1000,
+        )
+        return web.json_response({
+            'events': [
+                {
+                    'id':         e.id,
+                    'ts':         e.ts,
+                    'scope':      e.scope,
+                    'agent_name': e.agent_name,
+                    'session_id': e.session_id,
+                    'event_type': e.event_type,
+                    'data':       e.data,
+                }
+                for e in events
+            ],
+        })
+
+    async def _handle_telemetry_stats(
+        self, request: web.Request,
+    ) -> web.Response:
+        """Aggregated stats for a scope. Reads every aggregation helper
+        for the given scope and returns a single dict for the stats bar."""
+        from teaparty import telemetry
+        scope = request.match_info['scope']
+        s = scope if scope != 'all' else None
+        return web.json_response({
+            'scope':          scope,
+            'total_cost':     telemetry.total_cost(scope=s),
+            'turn_count':     telemetry.turn_count(scope=s),
+            'active_sessions':      telemetry.active_sessions(scope=s),
+            'gates_awaiting_input': telemetry.gates_awaiting_input(scope=s),
+            'backtrack_count':      telemetry.backtrack_count(scope=s),
+            'backtrack_cost':       telemetry.backtrack_cost(scope=s),
+            'phase_distribution':   telemetry.phase_distribution(scope=s),
+            'escalation_stats':     telemetry.escalation_stats(scope=s),
+            'proxy_answer_rate':    telemetry.proxy_answer_rate(scope=s),
+            'withdrawal_phase_distribution':
+                telemetry.withdrawal_phase_distribution(scope=s),
+        })
 
     # ── Config handlers ───────────────────────────────────────────────────────
 
@@ -1161,6 +1280,31 @@ class TeaPartyBridge:
         except ValueError as exc:
             return web.json_response({'error': str(exc)}, status=409)
 
+        # Telemetry: chat_message_sent (Issue #405).
+        try:
+            from teaparty import telemetry
+            from teaparty.telemetry import events as _telem_events
+            target_session = ''
+            telem_scope = 'management'
+            if conv_id.startswith('job:'):
+                _parts = conv_id.split(':')
+                if len(_parts) >= 3:
+                    telem_scope = _parts[1]
+                    target_session = _parts[2]
+            telemetry.record_event(
+                _telem_events.CHAT_MESSAGE_SENT,
+                scope=telem_scope,
+                session_id=target_session or None,
+                data={
+                    'conv_id':           conv_id,
+                    'target_session_id': target_session,
+                    'content_len':       len(content),
+                    'was_awaiting_input': False,
+                },
+            )
+        except Exception:
+            pass
+
         # Implicit resume (issue #403): if this message targets a session
         # in a paused project, resume the smallest subtree containing
         # the target before invoking the agent.
@@ -1282,6 +1426,24 @@ class TeaPartyBridge:
 
         if response.get('status') == 'error':
             return web.json_response({'error': response.get('reason', 'unknown error')}, status=409)
+
+        # Telemetry: interjection_received — human typed into an agent
+        # conversation that wasn't awaiting input (Issue #405).
+        try:
+            from teaparty import telemetry
+            from teaparty.telemetry import events as _telem_events
+            telemetry.record_event(
+                _telem_events.INTERJECTION_RECEIVED,
+                scope='management',
+                data={
+                    'conv_id': conv_id,
+                    'content_len': len(content),
+                    'was_session_awaiting_child': False,
+                },
+            )
+        except Exception:
+            pass
+
         return web.json_response({'status': 'ok'})
 
     def _find_interjection_socket(self, conv_id: str) -> str:
@@ -2073,6 +2235,28 @@ class TeaPartyBridge:
                 await ws.send_str(payload)
             except Exception:
                 pass
+
+        # Telemetry — withdraw_clicked + session_withdrawn (Issue #405).
+        try:
+            from teaparty import telemetry
+            from teaparty.telemetry import events as _telem_events
+            project_slug = result.get('project_slug') or 'management'
+            telemetry.record_event(
+                _telem_events.WITHDRAW_CLICKED,
+                scope=project_slug,
+                session_id=session_id,
+            )
+            telemetry.record_event(
+                _telem_events.SESSION_WITHDRAWN,
+                scope=project_slug,
+                session_id=session_id,
+                data={
+                    'phase_at_withdrawal': result.get('phase_at_withdrawal', ''),
+                    'reason_len':          len(str(result.get('reason', '') or '')),
+                },
+            )
+        except Exception:
+            pass
 
         return web.json_response(result)
 

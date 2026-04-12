@@ -510,87 +510,94 @@ class TestSessionHealthDetection(unittest.TestCase):
         self.assertFalse(should_clear_session(response_text='Hello', session_id='abc'))
 
 
-# ── 11. Per-scope metrics.db ─────────────────────────────────────────────────
+# ── 11. Telemetry events (Issue #405) ───────────────────────────────────────
 
-class TestMetrics(_TempDirMixin, unittest.TestCase):
-    """Metrics must be written to {scope}/metrics.db after each turn."""
+class TestTelemetry(_TempDirMixin, unittest.TestCase):
+    """Per-turn telemetry must be written to the unified event store.
+
+    Issue #405: the legacy per-scope metrics.db was replaced with a
+    single event-sourced store at {teaparty_home}/telemetry.db. Every
+    launch emits turn_start before the subprocess runs and turn_complete
+    after it returns.
+    """
 
     def setUp(self):
         super().setUp()
         self._tp = _make_teaparty_tree(self._tmpdir)
+        from teaparty import telemetry
+        telemetry.reset_for_tests()
+        telemetry.set_teaparty_home(self._tp)
 
-    def test_record_metrics_creates_db(self):
-        """_record_metrics must create metrics.db under {scope}/."""
-        from teaparty.runners.launcher import _record_metrics
-        from teaparty.runners.claude import ClaudeResult
-        result = ClaudeResult(
-            exit_code=0, cost_usd=0.05,
-            input_tokens=1000, output_tokens=500, duration_ms=3000,
-        )
-        _record_metrics(
-            teaparty_home=self._tp,
-            scope='management',
-            agent_name='test-agent',
-            session_id='sess-abc',
-            result=result,
-        )
-        db_path = os.path.join(self._tp, 'management', 'metrics.db')
-        self.assertTrue(os.path.exists(db_path))
+    def tearDown(self):
+        from teaparty import telemetry
+        telemetry.reset_for_tests()
+        super().tearDown()
 
-    def test_record_metrics_writes_turn_data(self):
-        """metrics.db must contain the turn data keyed by session and agent."""
-        import sqlite3
-        from teaparty.runners.launcher import _record_metrics
+    def test_launch_emits_turn_start_and_turn_complete(self):
+        """launch() must emit TURN_START before the subprocess and
+        TURN_COMPLETE after it returns — through the real launch() path,
+        not through record_event called directly."""
+        import asyncio
+        from teaparty import telemetry
+        from teaparty.telemetry import events as E
+        from teaparty.runners.launcher import launch
         from teaparty.runners.claude import ClaudeResult
-        result = ClaudeResult(
-            exit_code=0, cost_usd=0.05,
-            input_tokens=1000, output_tokens=500, duration_ms=3000,
-        )
-        _record_metrics(
-            teaparty_home=self._tp,
-            scope='management',
-            agent_name='test-agent',
-            session_id='sess-abc',
-            result=result,
-        )
-        db_path = os.path.join(self._tp, 'management', 'metrics.db')
-        conn = sqlite3.connect(db_path)
-        rows = conn.execute(
-            'SELECT agent_name, cost_usd, input_tokens, output_tokens, duration_ms '
-            'FROM turn_metrics WHERE session_id = ?',
-            ('sess-abc',),
-        ).fetchall()
-        conn.close()
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0][0], 'test-agent')
-        self.assertAlmostEqual(rows[0][1], 0.05)
-        self.assertEqual(rows[0][2], 1000)
-        self.assertEqual(rows[0][3], 500)
-        self.assertEqual(rows[0][4], 3000)
 
-    def test_metrics_survive_multiple_writes(self):
-        """Multiple turns should accumulate in metrics.db."""
-        import sqlite3
-        from teaparty.runners.launcher import _record_metrics
-        from teaparty.runners.claude import ClaudeResult
-        for i in range(3):
-            result = ClaudeResult(
-                exit_code=0, cost_usd=0.01 * (i + 1),
-                input_tokens=100 * (i + 1), output_tokens=50 * (i + 1),
-                duration_ms=1000 * (i + 1),
+        wt = os.path.join(self._tmpdir, 'wt')
+        os.makedirs(os.path.join(wt, '.claude'), exist_ok=True)
+        with open(os.path.join(wt, '.claude', 'CLAUDE.md'), 'w') as f:
+            f.write('# stub\n')
+
+        async def stub_caller(**kwargs):
+            return ClaudeResult(
+                exit_code=0, cost_usd=0.05,
+                input_tokens=1000, output_tokens=500, duration_ms=3000,
             )
-            _record_metrics(
-                teaparty_home=self._tp,
-                scope='management',
-                agent_name='test-agent',
-                session_id=f'sess-{i}',
-                result=result,
+
+        async def run():
+            return await launch(
+                agent_name='test-agent', message='hello',
+                scope='management', teaparty_home=self._tp,
+                worktree=wt, llm_caller=stub_caller,
             )
-        db_path = os.path.join(self._tp, 'management', 'metrics.db')
-        conn = sqlite3.connect(db_path)
-        count = conn.execute('SELECT COUNT(*) FROM turn_metrics').fetchone()[0]
-        conn.close()
-        self.assertEqual(count, 3)
+
+        asyncio.run(run())
+
+        starts = telemetry.query_events(event_type=E.TURN_START)
+        completes = telemetry.query_events(event_type=E.TURN_COMPLETE)
+        self.assertEqual(
+            len(starts), 1,
+            'launch() must emit exactly one TURN_START',
+        )
+        self.assertEqual(
+            len(completes), 1,
+            'launch() must emit exactly one TURN_COMPLETE',
+        )
+        ev = completes[0]
+        self.assertEqual(ev.agent_name, 'test-agent')
+        self.assertEqual(ev.scope, 'management')
+        self.assertAlmostEqual(ev.data['cost_usd'], 0.05)
+        self.assertEqual(ev.data['input_tokens'], 1000)
+        self.assertEqual(ev.data['output_tokens'], 500)
+        self.assertEqual(ev.data['duration_ms'], 3000)
+
+        # No legacy metrics.db created.
+        self.assertFalse(
+            os.path.exists(os.path.join(self._tp, 'management', 'metrics.db')),
+            'launch() must not create legacy metrics.db',
+        )
+        self.assertTrue(
+            os.path.exists(os.path.join(self._tp, 'telemetry.db')),
+            'telemetry.db must be at teaparty_home root',
+        )
+
+    def test_legacy_record_metrics_is_removed(self):
+        """The legacy _record_metrics function must not exist."""
+        from teaparty.runners import launcher
+        self.assertFalse(
+            hasattr(launcher, '_record_metrics'),
+            'Issue #405: _record_metrics was replaced by record_event',
+        )
 
 
 if __name__ == '__main__':

@@ -83,6 +83,41 @@ async def close_conversation(
 
     sessions_dir = os.path.join(teaparty_home, scope, 'sessions')
 
+    # Telemetry: close_conversation + session_closed for the target and
+    # every descendant brought down by the recursive cascade (Issue #405).
+    # collect_descendants is inclusive — it returns [target, ...descendants].
+    try:
+        from teaparty.telemetry import record_event
+        from teaparty.telemetry import events as _telem_events
+        walk = collect_descendants(sessions_dir, child_session_id)
+        record_event(
+            _telem_events.CLOSE_CONVERSATION,
+            scope=scope,
+            session_id=parent_session.id if parent_session else None,
+            data={
+                'conv_id':         conversation_id,
+                'triggered_from':  'agent',
+                'child_session':   child_session_id,
+                'descendants':     max(len(walk) - 1, 0),
+            },
+        )
+        for sid in walk:
+            reason = ('explicit_close' if sid == child_session_id
+                      else 'recursive_cascade')
+            record_event(
+                _telem_events.SESSION_CLOSED,
+                scope=scope,
+                session_id=sid,
+                data={
+                    'reason':               reason,
+                    'triggered_by_session_id': (
+                        parent_session.id if parent_session else None
+                    ),
+                },
+            )
+    except Exception:
+        pass
+
     # Recursively close child + descendants, merging from the leaves up.
     result = await _close_recursive(sessions_dir, child_session_id)
     if result['status'] != 'ok':

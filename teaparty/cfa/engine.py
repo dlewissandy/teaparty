@@ -1981,6 +1981,75 @@ class Orchestrator:
         state_path = os.path.join(self.infra_dir, '.cfa-state.json')
         save_state(self.cfa, state_path)
 
+        # Telemetry — phase_changed on every transition, phase_backtrack
+        # when the machine counted one (Issue #405).
+        try:
+            from teaparty.telemetry import record_event
+            from teaparty.telemetry import events as _telem_events
+            _scope = self.project_slug or 'management'
+            old_phase = phase_for_state(old_state)
+            # Save the previous phase-entry timestamp before overwriting —
+            # the backtrack cost query needs the window from when the prior
+            # phase was entered until now.
+            _prev_phase_entry = getattr(self, '_phase_entry_ts', 0.0)
+            self._phase_entry_ts = time.time()
+            record_event(
+                _telem_events.PHASE_CHANGED,
+                scope=_scope,
+                agent_name=None,
+                session_id=self.session_id,
+                data={
+                    'old_state':     old_state,
+                    'new_state':     self.cfa.state,
+                    'old_phase':     old_phase,
+                    'new_phase':     self.cfa.phase,
+                    'action':        action,
+                    'actor':         self.cfa.actor,
+                    'state_machine': 'cfa',
+                },
+            )
+            # The CfA machine increments backtrack_count when a backtrack
+            # edge fires — emit phase_backtrack for those transitions.
+            if self.cfa.backtrack_count > (
+                getattr(self, '_last_backtrack_count', 0)
+            ):
+                # Estimate cost being discarded by summing turn_complete
+                # costs for this session recorded since the backtracked
+                # phase was entered. Scoped to session_id so concurrent
+                # sessions in the same scope are excluded.
+                _discarded = 0.0
+                try:
+                    from teaparty.telemetry import query as _tq
+                    _cost_events = _tq.query_events(
+                        event_type=_telem_events.TURN_COMPLETE,
+                        scope=_scope,
+                        session=self.session_id,
+                        start_ts=_prev_phase_entry,
+                        end_ts=time.time(),
+                    )
+                    _discarded = round(sum(
+                        float(e.data.get('cost_usd', 0.0) or 0.0)
+                        for e in _cost_events
+                    ), 6)
+                except Exception:
+                    pass
+
+                record_event(
+                    _telem_events.PHASE_BACKTRACK,
+                    scope=_scope,
+                    session_id=self.session_id,
+                    data={
+                        'kind':            f'{old_phase}_to_{self.cfa.phase}',
+                        'triggering_gate': old_state,
+                        'action':          action,
+                        'backtrack_count': self.cfa.backtrack_count,
+                        'cost_of_work_being_discarded': _discarded,
+                    },
+                )
+                self._last_backtrack_count = self.cfa.backtrack_count
+        except Exception:
+            _log.debug('telemetry emit failed in _transition', exc_info=True)
+
         await self.event_bus.publish(Event(
             type=EventType.STATE_CHANGED,
             data={

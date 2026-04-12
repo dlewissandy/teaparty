@@ -633,6 +633,19 @@ class ApprovalGate:
         project_slug = ctx.env_vars.get('POC_PROJECT', 'default')
         team = ctx.env_vars.get('POC_TEAM', '')
 
+        # Telemetry: gate_opened (Issue #405)
+        try:
+            from teaparty.telemetry import record_event
+            from teaparty.telemetry import events as _telem_events
+            record_event(
+                _telem_events.GATE_OPENED,
+                scope=project_slug or 'management',
+                session_id=ctx.session_id,
+                data={'gate_type': ctx.state, 'phase_entering': ctx.state},
+            )
+        except Exception:
+            pass
+
         from teaparty.proxy.agent import consult_proxy
         gate_question = _GATE_QUESTIONS.get(ctx.state, f'Please review: {artifact_path}')
         dialog_history = ''
@@ -713,6 +726,34 @@ class ApprovalGate:
                     prediction='proxy', outcome=action,
                     delta=feedback if action != 'approve' else '',
                 )
+
+                # Telemetry: gate_passed / gate_failed (Issue #405)
+                try:
+                    from teaparty.telemetry import record_event
+                    from teaparty.telemetry import events as _telem_events
+                    if action == 'approve':
+                        record_event(
+                            _telem_events.GATE_PASSED,
+                            scope=project_slug or 'management',
+                            session_id=ctx.session_id,
+                            data={'gate_type': ctx.state},
+                        )
+                    else:
+                        record_event(
+                            _telem_events.GATE_FAILED,
+                            scope=project_slug or 'management',
+                            session_id=ctx.session_id,
+                            data={
+                                'gate_type': ctx.state,
+                                'reason_len': len(feedback or ''),
+                                'resulted_in_backtrack': action in (
+                                    'correct', 'reject', 'backtrack',
+                                ),
+                            },
+                        )
+                except Exception:
+                    pass
+
                 return ActorResult(
                     action=action, feedback=feedback,
                     dialog_history=dialog_history,

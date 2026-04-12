@@ -22,6 +22,8 @@ from typing import Any, Callable
 import yaml
 
 from teaparty.runners.claude import ClaudeResult
+from teaparty.telemetry import events as _telem_events
+from teaparty.telemetry import record_event
 
 
 # ── Data ─────────────────────────────────────────────────────────────────────
@@ -629,66 +631,6 @@ def should_clear_session(*, response_text: str, session_id: str) -> bool:
     return not response_text and bool(session_id)
 
 
-# ── Metrics ──────────────────────────────────────────────────────────────────
-
-def _record_metrics(
-    *,
-    teaparty_home: str,
-    scope: str,
-    agent_name: str,
-    session_id: str,
-    result: ClaudeResult,
-) -> None:
-    """Write turn metrics to {scope}/metrics.db.
-
-    Writes cost, tokens, duration keyed by session/agent/turn.
-    The database survives session cleanup.
-    """
-    import sqlite3
-
-    db_path = os.path.join(teaparty_home, scope, 'metrics.db')
-    os.makedirs(os.path.dirname(db_path), exist_ok=True)
-    try:
-        conn = sqlite3.connect(db_path)
-        conn.execute('PRAGMA journal_mode=WAL')
-        conn.execute('''
-            CREATE TABLE IF NOT EXISTS turn_metrics (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                session_id TEXT NOT NULL,
-                agent_name TEXT NOT NULL,
-                timestamp REAL NOT NULL,
-                cost_usd REAL NOT NULL DEFAULT 0.0,
-                input_tokens INTEGER NOT NULL DEFAULT 0,
-                output_tokens INTEGER NOT NULL DEFAULT 0,
-                duration_ms INTEGER NOT NULL DEFAULT 0,
-                exit_code INTEGER NOT NULL DEFAULT 0
-            )
-        ''')
-        conn.execute(
-            'INSERT INTO turn_metrics '
-            '(session_id, agent_name, timestamp, cost_usd, input_tokens, '
-            'output_tokens, duration_ms, exit_code) '
-            'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            (
-                session_id,
-                agent_name,
-                time.time(),
-                result.cost_usd,
-                result.input_tokens,
-                result.output_tokens,
-                result.duration_ms,
-                result.exit_code,
-            ),
-        )
-        conn.commit()
-        conn.close()
-    except Exception:
-        import logging
-        logging.getLogger('teaparty.runners.launcher').warning(
-            'Failed to record metrics', exc_info=True,
-        )
-
-
 # ── LLM caller type and default implementation ──────────────────────────────
 
 # An llm_caller is an async function that takes the launch parameters and
@@ -857,6 +799,28 @@ async def launch(
         effective_mcp_path = ''
         strict_mcp = False
 
+    # Point telemetry at this teaparty_home (idempotent) and emit
+    # turn_start before the subprocess runs.
+    try:
+        from teaparty.telemetry import set_teaparty_home
+        set_teaparty_home(teaparty_home)
+    except Exception:
+        pass
+
+    record_event(
+        _telem_events.TURN_START,
+        scope=scope,
+        agent_name=agent_name,
+        session_id=session_id,
+        data={
+            'trigger': 'dispatch' if resume_session else 'new',
+            'claude_session': resume_session or '',
+            'model': '',
+            'resume_from_phase': None,
+        },
+    )
+    _turn_start_wall = time.time()
+
     # Delegate to the llm_caller. Default is _default_claude_caller
     # which wraps ClaudeRunner. Tests inject a scripted caller.
     result = await llm_caller(
@@ -885,13 +849,24 @@ async def launch(
         env_vars=env_vars or {},
     )
 
-    # Write metrics to per-scope metrics.db (survives session cleanup)
-    _record_metrics(
-        teaparty_home=teaparty_home,
+    # Emit turn_complete with per-turn cost, tokens, and duration.
+    record_event(
+        _telem_events.TURN_COMPLETE,
         scope=scope,
         agent_name=agent_name,
         session_id=session_id or result.session_id,
-        result=result,
+        data={
+            'duration_ms':          result.duration_ms,
+            'exit_code':            result.exit_code,
+            'cost_usd':             result.cost_usd,
+            'input_tokens':         result.input_tokens,
+            'output_tokens':        result.output_tokens,
+            'cache_read_tokens':    getattr(result, 'cache_read_tokens', 0),
+            'cache_create_tokens':  getattr(result, 'cache_create_tokens', 0),
+            'response_text_len':    len(getattr(result, 'response_text', '') or ''),
+            'tools_called':         getattr(result, 'tools_called', {}) or {},
+            'wall_duration_ms':     int((time.time() - _turn_start_wall) * 1000),
+        },
     )
 
     return result
