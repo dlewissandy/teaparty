@@ -111,12 +111,6 @@
 <div class="blade-layout">
 <div id="breadcrumb-slot" style="padding:6px 12px"></div>
 <script src="breadcrumb.js"></script>
-<script>
-document.getElementById('breadcrumb-slot').innerHTML = breadcrumbBar([
-  { label: 'Home', onClick: "location.href='index.html'" },
-  { label: 'Artifacts' },
-]);
-</script>
 <div id="content" class="app-pane active" style="flex:1;min-width:0"></div>
 <div class="blade" id="blade">
   <div class="blade-tab" onclick="toggleBlade()">Config Lead</div>
@@ -399,6 +393,11 @@ function renderPinnedNodes(nodes, depth) {
 function render() {
   var displayName = customTitle || (currentProject.charAt(0).toUpperCase() + currentProject.slice(1));
   document.title = 'TeaParty \u2014 ' + displayName + ' Artifacts';
+
+  document.getElementById('breadcrumb-slot').innerHTML = breadcrumbBar([
+    { label: 'Home', onClick: "location.href='index.html'" },
+    { label: displayName + ' Artifacts' },
+  ]);
 
   var showCopy = selectedFile !== null && fileContent !== null && fileContent !== '';
   var copyBtn = showCopy

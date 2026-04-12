@@ -20,6 +20,7 @@ from pathlib import Path
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "teaparty" / "bridge" / "static"
 BREADCRUMB_JS = STATIC_DIR / "breadcrumb.js"
+STYLES_CSS = STATIC_DIR / "styles.css"
 
 
 def _find_breadcrumb_calls(text: str) -> list[str]:
@@ -127,6 +128,44 @@ def _last_entry_label(entry: str) -> str | None:
     return m.group(1).strip()
 
 
+def _find_function_body(src: str, func_name: str) -> str:
+    """Return the body (contents of outer braces) of the named JS function."""
+    m = re.search(rf"function\s+{re.escape(func_name)}\s*\([^)]*\)\s*\{{", src)
+    if not m:
+        raise AssertionError(f"function {func_name} not found")
+    start = m.end()
+    depth = 1
+    i = start
+    while i < len(src) and depth > 0:
+        if src[i] == "{":
+            depth += 1
+        elif src[i] == "}":
+            depth -= 1
+        i += 1
+    return src[start : i - 1]
+
+
+def _last_pushed_entry(body: str, var_name: str) -> str | None:
+    """Return the arg text of the final `{var_name}.push(...)` call in body."""
+    pat = re.compile(rf"{re.escape(var_name)}\.push\s*\(")
+    last: str | None = None
+    for m in pat.finditer(body):
+        start = m.end()
+        depth = 1
+        j = start
+        while j < len(body) and depth > 0:
+            c = body[j]
+            if c == "(":
+                depth += 1
+            elif c == ")":
+                depth -= 1
+                if depth == 0:
+                    last = body[start:j].strip()
+                    break
+            j += 1
+    return last
+
+
 class BreadcrumbHelperTests(unittest.TestCase):
     """The shared helper must exist and define the canonical breadcrumbBar function."""
 
@@ -146,21 +185,90 @@ class BreadcrumbHelperTests(unittest.TestCase):
             "single helper all static pages are required to use",
         )
 
-    def test_shared_helper_renders_current_entry_without_onclick(self):
-        """The helper must produce non-anchor output for entries missing onClick."""
+    def test_shared_helper_renders_linked_branch_as_anchor(self):
+        """Entries with onClick must render as <a>. A regression that emits <span>
+        for every entry would break criterion 3 (left entries clickable)."""
         src = BREADCRUMB_JS.read_text()
-        # Helper should branch on presence of onClick and render a non-anchor
-        # form (span-styled) for the current entry.
         self.assertRegex(
             src,
-            r"onClick",
-            "breadcrumb.js must inspect onClick to decide linked vs current entry",
+            r"if\s*\(\s*p\.onClick\s*\)[^}]*<a\b[^>]*onclick",
+            "breadcrumb.js must render entries with onClick as <a onclick=...>. "
+            "If this branch emits anything other than an anchor, ancestor crumbs "
+            "stop being clickable links.",
+        )
+
+    def test_shared_helper_renders_current_branch_as_span(self):
+        """Entries without onClick must render as <span class="current">. A regression
+        that emits <a> for them would lose the non-linked distinction (criterion 2/7)."""
+        src = BREADCRUMB_JS.read_text()
+        # The 'else' branch — the return statement AFTER the onClick branch — must
+        # emit a span with class="current".
+        self.assertRegex(
+            src,
+            r"return[^;]*<span[^>]*class=\"current\"[^>]*>[^<]*\+\s*p\.label",
+            "breadcrumb.js must render the non-linked (current) entry as "
+            '<span class="current">${p.label}</span>. Regressing to an <a> tag '
+            "would strip the non-clickable distinction from the rightmost crumb.",
+        )
+
+    def test_shared_helper_separator_uses_sep_class(self):
+        """The separator must carry class='sep' so CSS can target it without
+        colliding with .current."""
+        src = BREADCRUMB_JS.read_text()
+        self.assertRegex(
+            src,
+            r"<span\s+class=\"sep\">/</span>",
+            'breadcrumb.js must emit the separator as <span class="sep">/</span> '
+            "so the .sep CSS rule can dim it without also dimming .current",
+        )
+
+
+class BreadcrumbCssTests(unittest.TestCase):
+    """styles.css must give the current entry non-clickable visual treatment."""
+
+    def test_current_entry_has_text_color_and_default_cursor(self):
+        css = STYLES_CSS.read_text()
+        m = re.search(
+            r"\.breadcrumb-bar\s+\.current\s*\{([^}]*)\}",
+            css,
+        )
+        self.assertIsNotNone(
+            m,
+            "styles.css is missing the `.breadcrumb-bar .current` rule. Issue #399 "
+            "criterion 7 requires the rightmost crumb to have visual treatment "
+            "distinct from the clickable ancestors.",
+        )
+        rule_body = m.group(1)
+        self.assertIn(
+            "cursor: default",
+            rule_body,
+            ".breadcrumb-bar .current must set `cursor: default` so the rightmost "
+            "crumb does not appear clickable (criterion 7).",
         )
         self.assertIn(
-            "current",
-            src,
-            'breadcrumb.js must tag the non-linked entry with class "current" so CSS '
-            "can give it distinct, non-clickable styling",
+            "color: var(--text)",
+            rule_body,
+            ".breadcrumb-bar .current must set `color: var(--text)` so the rightmost "
+            "crumb does not share the green link color of the ancestors (criterion 7).",
+        )
+
+    def test_separator_has_its_own_rule(self):
+        css = STYLES_CSS.read_text()
+        self.assertRegex(
+            css,
+            r"\.breadcrumb-bar\s+\.sep\s*\{[^}]*color:\s*var\(--text-dim\)",
+            "styles.css must target the separator via `.breadcrumb-bar .sep` "
+            "specifically. A generic `.breadcrumb-bar span` rule would also dim "
+            "`.current` and defeat criterion 7.",
+        )
+        # Guard against a regression reintroducing the loose `span` selector
+        # that used to dim both separators and the current entry.
+        self.assertNotRegex(
+            css,
+            r"\.breadcrumb-bar\s+span\s*\{[^}]*color:\s*var\(--text-dim\)",
+            "styles.css must NOT have a generic `.breadcrumb-bar span` rule that "
+            "dims every span — that rule catches `.current` as well and hides the "
+            "visual distinction required by criterion 7.",
         )
 
 
@@ -239,21 +347,71 @@ class PageSpecificLabelTests(unittest.TestCase):
         )
         return label
 
-    def test_stats_rightmost_is_statistics(self):
+    def test_stats_rightmost_matches_h1(self):
+        """Criterion 2: the rightmost crumb label must equal the page's H1 text.
+        stats.html's H1 lives in `<div class="pane-title">Statistics</div>`; derive
+        the expected label from the HTML rather than hardcoding it, so renaming
+        the H1 without updating the crumb fails the test."""
+        src = (STATIC_DIR / "stats.html").read_text()
+        m = re.search(r'<div class="pane-title">([^<]+)</div>', src)
+        self.assertIsNotNone(
+            m, "stats.html must declare its H1 via <div class=\"pane-title\">...</div>"
+        )
+        expected = m.group(1).strip()
         label = self._last_label("stats.html")
-        self.assertIn(
-            "Statistics",
-            label,
-            f"stats.html rightmost breadcrumb label is {label!r}, expected 'Statistics' "
-            "to match the page identity",
+        # Strip JS quoting to compare string-literal values.
+        literal = label.strip().strip("'\"")
+        self.assertEqual(
+            literal,
+            expected,
+            f"stats.html breadcrumb label {literal!r} does not match its H1 "
+            f"{expected!r} — criterion 2 requires the rightmost crumb to match "
+            "the page H1 exactly. Update both together.",
         )
 
-    def test_artifacts_rightmost_is_artifacts(self):
+    def test_artifacts_rightmost_matches_dynamic_h1(self):
+        """artifacts.html's H1 is built in render() as `{displayName} Artifacts`.
+        The crumb must reflect the same expression, not a hardcoded literal, so
+        loading a different project updates both together (criterion 2)."""
+        src = (STATIC_DIR / "artifacts.html").read_text()
+        # The H1 source: <span class="artifact-header-title">' + escHtml(displayName) + ' Artifacts</span>
+        self.assertRegex(
+            src,
+            r'artifact-header-title"[^>]*>\'\s*\+\s*escHtml\(displayName\)\s*\+\s*\'\s*Artifacts',
+            "artifacts.html must build its H1 from `displayName + ' Artifacts'` — "
+            "if this changes, update the crumb in the same render() call together.",
+        )
         label = self._last_label("artifacts.html")
+        # Crumb label must also reference displayName AND end with ' Artifacts'
+        # so the two always render identical strings.
+        self.assertIn(
+            "displayName",
+            label,
+            f"artifacts.html rightmost crumb label is {label!r}, but the H1 is "
+            "built from `displayName`. The crumb must reference `displayName` "
+            "too so they always agree (criterion 2). Hardcoding 'Artifacts' "
+            "leaves the crumb stale when a different project is loaded.",
+        )
         self.assertIn(
             "Artifacts",
             label,
-            f"artifacts.html rightmost breadcrumb label is {label!r}, expected 'Artifacts'",
+            f"artifacts.html rightmost crumb label is {label!r}, expected it to "
+            "end with ' Artifacts' to match the H1",
+        )
+
+    def test_artifacts_breadcrumb_rendered_inside_render_function(self):
+        """artifacts.html's crumb must be re-rendered whenever render() runs, so
+        changing project (and therefore displayName) updates the crumb. A single
+        DOMContentLoaded injection is not enough — it would leave the crumb
+        frozen at the initial project's name."""
+        src = (STATIC_DIR / "artifacts.html").read_text()
+        body = _find_function_body(src, "render")
+        self.assertIn(
+            "breadcrumbBar",
+            body,
+            "artifacts.html's render() must call breadcrumbBar(...) so the "
+            "crumb refreshes whenever the page re-renders with a new "
+            "displayName (criterion 2).",
         )
 
     def test_config_loadglobal_rightmost_is_management_team(self):
@@ -294,6 +452,62 @@ class PageSpecificLabelTests(unittest.TestCase):
             "to match the page H1",
         )
 
+    def test_config_loadworkgroup_last_crumb_is_nonlinked(self):
+        """loadWorkgroup builds its bar via `var crumbs = [...]; crumbs.push(...)`
+        and passes `crumbs` (a variable) to breadcrumbBar. The inline-literal
+        linter skips this path, so check the final `.push(...)` explicitly: its
+        object literal must not contain onClick (criterion 1)."""
+        src = (STATIC_DIR / "config.html").read_text()
+        body = _find_function_body(src, "loadWorkgroup")
+        last = _last_pushed_entry(body, "crumbs")
+        self.assertIsNotNone(
+            last,
+            "loadWorkgroup must build its breadcrumb via crumbs.push(...) calls",
+        )
+        self.assertNotIn(
+            "onClick",
+            last,
+            f"loadWorkgroup's final crumbs.push entry {last!r} contains onClick "
+            "— the rightmost crumb (current workgroup) must be non-linked",
+        )
+        # And the current-entry label must match the workgroup name that titles
+        # the page (spec.title in the same function).
+        self.assertRegex(
+            body,
+            r"title:\s*name\b",
+            "loadWorkgroup must set `title: name` so the H1 matches the "
+            "rightmost crumb label (criterion 2)",
+        )
+        self.assertIn(
+            "name",
+            last,
+            f"loadWorkgroup's final crumb {last!r} must reference the workgroup "
+            "`name` so the crumb matches the page H1",
+        )
+
+    def test_config_buildagentspec_last_crumb_is_nonlinked(self):
+        """_buildAgentSpec uses the same crumbs-variable pattern as loadWorkgroup
+        and is invisible to the inline-literal linter for the same reason."""
+        src = (STATIC_DIR / "config.html").read_text()
+        body = _find_function_body(src, "_buildAgentSpec")
+        last = _last_pushed_entry(body, "crumbs")
+        self.assertIsNotNone(
+            last,
+            "_buildAgentSpec must build its breadcrumb via crumbs.push(...) calls",
+        )
+        self.assertNotIn(
+            "onClick",
+            last,
+            f"_buildAgentSpec's final crumbs.push entry {last!r} contains "
+            "onClick — the rightmost crumb (current agent) must be non-linked",
+        )
+        self.assertIn(
+            "name",
+            last,
+            f"_buildAgentSpec's final crumb {last!r} must reference `name` so "
+            "it matches the agent detail H1 (criterion 2)",
+        )
+
     def test_chat_rightmost_is_dynamic_conversation_title(self):
         """Standalone chat page must use the conversation's header title as the last crumb."""
         src = (STATIC_DIR / "chat.html").read_text()
@@ -325,16 +539,61 @@ class PageSpecificLabelTests(unittest.TestCase):
 class MinimalChatBehaviorTests(unittest.TestCase):
     """chat.html minimal mode (iframe in accordion blade) must still hide the bar."""
 
-    def test_minimal_mode_still_hides_breadcrumb(self):
+    def test_minimal_mode_sets_breadcrumb_slot_display_none(self):
+        """Criterion 6: in minimal mode the breadcrumb slot must be hidden. The
+        assertion targets the specific statement, not just any appearance of
+        'minimal' and 'display' on the same line."""
         src = (STATIC_DIR / "chat.html").read_text()
-        # The minimal branch must continue to suppress the bar. Either by setting
-        # display:none on the slot, or by skipping the breadcrumb render entirely.
         self.assertRegex(
             src,
-            r"minimal[^}]*(breadcrumb|display\s*=\s*['\"]none)",
-            "chat.html minimal mode must continue to hide the breadcrumb — the "
-            "accordion already conveys location, so the bar is redundant there",
+            r"if\s*\(\s*minimal\s*\)\s*\{[^}]*getElementById\(['\"]breadcrumb-slot['\"]\)"
+            r"\.style\.display\s*=\s*['\"]none['\"]",
+            "chat.html must hide the breadcrumb slot inside an "
+            "`if (minimal) { ... breadcrumb-slot.style.display = 'none' ... }` "
+            "branch. Without this, the iframe-embedded chat shows a redundant "
+            "breadcrumb on top of the accordion blade.",
         )
+
+    def test_standalone_mode_populates_breadcrumb_slot(self):
+        """Criterion 6: in non-minimal mode the breadcrumb slot must be filled
+        via the shared helper, in the else branch of the same minimal check."""
+        src = (STATIC_DIR / "chat.html").read_text()
+        self.assertRegex(
+            src,
+            r"else\s*\{[^}]*getElementById\(['\"]breadcrumb-slot['\"]\)\s*\.innerHTML"
+            r"\s*=\s*breadcrumbBar\s*\(",
+            "chat.html standalone mode must populate #breadcrumb-slot via "
+            "`breadcrumbBar(...)` inside the else branch of the minimal check",
+        )
+
+    def test_chat_header_title_is_assigned_from_state(self):
+        """Criterion 2 for chat.html: the headerTitle passed to the crumb must
+        be derived from the conversation state, not a hardcoded placeholder.
+        Assert there are at least two `headerTitle = ...` assignments, and that
+        none of the ones present in both render paths is a bare string literal."""
+        src = (STATIC_DIR / "chat.html").read_text()
+        assigns = re.findall(r"headerTitle\s*=\s*([^;]+);", src)
+        self.assertGreaterEqual(
+            len(assigns),
+            2,
+            "chat.html must assign headerTitle in at least two places (the job "
+            "and participant render paths). Found: "
+            f"{len(assigns)} assignment(s).",
+        )
+        # No assignment may be a bare string literal — that would mean the crumb
+        # shows the same text regardless of which conversation is open.
+        for a in assigns:
+            a = a.strip()
+            with self.subTest(assignment=a):
+                is_bare_literal = bool(
+                    re.fullmatch(r"['\"][^'\"]*['\"]", a)
+                )
+                self.assertFalse(
+                    is_bare_literal,
+                    f"chat.html has `headerTitle = {a}` — a bare string literal "
+                    "means the breadcrumb ignores the actual conversation state. "
+                    "headerTitle must be computed from the loaded conversation.",
+                )
 
 
 if __name__ == "__main__":
