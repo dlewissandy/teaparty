@@ -489,20 +489,25 @@ class AgentSession:
 
         async def close_fn(conversation_id):
             from teaparty.workspace.close_conversation import (
-                close_conversation, collect_descendants,
+                close_conversation, collect_descendants_with_parents,
             )
-            # Collect every descendant session in the subtree rooted at
-            # this conversation (walks metadata on disk, depth-first).
-            # Cancel their in-flight _run_child tasks before
-            # close_conversation rmtrees the dirs — otherwise the tasks
-            # outlive the filesystem state they depend on.
+            # Collect every (session, parent) pair in the subtree rooted
+            # at this conversation (walks metadata on disk, depth-first).
+            # Needed to (a) cancel every in-flight _run_child task before
+            # close_conversation rmtrees the dirs and (b) emit one
+            # dispatch_completed event per removed session so the UI
+            # accordion auto-activates the parent of whatever the user
+            # is currently viewing.
+            subtree: list[tuple[str, str]] = []
             if conversation_id.startswith('dispatch:'):
                 root_csid = conversation_id[len('dispatch:'):]
                 sessions_dir = os.path.join(
                     self.teaparty_home, self.scope, 'sessions')
-                to_cancel = collect_descendants(sessions_dir, root_csid)
+                subtree = collect_descendants_with_parents(
+                    sessions_dir, root_csid,
+                    root_parent=self._dispatch_session.id)
                 tasks = []
-                for csid in to_cancel:
+                for csid, _parent in subtree:
                     task = self._tasks_by_child.pop(csid, None)
                     if task is not None and not task.done():
                         task.cancel()
@@ -517,10 +522,43 @@ class AgentSession:
                         _log.warning(
                             '%s close_fn: tasks did not cancel within 2s',
                             self.agent_name)
+
+            # Read each descendant's agent_name from metadata BEFORE
+            # close_conversation removes the session dirs — we need the
+            # label for the UI event payload.
+            agent_names: dict[str, str] = {}
+            if subtree:
+                import json as _json
+                sessions_dir = os.path.join(
+                    self.teaparty_home, self.scope, 'sessions')
+                for csid, _parent in subtree:
+                    meta_path = os.path.join(
+                        sessions_dir, csid, 'metadata.json')
+                    try:
+                        with open(meta_path) as f:
+                            agent_names[csid] = _json.load(f).get(
+                                'agent_name', '')
+                    except (OSError, _json.JSONDecodeError):
+                        agent_names[csid] = ''
+
             close_conversation(
                 self._dispatch_session, conversation_id,
                 teaparty_home=self.teaparty_home, scope=self.scope,
             )
+
+            # Notify the UI so the accordion re-renders and auto-expands
+            # the parent of each removed session (in particular, the
+            # parent of whichever subtree node the user is viewing).
+            # Depth-first order means leaves first — the UI receives
+            # each removal before the ancestor that would override it.
+            if self._on_dispatch:
+                for csid, parent_sid in reversed(subtree):
+                    self._on_dispatch({
+                        'type': 'dispatch_completed',
+                        'parent_session_id': parent_sid,
+                        'child_session_id': csid,
+                        'agent_name': agent_names.get(csid, ''),
+                    })
 
         register_close_fn(self.agent_name, close_fn)
 
