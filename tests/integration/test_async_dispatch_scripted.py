@@ -135,6 +135,8 @@ def tearDownModule():
     if _module_env:
         shutil.rmtree(_module_env[1], ignore_errors=True)
     os.environ.pop('TEAPARTY_BRIDGE_PORT', None)
+    from teaparty.mcp import registry as _registry
+    _registry.clear()
 
 
 def _run(coro, timeout=30):
@@ -180,9 +182,9 @@ def _get_handles(session):
 def _close_all(session):
     from teaparty.workspace.close_conversation import close_conversation
     for conv_id in _get_handles(session):
-        close_conversation(
+        _module_loop.run_until_complete(close_conversation(
             session._dispatch_session, conv_id,
-            teaparty_home=_module_env[0], scope='management')
+            teaparty_home=_module_env[0], scope='management'))
 
 
 # ── Script builders ────────────────────────────────────────────────────────
@@ -816,7 +818,7 @@ class TestRateLimitRetryScripted(unittest.TestCase):
                 # r4 should be denied — ('', '', '')
                 self.assertEqual(r4[0], '', 'slot limit should deny 4th')
                 # Close the first child to free a slot
-                close_conversation(
+                await close_conversation(
                     session._dispatch_session,
                     f'dispatch:{r1[0]}',
                     teaparty_home=_module_env[0], scope='management')

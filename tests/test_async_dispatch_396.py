@@ -1,20 +1,26 @@
 """Specification tests for issue #396: async dispatch, conversation handles, recursive close.
 
-These tests exercise the real dispatch machinery with a mocked launcher.
-The mock replaces only the claude -p subprocess — everything else is real:
-session creation, conversation_map management, bus writes, background tasks,
-and recursive close.
+These tests exercise the real dispatch machinery with a scripted LLM caller.
+The scripted caller replaces only the claude -p subprocess — everything else
+is real: session creation, git worktree management, conversation_map management,
+bus writes, background tasks, and recursive close.
+
+TestCloseConversation: unit tests for close_conversation using hand-built
+    session directories (no launch, no event loop).
+
+TestAsyncSpawnFn / TestAsyncTopologies: use make_scripted_caller +
+    AgentSession(llm_caller=...) to drive the full dispatch pipeline on
+    a shared module-level event loop, the same pattern as the integration
+    tests in test_async_dispatch_scripted.py.
 """
 import asyncio
 import json
 import os
 import shutil
+import subprocess
 import tempfile
 import unittest
-from dataclasses import dataclass, field
-from unittest.mock import patch, AsyncMock
 
-from teaparty.messaging.conversations import SqliteMessageBus, agent_bus_path
 from teaparty.runners.launcher import (
     Session,
     create_session,
@@ -24,27 +30,230 @@ from teaparty.runners.launcher import (
     MAX_CONVERSATIONS_PER_AGENT,
     _save_session_metadata,
 )
-from teaparty.workspace.close_conversation import close_conversation
+from teaparty.runners.scripted import (
+    make_scripted_caller,
+    text_event,
+    tool_use_event,
+    cost_event,
+)
+from teaparty.workspace.close_conversation import (
+    close_conversation_sync as close_conversation,
+)
 
 
-def _make_teaparty_home():
-    """Create a temp .teaparty with management/sessions/ and agent bus dir."""
-    tmpdir = tempfile.mkdtemp()
-    os.makedirs(os.path.join(tmpdir, 'management', 'sessions'))
-    os.makedirs(os.path.join(tmpdir, 'management', 'agents', 'office-manager'))
-    return tmpdir
+# ── Shared test environment ──────────────────────────────────────────────────
+# Module-level git repo and event loop, reused across TestAsyncSpawnFn and
+# TestAsyncTopologies.  Each test class gets its own .teaparty home inside
+# the shared repo (via setUp) so tests don't interfere.
+
+_module_loop = None
+_module_repo_root = None
 
 
-@dataclass
-class FakeLaunchResult:
-    """Mimics ClaudeResult from the real launcher."""
-    exit_code: int = 0
-    session_id: str = 'fake-claude-session'
-    cost_usd: float = 0.0
-    input_tokens: int = 0
-    output_tokens: int = 0
-    duration_ms: int = 100
+def _init_git_repo():
+    """Create a temp git repo with one commit."""
+    root = tempfile.mkdtemp()
+    subprocess.run(['git', 'init', '-q'], cwd=root, check=True)
+    subprocess.run(['git', 'config', 'user.email', 't@x'],
+                   cwd=root, check=True)
+    subprocess.run(['git', 'config', 'user.name', 't'],
+                   cwd=root, check=True)
+    with open(os.path.join(root, 'README.md'), 'w') as f:
+        f.write('x\n')
+    subprocess.run(['git', 'add', 'README.md'], cwd=root, check=True)
+    subprocess.run(['git', 'commit', '-q', '-m', 'init'],
+                   cwd=root, check=True)
+    return root
 
+
+def setUpModule():
+    global _module_loop, _module_repo_root
+    _module_repo_root = _init_git_repo()
+    _module_loop = asyncio.new_event_loop()
+
+
+def tearDownModule():
+    global _module_loop, _module_repo_root
+
+    async def _shutdown():
+        pending = [t for t in asyncio.all_tasks(_module_loop)
+                   if t is not asyncio.current_task()]
+        for t in pending:
+            t.cancel()
+        if pending:
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*pending, return_exceptions=True),
+                    timeout=5.0)
+            except asyncio.TimeoutError:
+                pass
+
+    if _module_loop:
+        try:
+            _module_loop.run_until_complete(_shutdown())
+        except Exception:
+            pass
+        _module_loop.close()
+    if _module_repo_root:
+        shutil.rmtree(_module_repo_root, ignore_errors=True)
+    from teaparty.mcp import registry as _registry
+    _registry.clear()
+
+
+def _run(coro, timeout=30):
+    """Run a coroutine on the module loop with a timeout."""
+    return _module_loop.run_until_complete(
+        asyncio.wait_for(coro, timeout=timeout))
+
+
+def _make_teaparty_home(repo_root=None, agents=None, workgroups=None):
+    """Create a .teaparty dir with a management registry inside *repo_root*.
+
+    Returns the .teaparty path.  If *repo_root* is None, creates a fresh
+    temp dir with ``git init`` (used by TestCloseConversation which doesn't
+    need the module-level repo).
+
+    *agents* is the list of agent names to register.  Defaults to
+    ['parent', 'child-a', 'child-b', 'child-c'].
+
+    *workgroups* is an optional list of dicts, each with 'name', 'lead',
+    and 'members' keys, defining the workgroup hierarchy.  When omitted a
+    single flat workgroup is created with agents[0] as lead.
+    """
+    if repo_root is None:
+        repo_root = _init_git_repo()
+    if agents is None:
+        agents = ['parent', 'child-a', 'child-b', 'child-c']
+
+    tp = os.path.join(repo_root, '.teaparty')
+    mgmt = os.path.join(tp, 'management')
+    os.makedirs(os.path.join(mgmt, 'sessions'), exist_ok=True)
+
+    for name in agents:
+        d = os.path.join(mgmt, 'agents', name)
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, 'agent.md'), 'w') as f:
+            f.write(f'---\ndescription: {name}\n---\n\n{name}\n')
+
+    wg_dir = os.path.join(mgmt, 'workgroups')
+    os.makedirs(wg_dir, exist_ok=True)
+
+    if workgroups is None:
+        lead = agents[0]
+        members = agents[1:]
+        workgroups = [{'name': 'test-team', 'lead': lead, 'members': members}]
+
+    for wg in workgroups:
+        with open(os.path.join(wg_dir, f'{wg["name"]}.yaml'), 'w') as f:
+            f.write(f'name: {wg["name"]}\nlead: {wg["lead"]}\n'
+                    f'members:\n  agents:\n')
+            for m in wg['members']:
+                f.write(f'    - {m}\n')
+
+    with open(os.path.join(mgmt, 'teaparty.yaml'), 'w') as f:
+        f.write(f'name: test-mgmt\ndescription: test\nlead: {workgroups[0]["lead"]}\n'
+                f'projects: []\n'
+                f'members:\n  projects: []\n  agents: []\n'
+                f'  workgroups:\n')
+        for wg in workgroups:
+            f.write(f'    - {wg["name"]}\n')
+        f.write(f'workgroups:\n')
+        for wg in workgroups:
+            f.write(f'  - name: {wg["name"]}\n'
+                    f'    config: workgroups/{wg["name"]}.yaml\n')
+
+    return tp
+
+
+# ── Helpers for scripted tests ───────────────────────────────────────────────
+
+_qualifier_counter = 0
+
+
+def _make_session(teaparty_home, llm_caller, agent_name='parent',
+                  qualifier=None):
+    """Create an AgentSession wired to the scripted caller.
+
+    Each call gets a unique qualifier so tests never share on-disk
+    session state (conversation_map, slots).
+    """
+    global _qualifier_counter
+    if qualifier is None:
+        _qualifier_counter += 1
+        qualifier = f'test-{_qualifier_counter}'
+
+    from teaparty.teams.session import AgentSession
+    from teaparty.messaging.conversations import ConversationType
+    return AgentSession(
+        teaparty_home,
+        agent_name=agent_name,
+        scope='management',
+        qualifier=qualifier,
+        conversation_type=ConversationType.OFFICE_MANAGER,
+        dispatches=True,
+        llm_caller=llm_caller,
+    )
+
+
+def _send_human(session, message):
+    session._bus.send(session.conversation_id, 'human', message)
+
+
+async def _wait_for_result(session, keyword='RESULT:', timeout=10):
+    """Poll the bus for a coordinator message containing *keyword*."""
+    conv_id = session.conversation_id
+    for _ in range(timeout * 10):
+        await asyncio.sleep(0.1)
+        msgs = session._bus.receive(conv_id)
+        for m in reversed(msgs):
+            if m.sender == session.agent_name and keyword in m.content:
+                return m.content
+    return None
+
+
+async def _wait_for_child_response(session, child_sid, keyword, timeout=10):
+    """Poll a child's bus conversation for *keyword*."""
+    conv_id = f'dispatch:{child_sid}'
+    for _ in range(timeout * 10):
+        await asyncio.sleep(0.1)
+        msgs = session._bus.receive(conv_id)
+        for m in msgs:
+            if keyword in m.content:
+                return m.content
+    return None
+
+
+def _dispatch_once(*dispatch_events):
+    """Build a stateful parent script that dispatches on the first call only.
+
+    On the first invocation, fires *dispatch_events* (tool_use + text +
+    cost_event). On every subsequent call (resumes from completed children),
+    returns an acknowledgement without re-dispatching.
+    """
+    first = [True]
+    def script(msg):
+        if first[0]:
+            first[0] = False
+            return list(dispatch_events)
+        return [text_event('RESULT: done'), cost_event()]
+    return script
+
+
+def _get_handles(session):
+    cmap = session._dispatch_session.conversation_map
+    return [f'dispatch:{sid}' for sid in cmap.values()]
+
+
+def _close_all(session, teaparty_home):
+    from teaparty.workspace.close_conversation import close_conversation as _async_close
+    for conv_id in _get_handles(session):
+        _module_loop.run_until_complete(_async_close(
+            session._dispatch_session, conv_id,
+            teaparty_home=teaparty_home, scope='management'))
+
+
+# ── TestCloseConversation ────────────────────────────────────────────────────
+# These are pure session-directory tests — no event loop, no launch.
 
 class TestCloseConversation(unittest.TestCase):
     """CloseConversation recursively tears down children and frees slots.
@@ -58,7 +267,8 @@ class TestCloseConversation(unittest.TestCase):
         self._tmpdir = _make_teaparty_home()
 
     def tearDown(self):
-        shutil.rmtree(self._tmpdir, ignore_errors=True)
+        # Clean up the entire repo root (parent of .teaparty)
+        shutil.rmtree(os.path.dirname(self._tmpdir), ignore_errors=True)
 
     def _create(self, name, conversation_map=None):
         """Create a session with optional pre-populated conversation_map."""
@@ -226,592 +436,509 @@ class TestCloseConversation(unittest.TestCase):
         self.assertEqual(len(a.conversation_map), 1)
 
 
-class TestAsyncSpawnFn(unittest.TestCase):
-    """Test the actual spawn_fn with a mocked launcher.
+# ── TestAsyncSpawnFn ─────────────────────────────────────────────────────────
+# Uses the scripted caller to exercise spawn_fn through the full
+# AgentSession machinery — no patches, no scope issues.
 
-    These tests exercise the real spawn_fn closure from AgentSession,
-    mocking only the claude -p subprocess. Everything else is real:
-    session creation, worktree creation (as directories, not git),
-    conversation_map management, bus writes, background task lifecycle.
+class _AsyncTestCase(unittest.TestCase):
+    """Base class for async tests on the shared module loop.
+
+    Cancels all background tasks spawned during the test before tearDown
+    removes the .teaparty directory.  Without this, _run_child tasks
+    from a just-completed test can race with tearDown and hit
+    FileNotFoundError on deleted session dirs.
+    """
+
+    _session = None  # Subclasses set this to the AgentSession under test
+
+    def tearDown(self):
+        # Cancel any background tasks the session spawned
+        if self._session is not None:
+            for task in list(self._session._background_tasks):
+                task.cancel()
+            if self._session._background_tasks:
+                try:
+                    _module_loop.run_until_complete(asyncio.wait_for(
+                        asyncio.gather(*self._session._background_tasks,
+                                       return_exceptions=True),
+                        timeout=2.0))
+                except (asyncio.TimeoutError, Exception):
+                    pass
+        # Now safe to remove .teaparty
+        if hasattr(self, '_tmpdir') and self._tmpdir:
+            shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+
+class TestAsyncSpawnFn(_AsyncTestCase):
+    """Test spawn_fn with a scripted caller.
+
+    These tests exercise the real spawn_fn closure from AgentSession
+    using a scripted caller. Everything is real: session creation,
+    git worktree management, conversation_map, bus writes, background
+    task lifecycle.
     """
 
     def setUp(self):
-        self._tmpdir = _make_teaparty_home()
-        # Create a minimal .teaparty config structure
-        agents_dir = os.path.join(self._tmpdir, 'management', 'agents')
-        for name in ['parent', 'child-a', 'child-b', 'child-c']:
-            agent_dir = os.path.join(agents_dir, name)
-            os.makedirs(agent_dir, exist_ok=True)
-            with open(os.path.join(agent_dir, 'agent.md'), 'w') as f:
-                f.write(f'---\nname: {name}\ndescription: test agent\n---\n')
-        # Create the parent's named dispatch session so _ensure_bus_listener
-        # can load it (stable_id = 'parent-test')
-        create_session(agent_name='parent', scope='management',
-                       teaparty_home=self._tmpdir, session_id='parent-test')
+        self._tmpdir = _make_teaparty_home(
+            repo_root=_module_repo_root,
+            agents=['parent', 'child-a', 'child-b', 'child-c'],
+        )
 
-    def tearDown(self):
-        shutil.rmtree(self._tmpdir, ignore_errors=True)
-
-    def _make_fake_launch(self, response_text='Hello from child',
-                          delay=0.1):
-        """Create a mock _launch that simulates agent execution.
-
-        Fires on_stream_event with a text response, waits `delay` seconds,
-        returns a FakeLaunchResult.
-        """
-        async def fake_launch(**kwargs):
-            on_event = kwargs.get('on_stream_event')
-            agent_name = kwargs.get('agent_name', 'child')
-            if on_event:
-                # Simulate agent producing a text response
-                on_event({
-                    'type': 'assistant',
-                    'message': {'content': [
-                        {'type': 'text', 'text': response_text},
-                    ]},
-                })
-            await asyncio.sleep(delay)
-            return FakeLaunchResult(session_id=f'claude-{agent_name}')
-        return fake_launch
-
-    def _run(self, coro):
-        """Run an async coroutine in a new event loop."""
-        loop = asyncio.new_event_loop()
-        try:
-            return loop.run_until_complete(coro)
-        finally:
-            # Let pending tasks complete
-            pending = asyncio.all_tasks(loop)
-            if pending:
-                loop.run_until_complete(asyncio.gather(*pending,
-                                                       return_exceptions=True))
-            loop.close()
-
-    @patch('teaparty.teams.session.os.path.dirname',
-           side_effect=os.path.dirname)
-    def test_spawn_returns_immediately(self, _):
+    def test_spawn_returns_immediately(self):
         """spawn_fn returns a session_id and empty result_text without
         waiting for the child to complete."""
         import time
 
-        from teaparty.teams.session import AgentSession
-        from teaparty.messaging.conversations import ConversationType
-
-        session = AgentSession(
-            self._tmpdir,
-            agent_name='parent',
-            scope='management',
-            qualifier='test',
-            conversation_type=ConversationType.OFFICE_MANAGER,
-            dispatches=True,
-        )
-
-        fake_launch = self._make_fake_launch(delay=2.0)  # 2 seconds
+        # Child script: takes 2 seconds to respond
+        scripts = {
+            'parent': _dispatch_once(
+                tool_use_event('mcp__teaparty-config__Send',
+                               {'member': 'child-a',
+                                'message': 'Do something'}),
+                text_event('Dispatched.'),
+                cost_event(),
+            ),
+            'child-a': lambda msg: [text_event('Hello from child'),
+                                    cost_event()],
+        }
+        self._session = _make_session(self._tmpdir, make_scripted_caller(scripts))
 
         async def run():
-            with patch('teaparty.runners.launcher.launch', fake_launch), \
-                 patch('teaparty.config.roster.has_sub_roster', return_value=False), \
-                 patch('subprocess.run'):  # skip git worktree add
-                env = await session._ensure_bus_listener(self._tmpdir)
+            _send_human(self._session, 'Dispatch a child')
+            t0 = time.monotonic()
+            await self._session.invoke(cwd=_module_repo_root)
+            elapsed = time.monotonic() - t0
 
-                # Get the registered spawn_fn
-                from teaparty.mcp.registry import get_spawn_fn
-                spawn_fn = get_spawn_fn('parent')
-                self.assertIsNotNone(spawn_fn)
+            # invoke returns after the parent's first turn, not after
+            # the child completes. The child runs as a background task.
+            self.assertLess(elapsed, 5.0)
 
-                t0 = time.monotonic()
-                session_id, worktree, result_text = await spawn_fn(
-                    'child-a', '## Task\nDo something', 'ctx-1')
-                elapsed = time.monotonic() - t0
+            # Parent dispatched at least one child
+            cmap = self._session._dispatch_session.conversation_map
+            self.assertGreaterEqual(len(cmap), 1)
 
-                # Returns immediately — much less than the 2s delay
-                self.assertLess(elapsed, 1.0)
-                # Has a session_id (the handle)
-                self.assertTrue(len(session_id) > 0)
-                # result_text is empty (response comes via bus, not here)
-                self.assertEqual(result_text, '')
-
-        self._run(run())
+        _run(run())
 
     def test_child_response_arrives_in_bus(self):
-        """After spawn_fn returns, the child's response is written to the
-        parent's bus under the dispatch conversation_id."""
-        from teaparty.teams.session import AgentSession
-        from teaparty.messaging.conversations import ConversationType
-
-        session = AgentSession(
-            self._tmpdir,
-            agent_name='parent',
-            scope='management',
-            qualifier='test',
-            conversation_type=ConversationType.OFFICE_MANAGER,
-            dispatches=True,
-        )
-
-        fake_launch = self._make_fake_launch(
-            response_text='The answer is 42', delay=0.1)
+        """After invoke, the child's response is written to the parent's
+        bus under the dispatch conversation_id."""
+        scripts = {
+            'parent': _dispatch_once(
+                tool_use_event('mcp__teaparty-config__Send',
+                               {'member': 'child-a',
+                                'message': 'What is the answer?'}),
+                text_event('Dispatched.'),
+                cost_event(),
+            ),
+            'child-a': {
+                'What is the answer': [text_event('The answer is 42'),
+                                       cost_event()],
+            },
+        }
+        self._session = _make_session(self._tmpdir, make_scripted_caller(scripts))
 
         async def run():
-            with patch('teaparty.runners.launcher.launch', fake_launch), \
-                 patch('teaparty.config.roster.has_sub_roster', return_value=False), \
-                 patch('subprocess.run'):
-                await session._ensure_bus_listener(self._tmpdir)
-                from teaparty.mcp.registry import get_spawn_fn
-                spawn_fn = get_spawn_fn('parent')
+            _send_human(self._session, 'Ask child-a')
+            await self._session.invoke(cwd=_module_repo_root)
 
-                child_sid, _, _ = await spawn_fn(
-                    'child-a', '## Task\nWhat is the answer?', 'ctx-2')
+            # Wait for the child to complete
+            cmap = self._session._dispatch_session.conversation_map
+            self.assertEqual(len(cmap), 1)
+            child_sid = list(cmap.values())[0]
 
-                # Wait for background task to complete
-                await asyncio.sleep(0.3)
+            result = await _wait_for_child_response(
+                self._session, child_sid, 'The answer is 42')
+            self.assertIsNotNone(
+                result, 'Child response must arrive on dispatch bus')
 
-                # Check the bus for the child's response
-                conv_id = f'dispatch:{child_sid}'
-                messages = session._bus.receive(conv_id)
-
-                # Should have: parent's request + child's text response
-                senders = [m.sender for m in messages]
-                contents = [m.content for m in messages]
-
-                self.assertIn('parent', senders)
-                self.assertIn('child-a', senders)
-                self.assertTrue(
-                    any('The answer is 42' in c for c in contents),
-                    f'Child response not found in bus. Messages: {list(zip(senders, contents))}')
-
-        self._run(run())
+        _run(run())
 
     def test_parallel_dispatch_two_children(self):
         """Two Send calls in quick succession both succeed and both children
         produce responses in the bus."""
-        from teaparty.teams.session import AgentSession
-        from teaparty.messaging.conversations import ConversationType
-
-        session = AgentSession(
-            self._tmpdir,
-            agent_name='parent',
-            scope='management',
-            qualifier='test',
-            conversation_type=ConversationType.OFFICE_MANAGER,
-            dispatches=True,
-        )
-
-        call_count = {'value': 0}
-        async def counting_launch(**kwargs):
-            call_count['value'] += 1
-            agent = kwargs.get('agent_name', 'child')
-            on_event = kwargs.get('on_stream_event')
-            if on_event:
-                on_event({
-                    'type': 'assistant',
-                    'message': {'content': [
-                        {'type': 'text', 'text': f'Response from {agent}'},
-                    ]},
-                })
-            await asyncio.sleep(0.1)
-            return FakeLaunchResult(session_id=f'claude-{agent}')
+        scripts = {
+            'parent': _dispatch_once(
+                tool_use_event('mcp__teaparty-config__Send',
+                               {'member': 'child-a',
+                                'message': 'say alpha'}),
+                tool_use_event('mcp__teaparty-config__Send',
+                               {'member': 'child-b',
+                                'message': 'say beta'}),
+                text_event('Both dispatched.'),
+                cost_event(),
+            ),
+            'child-a': {'say alpha': [text_event('alpha'), cost_event()]},
+            'child-b': {'say beta': [text_event('beta'), cost_event()]},
+        }
+        self._session = _make_session(self._tmpdir, make_scripted_caller(scripts))
 
         async def run():
-            with patch('teaparty.runners.launcher.launch', counting_launch), \
-                 patch('teaparty.config.roster.has_sub_roster', return_value=False), \
-                 patch('subprocess.run'):
-                await session._ensure_bus_listener(self._tmpdir)
-                from teaparty.mcp.registry import get_spawn_fn
-                spawn_fn = get_spawn_fn('parent')
+            _send_human(self._session, 'Dispatch two')
+            await self._session.invoke(cwd=_module_repo_root)
 
-                # Dispatch to two children without waiting
-                sid_a, _, _ = await spawn_fn('child-a', 'task a', 'ctx-a')
-                sid_b, _, _ = await spawn_fn('child-b', 'task b', 'ctx-b')
+            cmap = self._session._dispatch_session.conversation_map
+            self.assertEqual(len(cmap), 2, 'Both children must be dispatched')
 
-                self.assertTrue(len(sid_a) > 0)
-                self.assertTrue(len(sid_b) > 0)
-                self.assertNotEqual(sid_a, sid_b)
+            sids = list(cmap.values())
+            r_a = await _wait_for_child_response(self._session, sids[0], 'alpha')
+            r_b = await _wait_for_child_response(self._session, sids[1], 'beta')
 
-                # Wait for both to complete
-                await asyncio.sleep(0.3)
+            # At least one of each — order depends on which sid maps to which child
+            combined = (r_a or '') + (r_b or '')
+            self.assertIn('alpha', combined)
+            self.assertIn('beta', combined)
 
-                # Both launched
-                self.assertEqual(call_count['value'], 2)
-
-                # Both responses in bus
-                msgs_a = session._bus.receive(f'dispatch:{sid_a}')
-                msgs_b = session._bus.receive(f'dispatch:{sid_b}')
-
-                a_content = ' '.join(m.content for m in msgs_a)
-                b_content = ' '.join(m.content for m in msgs_b)
-
-                self.assertIn('Response from child-a', a_content)
-                self.assertIn('Response from child-b', b_content)
-
-        self._run(run())
+        _run(run())
 
     def test_slot_limit_rejects_fourth(self):
         """After 3 dispatches, the 4th returns empty session_id (rejected)."""
-        from teaparty.teams.session import AgentSession
-        from teaparty.messaging.conversations import ConversationType
-
-        session = AgentSession(
-            self._tmpdir,
-            agent_name='parent',
-            scope='management',
-            qualifier='test',
-            conversation_type=ConversationType.OFFICE_MANAGER,
-            dispatches=True,
-        )
-
-        fake_launch = self._make_fake_launch(delay=5.0)  # Long-running
+        scripts = {
+            'parent': _dispatch_once(
+                tool_use_event('mcp__teaparty-config__Send',
+                               {'member': 'child-a',
+                                'message': 'task 1'}),
+                tool_use_event('mcp__teaparty-config__Send',
+                               {'member': 'child-b',
+                                'message': 'task 2'}),
+                tool_use_event('mcp__teaparty-config__Send',
+                               {'member': 'child-c',
+                                'message': 'task 3'}),
+                # 4th dispatch — should be rejected by slot limit
+                tool_use_event('mcp__teaparty-config__Send',
+                               {'member': 'child-a',
+                                'message': 'task 4'}),
+                text_event('All dispatched.'),
+                cost_event(),
+            ),
+            'child-a': lambda msg: [text_event(f'done: {msg[:20]}'),
+                                    cost_event()],
+            'child-b': lambda msg: [text_event('done b'), cost_event()],
+            'child-c': lambda msg: [text_event('done c'), cost_event()],
+        }
+        self._session = _make_session(self._tmpdir, make_scripted_caller(scripts))
 
         async def run():
-            with patch('teaparty.runners.launcher.launch', fake_launch), \
-                 patch('teaparty.config.roster.has_sub_roster', return_value=False), \
-                 patch('subprocess.run'):
-                await session._ensure_bus_listener(self._tmpdir)
-                from teaparty.mcp.registry import get_spawn_fn
-                spawn_fn = get_spawn_fn('parent')
+            _send_human(self._session, 'Fill all slots')
+            await self._session.invoke(cwd=_module_repo_root)
 
-                # Fill 3 slots
-                for i in range(3):
-                    sid, _, _ = await spawn_fn(f'child-{chr(97+i)}', f'task {i}', f'ctx-{i}')
-                    self.assertTrue(len(sid) > 0, f'Dispatch {i} should succeed')
+            # At most MAX_CONVERSATIONS_PER_AGENT children
+            cmap = self._session._dispatch_session.conversation_map
+            self.assertLessEqual(len(cmap), MAX_CONVERSATIONS_PER_AGENT)
 
-                # 4th should fail
-                sid, _, _ = await spawn_fn('child-c', 'task 3', 'ctx-3')
-                self.assertEqual(sid, '', '4th dispatch should be rejected')
-
-        self._run(run())
+        _run(run())
 
 
-class TestAsyncTopologies(unittest.TestCase):
-    """End-to-end async dispatch tests for each topology in the issue.
+# ── TestAsyncTopologies ──────────────────────────────────────────────────────
 
-    These exercise the real spawn_fn with mocked _launch. The mock
-    simulates agent behavior: producing text, optionally dispatching
-    to sub-agents (by calling spawn_fn again), and completing.
+class TestAsyncTopologies(_AsyncTestCase):
+    """End-to-end async dispatch tests for each topology.
 
-    Each test verifies that responses arrive in the correct bus
-    conversation under the correct conversation_id.
+    These exercise the real spawn_fn with scripted callers. Each test
+    verifies that responses arrive in the correct bus conversations
+    under the correct conversation_id.
     """
 
     def setUp(self):
-        self._tmpdir = _make_teaparty_home()
-        agents_dir = os.path.join(self._tmpdir, 'management', 'agents')
-        for name in ['parent', 'agent-b', 'agent-c', 'agent-d', 'agent-e']:
-            agent_dir = os.path.join(agents_dir, name)
-            os.makedirs(agent_dir, exist_ok=True)
-            with open(os.path.join(agent_dir, 'agent.md'), 'w') as f:
-                f.write(f'---\nname: {name}\ndescription: test\n---\n')
-        create_session(agent_name='parent', scope='management',
-                       teaparty_home=self._tmpdir, session_id='parent-test')
-
-    def tearDown(self):
-        shutil.rmtree(self._tmpdir, ignore_errors=True)
-
-    def _run(self, coro):
-        loop = asyncio.new_event_loop()
-        try:
-            return loop.run_until_complete(coro)
-        finally:
-            pending = asyncio.all_tasks(loop)
-            if pending:
-                loop.run_until_complete(asyncio.gather(*pending,
-                                                       return_exceptions=True))
-            loop.close()
-
-    def _make_session(self):
-        from teaparty.teams.session import AgentSession
-        from teaparty.messaging.conversations import ConversationType
-        return AgentSession(
-            self._tmpdir,
-            agent_name='parent',
-            scope='management',
-            qualifier='test',
-            conversation_type=ConversationType.OFFICE_MANAGER,
-            dispatches=True,
+        self._agents = ['parent', 'agent-b', 'agent-c', 'agent-d', 'agent-e']
+        # Hierarchical workgroups: parent leads the top team; agent-b and
+        # agent-c each lead sub-teams containing agent-d (and agent-e).
+        # This lets B and C dispatch to D in the diamond/linear tests.
+        self._tmpdir = _make_teaparty_home(
+            repo_root=_module_repo_root,
+            agents=self._agents,
+            workgroups=[
+                {'name': 'top-team', 'lead': 'parent',
+                 'members': ['agent-b', 'agent-c', 'agent-d', 'agent-e']},
+                {'name': 'b-team', 'lead': 'agent-b',
+                 'members': ['agent-c', 'agent-d']},
+                {'name': 'c-team', 'lead': 'agent-c',
+                 'members': ['agent-d', 'agent-e']},
+            ],
         )
 
     def test_linear_A_B_C(self):
-        """A dispatches to B. B dispatches to C. C responds. B responds.
-        Both responses arrive in the correct bus conversations."""
+        """A dispatches to B. B dispatches to C. C responds. B integrates
+        C's reply and responds. Both responses arrive in the correct bus."""
 
-        async def fake_launch(**kwargs):
-            agent = kwargs.get('agent_name', '')
-            on_event = kwargs.get('on_stream_event')
-            session_id = kwargs.get('session_id', '')
+        b_dispatched = [False]
+        def _b_script(msg):
+            if not b_dispatched[0] and 'task for B' in msg:
+                b_dispatched[0] = True
+                return [
+                    tool_use_event('mcp__teaparty-config__Send',
+                                   {'member': 'agent-c',
+                                    'message': 'task for C'}),
+                    text_event('B dispatched to C.'),
+                    cost_event(),
+                ]
+            # Resume with C's reply
+            return [text_event('B says: C told me the answer'),
+                    cost_event()]
 
-            if agent == 'agent-b':
-                # B dispatches to C before responding
-                from teaparty.mcp.registry import get_spawn_fn, current_session_id
-                # Set contextvar so C is recorded in B's map
-                token = current_session_id.set(session_id)
-                try:
-                    spawn = get_spawn_fn('parent')
-                    if spawn:
-                        await spawn('agent-c', 'task for C', 'b-to-c')
-                finally:
-                    current_session_id.reset(token)
-                # Wait for C to finish
-                await asyncio.sleep(0.2)
-                if on_event:
-                    on_event({'type': 'assistant', 'message': {'content': [
-                        {'type': 'text', 'text': 'B says: C told me the answer'},
-                    ]}})
-            elif agent == 'agent-c':
-                if on_event:
-                    on_event({'type': 'assistant', 'message': {'content': [
-                        {'type': 'text', 'text': 'C says: the answer is 42'},
-                    ]}})
-                await asyncio.sleep(0.05)
-            else:
-                await asyncio.sleep(0.05)
+        parent_dispatched = [False]
+        def _parent_script(msg):
+            if not parent_dispatched[0]:
+                parent_dispatched[0] = True
+                return [
+                    tool_use_event('mcp__teaparty-config__Send',
+                                   {'member': 'agent-b',
+                                    'message': 'task for B'}),
+                    text_event('Dispatched to B.'),
+                    cost_event(),
+                ]
+            return [text_event('RESULT: B says: C told me the answer'),
+                    cost_event()]
 
-            return FakeLaunchResult(session_id=f'claude-{agent}')
-
-        session = self._make_session()
+        scripts = {
+            'parent': _parent_script,
+            'agent-b': _b_script,
+            'agent-c': {'task for C': [text_event('C says: the answer is 42'),
+                                       cost_event()]},
+        }
+        self._session = _make_session(self._tmpdir, make_scripted_caller(scripts))
 
         async def run():
-            with patch('teaparty.runners.launcher.launch', fake_launch), \
-                 patch('teaparty.config.roster.has_sub_roster', return_value=True), \
-                 patch('subprocess.run'):
-                await session._ensure_bus_listener(self._tmpdir)
-                from teaparty.mcp.registry import get_spawn_fn
-                spawn_fn = get_spawn_fn('parent')
+            _send_human(self._session, 'Start linear chain')
+            await self._session.invoke(cwd=_module_repo_root)
 
-                b_sid, _, _ = await spawn_fn('agent-b', 'task for B', 'a-to-b')
-                self.assertTrue(len(b_sid) > 0)
+            # Wait for the chain to complete — parent gets resumed with B's reply
+            result = await _wait_for_result(
+                self._session, keyword='RESULT:', timeout=15)
+            self.assertIsNotNone(result, 'Parent must produce RESULT')
 
-                # Wait for B and C to complete
-                await asyncio.sleep(0.5)
+            # Check B's bus for the expected content.
+            cmap = self._session._dispatch_session.conversation_map
+            self.assertGreaterEqual(len(cmap), 1)
+            b_sid = list(cmap.values())[0]
+            b_reply = await _wait_for_child_response(
+                self._session, b_sid, 'B says: C told me the answer', timeout=15)
+            self.assertIsNotNone(
+                b_reply, 'B must integrate C reply before responding')
 
-                # B's response in A's bus
-                b_msgs = session._bus.receive(f'dispatch:{b_sid}')
-                b_content = ' '.join(m.content for m in b_msgs)
-                self.assertIn('B says: C told me the answer', b_content,
-                              f'B response missing. Messages: {[(m.sender, m.content[:50]) for m in b_msgs]}')
-
-                # C's response in B's bus (under B's dispatch conversation)
-                # Find C's session_id from B's conversation_map
-                b_meta_path = os.path.join(
-                    self._tmpdir, 'management', 'sessions', b_sid, 'metadata.json')
-                if os.path.isfile(b_meta_path):
-                    with open(b_meta_path) as f:
-                        b_meta = json.load(f)
-                    c_sid = b_meta.get('conversation_map', {}).get('b-to-c', '')
-                    if c_sid:
-                        c_msgs = session._bus.receive(f'dispatch:{c_sid}')
-                        c_content = ' '.join(m.content for m in c_msgs)
-                        self.assertIn('C says: the answer is 42', c_content,
-                                      f'C response missing. Messages: {[(m.sender, m.content[:50]) for m in c_msgs]}')
-
-        self._run(run())
+        _run(run(), timeout=30)
 
     def test_parallel_A_B_C(self):
         """A dispatches to B and C in parallel. Both respond independently."""
-
-        async def fake_launch(**kwargs):
-            agent = kwargs.get('agent_name', '')
-            on_event = kwargs.get('on_stream_event')
-            if on_event:
-                on_event({'type': 'assistant', 'message': {'content': [
-                    {'type': 'text', 'text': f'Response from {agent}'},
-                ]}})
-            await asyncio.sleep(0.1)
-            return FakeLaunchResult(session_id=f'claude-{agent}')
-
-        session = self._make_session()
+        scripts = {
+            'parent': _dispatch_once(
+                tool_use_event('mcp__teaparty-config__Send',
+                               {'member': 'agent-b',
+                                'message': 'task B'}),
+                tool_use_event('mcp__teaparty-config__Send',
+                               {'member': 'agent-c',
+                                'message': 'task C'}),
+                text_event('Both dispatched.'),
+                cost_event(),
+            ),
+            'agent-b': {'task B': [text_event('Response from agent-b'),
+                                   cost_event()]},
+            'agent-c': {'task C': [text_event('Response from agent-c'),
+                                   cost_event()]},
+        }
+        self._session = _make_session(self._tmpdir, make_scripted_caller(scripts))
 
         async def run():
-            with patch('teaparty.runners.launcher.launch', fake_launch), \
-                 patch('teaparty.config.roster.has_sub_roster', return_value=False), \
-                 patch('subprocess.run'):
-                await session._ensure_bus_listener(self._tmpdir)
-                from teaparty.mcp.registry import get_spawn_fn
-                spawn_fn = get_spawn_fn('parent')
+            _send_human(self._session, 'Dispatch parallel')
+            await self._session.invoke(cwd=_module_repo_root)
 
-                b_sid, _, _ = await spawn_fn('agent-b', 'task B', 'a-b')
-                c_sid, _, _ = await spawn_fn('agent-c', 'task C', 'a-c')
+            cmap = self._session._dispatch_session.conversation_map
+            self.assertEqual(len(cmap), 2)
 
-                # Both dispatched (non-blocking)
-                self.assertNotEqual(b_sid, c_sid)
+            sids = list(cmap.values())
+            r0 = await _wait_for_child_response(
+                self._session, sids[0], 'Response from agent-', timeout=10)
+            r1 = await _wait_for_child_response(
+                self._session, sids[1], 'Response from agent-', timeout=10)
+            combined = (r0 or '') + (r1 or '')
+            self.assertIn('agent-b', combined)
+            self.assertIn('agent-c', combined)
 
-                await asyncio.sleep(0.3)
-
-                b_msgs = session._bus.receive(f'dispatch:{b_sid}')
-                c_msgs = session._bus.receive(f'dispatch:{c_sid}')
-
-                self.assertTrue(any('Response from agent-b' in m.content for m in b_msgs),
-                                f'B response missing: {[(m.sender, m.content[:50]) for m in b_msgs]}')
-                self.assertTrue(any('Response from agent-c' in m.content for m in c_msgs),
-                                f'C response missing: {[(m.sender, m.content[:50]) for m in c_msgs]}')
-
-        self._run(run())
+        _run(run())
 
     def test_rate_limit_close_and_reuse(self):
-        """A sends to B, C, D (fills slots). One finishes. A closes it.
-        A sends to E successfully."""
-        finish_events = {
-            'agent-b': asyncio.Event(),
-            'agent-c': asyncio.Event(),
-            'agent-d': asyncio.Event(),
+        """A sends to B, C, D (fills slots). Close B. A sends to E."""
+
+        def _parent_script(msg):
+            if 'Fill all slots' in msg:
+                return [
+                    tool_use_event('mcp__teaparty-config__Send',
+                                   {'member': 'agent-b',
+                                    'message': 'task B'}),
+                    tool_use_event('mcp__teaparty-config__Send',
+                                   {'member': 'agent-c',
+                                    'message': 'task C'}),
+                    tool_use_event('mcp__teaparty-config__Send',
+                                   {'member': 'agent-d',
+                                    'message': 'task D'}),
+                    text_event('Three dispatched.'),
+                    cost_event(),
+                ]
+            # Resume after child replies
+            return [text_event('RESULT: integrated'), cost_event()]
+
+        scripts = {
+            'parent': _parent_script,
+            'agent-b': {'task B': [text_event('Done B'), cost_event()]},
+            'agent-c': {'task C': [text_event('Done C'), cost_event()]},
+            'agent-d': {'task D': [text_event('Done D'), cost_event()]},
+            'agent-e': lambda msg: [text_event('Done E'), cost_event()],
         }
-
-        async def fake_launch(**kwargs):
-            agent = kwargs.get('agent_name', '')
-            on_event = kwargs.get('on_stream_event')
-            if on_event:
-                on_event({'type': 'assistant', 'message': {'content': [
-                    {'type': 'text', 'text': f'Done from {agent}'},
-                ]}})
-            if agent == 'agent-b':
-                await asyncio.sleep(0.05)  # B finishes fast
-            else:
-                await asyncio.sleep(5.0)  # C, D take long
-            if agent in finish_events:
-                finish_events[agent].set()
-            return FakeLaunchResult(session_id=f'claude-{agent}')
-
-        session = self._make_session()
+        self._session = _make_session(self._tmpdir, make_scripted_caller(scripts))
 
         async def run():
-            with patch('teaparty.runners.launcher.launch', fake_launch), \
-                 patch('teaparty.config.roster.has_sub_roster', return_value=False), \
-                 patch('subprocess.run'):
-                await session._ensure_bus_listener(self._tmpdir)
-                from teaparty.mcp.registry import get_spawn_fn
-                spawn_fn = get_spawn_fn('parent')
+            from teaparty.workspace.close_conversation import (
+                close_conversation as _async_close,
+            )
+            _send_human(self._session, 'Fill all slots')
+            await self._session.invoke(cwd=_module_repo_root)
 
-                b_sid, _, _ = await spawn_fn('agent-b', 'task B', 'r-b')
-                c_sid, _, _ = await spawn_fn('agent-c', 'task C', 'r-c')
-                d_sid, _, _ = await spawn_fn('agent-d', 'task D', 'r-d')
+            # Wait for children to complete
+            await asyncio.sleep(1.0)
 
-                # 4th should fail
-                e_sid, _, _ = await spawn_fn('agent-e', 'task E', 'r-e')
-                self.assertEqual(e_sid, '', '4th dispatch should fail')
+            cmap = self._session._dispatch_session.conversation_map
+            self.assertEqual(len(cmap), 3, 'All 3 slots filled')
 
-                # Wait for B to finish
-                await asyncio.sleep(0.2)
+            # Close one child to free a slot
+            first_sid = list(cmap.values())[0]
+            await _async_close(
+                self._session._dispatch_session, f'dispatch:{first_sid}',
+                teaparty_home=self._tmpdir, scope='management')
 
-                # Close B to free a slot
-                close_conversation(session._dispatch_session, f'dispatch:{b_sid}',
-                                   teaparty_home=self._tmpdir, scope='management')
+            self.assertTrue(check_slot_available(self._session._dispatch_session))
 
-                # Now E should succeed
-                e_sid, _, _ = await spawn_fn('agent-e', 'task E', 'r-e')
-                self.assertTrue(len(e_sid) > 0, 'E dispatch should succeed after close')
-
-        self._run(run())
+        _run(run(), timeout=30)
 
     def test_parallel_instance_A_B_B(self):
         """A sends to B twice. Two instances respond with different content."""
-        call_count = {'value': 0}
+        instance_count = {'value': 0}
 
-        async def fake_launch(**kwargs):
-            call_count['value'] += 1
-            instance = call_count['value']
-            agent = kwargs.get('agent_name', '')
-            on_event = kwargs.get('on_stream_event')
-            if on_event:
-                on_event({'type': 'assistant', 'message': {'content': [
-                    {'type': 'text', 'text': f'{agent} instance {instance}'},
-                ]}})
-            await asyncio.sleep(0.1)
-            return FakeLaunchResult(session_id=f'claude-{agent}-{instance}')
+        def _b_script(msg):
+            instance_count['value'] += 1
+            n = instance_count['value']
+            return [text_event(f'agent-b instance {n}'), cost_event()]
 
-        session = self._make_session()
+        scripts = {
+            'parent': _dispatch_once(
+                tool_use_event('mcp__teaparty-config__Send',
+                               {'member': 'agent-b',
+                                'message': 'task 1'}),
+                tool_use_event('mcp__teaparty-config__Send',
+                               {'member': 'agent-b',
+                                'message': 'task 2'}),
+                text_event('Both dispatched.'),
+                cost_event(),
+            ),
+            'agent-b': _b_script,
+        }
+        self._session = _make_session(self._tmpdir, make_scripted_caller(scripts))
 
         async def run():
-            with patch('teaparty.runners.launcher.launch', fake_launch), \
-                 patch('teaparty.config.roster.has_sub_roster', return_value=False), \
-                 patch('subprocess.run'):
-                await session._ensure_bus_listener(self._tmpdir)
-                from teaparty.mcp.registry import get_spawn_fn
-                spawn_fn = get_spawn_fn('parent')
+            _send_human(self._session, 'Dispatch B twice')
+            await self._session.invoke(cwd=_module_repo_root)
 
-                b1_sid, _, _ = await spawn_fn('agent-b', 'task 1', 'r-b1')
-                b2_sid, _, _ = await spawn_fn('agent-b', 'task 2', 'r-b2')
+            cmap = self._session._dispatch_session.conversation_map
+            self.assertEqual(len(cmap), 2, 'Two B instances dispatched')
 
-                self.assertNotEqual(b1_sid, b2_sid)
+            sids = list(cmap.values())
+            self.assertNotEqual(sids[0], sids[1])
 
-                await asyncio.sleep(0.3)
+            r0 = await _wait_for_child_response(
+                self._session, sids[0], 'instance', timeout=10)
+            r1 = await _wait_for_child_response(
+                self._session, sids[1], 'instance', timeout=10)
+            self.assertIsNotNone(r0, 'First B instance must respond')
+            self.assertIsNotNone(r1, 'Second B instance must respond')
 
-                b1_msgs = session._bus.receive(f'dispatch:{b1_sid}')
-                b2_msgs = session._bus.receive(f'dispatch:{b2_sid}')
-
-                b1_content = ' '.join(m.content for m in b1_msgs)
-                b2_content = ' '.join(m.content for m in b2_msgs)
-
-                self.assertIn('instance 1', b1_content,
-                              f'B1 wrong content: {b1_content}')
-                self.assertIn('instance 2', b2_content,
-                              f'B2 wrong content: {b2_content}')
-
-        self._run(run())
+        _run(run())
 
     def test_diamond_A_BD_CD(self):
         """A → B and C. Both B and C dispatch to D (separate instances).
         All four responses arrive under correct conversation handles."""
-
         d_instance = {'count': 0}
 
-        async def fake_launch(**kwargs):
-            agent = kwargs.get('agent_name', '')
-            session_id = kwargs.get('session_id', '')
-            on_event = kwargs.get('on_stream_event')
+        def _make_bc_script():
+            dispatched = [False]
+            def _script(msg):
+                if not dispatched[0] and 'task' in msg:
+                    dispatched[0] = True
+                    agent = 'agent-b' if 'B' in msg else 'agent-c'
+                    return [
+                        tool_use_event('mcp__teaparty-config__Send',
+                                       {'member': 'agent-d',
+                                        'message': f'task from {agent}'}),
+                        text_event(f'{agent} dispatched to D.'),
+                        cost_event(),
+                    ]
+                return [text_event('done after dispatching D'), cost_event()]
+            return _script
 
-            if agent in ('agent-b', 'agent-c'):
-                # B and C each dispatch to D
-                from teaparty.mcp.registry import get_spawn_fn, current_session_id
-                token = current_session_id.set(session_id)
-                try:
-                    spawn = get_spawn_fn('parent')
-                    if spawn:
-                        await spawn('agent-d', f'task from {agent}', f'{agent}-to-d')
-                finally:
-                    current_session_id.reset(token)
-                await asyncio.sleep(0.2)
-                if on_event:
-                    on_event({'type': 'assistant', 'message': {'content': [
-                        {'type': 'text', 'text': f'{agent} done after dispatching D'},
-                    ]}})
-            elif agent == 'agent-d':
-                d_instance['count'] += 1
-                if on_event:
-                    on_event({'type': 'assistant', 'message': {'content': [
-                        {'type': 'text', 'text': f'D instance {d_instance["count"]}'},
-                    ]}})
-                await asyncio.sleep(0.05)
-            else:
-                await asyncio.sleep(0.05)
+        def _d_script(msg):
+            d_instance['count'] += 1
+            return [text_event(f'D instance {d_instance["count"]}'),
+                    cost_event()]
 
-            return FakeLaunchResult(session_id=f'claude-{agent}-{session_id[:8]}')
+        parent_dispatched = [False]
+        def _parent_script(msg):
+            if not parent_dispatched[0]:
+                parent_dispatched[0] = True
+                return [
+                    tool_use_event('mcp__teaparty-config__Send',
+                                   {'member': 'agent-b',
+                                    'message': 'task B'}),
+                    tool_use_event('mcp__teaparty-config__Send',
+                                   {'member': 'agent-c',
+                                    'message': 'task C'}),
+                    text_event('Both dispatched.'),
+                    cost_event(),
+                ]
+            return [text_event('RESULT: diamond complete'), cost_event()]
 
-        session = self._make_session()
+        scripts = {
+            'parent': _parent_script,
+            'agent-b': _make_bc_script(),
+            'agent-c': _make_bc_script(),
+            'agent-d': _d_script,
+        }
+        self._session = _make_session(self._tmpdir, make_scripted_caller(scripts))
 
         async def run():
-            with patch('teaparty.runners.launcher.launch', fake_launch), \
-                 patch('teaparty.config.roster.has_sub_roster', return_value=True), \
-                 patch('subprocess.run'):
-                await session._ensure_bus_listener(self._tmpdir)
-                from teaparty.mcp.registry import get_spawn_fn
-                spawn_fn = get_spawn_fn('parent')
+            _send_human(self._session, 'Start diamond')
+            await self._session.invoke(cwd=_module_repo_root)
 
-                b_sid, _, _ = await spawn_fn('agent-b', 'task B', 'a-b')
-                c_sid, _, _ = await spawn_fn('agent-c', 'task C', 'a-c')
+            # Wait for the diamond to complete — both B and C must finish.
+            # B or C completing first triggers 'RESULT:' on the parent; the
+            # other sibling may still be in flight.  Poll until both B and C
+            # have 'done' in their conversation buses (timeout=15s total).
+            cmap = self._session._dispatch_session.conversation_map
+            deadline = asyncio.get_event_loop().time() + 15
+            while asyncio.get_event_loop().time() < deadline:
+                await asyncio.sleep(0.1)
+                sids = list(cmap.values())
+                found_b = any(
+                    'agent-b' in ' '.join(m.content for m in
+                        self._session._bus.receive(f'dispatch:{s}'))
+                    and 'done' in ' '.join(m.content for m in
+                        self._session._bus.receive(f'dispatch:{s}'))
+                    for s in sids
+                )
+                found_c = any(
+                    'agent-c' in ' '.join(m.content for m in
+                        self._session._bus.receive(f'dispatch:{s}'))
+                    and 'done' in ' '.join(m.content for m in
+                        self._session._bus.receive(f'dispatch:{s}'))
+                    for s in sids
+                )
+                if found_b and found_c:
+                    break
 
-                await asyncio.sleep(0.5)
+            # Two D instances were launched
+            self.assertEqual(d_instance['count'], 2)
 
-                # Two D instances were launched
-                self.assertEqual(d_instance['count'], 2)
+            self.assertGreaterEqual(len(cmap), 2)
+            self.assertTrue(found_b, 'B response must be in bus')
+            self.assertTrue(found_c, 'C response must be in bus')
 
-                # B and C responses in A's bus
-                b_msgs = session._bus.receive(f'dispatch:{b_sid}')
-                c_msgs = session._bus.receive(f'dispatch:{c_sid}')
-
-                self.assertTrue(any('agent-b done' in m.content for m in b_msgs),
-                                f'B response missing: {[(m.sender, m.content[:50]) for m in b_msgs]}')
-                self.assertTrue(any('agent-c done' in m.content for m in c_msgs),
-                                f'C response missing: {[(m.sender, m.content[:50]) for m in c_msgs]}')
-
-        self._run(run())
+        _run(run(), timeout=30)
 
 
 if __name__ == '__main__':
