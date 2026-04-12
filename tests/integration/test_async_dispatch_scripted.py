@@ -388,6 +388,21 @@ class TestLinearDispatchScripted(unittest.TestCase):
         self.assertIsNotNone(result, 'Coordinator must produce RESULT')
         self.assertIn('done', result)
 
+        # Reload invariant: rebuilding the dispatch tree from disk
+        # must NOT show completed children. Before this fix, reloading
+        # the UI after a dispatch completed brought the child blades
+        # back with all their content — even though the live session
+        # had removed them client-side via dispatch_completed events.
+        from teaparty.bridge.state.dispatch_tree import build_dispatch_tree
+        sessions_dir = os.path.join(
+            _module_env[0], 'management', 'sessions')
+        tree = build_dispatch_tree(
+            sessions_dir, session._dispatch_session.id)
+        self.assertEqual(
+            tree.get('children', []), [],
+            'dispatch tree must be empty after all children complete; '
+            'reload would otherwise show stale blades. tree=%r' % tree)
+
         # Regression: coordinator must be resumed EXACTLY ONCE — with
         # mid's final 'done'. Before the subtree-loop fix, mid's first
         # turn ('Dispatched leaf.') was delivered as an interim reply

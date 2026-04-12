@@ -383,6 +383,7 @@ class AgentSession:
                 mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
                 current_claude_session = ''
                 current_message = composite
+                completed_normally = False
                 try:
                     while True:
                         # Snapshot which children this session already
@@ -448,7 +449,22 @@ class AgentSession:
                         # Loop: re-launch child with --resume and the
                         # grandchildren's replies, so the child can
                         # integrate them before answering.
+                    completed_normally = True
                 finally:
+                    # Mark the session as completed in metadata so the
+                    # dispatch tree filters it out on the next page
+                    # reload. Only do this on normal exit — cancellation
+                    # (CloseConversation teardown) will rmtree the dir.
+                    if completed_normally:
+                        try:
+                            from teaparty.runners.launcher import (
+                                mark_session_completed as _mark_done,
+                            )
+                            _mark_done(child_session)
+                        except Exception:
+                            _log.debug(
+                                'Failed to mark %s completed', member,
+                                exc_info=True)
                     if self._on_dispatch:
                         self._on_dispatch({
                             'type': 'dispatch_completed',
