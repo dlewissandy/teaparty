@@ -16,6 +16,7 @@ Issue #394.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -95,6 +96,11 @@ class AgentSession:
         self._bus_listener_sockets: tuple[str, str, str] | None = None
         self._bus_context_id: str | None = None
         self._dispatch_session = None
+
+        # Serialize concurrent invocations — only one claude process per
+        # agent session at a time. When multiple children reply at once,
+        # each _run_child triggers a resume; the lock queues them.
+        self._invoke_lock: asyncio.Lock | None = None
 
     # ── Message bus ──────────────────────────────────────────────────────
 
@@ -506,16 +512,17 @@ class AgentSession:
     async def invoke(self, *, cwd: str) -> str:
         """Invoke the agent via the unified launcher.
 
-        The one invoke path for all agents:
-        1. Load state
-        2. Build prompt (fresh or resume)
-        3. Create/load session, create worktree inside it
-        4. Start bus listener if agent dispatches
-        5. Launch via unified launcher
-        6. Detect poisoned session / empty response
-        7. Run post_invoke_hook if provided
-        8. Save state
+        Concurrent invocations are serialized via an asyncio lock. When
+        multiple children complete in parallel and each triggers a resume,
+        the resumes queue up and run sequentially — each sees the previous
+        turn's claude_session_id for --resume continuity.
         """
+        if self._invoke_lock is None:
+            self._invoke_lock = asyncio.Lock()
+        async with self._invoke_lock:
+            return await self._invoke_inner(cwd=cwd)
+
+    async def _invoke_inner(self, *, cwd: str) -> str:
         import time as _time
         from teaparty.runners.launcher import (
             launch, detect_poisoned_session,

@@ -195,6 +195,21 @@ def _get_coordinator_result(session):
     return None
 
 
+async def _wait_for_result(session, timeout=120):
+    """Poll the bus until the coordinator produces a RESULT: line.
+
+    The coordinator's first turn dispatches and ends. Child replies
+    trigger resumes (serialized by the invoke lock). Eventually one
+    resume produces the RESULT: line.
+    """
+    for _ in range(timeout):
+        await asyncio.sleep(1.0)
+        result = _get_coordinator_result(session)
+        if result:
+            return result
+    return None
+
+
 def _print_conversation(label, messages):
     print(f'\n--- {label} ---')
     for m in messages:
@@ -237,13 +252,16 @@ class TestParallelDispatch(unittest.TestCase):
                 session,
                 'Dispatch two messages in parallel: '
                 'send "say alpha" to leaf-agent and "say beta" to leaf-agent. '
-                'Wait for both replies, then respond with RESULT.')
+                'Wait for both replies, then respond with RESULT: '
+                'followed by both words, separated by commas.')
+            # First invoke runs the dispatch turn. Resumes happen in
+            # background tasks when children reply.
             await session.invoke(cwd=_module_env[1])
+            # Poll until the coordinator produces a RESULT line.
+            return await _wait_for_result(session, timeout=120)
 
-        _run(run())
+        result = _run(run(), timeout=180)
 
-        # Verify the coordinator's final output
-        result = _get_coordinator_result(session)
         msgs = session._bus.receive(session.conversation_id)
         _print_conversation('Coordinator conversation', msgs)
 
@@ -262,7 +280,6 @@ class TestParallelDispatch(unittest.TestCase):
             f'Coordinator must call Send at least twice. '
             f'Tool uses: {[m.content[:60] for m in tool_uses]}')
 
-        # Verify cleanup
         handles = _get_dispatch_handles(session)
         _verify_cleanup(self, session, handles)
         self.assertEqual(len(session._dispatch_session.conversation_map), 0)
@@ -282,12 +299,13 @@ class TestParallelInstance(unittest.TestCase):
                 'I need you to run two independent tasks on leaf-agent. '
                 'Task 1: send "say red" to leaf-agent. '
                 'Task 2: send "say blue" to leaf-agent. '
-                'Wait for both replies, then respond with RESULT.')
+                'Wait for both replies, then respond with RESULT: '
+                'followed by both colors, separated by commas.')
             await session.invoke(cwd=_module_env[1])
+            return await _wait_for_result(session, timeout=120)
 
-        _run(run())
+        result = _run(run(), timeout=180)
 
-        result = _get_coordinator_result(session)
         msgs = session._bus.receive(session.conversation_id)
         _print_conversation('Coordinator conversation', msgs)
 
@@ -295,7 +313,6 @@ class TestParallelInstance(unittest.TestCase):
         self.assertIn('red', result.lower())
         self.assertIn('blue', result.lower())
 
-        # Must be two separate dispatches with different session IDs
         tool_uses = [m for m in msgs if m.sender == 'tool_use'
                      and 'Send' in m.content]
         self.assertGreaterEqual(len(tool_uses), 2)
