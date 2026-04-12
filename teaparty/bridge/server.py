@@ -1845,11 +1845,15 @@ class TeaPartyBridge:
     # ── Project pause / resume (issue #403) ───────────────────────────────
 
     def _sessions_dir_for_project(self, slug: str) -> str | None:
-        """Return the management sessions dir where project-scoped dispatch
-        sessions live. Top-level jobs are dispatched by management agents
-        (project leads) so their children land under management/sessions/.
+        """Return the sessions dir where the project lead's dispatch
+        tree lives. The project lead runs with scope='project' and
+        teaparty_home={project}/.teaparty, so its dispatched children
+        are under {project}/.teaparty/project/sessions/.
         """
-        return os.path.join(self.teaparty_home, 'management', 'sessions')
+        path = self._lookup_project_path(slug)
+        if not path:
+            return None
+        return os.path.join(path, '.teaparty', 'project', 'sessions')
 
     async def _handle_project_pause(self, request: web.Request) -> web.Response:
         """POST /api/projects/{slug}/pause — stop every running claude
