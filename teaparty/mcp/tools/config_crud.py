@@ -9,6 +9,27 @@ import subprocess
 
 import yaml
 
+
+def _emit_config_event(event_type: str, **data) -> None:
+    """Record a config_* or pin/unpin telemetry event (Issue #405).
+
+    Best-effort — swallows all failures so config CRUD never breaks
+    because of a telemetry hiccup. ``event_type`` is looked up against
+    ``teaparty.telemetry.events`` by upper-cased name; if the constant
+    does not exist, the event is dropped silently.
+    """
+    try:
+        from teaparty import telemetry
+        from teaparty.telemetry import events as _telem_events
+        const_name = event_type.upper()
+        et = getattr(_telem_events, const_name, None)
+        if et is None:
+            et = event_type
+        scope = data.get('project') or 'management'
+        telemetry.record_event(et, scope=scope, data=dict(data))
+    except Exception:
+        pass
+
 from teaparty.mcp.tools.config_helpers import (
     _err,
     _load_settings,
@@ -73,6 +94,7 @@ def add_project_handler(
         )
     except ValueError as e:
         return _err(str(e))
+    _emit_config_event('config_project_added', project=name, path=path)
     return _ok(f"Project '{name}' added at {path}")
 
 
@@ -108,6 +130,7 @@ def create_project_handler(
         )
     except ValueError as e:
         return _err(str(e))
+    _emit_config_event('config_project_added', project=name, path=path, created=True)
     return _ok(f"Project '{name}' created at {path}")
 
 
@@ -122,6 +145,7 @@ def remove_project_handler(name: str, teaparty_home: str = '') -> str:
         remove_project(name=name, teaparty_home=home)
     except ValueError as e:
         return _err(str(e))
+    _emit_config_event('config_project_removed', project=name)
     return _ok(f"Project '{name}' removed from registry")
 
 
@@ -249,6 +273,7 @@ def pin_artifact_handler(
     pins.append(entry)
     data['artifact_pins'] = pins
     _save_project_yaml(project_dir, data)
+    _emit_config_event('pin_artifact', project=project, path=path, label=label)
     return _ok(f"Pinned '{path}' in project '{project}'")
 
 
@@ -278,6 +303,7 @@ def unpin_artifact_handler(
 
     data['artifact_pins'] = pins
     _save_project_yaml(project_dir, data)
+    _emit_config_event('unpin_artifact', project=project, path=path)
     return _ok(f"Unpinned '{path}' from project '{project}'")
 
 
@@ -722,6 +748,7 @@ def create_agent_handler(
             {'path': 'settings.yaml', 'label': 'Tool & File Permissions'},
         ])
 
+    _emit_config_event('config_agent_created', name=name, path=path)
     return _ok(f"Agent '{name}' created at {path}", path=path)
 
 
@@ -756,6 +783,7 @@ def edit_agent_handler(
         fm[field] = value
 
     _write_agent_file(path, fm, body)
+    _emit_config_event('config_agent_edited', name=name, field=field)
     return _ok(f"Agent '{name}' field '{field}' updated")
 
 
@@ -771,6 +799,7 @@ def remove_agent_handler(name: str, project_root: str = '', scope: str = '') -> 
         return _err(f"Agent '{name}' not found at {agent_dir}")
 
     shutil.rmtree(agent_dir)
+    _emit_config_event('config_agent_removed', name=name)
     return _ok(f"Agent '{name}' removed")
 
 
@@ -809,6 +838,7 @@ def create_skill_handler(
 
     body_text = body if body.startswith('\n') else f'\n{body}'
     _write_skill_file(path, fm, body_text)
+    _emit_config_event('config_skill_created', name=name, path=path)
     return _ok(f"Skill '{name}' created at {path}", path=path)
 
 
@@ -842,6 +872,7 @@ def edit_skill_handler(
         fm[field] = value
 
     _write_skill_file(path, fm, body)
+    _emit_config_event('config_skill_edited', name=name, field=field)
     return _ok(f"Skill '{name}' field '{field}' updated")
 
 
@@ -857,6 +888,7 @@ def remove_skill_handler(name: str, project_root: str = '', scope: str = '') -> 
         return _err(f"Skill '{name}' not found at {skill_dir}")
 
     shutil.rmtree(skill_dir)
+    _emit_config_event('config_skill_removed', name=name)
     return _ok(f"Skill '{name}' removed")
 
 
@@ -909,6 +941,7 @@ def create_workgroup_handler(
     }
     with open(path, 'w') as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+    _emit_config_event('config_workgroup_created', name=name, path=path)
     return _ok(f"Workgroup '{name}' created at {path}", path=path)
 
 
@@ -940,6 +973,7 @@ def edit_workgroup_handler(
 
     with open(path, 'w') as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+    _emit_config_event('config_workgroup_edited', name=name, field=field)
     return _ok(f"Workgroup '{name}' field '{field}' updated")
 
 
@@ -952,6 +986,7 @@ def remove_workgroup_handler(name: str, teaparty_home: str = '', scope: str = ''
         return _err(f"Workgroup '{name}' not found at {path}")
 
     os.remove(path)
+    _emit_config_event('config_workgroup_removed', name=name)
     return _ok(f"Workgroup '{name}' removed")
 
 
@@ -983,6 +1018,7 @@ def create_hook_handler(
     }
     event_hooks.append(new_entry)
     _save_settings(settings_path, data)
+    _emit_config_event('config_hook_created', event=event, matcher=matcher)
     return _ok(f"Hook added: {event}/{matcher}")
 
 
@@ -1031,6 +1067,7 @@ def remove_hook_handler(event: str, matcher: str, project_root: str = '', scope:
         return _err(f"Hook not found: {event}/{matcher}")
 
     _save_settings(settings_path, data)
+    _emit_config_event('config_hook_removed', event=event, matcher=matcher)
     return _ok(f"Hook removed: {event}/{matcher}")
 
 

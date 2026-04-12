@@ -1981,6 +1981,48 @@ class Orchestrator:
         state_path = os.path.join(self.infra_dir, '.cfa-state.json')
         save_state(self.cfa, state_path)
 
+        # Telemetry — phase_changed on every transition, phase_backtrack
+        # when the machine counted one (Issue #405).
+        try:
+            from teaparty.telemetry import record_event
+            from teaparty.telemetry import events as _telem_events
+            _scope = self.project_slug or 'management'
+            old_phase = phase_for_state(old_state)
+            record_event(
+                _telem_events.PHASE_CHANGED,
+                scope=_scope,
+                agent_name=None,
+                session_id=self.session_id,
+                data={
+                    'old_state':     old_state,
+                    'new_state':     self.cfa.state,
+                    'old_phase':     old_phase,
+                    'new_phase':     self.cfa.phase,
+                    'action':        action,
+                    'actor':         self.cfa.actor,
+                    'state_machine': 'cfa',
+                },
+            )
+            # The CfA machine increments backtrack_count when a backtrack
+            # edge fires — emit phase_backtrack for those transitions.
+            if self.cfa.backtrack_count > (
+                getattr(self, '_last_backtrack_count', 0)
+            ):
+                record_event(
+                    _telem_events.PHASE_BACKTRACK,
+                    scope=_scope,
+                    session_id=self.session_id,
+                    data={
+                        'kind':            f'{old_phase}_to_{self.cfa.phase}',
+                        'triggering_gate': old_state,
+                        'action':          action,
+                        'backtrack_count': self.cfa.backtrack_count,
+                    },
+                )
+                self._last_backtrack_count = self.cfa.backtrack_count
+        except Exception:
+            _log.debug('telemetry emit failed in _transition', exc_info=True)
+
         await self.event_bus.publish(Event(
             type=EventType.STATE_CHANGED,
             data={

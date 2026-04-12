@@ -1225,6 +1225,31 @@ class TeaPartyBridge:
         except ValueError as exc:
             return web.json_response({'error': str(exc)}, status=409)
 
+        # Telemetry: chat_message_sent (Issue #405).
+        try:
+            from teaparty import telemetry
+            from teaparty.telemetry import events as _telem_events
+            target_session = ''
+            telem_scope = 'management'
+            if conv_id.startswith('job:'):
+                _parts = conv_id.split(':')
+                if len(_parts) >= 3:
+                    telem_scope = _parts[1]
+                    target_session = _parts[2]
+            telemetry.record_event(
+                _telem_events.CHAT_MESSAGE_SENT,
+                scope=telem_scope,
+                session_id=target_session or None,
+                data={
+                    'conv_id':           conv_id,
+                    'target_session_id': target_session,
+                    'content_len':       len(content),
+                    'was_awaiting_input': False,
+                },
+            )
+        except Exception:
+            pass
+
         # Invoke the agent asynchronously; reply will appear in the bus and
         # be broadcast by MessageRelay.
         if conv_id.startswith('om:'):
@@ -1952,6 +1977,28 @@ class TeaPartyBridge:
                 await ws.send_str(payload)
             except Exception:
                 pass
+
+        # Telemetry — withdraw_clicked + session_withdrawn (Issue #405).
+        try:
+            from teaparty import telemetry
+            from teaparty.telemetry import events as _telem_events
+            project_slug = result.get('project_slug') or 'management'
+            telemetry.record_event(
+                _telem_events.WITHDRAW_CLICKED,
+                scope=project_slug,
+                session_id=session_id,
+            )
+            telemetry.record_event(
+                _telem_events.SESSION_WITHDRAWN,
+                scope=project_slug,
+                session_id=session_id,
+                data={
+                    'phase_at_withdrawal': result.get('phase_at_withdrawal', ''),
+                    'reason_len':          len(str(result.get('reason', '') or '')),
+                },
+            )
+        except Exception:
+            pass
 
         return web.json_response(result)
 
