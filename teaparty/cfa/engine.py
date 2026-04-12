@@ -1988,6 +1988,10 @@ class Orchestrator:
             from teaparty.telemetry import events as _telem_events
             _scope = self.project_slug or 'management'
             old_phase = phase_for_state(old_state)
+            # Save the previous phase-entry timestamp before overwriting —
+            # the backtrack cost query needs the window from when the prior
+            # phase was entered until now.
+            _prev_phase_entry = getattr(self, '_phase_entry_ts', 0.0)
             self._phase_entry_ts = time.time()
             record_event(
                 _telem_events.PHASE_CHANGED,
@@ -2011,17 +2015,22 @@ class Orchestrator:
             ):
                 # Estimate cost being discarded by summing turn_complete
                 # costs for this session recorded since the backtracked
-                # phase was entered. Falls back to 0 if unavailable.
+                # phase was entered. Scoped to session_id so concurrent
+                # sessions in the same scope are excluded.
                 _discarded = 0.0
                 try:
                     from teaparty.telemetry import query as _tq
-                    _discarded = _tq.total_cost(
+                    _cost_events = _tq.query_events(
+                        event_type=_telem_events.TURN_COMPLETE,
                         scope=_scope,
-                        time_range=(
-                            getattr(self, '_phase_entry_ts', 0.0),
-                            time.time(),
-                        ),
+                        session=self.session_id,
+                        start_ts=_prev_phase_entry,
+                        end_ts=time.time(),
                     )
+                    _discarded = round(sum(
+                        float(e.data.get('cost_usd', 0.0) or 0.0)
+                        for e in _cost_events
+                    ), 6)
                 except Exception:
                     pass
 
