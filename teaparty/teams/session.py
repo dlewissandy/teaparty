@@ -70,6 +70,7 @@ class AgentSession:
         post_invoke_hook: PostInvokeHook | None = None,
         build_prompt_hook: BuildPromptHook | None = None,
         on_dispatch: Callable[[dict], Any] | None = None,
+        llm_caller: Callable | None = None,
     ):
         self.teaparty_home = os.path.expanduser(teaparty_home)
         self.agent_name = agent_name
@@ -81,6 +82,7 @@ class AgentSession:
         self._post_invoke_hook = post_invoke_hook
         self._build_prompt_hook = build_prompt_hook
         self._on_dispatch = on_dispatch
+        self._llm_caller = llm_caller  # None → use launcher default
 
         self.conversation_id = make_conversation_id(conversation_type, qualifier)
         self.claude_session_id: str | None = None
@@ -106,6 +108,9 @@ class AgentSession:
         # child running _run_child). Tracked so /clear and withdraw can
         # cancel them.
         self._background_tasks: set[asyncio.Task] = set()
+        # child_session_id → running _run_child task, so close_fn can
+        # cancel a specific in-flight conversation.
+        self._tasks_by_child: dict[str, asyncio.Task] = {}
 
     # ── Message bus ──────────────────────────────────────────────────────
 
@@ -182,12 +187,29 @@ class AgentSession:
                 pass
 
     def _latest_human_message(self) -> str:
-        """Return the latest incoming message, prefixed with its sender.
+        """Return the raw content of the latest incoming message.
+
+        Returns the content as stored in the bus, with no prefix.
+        Used for /clear detection and other internal checks that need
+        to match against exact content.
+
+        The sender is not included — callers that need to know who
+        sent the message should use _latest_incoming_with_sender().
+        """
+        messages = self.get_messages()
+        for msg in reversed(messages):
+            if (msg.sender != self.agent_role
+                    and msg.sender not in NON_CONVERSATIONAL_SENDERS
+                    and not msg.sender.startswith('unknown:')):
+                return msg.content
+        return ''
+
+    def _latest_incoming_with_sender(self) -> str:
+        """Return the latest incoming message prefixed with its sender role.
 
         Used on resume: claude already has prior context via --resume,
         so we just deliver the new event. The sender prefix lets claude
-        correlate the reply to the right dispatch (when multiple children
-        are in flight).
+        correlate agent replies to the dispatches that produced them.
 
         Returns:
             'Human: {text}' for a human message
@@ -339,14 +361,17 @@ class AgentSession:
                             response_parts.append(content)
 
                 mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
+                launch_kwargs = dict(
+                    agent_name=member, message=composite,
+                    scope=self.scope, teaparty_home=self.teaparty_home,
+                    worktree=worktree_path, mcp_port=mcp_port,
+                    session_id=child_session.id,
+                    on_stream_event=on_event,
+                )
+                if self._llm_caller is not None:
+                    launch_kwargs['llm_caller'] = self._llm_caller
                 try:
-                    result = await _launch(
-                        agent_name=member, message=composite,
-                        scope=self.scope, teaparty_home=self.teaparty_home,
-                        worktree=worktree_path, mcp_port=mcp_port,
-                        session_id=child_session.id,
-                        on_stream_event=on_event,
-                    )
+                    result = await _launch(**launch_kwargs)
 
                     if result.session_id:
                         child_session.claude_session_id = result.session_id
@@ -385,7 +410,11 @@ class AgentSession:
 
             task = _asyncio.create_task(_run_child())
             self._background_tasks.add(task)
-            task.add_done_callback(self._background_tasks.discard)
+            self._tasks_by_child[child_session.id] = task
+            def _done(t, _csid=child_session.id):
+                self._background_tasks.discard(t)
+                self._tasks_by_child.pop(_csid, None)
+            task.add_done_callback(_done)
 
             # Return immediately — child runs in background.
             _log.info('%s spawn_fn: dispatched to %s (async)',
@@ -461,7 +490,35 @@ class AgentSession:
         register_spawn_fn(self.agent_name, spawn_fn)
 
         async def close_fn(conversation_id):
-            from teaparty.workspace.close_conversation import close_conversation
+            from teaparty.workspace.close_conversation import (
+                close_conversation, collect_descendants,
+            )
+            # Collect every descendant session in the subtree rooted at
+            # this conversation (walks metadata on disk, depth-first).
+            # Cancel their in-flight _run_child tasks before
+            # close_conversation rmtrees the dirs — otherwise the tasks
+            # outlive the filesystem state they depend on.
+            if conversation_id.startswith('dispatch:'):
+                root_csid = conversation_id[len('dispatch:'):]
+                sessions_dir = os.path.join(
+                    self.teaparty_home, self.scope, 'sessions')
+                to_cancel = collect_descendants(sessions_dir, root_csid)
+                tasks = []
+                for csid in to_cancel:
+                    task = self._tasks_by_child.pop(csid, None)
+                    if task is not None and not task.done():
+                        task.cancel()
+                        tasks.append(task)
+                if tasks:
+                    try:
+                        await asyncio.wait_for(
+                            asyncio.shield(
+                                asyncio.gather(*tasks, return_exceptions=True)),
+                            timeout=2.0)
+                    except asyncio.TimeoutError:
+                        _log.warning(
+                            '%s close_fn: tasks did not cancel within 2s',
+                            self.agent_name)
             close_conversation(
                 self._dispatch_session, conversation_id,
                 teaparty_home=self.teaparty_home, scope=self.scope,
@@ -596,11 +653,13 @@ class AgentSession:
 
         is_fresh_session = self.claude_session_id is None
 
-        # Build prompt — use hook if provided, else standard pattern
+        # Build prompt — use hook if provided, else standard pattern.
+        # On resume, deliver only the latest incoming message (sender
+        # prefixed). On fresh start, deliver the full conversation.
         if self._build_prompt_hook:
             prompt = self._build_prompt_hook(self, latest)
         elif self.claude_session_id:
-            prompt = self._latest_human_message()
+            prompt = self._latest_incoming_with_sender()
         else:
             prompt = self.build_context()
 
@@ -642,7 +701,7 @@ class AgentSession:
 
         mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
 
-        result = await launch(
+        launch_kwargs = dict(
             agent_name=self.agent_name,
             message=prompt,
             scope=self.scope,
@@ -652,6 +711,9 @@ class AgentSession:
             mcp_port=mcp_port,
             on_stream_event=stream_callback,
         )
+        if self._llm_caller is not None:
+            launch_kwargs['llm_caller'] = self._llm_caller
+        result = await launch(**launch_kwargs)
 
         response_text = '\n'.join(
             c for s, c in events if s == self.agent_role

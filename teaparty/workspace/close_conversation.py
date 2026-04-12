@@ -51,6 +51,35 @@ def close_conversation(
         remove_child_session(parent_session, request_id=request_id)
 
 
+def collect_descendants(sessions_dir: str, root_session_id: str) -> list[str]:
+    """Walk the conversation tree rooted at root_session_id.
+
+    Returns all session_ids in the subtree (root first, then descendants
+    in depth-first order). Reads metadata.json files on disk — does not
+    modify anything.
+
+    Used by close_fn to find in-flight tasks that must be cancelled
+    before close_conversation tears down the session directories.
+    """
+    result: list[str] = []
+
+    def _walk(sid: str) -> None:
+        result.append(sid)
+        meta_path = os.path.join(sessions_dir, sid, 'metadata.json')
+        if not os.path.isfile(meta_path):
+            return
+        try:
+            with open(meta_path) as f:
+                meta = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            return
+        for child_sid in meta.get('conversation_map', {}).values():
+            _walk(child_sid)
+
+    _walk(root_session_id)
+    return result
+
+
 def _close_recursive(sessions_dir: str, session_id: str) -> None:
     """Recursively close a session and all its children."""
     session_path = os.path.join(sessions_dir, session_id)

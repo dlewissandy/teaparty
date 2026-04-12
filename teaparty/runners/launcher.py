@@ -418,6 +418,28 @@ def _record_metrics(
         )
 
 
+# ── LLM caller type and default implementation ──────────────────────────────
+
+# An llm_caller is an async function that takes the launch parameters and
+# returns a ClaudeResult. launch() delegates to it after composing the
+# worktree and resolving settings. The default wraps ClaudeRunner.
+#
+# Tests can pass a scripted caller (see teaparty.runners.scripted) to
+# exercise the dispatch machinery without real claude subprocesses.
+LLMCaller = Callable[..., Any]  # async (**kwargs) -> ClaudeResult
+
+
+async def _default_claude_caller(**kwargs) -> ClaudeResult:
+    """Default llm_caller: runs ClaudeRunner on the given parameters."""
+    from teaparty.runners.claude import ClaudeRunner
+    # agent_name is informational for scripted callers; ClaudeRunner
+    # doesn't take it — the message parameter carries the prompt.
+    kwargs.pop('agent_name', None)
+    message = kwargs.pop('message')
+    runner = ClaudeRunner(message, **kwargs)
+    return await runner.run()
+
+
 # ── The launcher ─────────────────────────────────────────────────────────────
 
 async def launch(
@@ -446,6 +468,8 @@ async def launch(
     env_vars: dict[str, str] | None = None,
     permission_mode_override: str = '',
     tools_override: str | None = None,
+    # LLM backend — default is real claude, tests inject scripted caller.
+    llm_caller: LLMCaller = _default_claude_caller,
 ) -> ClaudeResult:
     """Launch an agent through the unified codepath.
 
@@ -506,9 +530,11 @@ async def launch(
 
     effective_stream = stream_file or os.path.join(worktree, '.stream.jsonl')
 
-    # Build the runner — delegate to ClaudeRunner for streaming, watchdog, etc.
-    runner = ClaudeRunner(
-        message,
+    # Delegate to the llm_caller. Default is _default_claude_caller
+    # which wraps ClaudeRunner. Tests inject a scripted caller.
+    result = await llm_caller(
+        agent_name=agent_name,
+        message=message,
         cwd=worktree,
         stream_file=effective_stream,
         lead=agent_name,
@@ -528,8 +554,6 @@ async def launch(
         agents_file=agents_file,
         env_vars=env_vars or {},
     )
-
-    result = await runner.run()
 
     # Write metrics to per-scope metrics.db (survives session cleanup)
     _record_metrics(
