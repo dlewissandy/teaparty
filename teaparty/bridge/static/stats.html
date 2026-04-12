@@ -5,10 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TeaParty — Statistics</title>
 <link rel="stylesheet" href="styles.css">
+<script src="breadcrumb.js"></script>
 </head>
 <body>
 
-<div class="breadcrumb-bar" style="padding:6px 12px"><a href="index.html">Home</a></div>
+<div id="breadcrumb-slot" style="padding:6px 12px"></div>
+<script>
+document.getElementById('breadcrumb-slot').innerHTML = breadcrumbBar([
+  { label: 'Home', onClick: "location.href='index.html'" },
+  { label: 'Statistics' },
+]);
+</script>
 <div id="content" class="app-pane active" style="overflow-y:auto"></div>
 
 <script>

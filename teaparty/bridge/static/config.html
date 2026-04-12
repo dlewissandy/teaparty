@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TeaParty — Configuration</title>
 <link rel="stylesheet" href="styles.css">
+<script src="breadcrumb.js"></script>
 </head>
 <body>
 
@@ -239,15 +240,6 @@ function showLoading() {
     '<div style="padding:24px;color:var(--text-dim);font-size:11px">Loading...</div>';
 }
 
-function breadcrumbBar(parts) {
-  if (!parts || parts.length === 0) return '';
-  return '<div class="breadcrumb-bar">' + parts.map(function(p, i) {
-    var sep = i > 0 ? ' <span>/</span> ' : '';
-    if (p.onClick) return sep + '<a onclick="' + p.onClick + '" style="cursor:pointer">' + p.label + '</a>';
-    return sep + '<a>' + p.label + '</a>';
-  }).join('') + '</div>';
-}
-
 // ── Scope loaders ────────────────────────────────────────────────────────────
 
 async function loadGlobal() {
@@ -295,7 +287,10 @@ async function loadGlobal() {
   var subtitle = projects.length + ' projects &middot; ' + (workgroupsData || []).length + ' workgroups &middot; ' + (m.agents || []).length + ' agents';
 
   return {
-    breadcrumb: breadcrumbBar([{ label: 'Home', onClick: "location.href='index.html'" }]),
+    breadcrumb: breadcrumbBar([
+      { label: 'Home', onClick: "location.href='index.html'" },
+      { label: 'Management Team' },
+    ]),
     title: 'Management Team',
     description: m.description || 'Cross-project coordination, human interaction, organizational strategy, and configuration management.',
     subtitle: subtitle,
