@@ -345,7 +345,29 @@ class AgentSession:
             # The child runs asynchronously; its response is written to
             # the parent's bus when it completes.
 
-            async def _run_child():
+            async def _run_child() -> str:
+                """Run the dispatched child through its full lifecycle.
+
+                Loops until the child's turn emits no new Send tool_uses:
+                  1. Launch the child (first turn runs to end-of-turn).
+                  2. If the child spawned grandchildren during this turn,
+                     await their _run_child tasks (which return their own
+                     final replies) and re-launch the child with
+                     ``--resume`` passing the grandchildren's replies as
+                     the new prompt.
+                  3. Repeat until a turn produces no new dispatches — at
+                     that point the child has integrated everything and
+                     response_parts holds its final answer.
+
+                Only the **top-level** dispatched child (one whose
+                dispatcher is the coordinator's own dispatch_session)
+                fires ``self.invoke`` with the final reply; nested
+                children return their reply text so their parent's loop
+                can collect it via ``await task``. This is what makes a
+                linear A→B→C chain wait for C before OM sees B's answer.
+
+                Returns the child's final integrated reply text.
+                """
                 t0 = _time.monotonic()
                 seen_tu: set[str] = set()
                 seen_tr: set[str] = set()
@@ -359,52 +381,103 @@ class AgentSession:
                             response_parts.append(content)
 
                 mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
-                launch_kwargs = dict(
-                    agent_name=member, message=composite,
-                    scope=self.scope, teaparty_home=self.teaparty_home,
-                    worktree=worktree_path, mcp_port=mcp_port,
-                    session_id=child_session.id,
-                    on_stream_event=on_event,
-                )
-                if self._llm_caller is not None:
-                    launch_kwargs['llm_caller'] = self._llm_caller
+                current_claude_session = ''
+                current_message = composite
                 try:
-                    result = await _launch(**launch_kwargs)
+                    while True:
+                        # Snapshot which children this session already
+                        # has before the turn — anything new after the
+                        # launch was spawned *during* this turn.
+                        before_ids = set(
+                            child_session.conversation_map.values())
+                        response_parts.clear()
 
-                    if result.session_id:
-                        child_session.claude_session_id = result.session_id
-                        _save_meta(child_session)
+                        launch_kwargs = dict(
+                            agent_name=member, message=current_message,
+                            scope=self.scope, teaparty_home=self.teaparty_home,
+                            worktree=worktree_path, mcp_port=mcp_port,
+                            session_id=child_session.id,
+                            on_stream_event=on_event,
+                        )
+                        if current_claude_session:
+                            launch_kwargs['resume_session'] = current_claude_session
+                        if self._llm_caller is not None:
+                            launch_kwargs['llm_caller'] = self._llm_caller
 
-                except Exception:
-                    _log.exception('Child %s failed', member)
+                        try:
+                            result = await _launch(**launch_kwargs)
+                            if result.session_id:
+                                child_session.claude_session_id = result.session_id
+                                current_claude_session = result.session_id
+                                _save_meta(child_session)
+                        except Exception:
+                            _log.exception('Child %s failed', member)
+                            break
 
-                if self._on_dispatch:
-                    self._on_dispatch({
-                        'type': 'dispatch_completed',
-                        'parent_session_id': dispatcher_session.id,
-                        'child_session_id': child_session.id,
-                        'agent_name': member,
-                    })
+                        after_ids = set(
+                            child_session.conversation_map.values())
+                        new_gc_ids = after_ids - before_ids
+                        if not new_gc_ids:
+                            # Child's turn produced no new dispatches —
+                            # response_parts now holds its final answer.
+                            break
+
+                        # Wait for the grandchildren spawned this turn
+                        # to resolve. Each grandchild's _run_child
+                        # returns its own final integrated reply text.
+                        gc_tasks = [
+                            self._tasks_by_child[g] for g in new_gc_ids
+                            if g in self._tasks_by_child
+                        ]
+                        if not gc_tasks:
+                            break
+                        gc_results = await _asyncio.gather(
+                            *gc_tasks, return_exceptions=True)
+                        gc_replies: list[str] = []
+                        for gid, r in zip(new_gc_ids, gc_results):
+                            if isinstance(r, str) and r:
+                                gc_replies.append(
+                                    f'[dispatch:{gid}] {r}')
+                            elif isinstance(r, Exception) and not isinstance(
+                                    r, _asyncio.CancelledError):
+                                _log.warning(
+                                    'Grandchild %s raised: %s', gid, r)
+                        if not gc_replies:
+                            break
+                        current_message = '\n'.join(gc_replies)
+                        # Loop: re-launch child with --resume and the
+                        # grandchildren's replies, so the child can
+                        # integrate them before answering.
+                finally:
+                    if self._on_dispatch:
+                        self._on_dispatch({
+                            'type': 'dispatch_completed',
+                            'parent_session_id': dispatcher_session.id,
+                            'child_session_id': child_session.id,
+                            'agent_name': member,
+                        })
 
                 _log.info('%s spawn_fn: %s completed in %.2fs',
                           self.agent_name, member, _time.monotonic() - t0)
 
-                # The child's streamed text is already on child_conv_id
-                # (via on_event → _classify_event). The UI accordion
-                # reads the nested dispatch conversation directly, so
-                # we do NOT dual-write to the parent's conversation —
-                # that would flatten the accordion. Instead, hand the
-                # reply to self.invoke() explicitly as resume_message
-                # so the parent (coordinator) sees it on its next turn.
                 response_text = '\n'.join(response_parts)
-                if response_text:
-                    reply = (f'[{child_conv_id}] {member}: '
-                             f'{response_text}')
+                if not response_text:
+                    return ''
+
+                # Top-level dispatches (whose dispatcher is the
+                # coordinator's own dispatch session) drive the OM's
+                # resume directly. Nested dispatches just return —
+                # their parent's loop above awaits the task and
+                # collects this value as its next turn's input.
+                if dispatcher_session is self._dispatch_session:
+                    reply = f'[{child_conv_id}] {member}: {response_text}'
                     try:
                         await self.invoke(cwd=repo_root, resume_message=reply)
                     except Exception:
                         _log.exception('Failed to resume %s after %s reply',
                                        self.agent_name, member)
+
+                return response_text
 
             task = _asyncio.create_task(_run_child())
             self._background_tasks.add(task)
