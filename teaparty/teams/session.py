@@ -205,16 +205,14 @@ class AgentSession:
         return ''
 
     def _latest_incoming_with_sender(self) -> str:
-        """Return the latest incoming message prefixed with its sender role.
+        """Return the latest direct incoming message on the parent bus.
 
-        Used on resume: claude already has prior context via --resume,
-        so we just deliver the new event. The sender prefix lets claude
-        correlate agent replies to the dispatches that produced them.
-
-        Returns:
-            'Human: {text}' for a human message
-            '{agent_name}: {text}' for an agent reply
-            '' if no incoming message
+        Used on resume to deliver a direct human (or peer) message.
+        Dispatched-child replies are delivered via the explicit
+        ``resume_message`` parameter to ``invoke()``, not via this
+        scan — that keeps the UI accordion reading child replies from
+        the nested dispatch conversation rather than the flattened
+        parent conversation.
         """
         messages = self.get_messages()
         for msg in reversed(messages):
@@ -391,19 +389,19 @@ class AgentSession:
                 _log.info('%s spawn_fn: %s completed in %.2fs',
                           self.agent_name, member, _time.monotonic() - t0)
 
-                # ── Send child's reply back to the parent ────────────────
-                # The child's stdout output is automatically delivered to
-                # the parent's conversation as a message from the child.
-                # The conversation handle is embedded so the parent can
-                # correlate the reply to its original Send call (critical
-                # when multiple instances of the same agent are in flight).
+                # The child's streamed text is already on child_conv_id
+                # (via on_event → _classify_event). The UI accordion
+                # reads the nested dispatch conversation directly, so
+                # we do NOT dual-write to the parent's conversation —
+                # that would flatten the accordion. Instead, hand the
+                # reply to self.invoke() explicitly as resume_message
+                # so the parent (coordinator) sees it on its next turn.
                 response_text = '\n'.join(response_parts)
                 if response_text:
-                    reply_content = (
-                        f'[conversation {child_conv_id}]\n{response_text}')
-                    self._bus.send(self.conversation_id, member, reply_content)
+                    reply = (f'[{child_conv_id}] {member}: '
+                             f'{response_text}')
                     try:
-                        await self.invoke(cwd=repo_root)
+                        await self.invoke(cwd=repo_root, resume_message=reply)
                     except Exception:
                         _log.exception('Failed to resume %s after %s reply',
                                        self.agent_name, member)
@@ -619,20 +617,29 @@ class AgentSession:
 
     # ── Invoke ───────────────────────────────────────────────────────────
 
-    async def invoke(self, *, cwd: str) -> str:
+    async def invoke(self, *, cwd: str, resume_message: str = '') -> str:
         """Invoke the agent via the unified launcher.
 
         Concurrent invocations are serialized via an asyncio lock. When
         multiple children complete in parallel and each triggers a resume,
         the resumes queue up and run sequentially — each sees the previous
         turn's claude_session_id for --resume continuity.
+
+        Args:
+            cwd: Working directory for the launch.
+            resume_message: Explicit message to deliver on resume (e.g.
+                a child's reply). When set, bypasses the bus scan and
+                uses this string directly as the resume prompt. Used by
+                ``_run_child`` to hand a completed reply up to the
+                parent without relaying it through the parent's bus.
         """
         if self._invoke_lock is None:
             self._invoke_lock = asyncio.Lock()
         async with self._invoke_lock:
-            return await self._invoke_inner(cwd=cwd)
+            return await self._invoke_inner(
+                cwd=cwd, resume_message=resume_message)
 
-    async def _invoke_inner(self, *, cwd: str) -> str:
+    async def _invoke_inner(self, *, cwd: str, resume_message: str = '') -> str:
         import time as _time
         from teaparty.runners.launcher import (
             launch, detect_poisoned_session,
@@ -658,6 +665,8 @@ class AgentSession:
         # prefixed). On fresh start, deliver the full conversation.
         if self._build_prompt_hook:
             prompt = self._build_prompt_hook(self, latest)
+        elif resume_message:
+            prompt = resume_message
         elif self.claude_session_id:
             prompt = self._latest_incoming_with_sender()
         else:

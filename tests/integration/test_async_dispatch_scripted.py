@@ -185,27 +185,30 @@ def _close_all(session):
 
 # ── Script builders ────────────────────────────────────────────────────────
 
-def _stateful_coordinator_script(expected_replies, dispatch_events, bus_getter):
-    """Build a stateful coordinator script that scans the full bus.
+def _stateful_coordinator_script(expected_replies, dispatch_events):
+    """Build a stateful coordinator script that accumulates seen replies.
 
-    expected_replies: set of substrings to look for across bus history
-    dispatch_events: list of stream events to fire on the initial dispatch
-    bus_getter: zero-arg callable returning the concatenated bus content
+    expected_replies: set of substrings to look for in resume prompts
+    dispatch_events: list of stream events to fire on the initial call
 
-    The coordinator fires dispatch events on first call. On each resume
-    it scans the full bus history (not just the latest message) for all
-    expected substrings — immune to the race where two children write
-    before the coordinator's first resume acquires the invoke lock.
+    The coordinator fires the dispatch events on first call. On every
+    subsequent call it scans the resume prompt (`message`) for any
+    expected substrings and unions them into its seen set. The set
+    persists across invokes, so replies integrate even when they
+    arrive across multiple resume turns.
+
+    When seen == expected, it emits ``RESULT: ...``.
     """
+    seen: set = set()
     first_call = [True]
 
     def respond(message):
         if first_call[0]:
             first_call[0] = False
             return dispatch_events
-
-        blob = bus_getter()
-        seen = {item for item in expected_replies if item in blob}
+        for item in expected_replies:
+            if item in message:
+                seen.add(item)
         if seen == expected_replies:
             result = ', '.join(sorted(seen))
             return [text_event(f'RESULT: {result}'), cost_event()]
@@ -213,15 +216,6 @@ def _stateful_coordinator_script(expected_replies, dispatch_events, bus_getter):
                 cost_event()]
 
     return respond
-
-
-def _bus_getter(session_ref):
-    """Return a zero-arg callable that reads the current bus content."""
-    def _get():
-        sess = session_ref[0]
-        msgs = sess._bus.receive(sess.conversation_id)
-        return '\n'.join(m.content for m in msgs)
-    return _get
 
 
 # ── Tests ──────────────────────────────────────────────────────────────────
@@ -233,7 +227,6 @@ class TestParallelDispatchScripted(unittest.TestCase):
     Coordinator is resumed twice, integrates both replies, produces RESULT."""
 
     def test_coordinator_integrates_both_parallel_replies(self):
-        session_ref: list = [None]
         scripts = {
             'coordinator': _stateful_coordinator_script(
                 expected_replies={'alpha', 'beta'},
@@ -245,8 +238,7 @@ class TestParallelDispatchScripted(unittest.TestCase):
                                    {'member': 'leaf-agent', 'message': 'say beta'}),
                     text_event('Both dispatched. Waiting for replies.'),
                     cost_event(),
-                ],
-                bus_getter=_bus_getter(session_ref)),
+                ]),
             'leaf-agent': {
                 'say alpha': [text_event('alpha'), cost_event()],
                 'say beta':  [text_event('beta'), cost_event()],
@@ -254,7 +246,6 @@ class TestParallelDispatchScripted(unittest.TestCase):
         }
         session = _make_coordinator('parallel-scripted',
                                     make_scripted_caller(scripts))
-        session_ref[0] = session
 
         async def run():
             _send_human(session, 'Dispatch alpha and beta tasks')
@@ -266,6 +257,25 @@ class TestParallelDispatchScripted(unittest.TestCase):
         self.assertIn('alpha', result)
         self.assertIn('beta', result)
 
+        # Accordion invariant: child replies must NOT be flattened onto
+        # the parent conversation. They live on the nested
+        # dispatch:{child} conversations, which is what the UI
+        # accordion reads. If a future change dual-writes, this fails.
+        parent_msgs = session._bus.receive(session.conversation_id)
+        parent_senders = [m.sender for m in parent_msgs]
+        self.assertNotIn(
+            'leaf-agent', parent_senders,
+            'child reply must not appear on the parent conversation '
+            '— it belongs on the nested dispatch:{child} bus')
+
+        # And each child's reply IS present on its own dispatch bus.
+        for child_sid in session._dispatch_session.conversation_map.values():
+            child_msgs = session._bus.receive(f'dispatch:{child_sid}')
+            senders = {m.sender for m in child_msgs}
+            self.assertIn(
+                'leaf-agent', senders,
+                'child reply must be present on its nested dispatch bus')
+
         _close_all(session)
         self.assertEqual(len(session._dispatch_session.conversation_map), 0)
 
@@ -275,7 +285,6 @@ class TestParallelInstanceScripted(unittest.TestCase):
     Two separate instances run, two separate replies arrive."""
 
     def test_two_instances_of_same_agent_reply_independently(self):
-        session_ref: list = [None]
         scripts = {
             'coordinator': _stateful_coordinator_script(
                 expected_replies={'red', 'blue'},
@@ -286,8 +295,7 @@ class TestParallelInstanceScripted(unittest.TestCase):
                                    {'member': 'leaf-agent', 'message': 'say blue'}),
                     text_event('Both sent.'),
                     cost_event(),
-                ],
-                bus_getter=_bus_getter(session_ref)),
+                ]),
             'leaf-agent': {
                 'say red':  [text_event('red'), cost_event()],
                 'say blue': [text_event('blue'), cost_event()],
@@ -295,7 +303,6 @@ class TestParallelInstanceScripted(unittest.TestCase):
         }
         session = _make_coordinator('instance-scripted',
                                     make_scripted_caller(scripts))
-        session_ref[0] = session
 
         async def run():
             _send_human(session, 'Dispatch red and blue')
@@ -317,7 +324,6 @@ class TestLinearDispatchScripted(unittest.TestCase):
     coordinator, producing RESULT."""
 
     def test_leaf_reply_bubbles_up_through_mid_agent(self):
-        session_ref: list = [None]
         # mid-agent: first call dispatches leaf; resume call (after leaf
         # replies) echoes 'done' upward. Only one child, no race.
         first_mid = [True]
@@ -341,8 +347,7 @@ class TestLinearDispatchScripted(unittest.TestCase):
                                    {'member': 'mid-agent', 'message': 'run pipeline'}),
                     text_event('Dispatched.'),
                     cost_event(),
-                ],
-                bus_getter=_bus_getter(session_ref)),
+                ]),
             'mid-agent': mid_script,
             'leaf-agent': {
                 'do work': [text_event('leaf-done'), cost_event()],
@@ -350,7 +355,6 @@ class TestLinearDispatchScripted(unittest.TestCase):
         }
         session = _make_coordinator('linear-scripted',
                                     make_scripted_caller(scripts))
-        session_ref[0] = session
 
         async def run():
             _send_human(session, 'Run the pipeline')
@@ -420,7 +424,6 @@ class TestCloseAfterCompletionScripted(unittest.TestCase):
     child's session directory."""
 
     def test_close_frees_slot_and_removes_session_dir(self):
-        session_ref: list = [None]
         scripts = {
             'coordinator': _stateful_coordinator_script(
                 expected_replies={'hello'},
@@ -429,15 +432,13 @@ class TestCloseAfterCompletionScripted(unittest.TestCase):
                                    {'member': 'leaf-agent', 'message': 'say hello'}),
                     text_event('Dispatched.'),
                     cost_event(),
-                ],
-                bus_getter=_bus_getter(session_ref)),
+                ]),
             'leaf-agent': {
                 'say hello': [text_event('hello'), cost_event()],
             },
         }
         session = _make_coordinator('close-scripted',
                                     make_scripted_caller(scripts))
-        session_ref[0] = session
 
         async def run():
             _send_human(session, 'Say hello')
@@ -667,7 +668,6 @@ class TestDiamondDispatchScripted(unittest.TestCase):
     parent by its own conversation_id."""
 
     def test_two_d_instances_route_to_correct_parents(self):
-        session_ref: list = [None]
 
         # mid-agent dispatches its leaf with a branch-specific payload so
         # the two leaf instances produce distinct labels.
@@ -700,8 +700,7 @@ class TestDiamondDispatchScripted(unittest.TestCase):
                                    {'member': 'mid-agent', 'message': 'branch c'}),
                     text_event('Two branches dispatched.'),
                     cost_event(),
-                ],
-                bus_getter=_bus_getter(session_ref)),
+                ]),
             'mid-agent': mid_script,
             'leaf-agent': {
                 'd-from-b': [text_event('d-from-b'), cost_event()],
@@ -710,7 +709,6 @@ class TestDiamondDispatchScripted(unittest.TestCase):
         }
         session = _make_coordinator('diamond-scripted',
                                     make_scripted_caller(scripts))
-        session_ref[0] = session
 
         async def run():
             _send_human(session, 'Run diamond')
