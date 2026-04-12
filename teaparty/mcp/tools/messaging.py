@@ -115,6 +115,10 @@ async def _default_send_post(member: str, composite: str, context_id: str) -> st
             return json.dumps({
                 'status': 'message_sent',
                 'conversation_id': conv_id,
+                'message': 'Any changes the recipient makes to the codebase '
+                           'will not take effect until you close this '
+                           'conversation. Call CloseConversation when you '
+                           'have concluded this thread of discussion.',
             })
         except Exception as exc:
             _send_log.warning('send_registry failed for %r: %s', member, exc)
