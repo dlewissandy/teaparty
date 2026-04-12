@@ -300,21 +300,26 @@ class TestThreeDeepDispatchChain(unittest.TestCase):
             self.assertEqual(result_b.session_id, 'session-agent-b')
             self.assertEqual(result_c.session_id, 'session-agent-c')
 
-            # ── Step 6: Verify metrics accumulated for all agents ────────
-            metrics_db = os.path.join(self._tp, 'management', 'metrics.db')
-            self.assertTrue(os.path.exists(metrics_db),
-                            'metrics.db must exist after launches')
-            conn = sqlite3.connect(metrics_db)
-            rows = conn.execute(
-                'SELECT agent_name, cost_usd FROM turn_metrics '
-                'ORDER BY timestamp',
-            ).fetchall()
-            conn.close()
-            agent_names = [r[0] for r in rows]
+            # ── Step 6: Verify telemetry accumulated for all agents ──────
+            # Issue #405: metrics now live in {teaparty_home}/telemetry.db
+            # as turn_complete events instead of per-scope metrics.db.
+            from teaparty import telemetry as _telem
+            from teaparty.telemetry import events as _E
+            _telem.set_teaparty_home(self._tp)
+            telemetry_db = os.path.join(self._tp, 'telemetry.db')
+            self.assertTrue(
+                os.path.exists(telemetry_db),
+                'telemetry.db must exist at teaparty_home root after launches',
+            )
+            self.assertFalse(
+                os.path.exists(os.path.join(self._tp, 'management', 'metrics.db')),
+                'Issue #405: legacy per-scope metrics.db must not be created',
+            )
+            events = _telem.query_events(event_type=_E.TURN_COMPLETE)
+            agent_names = [e.agent_name for e in events]
             self.assertEqual(agent_names, ['agent-a', 'agent-b', 'agent-c'])
-            # Each had cost_usd=0.01
-            for row in rows:
-                self.assertAlmostEqual(row[1], 0.01)
+            for e in events:
+                self.assertAlmostEqual(e.data['cost_usd'], 0.01)
 
             # ── Step 7: Verify conversation map tracking ─────────────────
             session_a = create_session(
