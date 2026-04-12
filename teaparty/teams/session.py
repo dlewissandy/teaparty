@@ -102,6 +102,11 @@ class AgentSession:
         # each _run_child triggers a resume; the lock queues them.
         self._invoke_lock: asyncio.Lock | None = None
 
+        # Background tasks spawned by this session (one per dispatched
+        # child running _run_child). Tracked so /clear and withdraw can
+        # cancel them.
+        self._background_tasks: set[asyncio.Task] = set()
+
     # ── Message bus ──────────────────────────────────────────────────────
 
     def send_human_message(self, content: str) -> str:
@@ -378,7 +383,9 @@ class AgentSession:
                         _log.exception('Failed to resume %s after %s reply',
                                        self.agent_name, member)
 
-            _asyncio.create_task(_run_child())
+            task = _asyncio.create_task(_run_child())
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
 
             # Return immediately — child runs in background.
             _log.info('%s spawn_fn: dispatched to %s (async)',
@@ -471,6 +478,27 @@ class AgentSession:
             'PYTHONPATH': cwd,
         }
 
+    async def _cancel_background_tasks(self) -> None:
+        """Cancel all background _run_child tasks this session spawned.
+
+        Called by /clear, stop(), and withdraw. Each task is cancelled
+        and awaited with a timeout so we don't block indefinitely on a
+        stuck child.
+        """
+        if not self._background_tasks:
+            return
+        tasks = list(self._background_tasks)
+        for t in tasks:
+            t.cancel()
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*tasks, return_exceptions=True),
+                timeout=5.0)
+        except asyncio.TimeoutError:
+            _log.warning('%s: background tasks did not cancel within 5s',
+                         self.agent_name)
+        self._background_tasks.clear()
+
     async def _clear(self, cwd: str) -> None:
         """Full reset: clear bus, stop listener, release worktrees, close contexts.
 
@@ -481,6 +509,9 @@ class AgentSession:
         same agent are not affected.
         """
         import subprocess as _sp
+
+        # 0. Cancel any in-flight dispatches before tearing down infra
+        await self._cancel_background_tasks()
 
         # 1. Stop the bus listener (kills sockets, tears down dispatch infra)
         await self.stop()
@@ -518,7 +549,12 @@ class AgentSession:
         self.save_state()
 
     async def stop(self):
-        """Stop the bus event listener. Call on session teardown."""
+        """Stop the session: cancel background dispatches, stop bus listener.
+
+        Call on session teardown. Ensures no orphan asyncio tasks
+        continue running after the session is torn down.
+        """
+        await self._cancel_background_tasks()
         if self._bus_listener is not None:
             await self._bus_listener.stop()
             self._bus_listener = None
