@@ -51,7 +51,8 @@ body {
 }
 .breadcrumb-bar a { color: var(--green); text-decoration: none; cursor: pointer; }
 .breadcrumb-bar a:hover { text-decoration: underline; }
-.breadcrumb-bar span { color: var(--text-dim); }
+.breadcrumb-bar .sep { color: var(--text-dim); }
+.breadcrumb-bar .current { color: var(--text); cursor: default; }
 
 .sections { columns: 1; column-gap: 10px; }
 @media (min-width: 800px) { .sections { columns: 2; } }

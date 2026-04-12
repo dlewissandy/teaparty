@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TeaParty — Chat</title>
 <link rel="stylesheet" href="styles.css">
+<script src="breadcrumb.js"></script>
 <style>
   /* Markdown rendering in chat messages */
   .msg-text h1,.msg-text h2,.msg-text h3 { color: var(--text); margin: 8px 0 4px 0; }
@@ -26,7 +27,7 @@
 </head>
 <body>
 
-<div class="breadcrumb-bar" id="breadcrumb-bar" style="padding:6px 12px"><a href="index.html">Home</a></div>
+<div id="breadcrumb-slot" style="padding:6px 12px"></div>
 <div id="content" class="app-pane active"></div>
 
 <div id="withdraw-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:100;justify-content:center;align-items:center">
@@ -574,7 +575,12 @@ function renderMainArea(navHtml, headerTitle, headerScope, headerActions) {
 
   if (minimal) {
     document.getElementById('content').style.padding = '0';
-    document.getElementById('breadcrumb-bar').style.display = 'none';
+    document.getElementById('breadcrumb-slot').style.display = 'none';
+  } else {
+    document.getElementById('breadcrumb-slot').innerHTML = breadcrumbBar([
+      { label: 'Home', onClick: "location.href='index.html'" },
+      { label: headerTitle },
+    ]);
   }
   document.getElementById('content').innerHTML =
     '<div class="chat-layout">' + navHtml +
