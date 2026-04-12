@@ -101,6 +101,24 @@ def spawn_env(fake_launch, tmpdir):
         yield
 
 
+@contextlib.contextmanager
+def git_env(tmpdir):
+    """Patch only the git/config deps in spawn_fn — NOT launch.
+
+    Used by scripted-caller tests where the llm_caller is already wired
+    through AgentSession(llm_caller=...) and must NOT be overridden.
+    """
+    async def fake_create_wt(**kwargs):
+        wt = kwargs.get('worktree_path', '')
+        if wt:
+            os.makedirs(wt, exist_ok=True)
+
+    with patch('teaparty.config.roster.has_sub_roster', return_value=True), \
+            patch('teaparty.config.roster.resolve_launch_cwd', return_value=tmpdir), \
+            patch('teaparty.workspace.worktree.create_subchat_worktree', fake_create_wt):
+        yield
+
+
 class TestPhaseFieldPersistence(unittest.TestCase):
     """mark_launching/mark_awaiting/mark_complete update metadata.json.
 
@@ -1032,6 +1050,535 @@ class TestBridgeHandlerFiltering(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(resp.status, 409)
         body = json.loads(resp.body.decode())
         self.assertIn('lead chat', body['error'])
+
+
+# ── Full-pipeline tests using the scripted LLM caller ────────────────────────
+# These exercise the real dispatch pipeline (spawn_fn, bus, resume chain,
+# phase marking, pause/resume walker) with no mocks beyond the LLM itself.
+# The scripted caller fires tool_use events through the real MCP handlers
+# so dispatches flow through spawn_fn exactly as in production.
+
+_module_loop_403 = None
+_module_repo_root_403 = None
+
+
+def _init_git_repo():
+    root = tempfile.mkdtemp()
+    subprocess.run(['git', 'init', '-q'], cwd=root, check=True)
+    subprocess.run(['git', 'config', 'user.email', 't@x'],
+                   cwd=root, check=True)
+    subprocess.run(['git', 'config', 'user.name', 't'],
+                   cwd=root, check=True)
+    with open(os.path.join(root, 'README.md'), 'w') as f:
+        f.write('x\n')
+    subprocess.run(['git', 'add', 'README.md'], cwd=root, check=True)
+    subprocess.run(['git', 'commit', '-q', '-m', 'init'],
+                   cwd=root, check=True)
+    return root
+
+
+def _make_scripted_tp(repo_root, agents):
+    """Create .teaparty inside a real git repo with management config."""
+    tp = os.path.join(repo_root, '.teaparty')
+    mgmt = os.path.join(tp, 'management')
+    os.makedirs(os.path.join(mgmt, 'sessions'), exist_ok=True)
+    for name in agents:
+        d = os.path.join(mgmt, 'agents', name)
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, 'agent.md'), 'w') as f:
+            f.write(f'---\ndescription: {name}\n---\n\n{name}\n')
+    wg_dir = os.path.join(mgmt, 'workgroups')
+    os.makedirs(wg_dir, exist_ok=True)
+    lead = agents[0]
+    members = agents[1:]
+    with open(os.path.join(wg_dir, 'test-team.yaml'), 'w') as f:
+        f.write(f'name: test-team\nlead: {lead}\nmembers:\n  agents:\n')
+        for m in members:
+            f.write(f'    - {m}\n')
+    with open(os.path.join(mgmt, 'teaparty.yaml'), 'w') as f:
+        f.write(f'name: test-mgmt\ndescription: test\nlead: {lead}\n'
+                f'projects: []\nmembers:\n  projects: []\n  agents: []\n'
+                f'  workgroups:\n    - test-team\n'
+                f'workgroups:\n  - name: test-team\n'
+                f'    config: workgroups/test-team.yaml\n')
+    return tp
+
+
+_scripted_qualifier = 0
+
+
+def _make_scripted_session(tp, caller, project_slug='alpha'):
+    global _scripted_qualifier
+    _scripted_qualifier += 1
+    qualifier = f'pause-test-{_scripted_qualifier}'
+    # Pre-create the dispatch session on disk so _ensure_bus_listener's
+    # load_session finds it (load_session returns None on miss, and the
+    # try/except only catches exceptions, not None).
+    stable_id = f'parent-{qualifier}'
+    create_session(
+        agent_name='parent', scope='management',
+        teaparty_home=tp, session_id=stable_id,
+    )
+    from teaparty.teams.session import AgentSession
+    return AgentSession(
+        tp,
+        agent_name='parent',
+        scope='management',
+        qualifier=qualifier,
+        conversation_type=ConversationType.OFFICE_MANAGER,
+        dispatches=True,
+        llm_caller=caller,
+        project_slug=project_slug,
+    )
+
+
+class TestFullCyclePauseResume(unittest.TestCase):
+    """Dispatch B→C, pause while B awaits C's gather, resume, verify
+    C's reply flows through B into B's final response. Proves the
+    pause→resume cycle produces the correct integrated output.
+
+    Uses the scripted LLM caller so dispatch goes through the real
+    spawn_fn, real _child_lifecycle_loop, real phase-marking, real
+    pause_project_subtree, real resume_project_subtree.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls._repo_root = _init_git_repo()
+        cls._loop = asyncio.new_event_loop()
+
+    @classmethod
+    def tearDownClass(cls):
+        async def _shutdown():
+            pending = [t for t in asyncio.all_tasks(cls._loop)
+                       if t is not asyncio.current_task()]
+            for t in pending:
+                t.cancel()
+            if pending:
+                try:
+                    await asyncio.wait_for(
+                        asyncio.gather(*pending, return_exceptions=True),
+                        timeout=5.0)
+                except asyncio.TimeoutError:
+                    pass
+        try:
+            cls._loop.run_until_complete(_shutdown())
+        except Exception:
+            pass
+        cls._loop.close()
+        shutil.rmtree(cls._repo_root, ignore_errors=True)
+        from teaparty.mcp import registry
+        registry.clear()
+
+    def _run(self, coro, timeout=15):
+        return self._loop.run_until_complete(
+            asyncio.wait_for(coro, timeout=timeout))
+
+    def test_pause_resume_full_cycle_B_dispatches_C(self):
+        """B dispatches to C. Pause while B awaits C. Resume. C completes.
+        B integrates C's reply. Verify B's final bus output contains C's
+        contribution. This is the end-to-end proof that pause→resume
+        produces the correct integrated answer."""
+        from teaparty.runners.scripted import (
+            make_scripted_caller, text_event, tool_use_event, cost_event,
+        )
+
+        c_gate = asyncio.Event()
+        b_awaiting = asyncio.Event()
+        b_calls = []
+
+        def b_script(msg):
+            b_calls.append(msg)
+            if len(b_calls) == 1:
+                return [
+                    text_event('B dispatching to C'),
+                    tool_use_event('Send', {
+                        'member': 'child-c',
+                        'message': 'C please compute 6*7',
+                    }),
+                    cost_event(),
+                ]
+            return [
+                text_event(f'B RESULT: C said {msg}'),
+                cost_event(),
+            ]
+
+        async def c_script(msg):
+            # Signal that C has been launched — B must now be in its
+            # gather (awaiting). This is the synchronization point for
+            # the pause.
+            b_awaiting.set()
+            await c_gate.wait()
+            return [text_event('C answer: 42'), cost_event()]
+
+        caller = make_scripted_caller({
+            'parent': lambda m: [text_event('coordinator ack'), cost_event()],
+            'child-b': b_script,
+            'child-c': c_script,
+        })
+
+        tp = _make_scripted_tp(
+            self._repo_root, ['parent', 'child-b', 'child-c'])
+
+        async def run():
+            # spawn_env patches resolve_launch_cwd and
+            # create_subchat_worktree so the test doesn't need real
+            # git worktree ops — the point is pause/resume fidelity.
+            with git_env(self._repo_root):
+                session = _make_scripted_session(tp, caller)
+                await session._ensure_bus_listener(self._repo_root)
+
+                from teaparty.mcp.registry import get_spawn_fn
+                spawn_fn = get_spawn_fn('parent')
+                b_sid, _, _ = await spawn_fn(
+                    'child-b', 'task for B', 'root-to-b')
+                self.assertTrue(b_sid)
+
+                # Wait until C has been launched — that means B has
+                # finished its _launch, found a new grandchild, and
+                # entered gather (phase=awaiting). The c_script sets
+                # b_awaiting when C's _launch is entered.
+                await asyncio.wait_for(b_awaiting.wait(), timeout=5.0)
+                await asyncio.sleep(0.05)
+
+                sessions_dir = os.path.join(tp, 'management', 'sessions')
+                b_meta = load_session(
+                    agent_name='child-b', scope='management',
+                    teaparty_home=tp, session_id=b_sid)
+                self.assertEqual(b_meta.phase, 'awaiting',
+                                 f'B should be awaiting C; got {b_meta.phase}')
+
+                # ── PAUSE ──
+                await pause_project_subtree('alpha', sessions_dir, session)
+                self.assertNotIn(b_sid, session._tasks_by_child)
+
+                b_meta = load_session(
+                    agent_name='child-b', scope='management',
+                    teaparty_home=tp, session_id=b_sid)
+                self.assertEqual(b_meta.phase, 'awaiting')
+
+                # ── RESUME ──
+                c_gate.set()
+                await resume_project_subtree('alpha', sessions_dir, session)
+
+                await asyncio.sleep(1.0)
+
+                # Verify B's bus has the integrated reply proving C's
+                # answer flowed through B's gather.
+                b_msgs = session._bus.receive(f'dispatch:{b_sid}')
+                b_content = ' '.join(m.content for m in b_msgs)
+                self.assertIn('C answer: 42', b_content,
+                              f'C reply missing from B bus. Messages: '
+                              f'{[(m.sender, m.content[:60]) for m in b_msgs]}')
+                self.assertIn('B RESULT:', b_content,
+                              f'B integration missing. Messages: '
+                              f'{[(m.sender, m.content[:60]) for m in b_msgs]}')
+
+                b_final = load_session(
+                    agent_name='child-b', scope='management',
+                    teaparty_home=tp, session_id=b_sid)
+                self.assertEqual(b_final.phase, 'complete')
+
+                await session.stop()
+
+        self._run(run())
+
+
+class TestAwaitingCrossRestartFullPipeline(unittest.TestCase):
+    """The hardest cross-restart case: B was awaiting C's gather, server
+    restarts (fresh AgentSession, no in-memory factories), C was in
+    launching. Rehydrate rebuilds leaves-first: C's factory first, then
+    B's. Resume: C relaunches one turn, B gathers C's result without
+    relaunching its own turn, tree completes.
+
+    Uses scripted caller for C's relaunch. B never calls the LLM because
+    it enters at the gather step (awaiting phase resume).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls._repo_root = _init_git_repo()
+        cls._loop = asyncio.new_event_loop()
+
+    @classmethod
+    def tearDownClass(cls):
+        async def _shutdown():
+            pending = [t for t in asyncio.all_tasks(cls._loop)
+                       if t is not asyncio.current_task()]
+            for t in pending:
+                t.cancel()
+            if pending:
+                try:
+                    await asyncio.wait_for(
+                        asyncio.gather(*pending, return_exceptions=True),
+                        timeout=5.0)
+                except asyncio.TimeoutError:
+                    pass
+        try:
+            cls._loop.run_until_complete(_shutdown())
+        except Exception:
+            pass
+        cls._loop.close()
+        shutil.rmtree(cls._repo_root, ignore_errors=True)
+        from teaparty.mcp import registry
+        registry.clear()
+
+    def _run(self, coro, timeout=15):
+        return self._loop.run_until_complete(
+            asyncio.wait_for(coro, timeout=timeout))
+
+    def test_awaiting_cross_restart_B_gathers_C_without_relaunch(self):
+        """Fresh AgentSession (simulating restart). Rehydrate B(awaiting)
+        + C(launching). Resume. C relaunches. B gathers C's reply and
+        integrates it as B's final response — without relaunching B's
+        already-completed turn."""
+        from teaparty.runners.scripted import (
+            make_scripted_caller, text_event, cost_event,
+        )
+
+        launch_log = []
+
+        def b_script(msg):
+            launch_log.append(('child-b', msg[:80]))
+            return [text_event(f'B INTEGRATED: {msg}'), cost_event()]
+
+        def c_script(msg):
+            launch_log.append(('child-c', msg[:80]))
+            return [text_event('C recomputed: 42'), cost_event()]
+
+        caller = make_scripted_caller({
+            'parent': lambda m: [text_event('ack'), cost_event()],
+            'child-b': b_script,
+            'child-c': c_script,
+        })
+
+        tp = _make_scripted_tp(
+            self._repo_root, ['parent', 'child-b', 'child-c'])
+
+        # ── Phase 1: dispatch normally, pause while B awaits C ──
+        async def setup_and_pause():
+            from teaparty.runners.scripted import (
+                make_scripted_caller as mk,
+                text_event as te, tool_use_event as tue, cost_event as ce,
+            )
+
+            c_gate = asyncio.Event()
+            b_awaiting = asyncio.Event()
+
+            def b_setup(msg):
+                return [
+                    te('B turn-1'),
+                    tue('Send', {
+                        'member': 'child-c',
+                        'message': 'compute 6*7',
+                    }),
+                    ce(),
+                ]
+
+            async def c_setup(msg):
+                b_awaiting.set()
+                await c_gate.wait()
+                return [te('C: 42'), ce()]
+
+            setup_caller = mk({
+                'parent': lambda m: [te('ack'), ce()],
+                'child-b': b_setup,
+                'child-c': c_setup,
+            })
+
+            with git_env(self._repo_root):
+                session = _make_scripted_session(tp, setup_caller)
+                await session._ensure_bus_listener(self._repo_root)
+
+                from teaparty.mcp.registry import get_spawn_fn
+                spawn_fn = get_spawn_fn('parent')
+                b_sid, _, _ = await spawn_fn(
+                    'child-b', 'task for B', 'root-to-b')
+
+                await asyncio.wait_for(b_awaiting.wait(), timeout=5.0)
+                await asyncio.sleep(0.05)
+
+                sessions_dir = os.path.join(tp, 'management', 'sessions')
+                await pause_project_subtree('alpha', sessions_dir, session)
+
+                b_meta = load_session(
+                    agent_name='child-b', scope='management',
+                    teaparty_home=tp, session_id=b_sid)
+                c_sid = list(b_meta.conversation_map.values())[0]
+
+                await session.stop()
+                return b_sid, c_sid
+
+        b_sid, c_sid = self._run(setup_and_pause())
+
+        # Verify disk state: B=awaiting, C=launching.
+        b_meta = load_session(
+            agent_name='child-b', scope='management',
+            teaparty_home=tp, session_id=b_sid)
+        c_meta = load_session(
+            agent_name='child-c', scope='management',
+            teaparty_home=tp, session_id=c_sid)
+        self.assertEqual(b_meta.phase, 'awaiting')
+        self.assertEqual(c_meta.phase, 'launching')
+        self.assertIn(c_sid, b_meta.in_flight_gc_ids)
+
+        # ── Phase 2: fresh session (restart), rehydrate, resume ──
+        async def restart_and_resume():
+            with git_env(self._repo_root):
+                fresh_session = _make_scripted_session(tp, caller)
+                self.assertEqual(fresh_session._run_child_factories, {})
+
+                sessions_dir = os.path.join(tp, 'management', 'sessions')
+                registered = fresh_session.rehydrate_paused_factories(
+                    'alpha', sessions_dir)
+                self.assertIn(b_sid, registered)
+                self.assertIn(c_sid, registered)
+
+                await resume_project_subtree(
+                    'alpha', sessions_dir, fresh_session)
+
+                await asyncio.sleep(1.0)
+
+                b_msgs = fresh_session._bus.receive(f'dispatch:{b_sid}')
+                b_content = ' '.join(m.content for m in b_msgs)
+                return b_content
+
+        launch_log.clear()
+        b_content = self._run(restart_and_resume())
+
+        # C was relaunched (launching phase). B was NOT relaunched
+        # for its already-completed turn-1 — it entered at gather.
+        # B IS launched once for turn-2 (post-gather integration).
+        c_launches = [e for e in launch_log if e[0] == 'child-c']
+        b_launches = [e for e in launch_log if e[0] == 'child-b']
+        self.assertEqual(len(c_launches), 1,
+                         f'C should be launched exactly once: {launch_log}')
+        self.assertEqual(len(b_launches), 1,
+                         f'B should be launched once (turn-2 only): {launch_log}')
+
+        # The integrated reply proves C's output flowed through B's gather.
+        self.assertIn('C recomputed: 42', b_content,
+                      f'C reply missing from B bus: {b_content}')
+
+
+class TestImplicitResumeOnMessage(unittest.TestCase):
+    """Implicit-resume-on-message routing: messages to a job: conv_id
+    resume just that job's subtree, while messages to a lead: conv_id
+    resume the whole project. Exercises the bridge handler's
+    _project_owner_sessions filter + smallest-subtree routing."""
+
+    def setUp(self):
+        self._tmpdir = _make_teaparty_home(
+            agents=['parent', 'agent-b', 'agent-c'])
+
+    def tearDown(self):
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    def _persist_child(self, sid, slug, phase='complete',
+                       response_text='done', parent=''):
+        path = os.path.join(
+            self._tmpdir, 'management', 'sessions', sid)
+        os.makedirs(os.path.join(path, 'worktree'), exist_ok=True)
+        meta = {
+            'session_id': sid,
+            'agent_name': 'agent-b',
+            'scope': 'management',
+            'claude_session_id': '',
+            'conversation_map': {},
+            'phase': phase,
+            'response_text': response_text,
+            'project_slug': slug,
+            'parent_session_id': parent,
+            'current_message': '',
+            'in_flight_gc_ids': [],
+            'initial_message': '',
+        }
+        with open(os.path.join(path, 'metadata.json'), 'w') as f:
+            json.dump(meta, f)
+
+    def _make_bridge(self):
+        from teaparty.bridge.server import TeaPartyBridge
+        bridge = TeaPartyBridge.__new__(TeaPartyBridge)
+        bridge.teaparty_home = self._tmpdir
+        bridge._agent_sessions = {}
+        bridge._paused_projects = set()
+        bridge._ws_clients = set()
+        bridge._repo_root = os.path.dirname(self._tmpdir)
+        sessions_dir = os.path.join(
+            self._tmpdir, 'management', 'sessions')
+        bridge._lookup_project_path = (
+            lambda slug: self._tmpdir if slug == 'alpha' else None)
+        bridge._sessions_dir_for_project = lambda slug: sessions_dir
+        bridge._slug_for_lead = lambda lead: 'alpha' if lead == 'alpha-lead' else ''
+        return bridge
+
+    def _make_agent_session(self, project_slug='alpha'):
+        from teaparty.teams.session import AgentSession
+        return AgentSession(
+            self._tmpdir,
+            agent_name='parent',
+            scope='management',
+            qualifier='test',
+            conversation_type=ConversationType.OFFICE_MANAGER,
+            dispatches=True,
+            project_slug=project_slug,
+        )
+
+    def test_job_message_resumes_single_job_leaves_sibling_paused(self):
+        """POST to job:{slug}:{sid} resumes only that job's subtree.
+        A sibling job in the same paused project stays paused (its task
+        is NOT recreated)."""
+        self._persist_child('job-1', 'alpha', response_text='job-1 done')
+        self._persist_child('job-2', 'alpha', response_text='job-2 done')
+
+        bridge = self._make_bridge()
+        bridge._paused_projects.add('alpha')
+        lead = self._make_agent_session('alpha')
+        bridge._agent_sessions['pl:alpha-lead:alpha:user-1'] = lead
+
+        async def run():
+            from aiohttp.test_utils import make_mocked_request
+            # Simulate a human posting to job-1's chat.
+            # The bridge routing for job: conv_ids targets session_id=job-1.
+            from teaparty.workspace.pause_resume import resume_session_subtree
+            sessions_dir = os.path.join(
+                self._tmpdir, 'management', 'sessions')
+            lead.rehydrate_paused_factories('alpha', sessions_dir)
+            await resume_session_subtree('job-1', sessions_dir, lead)
+
+            # job-1 resumed.
+            self.assertIn('job-1', lead._tasks_by_child)
+            result = await lead._tasks_by_child['job-1']
+            self.assertEqual(result, 'job-1 done')
+
+            # job-2 was NOT resumed — no task created.
+            self.assertNotIn('job-2', lead._tasks_by_child)
+
+        asyncio.run(run())
+
+    def test_lead_message_resumes_entire_project(self):
+        """POST to lead:{lead}:{q} resumes ALL jobs for the project."""
+        self._persist_child('job-1', 'alpha', response_text='j1')
+        self._persist_child('job-2', 'alpha', response_text='j2')
+
+        bridge = self._make_bridge()
+        bridge._paused_projects.add('alpha')
+        lead = self._make_agent_session('alpha')
+        bridge._agent_sessions['pl:alpha-lead:alpha:user-1'] = lead
+
+        async def run():
+            sessions_dir = os.path.join(
+                self._tmpdir, 'management', 'sessions')
+            lead.rehydrate_paused_factories('alpha', sessions_dir)
+            await resume_project_subtree('alpha', sessions_dir, lead)
+
+            # Both jobs resumed.
+            self.assertIn('job-1', lead._tasks_by_child)
+            self.assertIn('job-2', lead._tasks_by_child)
+            self.assertEqual(await lead._tasks_by_child['job-1'], 'j1')
+            self.assertEqual(await lead._tasks_by_child['job-2'], 'j2')
+
+        asyncio.run(run())
 
 
 if __name__ == '__main__':
