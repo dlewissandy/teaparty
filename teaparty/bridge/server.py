@@ -2032,6 +2032,10 @@ class TeaPartyBridge:
                     cid = frame.get('conversation_id')
                     if not cid:
                         continue
+                    # Open the per-task/per-job bus lazily if it hasn't been
+                    # touched by an HTTP handler yet; the relay only sees buses
+                    # that are in self._buses.
+                    self._bus_for_conversation(cid)
                     bus_cid = cid
                     if cid.startswith('task:'):
                         parts = cid.split(':')
