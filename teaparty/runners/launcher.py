@@ -308,29 +308,6 @@ def remove_child_session(session: Session, *, request_id: str) -> None:
     _update_conversation_map(session)
 
 
-def mark_session_completed(session: Session) -> None:
-    """Stamp the session's metadata.json with completed=True.
-
-    Called when a _run_child loop finishes normally (the dispatched
-    child has produced its final answer and there are no more
-    outstanding grandchildren). The dispatch tree uses this flag to
-    hide the session from the accordion on page reload — otherwise
-    completed children linger in the UI forever because conversation_map
-    entries are only removed on explicit CloseConversation.
-    """
-    meta_path = os.path.join(session.path, 'metadata.json')
-    try:
-        with open(meta_path) as f:
-            meta = json.load(f)
-    except (json.JSONDecodeError, OSError):
-        return
-    meta['completed'] = True
-    tmp = meta_path + '.tmp'
-    with open(tmp, 'w') as f:
-        json.dump(meta, f, indent=2)
-    os.replace(tmp, meta_path)
-
-
 def _update_conversation_map(session: Session) -> None:
     """Read-modify-write only the conversation_map in metadata.json.
 

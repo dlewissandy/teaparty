@@ -23,19 +23,15 @@ def build_dispatch_tree(sessions_dir: str, root_session_id: str) -> dict:
     If a child session_id in a conversation_map cannot be resolved
     (no metadata.json), it appears as a stub with agent_name='unknown'.
 
-    Completed descendants are filtered out of the tree — the accordion
-    only shows live work. A completed ancestor with still-running
-    descendants remains visible so the descendants have somewhere to
-    live. The root session is never filtered, regardless of completion
-    state.
+    All open conversations are returned — completed-but-not-closed
+    dispatches stay in the tree with status='completed' until the
+    caller explicitly invokes CloseConversation. The tree walks
+    conversation_map, which is only cleared by close_fn; anything
+    else is a still-open conversation whose parent owns the
+    lifecycle.
     """
     claude_id_to_dir = _build_claude_id_index(sessions_dir)
-    node = _build_node(
-        sessions_dir, root_session_id, claude_id_to_dir, set(),
-        is_root=True)
-    if node is None:
-        return _make_stub(root_session_id)
-    return node
+    return _build_node(sessions_dir, root_session_id, claude_id_to_dir, set())
 
 
 def _build_claude_id_index(sessions_dir: str) -> dict[str, str]:
@@ -62,14 +58,8 @@ def _build_claude_id_index(sessions_dir: str) -> dict[str, str]:
 
 
 def _build_node(sessions_dir: str, session_id: str,
-                claude_id_to_dir: dict[str, str], visited: set,
-                *, is_root: bool = False) -> dict | None:
-    """Recursively build a tree node.
-
-    Returns None if the session is completed and has no visible
-    (still-running) descendants — callers should drop None from
-    their children list. The root node is never filtered.
-    """
+                claude_id_to_dir: dict[str, str], visited: set) -> dict:
+    """Recursively build a tree node."""
     if session_id in visited:
         return _make_stub(session_id)
     visited.add(session_id)
@@ -84,16 +74,7 @@ def _build_node(sessions_dir: str, session_id: str,
         child_dir = claude_id_to_dir.get(child_ref, child_ref)
         child_node = _build_node(
             sessions_dir, child_dir, claude_id_to_dir, visited)
-        if child_node is not None:
-            children.append(child_node)
-
-    # Drop this node from the tree if it's completed AND has no
-    # still-running visible descendants. The root is always kept so
-    # the UI has a tree to render.
-    if (not is_root
-            and metadata.get('completed') is True
-            and not children):
-        return None
+        children.append(child_node)
 
     # Child sessions use dispatch:{session_id} as conversation_id — this
     # is where the parent writes stream events for the child's chat section.
