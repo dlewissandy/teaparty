@@ -177,18 +177,15 @@ class AgentSession:
                 pass
 
     def _latest_human_message(self) -> str:
-        messages = self.get_messages()
-        for msg in reversed(messages):
-            if msg.sender == 'human':
-                return msg.content
-        return ''
+        """Return the latest message from outside the agent itself.
 
-    def _latest_incoming_message(self) -> str:
-        """Return the latest message not from the agent itself.
+        Historically only humans sent messages to agents, so this was
+        'latest human message'. Now agents also send messages (via Send)
+        and their replies appear in the parent's conversation. Both
+        trigger the same resume path — a new incoming message.
 
-        Used for --resume: claude already has prior context, so we only
-        send the newest incoming event. Could be a human message OR a
-        reply from a dispatched child (written by _run_child).
+        Returns the latest message whose sender is not the agent's own
+        role and not a non-conversational stream event.
         """
         messages = self.get_messages()
         for msg in reversed(messages):
@@ -361,15 +358,13 @@ class AgentSession:
                 _log.info('%s spawn_fn: %s completed in %.2fs',
                           self.agent_name, member, _time.monotonic() - t0)
 
-                # ── Resume the parent ────────────────────────────────────
-                # Write the child's response to the parent's conversation
-                # so the parent sees it on resume. Then re-invoke.
+                # ── Send child's reply back to the parent ────────────────
+                # The child's stdout output is automatically delivered to
+                # the parent's conversation as a message from the child.
+                # The parent is then resumed to process it.
                 response_text = '\n'.join(response_parts)
                 if response_text:
-                    reply_msg = (f'Reply from {member} '
-                                 f'(conversation {child_conv_id}):\n'
-                                 f'{response_text}')
-                    self._bus.send(self.conversation_id, member, reply_msg)
+                    self._bus.send(self.conversation_id, member, response_text)
                     try:
                         await self.invoke(cwd=repo_root)
                     except Exception:
@@ -558,15 +553,11 @@ class AgentSession:
 
         is_fresh_session = self.claude_session_id is None
 
-        # Build prompt — use hook if provided, else standard pattern.
-        # Fresh session: full context. Resume: only the latest unseen
-        # incoming message (human or agent reply). On resume, claude
-        # already has the prior context via --resume; we just need to
-        # deliver the new event.
+        # Build prompt — use hook if provided, else standard pattern
         if self._build_prompt_hook:
             prompt = self._build_prompt_hook(self, latest)
         elif self.claude_session_id:
-            prompt = self._latest_incoming_message()
+            prompt = self._latest_human_message()
         else:
             prompt = self.build_context()
 
