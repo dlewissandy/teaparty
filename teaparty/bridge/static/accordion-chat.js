@@ -133,7 +133,7 @@
       if (!_bladeOpen) return;
       var sessionId = deriveSessionId(_config.convId);
       if (!sessionId) return;
-      fetch('/api/dispatch-tree/' + encodeURIComponent(sessionId))
+      fetch('/api/dispatch-tree/' + encodeURIComponent(sessionId) + '?conv=' + encodeURIComponent(_config.convId || ''))
         .then(function(r) { return r.ok ? r.json() : null; })
         .then(function(tree) {
           if (!tree) return;

@@ -1875,10 +1875,11 @@ class TeaPartyBridge:
         the requested session_id.
         """
         session_id = request.match_info['session_id']
+        conv_id = request.query.get('conv', '')
         from teaparty.bridge.state.dispatch_tree import build_dispatch_tree
 
         sessions_dir = self._find_sessions_dir(session_id)
-        tree = build_dispatch_tree(sessions_dir, session_id)
+        tree = build_dispatch_tree(sessions_dir, session_id, conv_id=conv_id)
         _log.debug('dispatch-tree %s: %d children, sessions_dir=%s',
                    session_id, len(tree.get('children', [])), sessions_dir)
         return web.json_response(tree)

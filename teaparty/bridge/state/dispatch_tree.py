@@ -10,7 +10,35 @@ import json
 import os
 
 
-def build_dispatch_tree(sessions_dir: str, root_session_id: str) -> dict:
+def agent_name_from_conv_id(conv_id: str) -> str:
+    """Derive the agent name from a conversation ID.
+
+    Conversation IDs have a predictable structure:
+        om:{qualifier}       → office-manager
+        pm:{qualifier}       → project-manager
+        proxy:{qualifier}    → proxy-review
+        config:{qualifier}   → configuration-lead
+        lead:{name}:{rest}   → {name}
+    """
+    if not conv_id:
+        return 'unknown'
+    prefix, _, rest = conv_id.partition(':')
+    if prefix == 'om':
+        return 'office-manager'
+    if prefix == 'pm':
+        return 'project-manager'
+    if prefix == 'proxy':
+        return 'proxy-review'
+    if prefix == 'config':
+        return 'configuration-lead'
+    if prefix == 'lead':
+        name, _, _ = rest.partition(':')
+        return name or 'unknown'
+    return 'unknown'
+
+
+def build_dispatch_tree(sessions_dir: str, root_session_id: str,
+                        conv_id: str = '') -> dict:
     """Build a nested dispatch tree starting from root_session_id.
 
     Each node contains:
@@ -31,7 +59,13 @@ def build_dispatch_tree(sessions_dir: str, root_session_id: str) -> dict:
     lifecycle.
     """
     claude_id_to_dir = _build_claude_id_index(sessions_dir)
-    return _build_node(sessions_dir, root_session_id, claude_id_to_dir, set())
+    tree = _build_node(sessions_dir, root_session_id, claude_id_to_dir, set())
+    # When the root session has no metadata yet, derive agent_name from conv_id.
+    if conv_id and tree.get('agent_name') == 'unknown':
+        tree['agent_name'] = agent_name_from_conv_id(conv_id)
+    if conv_id and not tree.get('conversation_id'):
+        tree['conversation_id'] = conv_id
+    return tree
 
 
 def _build_claude_id_index(sessions_dir: str) -> dict[str, str]:
