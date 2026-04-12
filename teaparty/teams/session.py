@@ -432,9 +432,9 @@ class AgentSession:
             child_session.parent_session_id = dispatcher_session.id
             child_session.project_slug = getattr(
                 self, 'project_slug', '') or ''
-            child_session.phase = 'launching'
             child_session.initial_message = composite
-            child_session.current_message = composite
+            # phase and current_message are set by mark_launching on
+            # every loop iteration — do not pre-seed them here.
             _save_meta(child_session)
 
             # Register the child's session so its dispatches are recorded

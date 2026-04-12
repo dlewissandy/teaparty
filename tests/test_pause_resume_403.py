@@ -420,5 +420,216 @@ class TestUIGrepCheck(unittest.TestCase):
                         f'forbidden string {needle!r} still present in {p}')
 
 
+class TestPauseResumeIntegration(unittest.IsolatedAsyncioTestCase):
+    """End-to-end integration tests: dispatch a real tree through the real
+    ``AgentSession`` + ``_run_child`` loop, count claude invocations via a
+    scripted ``_launch``, pause mid-flight, resume, and verify the
+    phase-based faithfulness invariant.
+
+    These are the load-bearing tests for issue #403: they fail if the
+    phase markers are removed from the subtree loop, if the resume walker
+    re-enters via the wrong entry point, or if the cancellation path
+    leaves the tree in an inconsistent state.
+    """
+
+    def setUp(self):
+        self._tmpdir = _make_teaparty_home()
+        for name in ['parent', 'agent-b', 'agent-c']:
+            agent_dir = os.path.join(
+                self._tmpdir, 'management', 'agents', name)
+            os.makedirs(agent_dir, exist_ok=True)
+            with open(os.path.join(agent_dir, 'agent.md'), 'w') as f:
+                f.write(f'---\nname: {name}\ndescription: test\n---\n')
+        create_session(
+            agent_name='parent', scope='management',
+            teaparty_home=self._tmpdir, session_id='parent-test')
+
+    def tearDown(self):
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    def _make_session(self, project_slug='alpha', paused_check=None):
+        from teaparty.teams.session import AgentSession
+        return AgentSession(
+            self._tmpdir,
+            agent_name='parent',
+            scope='management',
+            qualifier='test',
+            conversation_type=ConversationType.OFFICE_MANAGER,
+            dispatches=True,
+            project_slug=project_slug,
+            paused_check=paused_check,
+        )
+
+    async def test_pause_captures_correct_phases_on_disk(self):
+        """Dispatch a single-level job, pause while claude is running,
+        verify phase='launching' is recorded on disk and the task is gone
+        from _tasks_by_child."""
+        b_launched = asyncio.Event()
+        b_release = asyncio.Event()
+        launch_calls: list[str] = []
+
+        async def fake_launch(**kwargs):
+            agent = kwargs.get('agent_name', '')
+            launch_calls.append(agent)
+            if agent == 'agent-b':
+                b_launched.set()
+                await b_release.wait()  # block until pause cancels us
+                if kwargs.get('on_stream_event'):
+                    kwargs['on_stream_event']({
+                        'type': 'assistant',
+                        'message': {'content': [
+                            {'type': 'text', 'text': 'B says done'}]},
+                    })
+            return FakeLaunchResult(session_id=f'claude-{agent}')
+
+        session = self._make_session()
+
+        with patch('teaparty.runners.launcher.launch', fake_launch), \
+                patch('teaparty.config.roster.has_sub_roster', return_value=False), \
+                patch('subprocess.run'):
+            await session._ensure_bus_listener(self._tmpdir)
+            from teaparty.mcp.registry import get_spawn_fn
+            spawn_fn = get_spawn_fn('parent')
+
+            b_sid, _, _ = await spawn_fn('agent-b', 'task B', 'a-b')
+            self.assertTrue(b_sid)
+
+            # Wait until _run_child has entered _launch (phase=launching)
+            await asyncio.wait_for(b_launched.wait(), timeout=2.0)
+
+            # Now pause alpha. This cancels the task while it's awaiting
+            # in _launch; mark_launching was called before the await so
+            # phase='launching' is on disk.
+            sessions_dir = os.path.join(
+                self._tmpdir, 'management', 'sessions')
+            await pause_project_subtree('alpha', sessions_dir, session)
+
+            # Phase on disk is 'launching'.
+            loaded = load_session(
+                agent_name='agent-b', scope='management',
+                teaparty_home=self._tmpdir, session_id=b_sid)
+            self.assertEqual(loaded.phase, 'launching')
+            self.assertEqual(loaded.current_message, 'task B')
+
+            # Task is gone from _tasks_by_child.
+            self.assertNotIn(b_sid, session._tasks_by_child)
+
+            # No claude process for agent-b finished (cancelled mid-await).
+            self.assertEqual(launch_calls, ['agent-b'])
+
+            b_release.set()  # release any lingering wait
+            await session.stop()
+
+    async def test_resume_awaiting_phase_does_not_relaunch_parent(self):
+        """B dispatches to C, pause while B is awaiting C's gather,
+        resume, assert B's claude is NOT relaunched for the already-
+        completed turn (faithfulness invariant for awaiting sessions)."""
+
+        c_launched = asyncio.Event()
+        c_release = asyncio.Event()
+        launch_counts: dict[str, int] = {}
+
+        async def fake_launch(**kwargs):
+            agent = kwargs.get('agent_name', '')
+            launch_counts[agent] = launch_counts.get(agent, 0) + 1
+            on_event = kwargs.get('on_stream_event')
+            session_id = kwargs.get('session_id', '')
+
+            if agent == 'agent-b' and launch_counts[agent] == 1:
+                # First turn: dispatch to C, then return.
+                from teaparty.mcp.registry import (
+                    get_spawn_fn, current_session_id,
+                )
+                token = current_session_id.set(session_id)
+                try:
+                    spawn = get_spawn_fn('parent')
+                    if spawn:
+                        await spawn('agent-c', 'task for C', 'b-to-c')
+                finally:
+                    current_session_id.reset(token)
+                if on_event:
+                    on_event({
+                        'type': 'assistant',
+                        'message': {'content': [
+                            {'type': 'text',
+                             'text': 'B turn-1 text'}]},
+                    })
+                return FakeLaunchResult(session_id='claude-b')
+
+            if agent == 'agent-c':
+                c_launched.set()
+                await c_release.wait()
+                if on_event:
+                    on_event({
+                        'type': 'assistant',
+                        'message': {'content': [
+                            {'type': 'text', 'text': 'C reply'}]},
+                    })
+                return FakeLaunchResult(session_id='claude-c')
+
+            # B's second turn (after gather returns with C's reply)
+            if on_event:
+                on_event({
+                    'type': 'assistant',
+                    'message': {'content': [
+                        {'type': 'text',
+                         'text': 'B turn-2 integrated'}]},
+                })
+            return FakeLaunchResult(session_id='claude-b')
+
+        session = self._make_session()
+
+        with patch('teaparty.runners.launcher.launch', fake_launch), \
+                patch('teaparty.config.roster.has_sub_roster', return_value=True), \
+                patch('subprocess.run'):
+            await session._ensure_bus_listener(self._tmpdir)
+            from teaparty.mcp.registry import get_spawn_fn
+            spawn_fn = get_spawn_fn('parent')
+
+            b_sid, _, _ = await spawn_fn('agent-b', 'task B', 'a-b')
+
+            # Wait until C is running — at this point B has finished its
+            # first _launch and is awaiting gather on C.
+            await asyncio.wait_for(c_launched.wait(), timeout=2.0)
+            # Give the event loop a tick to record B's awaiting phase.
+            await asyncio.sleep(0.05)
+
+            sessions_dir = os.path.join(
+                self._tmpdir, 'management', 'sessions')
+            await pause_project_subtree('alpha', sessions_dir, session)
+
+            # B on disk must be 'awaiting'; C must be 'launching'.
+            b_meta = load_session(
+                agent_name='agent-b', scope='management',
+                teaparty_home=self._tmpdir, session_id=b_sid)
+            self.assertEqual(b_meta.phase, 'awaiting')
+            self.assertEqual(len(b_meta.in_flight_gc_ids), 1)
+
+            b_first_turn_count = launch_counts.get('agent-b', 0)
+            self.assertEqual(b_first_turn_count, 1)
+
+            # Resume. B should NOT be re-launched for its already-
+            # completed turn; C will be re-launched (its turn was killed
+            # mid-_launch, phase='launching').
+            c_release.set()
+            await resume_project_subtree('alpha', sessions_dir, session)
+
+            # Let the resumed tree make progress. The resumed C-task
+            # re-enters _launch (count += 1). B's re-entered task starts
+            # at gather, collects C's reply, then does ONE more _launch
+            # for turn-2. So agent-b ends at exactly 2 launches — the
+            # initial turn-1 and the post-gather turn-2.
+            await asyncio.sleep(0.4)
+
+            # Faithfulness invariant: B was in 'awaiting' at pause time.
+            # Its first-turn _launch must NOT have been re-run — otherwise
+            # B would be at 3 launches total.
+            self.assertLessEqual(
+                launch_counts.get('agent-b', 0), 2,
+                f'B was re-launched unnecessarily: {launch_counts}')
+
+            await session.stop()
+
+
 if __name__ == '__main__':
     unittest.main()

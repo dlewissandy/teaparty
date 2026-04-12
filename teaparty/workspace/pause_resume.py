@@ -132,7 +132,125 @@ async def pause_project_subtree(
     return session_ids
 
 
+def collect_session_subtree(
+    sessions_dir: str,
+    root_session_id: str,
+) -> list[tuple[str, str]]:
+    """Walk a single session's subtree on disk and return (sid, parent) pairs.
+
+    Depth-first, root first. Used by the implicit-resume-on-message path
+    to resume just the smallest subtree containing the message target,
+    rather than the entire project (issue #403).
+    """
+    result: list[tuple[str, str]] = []
+
+    def _walk(sid: str, parent: str) -> None:
+        meta_path = os.path.join(sessions_dir, sid, 'metadata.json')
+        if not os.path.isfile(meta_path):
+            return
+        try:
+            with open(meta_path) as f:
+                meta = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            return
+        result.append((sid, parent))
+        for gc in meta.get('conversation_map', {}).values():
+            _walk(gc, sid)
+
+    # Look up the root's parent from its metadata so callers don't have
+    # to pass it in.
+    root_meta_path = os.path.join(
+        sessions_dir, root_session_id, 'metadata.json')
+    root_parent = ''
+    if os.path.isfile(root_meta_path):
+        try:
+            with open(root_meta_path) as f:
+                root_parent = json.load(f).get('parent_session_id', '')
+        except (json.JSONDecodeError, OSError):
+            pass
+    _walk(root_session_id, root_parent)
+    return result
+
+
 # ── Resume ──────────────────────────────────────────────────────────────────
+
+def _rebuild_task_for_session(
+    sid: str,
+    sessions_dir: str,
+    agent_session: 'AgentSession',
+) -> bool:
+    """Rebuild a single session's task from its persisted phase.
+
+    Returns True if a task was scheduled, False if skipped (missing
+    metadata or no factory available for non-complete phase).
+    """
+    meta_path = os.path.join(sessions_dir, sid, 'metadata.json')
+    try:
+        with open(meta_path) as f:
+            meta = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        _log.warning('resume: cannot read metadata for %s', sid)
+        return False
+    phase = meta.get('phase', 'launching')
+
+    if phase == 'complete':
+        stored = meta.get('response_text', '')
+
+        async def _completed_stub(text: str = stored) -> str:
+            return text
+
+        task = asyncio.create_task(_completed_stub())
+        agent_session._tasks_by_child[sid] = task
+        return True
+
+    factory = agent_session._run_child_factories.get(sid)
+    if factory is None:
+        _log.warning(
+            'resume: no factory for %s (phase=%s) — cross-restart '
+            'resume is not implemented', sid, phase,
+        )
+        return False
+
+    if phase == 'awaiting':
+        gc_ids = list(meta.get('in_flight_gc_ids', []))
+        coro = factory(
+            start_at_phase='awaiting',
+            initial_gc_task_ids=gc_ids,
+            resume_claude_session=meta.get('claude_session_id', ''),
+        )
+    else:  # launching
+        coro = factory(
+            start_at_phase='launching',
+            initial_gc_task_ids=None,
+            resume_claude_session=meta.get('claude_session_id', ''),
+        )
+    task = asyncio.create_task(coro)
+    agent_session._background_tasks.add(task)
+    agent_session._tasks_by_child[sid] = task
+    task.add_done_callback(agent_session._background_tasks.discard)
+    return True
+
+
+async def resume_session_subtree(
+    root_session_id: str,
+    sessions_dir: str,
+    agent_session: 'AgentSession',
+) -> list[str]:
+    """Rebuild tasks for a single session and its descendants.
+
+    Walks the subtree depth-first leaves-first so that when a parent's
+    gather task runs, its grandchildren's tasks are already in
+    ``_tasks_by_child``. Used by implicit-resume-on-message to resume
+    only the smallest subtree containing the message target.
+    """
+    subtree = collect_session_subtree(sessions_dir, root_session_id)
+    leaves_first = list(reversed(subtree))
+    resumed: list[str] = []
+    for sid, _parent in leaves_first:
+        if _rebuild_task_for_session(sid, sessions_dir, agent_session):
+            resumed.append(sid)
+    return resumed
+
 
 async def resume_project_subtree(
     project_slug: str,
@@ -153,64 +271,9 @@ async def resume_project_subtree(
     Returns the session ids whose tasks were re-scheduled.
     """
     subtree = collect_project_subtree(sessions_dir, project_slug)
-
-    # Read every session's metadata once so we can schedule in the right
-    # order. The list from collect_project_subtree is depth-first roots
-    # first; we want leaves first here so that when a parent's gather
-    # task runs, its grandchildren's tasks are already in _tasks_by_child.
     leaves_first = list(reversed(subtree))
-
     resumed: list[str] = []
     for sid, _parent in leaves_first:
-        meta_path = os.path.join(sessions_dir, sid, 'metadata.json')
-        try:
-            with open(meta_path) as f:
-                meta = json.load(f)
-        except (json.JSONDecodeError, OSError):
-            _log.warning('resume: cannot read metadata for %s', sid)
-            continue
-        phase = meta.get('phase', 'launching')
-
-        if phase == 'complete':
-            stored = meta.get('response_text', '')
-
-            async def _completed_stub(text: str = stored) -> str:
-                return text
-
-            task = asyncio.create_task(_completed_stub())
-            agent_session._tasks_by_child[sid] = task
+        if _rebuild_task_for_session(sid, sessions_dir, agent_session):
             resumed.append(sid)
-            continue
-
-        factory = agent_session._run_child_factories.get(sid)
-        if factory is None:
-            # No factory means this session was never registered with
-            # the running AgentSession (cross-restart case). Cross-
-            # restart rebuild would require re-wiring spawn_fn state
-            # from disk; for now log and skip.
-            _log.warning(
-                'resume: no factory for %s (phase=%s) — cross-restart '
-                'resume is not implemented', sid, phase,
-            )
-            continue
-
-        if phase == 'awaiting':
-            gc_ids = list(meta.get('in_flight_gc_ids', []))
-            coro = factory(
-                start_at_phase='awaiting',
-                initial_gc_task_ids=gc_ids,
-                resume_claude_session=meta.get('claude_session_id', ''),
-            )
-        else:  # launching
-            coro = factory(
-                start_at_phase='launching',
-                initial_gc_task_ids=None,
-                resume_claude_session=meta.get('claude_session_id', ''),
-            )
-        task = asyncio.create_task(coro)
-        agent_session._background_tasks.add(task)
-        agent_session._tasks_by_child[sid] = task
-        task.add_done_callback(agent_session._background_tasks.discard)
-        resumed.append(sid)
-
     return resumed

@@ -1128,30 +1128,47 @@ class TeaPartyBridge:
             return web.json_response({'error': str(exc)}, status=409)
 
         # Implicit resume (issue #403): if this message targets a session
-        # whose project is paused, run resume_project_subtree for that
-        # project before kicking off the agent invocation. This covers
-        # the project-lead chat blade and the per-job chat.
+        # in a paused project, resume the smallest subtree containing
+        # the target before invoking the agent.
+        #
+        #   lead:{lead}:{qualifier}       → resume every top-level job
+        #                                   dispatched by that lead
+        #                                   (project-wide)
+        #   job:{slug}:{session_id}[:{d}] → resume just that job's
+        #                                   subtree
         paused_slug = ''
+        target_root_sid = ''  # empty → resume whole project
         if conv_id.startswith('lead:'):
             parts = conv_id.split(':', 2)
             if len(parts) > 1:
                 paused_slug = self._slug_for_lead(parts[1])
         elif conv_id.startswith('job:'):
             parts = conv_id.split(':')
-            if len(parts) >= 2:
+            if len(parts) >= 3:
                 paused_slug = parts[1]
+                target_root_sid = parts[2]
         if paused_slug and paused_slug in self._paused_projects:
-            from teaparty.workspace.pause_resume import resume_project_subtree
+            from teaparty.workspace.pause_resume import (
+                resume_project_subtree, resume_session_subtree,
+            )
             sessions_dir = self._sessions_dir_for_project(paused_slug)
             if sessions_dir:
                 for agent_session in list(self._agent_sessions.values()):
                     try:
-                        await resume_project_subtree(
-                            paused_slug, sessions_dir, agent_session)
+                        if target_root_sid:
+                            await resume_session_subtree(
+                                target_root_sid, sessions_dir, agent_session)
+                        else:
+                            await resume_project_subtree(
+                                paused_slug, sessions_dir, agent_session)
                     except Exception:
                         _log.exception(
                             'implicit resume failed for %s', paused_slug)
-            self._paused_projects.discard(paused_slug)
+            # Only clear the project-paused flag if the entire subtree
+            # was resumed. A per-job resume leaves other jobs paused,
+            # so keep the flag set for the project.
+            if not target_root_sid:
+                self._paused_projects.discard(paused_slug)
 
         # Invoke the agent asynchronously; reply will appear in the bus and
         # be broadcast by MessageRelay.
