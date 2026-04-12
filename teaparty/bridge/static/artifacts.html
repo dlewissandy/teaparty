@@ -605,7 +605,7 @@ async function loadFile(path) {
 }
 
 function openJobChat(convId) {
-  window.open('chat.html?conv=' + encodeURIComponent(convId), '_blank');
+  location.href = 'chat.html?conv=' + encodeURIComponent(convId);
 }
 
 function closeFile(path) {
