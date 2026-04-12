@@ -177,22 +177,25 @@ class AgentSession:
                 pass
 
     def _latest_human_message(self) -> str:
-        """Return the latest message from outside the agent itself.
+        """Return the latest incoming message, prefixed with its sender.
 
-        Historically only humans sent messages to agents, so this was
-        'latest human message'. Now agents also send messages (via Send)
-        and their replies appear in the parent's conversation. Both
-        trigger the same resume path — a new incoming message.
+        Used on resume: claude already has prior context via --resume,
+        so we just deliver the new event. The sender prefix lets claude
+        correlate the reply to the right dispatch (when multiple children
+        are in flight).
 
-        Returns the latest message whose sender is not the agent's own
-        role and not a non-conversational stream event.
+        Returns:
+            'Human: {text}' for a human message
+            '{agent_name}: {text}' for an agent reply
+            '' if no incoming message
         """
         messages = self.get_messages()
         for msg in reversed(messages):
             if (msg.sender != self.agent_role
                     and msg.sender not in NON_CONVERSATIONAL_SENDERS
                     and not msg.sender.startswith('unknown:')):
-                return msg.content
+                role = 'Human' if msg.sender == 'human' else msg.sender
+                return f'{role}: {msg.content}'
         return ''
 
     # ── Dispatch (Send/Reply) ────────────────────────────────────────────
@@ -361,10 +364,14 @@ class AgentSession:
                 # ── Send child's reply back to the parent ────────────────
                 # The child's stdout output is automatically delivered to
                 # the parent's conversation as a message from the child.
-                # The parent is then resumed to process it.
+                # The conversation handle is embedded so the parent can
+                # correlate the reply to its original Send call (critical
+                # when multiple instances of the same agent are in flight).
                 response_text = '\n'.join(response_parts)
                 if response_text:
-                    self._bus.send(self.conversation_id, member, response_text)
+                    reply_content = (
+                        f'[conversation {child_conv_id}]\n{response_text}')
+                    self._bus.send(self.conversation_id, member, reply_content)
                     try:
                         await self.invoke(cwd=repo_root)
                     except Exception:
