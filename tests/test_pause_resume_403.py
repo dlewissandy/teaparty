@@ -777,5 +777,249 @@ class TestCrossRestartResume(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(launch_calls[0]['resume_session'], 'claude-b-mid')
 
 
+class TestResumeAgentSessionFiltering(unittest.IsolatedAsyncioTestCase):
+    """Resume must only act on the project-lead AgentSession for the
+    target slug — not on every live AgentSession.
+
+    The duplication bug: iterating ``self._agent_sessions.values()`` in
+    the resume handler rehydrates factories on *every* live session
+    (OM, config lead, proxy, project lead…). Each gets its own
+    ``_run_child_factories`` + ``_tasks_by_child``. The walker then
+    creates a task per session per AgentSession, so one subtree
+    session ends up running twice in parallel — once with the OM's
+    bus/scope/teaparty_home, once with the lead's.
+
+    These tests stand up two AgentSessions and verify exactly one task
+    is scheduled per subtree session, on the correct instance.
+    """
+
+    def setUp(self):
+        self._tmpdir = _make_teaparty_home()
+        for name in ['office-manager', 'alpha-lead', 'agent-b']:
+            agent_dir = os.path.join(
+                self._tmpdir, 'management', 'agents', name)
+            os.makedirs(agent_dir, exist_ok=True)
+            with open(os.path.join(agent_dir, 'agent.md'), 'w') as f:
+                f.write(f'---\nname: {name}\ndescription: test\n---\n')
+        # Persist a 'complete' child session in the management sessions
+        # dir so both AgentSessions see it on disk.
+        b_path = os.path.join(
+            self._tmpdir, 'management', 'sessions', 'child-b')
+        os.makedirs(os.path.join(b_path, 'worktree'), exist_ok=True)
+        meta = {
+            'session_id': 'child-b',
+            'agent_name': 'agent-b',
+            'scope': 'management',
+            'claude_session_id': '',
+            'conversation_map': {},
+            'phase': 'complete',
+            'response_text': 'persisted answer',
+            'project_slug': 'alpha',
+            'parent_session_id': '',
+            'current_message': '',
+            'in_flight_gc_ids': [],
+            'initial_message': '',
+        }
+        with open(os.path.join(b_path, 'metadata.json'), 'w') as f:
+            json.dump(meta, f)
+
+    def tearDown(self):
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    def _make_agent_session(self, agent_name, qualifier, project_slug=''):
+        from teaparty.teams.session import AgentSession
+        return AgentSession(
+            self._tmpdir,
+            agent_name=agent_name,
+            scope='management',
+            qualifier=qualifier,
+            conversation_type=ConversationType.OFFICE_MANAGER,
+            dispatches=True,
+            project_slug=project_slug,
+        )
+
+    async def test_resume_does_not_duplicate_across_unrelated_sessions(self):
+        """Two live AgentSessions (OM + alpha-lead). Only the alpha-lead
+        session should end up with a task for the persisted child.
+
+        Without the filter, the resume handler's loop-over-all pattern
+        populates both sessions' _tasks_by_child and launches two
+        parallel resumed tasks for the same session — the duplication
+        bug the /chide review surfaced.
+        """
+        om_session = self._make_agent_session(
+            'office-manager', 'user-1', project_slug='')
+        lead_session = self._make_agent_session(
+            'alpha-lead', 'alpha:user-1', project_slug='alpha')
+
+        # Simulate what the bridge handler should do: filter by
+        # scope='project' (or equivalent project_slug match) and
+        # only act on the matching session(s).
+        candidates = [
+            s for s in (om_session, lead_session)
+            if s.project_slug == 'alpha'
+        ]
+        self.assertEqual(len(candidates), 1)
+        self.assertIs(candidates[0], lead_session)
+
+        sessions_dir = os.path.join(
+            self._tmpdir, 'management', 'sessions')
+        for s in candidates:
+            s.rehydrate_paused_factories('alpha', sessions_dir)
+            await resume_project_subtree('alpha', sessions_dir, s)
+
+        # Exactly one task, on the lead session, not the OM.
+        self.assertIn('child-b', lead_session._tasks_by_child)
+        self.assertNotIn('child-b', om_session._tasks_by_child)
+        # The OM was never touched — its factory map is empty.
+        self.assertEqual(om_session._run_child_factories, {})
+
+        result = await lead_session._tasks_by_child['child-b']
+        self.assertEqual(result, 'persisted answer')
+
+    async def test_unfiltered_loop_creates_duplicate_tasks(self):
+        """Negative-space assertion: document that iterating over
+        every AgentSession (the pre-filter bug) produces a task on
+        every iteration, not just on the right one. This test would
+        have failed the /chide review.
+        """
+        om_session = self._make_agent_session(
+            'office-manager', 'user-1', project_slug='')
+        lead_session = self._make_agent_session(
+            'alpha-lead', 'alpha:user-1', project_slug='alpha')
+
+        sessions_dir = os.path.join(
+            self._tmpdir, 'management', 'sessions')
+        # Naive pattern: iterate everything. This is the bug.
+        for s in (om_session, lead_session):
+            s.rehydrate_paused_factories('alpha', sessions_dir)
+            await resume_project_subtree('alpha', sessions_dir, s)
+
+        # Both ended up with a task → duplication.
+        self.assertIn('child-b', om_session._tasks_by_child)
+        self.assertIn('child-b', lead_session._tasks_by_child)
+        # The two tasks are different objects running concurrently.
+        self.assertIsNot(
+            om_session._tasks_by_child['child-b'],
+            lead_session._tasks_by_child['child-b'])
+
+
+class TestBridgeHandlerFiltering(unittest.IsolatedAsyncioTestCase):
+    """Exercise the bridge's pause/resume handlers directly with two
+    live AgentSessions (OM-like + project-lead-like) and verify the
+    right one is chosen by _project_owner_sessions."""
+
+    def setUp(self):
+        self._tmpdir = _make_teaparty_home()
+
+    def tearDown(self):
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    def _persist_child(self, sid, slug):
+        path = os.path.join(
+            self._tmpdir, 'management', 'sessions', sid)
+        os.makedirs(os.path.join(path, 'worktree'), exist_ok=True)
+        meta = {
+            'session_id': sid,
+            'agent_name': 'agent-b',
+            'scope': 'management',
+            'claude_session_id': '',
+            'conversation_map': {},
+            'phase': 'complete',
+            'response_text': f'{sid} done',
+            'project_slug': slug,
+            'parent_session_id': '',
+            'current_message': '',
+            'in_flight_gc_ids': [],
+            'initial_message': '',
+        }
+        with open(os.path.join(path, 'metadata.json'), 'w') as f:
+            json.dump(meta, f)
+
+    def _make_bridge(self):
+        """Construct a bare TeaPartyBridge without starting its aiohttp
+        server — we only need the handler methods and the
+        _agent_sessions dict."""
+        from teaparty.bridge.server import TeaPartyBridge
+        bridge = TeaPartyBridge.__new__(TeaPartyBridge)
+        bridge.teaparty_home = self._tmpdir
+        bridge._agent_sessions = {}
+        bridge._paused_projects = set()
+        bridge._ws_clients = set()
+        bridge._repo_root = os.path.dirname(self._tmpdir)
+        # Route _lookup_project_path / _sessions_dir_for_project through
+        # a tiny override so we don't need a real project registry.
+        sessions_dir = os.path.join(
+            self._tmpdir, 'management', 'sessions')
+        bridge._lookup_project_path = (
+            lambda slug: self._tmpdir if slug == 'alpha' else None)
+        bridge._sessions_dir_for_project = lambda slug: sessions_dir
+        return bridge
+
+    def _make_agent_session(self, agent_name, qualifier, project_slug=''):
+        from teaparty.teams.session import AgentSession
+        agent_dir = os.path.join(
+            self._tmpdir, 'management', 'agents', agent_name)
+        os.makedirs(agent_dir, exist_ok=True)
+        with open(os.path.join(agent_dir, 'agent.md'), 'w') as f:
+            f.write(f'---\nname: {agent_name}\ndescription: test\n---\n')
+        return AgentSession(
+            self._tmpdir,
+            agent_name=agent_name,
+            scope='management',
+            qualifier=qualifier,
+            conversation_type=ConversationType.OFFICE_MANAGER,
+            dispatches=True,
+            project_slug=project_slug,
+        )
+
+    async def test_handler_resume_only_touches_owner_session(self):
+        from aiohttp.test_utils import make_mocked_request
+        self._persist_child('child-b', 'alpha')
+        bridge = self._make_bridge()
+        om = self._make_agent_session(
+            'office-manager', 'user-1', project_slug='')
+        lead = self._make_agent_session(
+            'alpha-lead', 'alpha:user-1', project_slug='alpha')
+        bridge._agent_sessions = {
+            'om:user-1': om,
+            'pl:alpha-lead:alpha:user-1': lead,
+        }
+
+        req = make_mocked_request(
+            'POST', '/api/projects/alpha/resume',
+            match_info={'slug': 'alpha'})
+        resp = await bridge._handle_project_resume(req)
+        body = json.loads(resp.body.decode())
+        self.assertEqual(resp.status, 200)
+        self.assertIn('child-b', body['resumed'])
+
+        # Only the lead owns the resumed task. The OM is untouched.
+        self.assertIn('child-b', lead._tasks_by_child)
+        self.assertNotIn('child-b', om._tasks_by_child)
+        self.assertEqual(om._run_child_factories, {})
+
+    async def test_handler_resume_409s_when_no_owner(self):
+        """Post-restart cold-start scenario: project paused on disk,
+        no lead session is live yet. Handler returns 409 rather than
+        silently doing nothing on the wrong session."""
+        from aiohttp.test_utils import make_mocked_request
+        self._persist_child('child-b', 'alpha')
+        bridge = self._make_bridge()
+        # Only an OM-like session — no project lead.
+        bridge._agent_sessions = {
+            'om:user-1': self._make_agent_session(
+                'office-manager', 'user-1', project_slug=''),
+        }
+
+        req = make_mocked_request(
+            'POST', '/api/projects/alpha/resume',
+            match_info={'slug': 'alpha'})
+        resp = await bridge._handle_project_resume(req)
+        self.assertEqual(resp.status, 409)
+        body = json.loads(resp.body.decode())
+        self.assertIn('lead chat', body['error'])
+
+
 if __name__ == '__main__':
     unittest.main()

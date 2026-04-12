@@ -1153,7 +1153,7 @@ class TeaPartyBridge:
             )
             sessions_dir = self._sessions_dir_for_project(paused_slug)
             if sessions_dir:
-                for agent_session in list(self._agent_sessions.values()):
+                for agent_session in self._project_owner_sessions(paused_slug):
                     try:
                         try:
                             agent_session.rehydrate_paused_factories(
@@ -1877,6 +1877,24 @@ class TeaPartyBridge:
             return None
         return os.path.join(path, '.teaparty', 'project', 'sessions')
 
+    def _project_owner_sessions(self, slug: str) -> list:
+        """Return the AgentSessions that own the project's dispatch tree.
+
+        The duplication bug (issue #403 /chide review): iterating every
+        live AgentSession for pause/resume populates unrelated OM /
+        config-lead / proxy sessions with factories and tasks bound to
+        the wrong bus, scope, and teaparty_home. The correct owner is
+        the project-lead AgentSession whose ``project_slug`` matches.
+
+        Multiple leads can match if two humans are chatting with the
+        same project lead under different qualifiers — each has its own
+        dispatch tree; pause/resume applies to all of them.
+        """
+        return [
+            s for s in self._agent_sessions.values()
+            if getattr(s, 'project_slug', '') == slug
+        ]
+
     async def _handle_project_pause(self, request: web.Request) -> web.Response:
         """POST /api/projects/{slug}/pause — stop every running claude
         process for the project and set the per-project paused flag.
@@ -1890,8 +1908,14 @@ class TeaPartyBridge:
         if sessions_dir is None:
             return web.json_response({'error': 'no sessions dir'}, status=500)
 
+        owners = self._project_owner_sessions(slug)
+        if not owners:
+            return web.json_response(
+                {'error': f'no active project-lead session for {slug}; '
+                          f'open the lead chat first'},
+                status=409)
         all_paused: list[str] = []
-        for agent_session in list(self._agent_sessions.values()):
+        for agent_session in owners:
             try:
                 paused = await pause_project_subtree(
                     slug, sessions_dir, agent_session)
@@ -1925,8 +1949,14 @@ class TeaPartyBridge:
         if sessions_dir is None:
             return web.json_response({'error': 'no sessions dir'}, status=500)
 
+        owners = self._project_owner_sessions(slug)
+        if not owners:
+            return web.json_response(
+                {'error': f'no active project-lead session for {slug}; '
+                          f'open the lead chat first'},
+                status=409)
         all_resumed: list[str] = []
-        for agent_session in list(self._agent_sessions.values()):
+        for agent_session in owners:
             try:
                 # Cross-restart: rebuild factories from disk before the
                 # walker consults them. Idempotent — factories from a
