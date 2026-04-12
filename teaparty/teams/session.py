@@ -279,7 +279,10 @@ class AgentSession:
             import time as _time
             import asyncio as _asyncio
             from teaparty.teams.stream import _classify_event
-            from teaparty.config.roster import resolve_launch_cwd
+            from teaparty.config.roster import (
+                resolve_launch_cwd, LaunchCwdNotResolved,
+            )
+            from teaparty.runners.launcher import chat_config_dir as _chat_cfg_dir
             from teaparty.mcp.registry import (
                 register_spawn_fn as _register,
                 current_session_id as _current_session_var,
@@ -297,23 +300,33 @@ class AgentSession:
                 )
                 return ('', '', '')
 
+            # Resolve launch cwd by walking the config registry. Unknown
+            # members are a configuration error — refuse the dispatch
+            # rather than silently defaulting to the teaparty repo.
+            try:
+                member_launch_cwd = resolve_launch_cwd(
+                    member, self.teaparty_home,
+                )
+            except LaunchCwdNotResolved as exc:
+                _log.error(
+                    '%s spawn_fn: refusing dispatch to %s — %s',
+                    self.agent_name, member, exc,
+                )
+                return ('', '', '')
+
             # Chat-tier dispatch: create a session directory for metadata
             # and stream capture, but NO git worktree. The child launches
-            # at the real repo (teaparty for management agents, the
-            # project repo for project leads) and per-launch config is
-            # injected via claude CLI flags — not composed into cwd.
+            # at its resolved repo and per-launch config is injected via
+            # claude CLI flags — not composed into cwd.
             child_session = _create_session(
                 agent_name=member, scope=self.scope,
                 teaparty_home=self.teaparty_home,
             )
-            # Resolve launch cwd. Project leads run in their own project
-            # repo; everything else inherits the dispatcher's cwd, falling
-            # back to the teaparty repo root.
-            dispatcher_cwd = getattr(dispatcher_session, 'launch_cwd', '') or repo_root
-            member_launch_cwd = resolve_launch_cwd(
-                member, self.teaparty_home, fallback=dispatcher_cwd,
-            )
             child_session.launch_cwd = member_launch_cwd
+            _save_meta(child_session)
+            member_config_dir = _chat_cfg_dir(
+                self.teaparty_home, self.scope, member, child_session.id,
+            )
 
             # Register the child's session so its dispatches are recorded
             # in its own conversation_map.
@@ -401,7 +414,7 @@ class AgentSession:
                         scope=self.scope, teaparty_home=self.teaparty_home,
                         tier='chat',
                         launch_cwd=member_launch_cwd,
-                        config_dir=child_session.path,
+                        config_dir=member_config_dir,
                         mcp_port=mcp_port,
                         session_id=child_session.id,
                         stream_file=os.path.join(child_session.path, 'stream.jsonl'),
@@ -517,39 +530,53 @@ class AgentSession:
             return (child_session.id, member_launch_cwd, '')
 
         async def resume_fn(member, composite, session_id, context_id):
-            from teaparty.config.roster import resolve_launch_cwd
+            # Resume path: the conversation already exists. The child
+            # session that spawn_fn created carries launch_cwd and lives
+            # at a stable path; find it by walking sessions looking for
+            # a matching claude_session_id. The per-launch config dir is
+            # rebuilt from the same (agent_name, child_session_id) key
+            # used by spawn_fn, so the resume lands on the same files.
+            from teaparty.config.roster import (
+                resolve_launch_cwd, LaunchCwdNotResolved,
+            )
+            from teaparty.runners.launcher import chat_config_dir as _chat_cfg_dir
+
+            child_session_id = ''
+            if context_id and context_id.startswith('dispatch:'):
+                child_session_id = context_id[len('dispatch:'):]
+
             agent_dir = ''
-            if os.path.exists(bus_db_path) and context_id:
-                bus = SqliteMessageBus(bus_db_path)
-                try:
-                    ctx = bus.get_agent_context(context_id)
-                    if ctx:
-                        agent_dir = ctx.get('agent_worktree_path', '')
-                finally:
-                    bus.close()
-            if not agent_dir:
-                agent_dir = resolve_launch_cwd(
-                    member, self.teaparty_home, fallback=repo_root,
+            if child_session_id:
+                existing = _load_session(
+                    agent_name=member, scope=self.scope,
+                    teaparty_home=self.teaparty_home,
+                    session_id=child_session_id,
                 )
+                if existing is not None:
+                    agent_dir = existing.launch_cwd
+
+            if not agent_dir:
+                try:
+                    agent_dir = resolve_launch_cwd(member, self.teaparty_home)
+                except LaunchCwdNotResolved as exc:
+                    _log.error(
+                        '%s resume_fn: cannot resolve cwd for %s — %s',
+                        self.agent_name, member, exc,
+                    )
+                    return ''
+
+            qualifier = child_session_id or context_id or member
+            config_dir = _chat_cfg_dir(
+                self.teaparty_home, self.scope, member, qualifier,
+            )
 
             mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
-            # Resume uses the same chat-tier launch path. We don't have
-            # the child session here, so resolve a config dir by the
-            # session_id — {teaparty_home}/{scope}/sessions/{id}/.
-            config_dir = os.path.join(
-                self.teaparty_home, self.scope, 'sessions', session_id,
-            ) if session_id else ''
-            if not config_dir or not os.path.isdir(config_dir):
-                # Fallback: a transient dir under the agent's infra.
-                config_dir = os.path.join(
-                    self.teaparty_home, self.scope, 'agents', member, 'resume-config',
-                )
             result = await _launch(
                 agent_name=member, message=composite,
                 scope=self.scope, teaparty_home=self.teaparty_home,
                 tier='chat', launch_cwd=agent_dir, config_dir=config_dir,
                 resume_session=session_id, mcp_port=mcp_port,
-                session_id=session_id,
+                session_id=child_session_id,
             )
             return result.session_id
 
@@ -889,7 +916,10 @@ class AgentSession:
             launch, detect_poisoned_session,
             create_session as _create_session, load_session as _load_session,
         )
-        from teaparty.config.roster import resolve_launch_cwd
+        from teaparty.config.roster import (
+            resolve_launch_cwd, LaunchCwdNotResolved,
+        )
+        from teaparty.runners.launcher import chat_config_dir as _chat_cfg_dir
 
         t_start = _time.monotonic()
         self.load_state()
@@ -934,12 +964,28 @@ class AgentSession:
         # Chat tier: launch at the real repo root (teaparty for
         # management agents, the project repo for project leads). No
         # worktree is composed — per-launch config travels via CLI flags
-        # pointed at files in the session directory.
-        launch_cwd = resolve_launch_cwd(
-            self.agent_name, self.teaparty_home, fallback=cwd,
-        )
+        # pointed at files under .teaparty/{scope}/agents/{name}/{qualifier}/config/.
+        try:
+            launch_cwd = resolve_launch_cwd(
+                self.agent_name, self.teaparty_home,
+            )
+        except LaunchCwdNotResolved:
+            # Top-level AgentSessions can legitimately run before the
+            # management registry is fully populated (e.g. in unit tests
+            # that exercise invoke() without a management/teaparty.yaml).
+            # Fall back to the caller-supplied cwd rather than crashing
+            # the whole session — this is a deliberate fallback with a
+            # logged reason, not a silent one.
+            _log.info(
+                '%s invoke: registry resolution unavailable; '
+                'falling back to caller cwd %s', self.agent_name, cwd,
+            )
+            launch_cwd = cwd
         session.launch_cwd = launch_cwd
         effective_cwd = launch_cwd
+        config_dir = _chat_cfg_dir(
+            self.teaparty_home, self.scope, self.agent_name, self.qualifier,
+        )
 
         # Start bus listener for agents that dispatch
         if self._dispatches:
@@ -963,7 +1009,7 @@ class AgentSession:
             teaparty_home=self.teaparty_home,
             tier='chat',
             launch_cwd=launch_cwd,
-            config_dir=session.path,
+            config_dir=config_dir,
             stream_file=stream_path,
             resume_session=self.claude_session_id or '',
             mcp_port=mcp_port,

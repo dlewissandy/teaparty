@@ -176,6 +176,26 @@ def compose_launch_worktree(
             json.dump(mcp_data, f, indent=2)
 
 
+def chat_config_dir(
+    teaparty_home: str,
+    scope: str,
+    agent_name: str,
+    qualifier: str,
+) -> str:
+    """Return the per-launch config directory for a chat-tier agent.
+
+    Issue #397 fixes the location at
+    ``{teaparty_home}/{scope}/agents/{agent_name}/{qualifier}/config/``.
+    Parallel instances of the same agent use different *qualifier*
+    strings (child session id for dispatches, ``AgentSession.qualifier``
+    for top-level invokes) so they do not clobber each other.
+    """
+    safe_qualifier = qualifier.replace('/', '-').replace(':', '-').replace(' ', '-')
+    return os.path.join(
+        teaparty_home, scope, 'agents', agent_name, safe_qualifier, 'config',
+    )
+
+
 def compose_launch_config(
     *,
     config_dir: str,
@@ -187,19 +207,21 @@ def compose_launch_config(
 ) -> dict[str, str]:
     """Compose per-launch config files for a chat-tier agent launch.
 
-    Writes ``settings.json`` and ``mcp.json`` into *config_dir* (a
-    persistent per-session directory — typically the session dir itself).
+    Writes three files into *config_dir* (the spec'd location under
+    ``{teaparty_home}/{scope}/agents/{agent_name}/{qualifier}/config/``):
+
+    - ``settings.json`` — merged scope + agent settings with tool allow list.
+    - ``mcp.json`` — scoped HTTP MCP endpoint.
+    - ``agent.json`` — the persona as a ``--agents`` JSON payload.
+
     Does NOT write into the launch cwd. The real repo's ``.claude/`` and
     ``.mcp.json`` are never touched.
-
-    Agent definition is returned as inline ``--agents`` JSON rather than
-    written to disk, so that Claude Code can see it without the launcher
-    composing anything under the repo checkout.
 
     Returns a dict with:
         settings_path: absolute path to the composed settings.json
         mcp_path: absolute path to the composed mcp.json (or '')
-        agents_json: inline JSON string for claude --agents (or '')
+        agents_file: absolute path to the on-disk agent.json (or '')
+        agents_json: the same agents payload as an inline JSON string
     """
     from teaparty.config.config_reader import read_agent_frontmatter
 
@@ -244,17 +266,19 @@ def compose_launch_config(
         with open(mcp_path, 'w') as f:
             json.dump(mcp_data, f, indent=2)
 
-    # Agent definition — inline JSON for --agents. Pulls the agent.md
-    # body as the system prompt so Claude Code loads the persona without
-    # needing a .claude/agents/ file in the cwd.
+    # Agent definition. Pulls the agent.md body as the system prompt so
+    # Claude Code loads the persona without needing a .claude/agents/
+    # file in the cwd. Written to disk as agent.json AND returned as an
+    # inline JSON string so the caller can choose --agents-file or
+    # --agents (both are wired through ClaudeRunner).
     agents_json = ''
+    agents_file = ''
     if agent_def_path:
         try:
             with open(agent_def_path) as f:
                 raw = f.read()
         except OSError:
             raw = ''
-        # Strip frontmatter block — body follows the closing ``---``.
         body = raw
         if raw.startswith('---'):
             parts = raw.split('---', 2)
@@ -267,12 +291,17 @@ def compose_launch_config(
         model = fm.get('model')
         if model:
             entry['model'] = model
-        agents_json = json.dumps({agent_name: entry})
+        payload = {agent_name: entry}
+        agents_json = json.dumps(payload)
+        agents_file = os.path.join(config_dir, 'agent.json')
+        with open(agents_file, 'w') as f:
+            json.dump(payload, f, indent=2)
 
     return {
         'settings_path': settings_path,
         'mcp_path': mcp_path,
         'agents_json': agents_json,
+        'agents_file': agents_file,
     }
 
 
@@ -373,6 +402,7 @@ def load_session(
             scope=meta.get('scope', scope),
             claude_session_id=meta.get('claude_session_id', ''),
             conversation_map=meta.get('conversation_map', {}),
+            launch_cwd=meta.get('launch_cwd', ''),
         )
     except (json.JSONDecodeError, OSError):
         return None
@@ -386,6 +416,7 @@ def _save_session_metadata(session: Session) -> None:
         'scope': session.scope,
         'claude_session_id': session.claude_session_id,
         'conversation_map': session.conversation_map,
+        'launch_cwd': session.launch_cwd,
     }
     meta_path = os.path.join(session.path, 'metadata.json')
     tmp = meta_path + '.tmp'
@@ -616,11 +647,13 @@ async def launch(
     chat_settings_path = ''
     chat_mcp_path = ''
     chat_agents_json = ''
+    chat_agents_file = ''
     if is_chat:
         if not launch_cwd:
             raise ValueError('launch(tier="chat") requires launch_cwd')
         if not config_dir:
             raise ValueError('launch(tier="chat") requires config_dir')
+        os.makedirs(config_dir, exist_ok=True)
         cfg = compose_launch_config(
             config_dir=config_dir,
             agent_name=agent_name,
@@ -632,6 +665,7 @@ async def launch(
         chat_settings_path = cfg['settings_path']
         chat_mcp_path = cfg['mcp_path']
         chat_agents_json = cfg['agents_json']
+        chat_agents_file = cfg.get('agents_file', '')
     else:
         compose_launch_worktree(
             worktree=worktree,

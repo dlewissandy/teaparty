@@ -61,6 +61,18 @@ def _make_env(root: str, *, with_project: bool = False) -> tuple[str, str, str]:
     with open(os.path.join(mgmt, 'settings.yaml'), 'w') as f:
         yaml.dump({'base_setting': True}, f)
 
+    # A management workgroup so configuration-lead is reachable via
+    # registry walk (members.workgroups → Configuration → lead).
+    mgmt_wg_dir = os.path.join(mgmt, 'workgroups')
+    os.makedirs(mgmt_wg_dir)
+    with open(os.path.join(mgmt_wg_dir, 'configuration.yaml'), 'w') as f:
+        yaml.dump({
+            'name': 'Configuration',
+            'description': 'Config team',
+            'lead': 'configuration-lead',
+            'members': {'agents': []},
+        }, f)
+
     project_repo = ''
     if with_project:
         project_repo = os.path.join(root, 'comics-root')
@@ -84,8 +96,15 @@ def _make_env(root: str, *, with_project: bool = False) -> tuple[str, str, str]:
         'description': 'mgmt',
         'lead': 'office-manager',
         'projects': [],
-        'members': {'projects': [], 'agents': [], 'workgroups': []},
-        'workgroups': [],
+        'members': {
+            'projects': [],
+            'agents': [],
+            'workgroups': ['Configuration'],
+        },
+        'workgroups': [
+            {'name': 'Configuration',
+             'config': 'workgroups/configuration.yaml'},
+        ],
     }
     if with_project:
         mgmt_yaml['projects'] = [{
@@ -125,27 +144,32 @@ class TestResolveLaunchCwd(unittest.TestCase):
             os.path.realpath(cwd), os.path.realpath(teaparty_repo),
         )
 
-    def test_missing_registry_does_not_raise(self):
+    def test_missing_registry_raises(self):
         tp, teaparty_repo, _ = _make_env(self._tmpdir, with_project=False)
-        # Delete management/teaparty.yaml entirely
         os.unlink(os.path.join(tp, 'management', 'teaparty.yaml'))
+        from teaparty.config.roster import (
+            resolve_launch_cwd, LaunchCwdNotResolved,
+        )
+        with self.assertRaises(LaunchCwdNotResolved):
+            resolve_launch_cwd('configuration-lead', tp)
+
+    def test_unknown_member_raises(self):
+        tp, _, _ = _make_env(self._tmpdir, with_project=True)
+        from teaparty.config.roster import (
+            resolve_launch_cwd, LaunchCwdNotResolved,
+        )
+        with self.assertRaises(LaunchCwdNotResolved):
+            resolve_launch_cwd('nonexistent-lead', tp)
+
+    def test_management_lead_resolves_to_teaparty_repo(self):
+        tp, teaparty_repo, _ = _make_env(self._tmpdir, with_project=True)
         from teaparty.config.roster import resolve_launch_cwd
-        cwd = resolve_launch_cwd('configuration-lead', tp)
+        # The management team's `lead` (office-manager by default) must
+        # resolve to the teaparty repo via registry walk.
+        cwd = resolve_launch_cwd('office-manager', tp)
         self.assertEqual(
             os.path.realpath(cwd), os.path.realpath(teaparty_repo),
         )
-
-    def test_fallback_used_when_not_a_project_lead(self):
-        tp, teaparty_repo, project_repo = _make_env(
-            self._tmpdir, with_project=True,
-        )
-        from teaparty.config.roster import resolve_launch_cwd
-        # A workgroup agent dispatched under comics-lead inherits
-        # comics-lead's cwd via the fallback parameter.
-        cwd = resolve_launch_cwd(
-            'coding-lead', tp, fallback=project_repo,
-        )
-        self.assertEqual(os.path.realpath(cwd), os.path.realpath(project_repo))
 
 
 class TestComposeLaunchConfig(unittest.TestCase):
@@ -159,8 +183,10 @@ class TestComposeLaunchConfig(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self._tmpdir, ignore_errors=True)
 
-    def test_writes_settings_and_mcp_inside_config_dir(self):
+    def test_writes_all_three_files_inside_config_dir(self):
+        """compose_launch_config writes settings.json, mcp.json, agent.json."""
         from teaparty.runners.launcher import compose_launch_config
+        os.makedirs(self._cfg_dir, exist_ok=True)
         out = compose_launch_config(
             config_dir=self._cfg_dir,
             agent_name='office-manager',
@@ -169,12 +195,24 @@ class TestComposeLaunchConfig(unittest.TestCase):
             mcp_port=9000,
             session_id='sess-A',
         )
-        settings_path = out['settings_path']
-        mcp_path = out['mcp_path']
-        self.assertTrue(settings_path.startswith(self._cfg_dir))
-        self.assertTrue(os.path.isfile(settings_path))
-        self.assertTrue(mcp_path.startswith(self._cfg_dir))
-        self.assertTrue(os.path.isfile(mcp_path))
+        for key in ('settings_path', 'mcp_path', 'agents_file'):
+            path = out[key]
+            self.assertTrue(path,
+                            f'compose_launch_config did not return {key}')
+            self.assertTrue(path.startswith(self._cfg_dir),
+                            f'{key} must live inside config_dir')
+            self.assertTrue(os.path.isfile(path),
+                            f'{key} at {path} must exist on disk')
+        self.assertTrue(out['agents_file'].endswith('agent.json'))
+
+    def test_config_dir_at_spec_location(self):
+        """`chat_config_dir` produces the spec'd path from issue #397."""
+        from teaparty.runners.launcher import chat_config_dir
+        path = chat_config_dir(self._tp, 'management', 'office-manager', 'q1')
+        expected = os.path.join(
+            self._tp, 'management', 'agents', 'office-manager', 'q1', 'config',
+        )
+        self.assertEqual(path, expected)
 
     def test_does_not_write_into_launch_cwd(self):
         from teaparty.runners.launcher import compose_launch_config

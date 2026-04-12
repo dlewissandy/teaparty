@@ -134,29 +134,118 @@ def resolve_lead_project_path(
     return None
 
 
+class LaunchCwdNotResolved(ValueError):
+    """Raised when a member cannot be placed in the config registry.
+
+    Chat-tier dispatch refuses to silently default to the teaparty repo
+    — an unknown member is a configuration error and must surface.
+    """
+
+
 def resolve_launch_cwd(
     member: str,
     teaparty_home: str,
-    *,
-    fallback: str = '',
 ) -> str:
-    """Return the absolute repo directory a chat-tier agent should launch in.
+    """Walk the config registry to find the launch cwd for a member.
 
-    Project leads launch in their own project's repo (derived from
-    teaparty.yaml). Management agents, management leads, and workgroup
-    agents dispatched under a project inherit the *fallback* (typically
-    the dispatcher's launch_cwd). When no fallback is given the teaparty
-    repo root is used.
+    Determines which repo a chat-tier agent should launch in by walking
+    the management team, management workgroups, and every registered
+    project's team + workgroups. The answer comes from the registry, not
+    from the caller's cwd, so nested dispatches (workgroup lead under a
+    project) always land in the project's repo regardless of which
+    session triggered the dispatch.
+
+    Resolution order:
+      1. Management lead (``team.lead``) → teaparty repo.
+      2. Management-level ``members.agents`` → teaparty repo.
+      3. Management workgroups: lead or member → teaparty repo.
+      4. For each project in the registry:
+         a. ``project.lead`` → project repo.
+         b. Project workgroup: lead or member → project repo.
+
+    Raises:
+        LaunchCwdNotResolved: If the member is not found in any of the
+            above. Silent default to the teaparty repo is not an option
+            — issue #397 requires unknown members to surface as errors.
     """
+    repo_root = os.path.dirname(os.path.abspath(teaparty_home))
+
     try:
-        project_path = resolve_lead_project_path(member, teaparty_home)
-    except FileNotFoundError:
-        project_path = None
-    if project_path:
-        return project_path
-    if fallback:
-        return fallback
-    return os.path.dirname(os.path.abspath(teaparty_home))
+        team = load_management_team(teaparty_home=teaparty_home)
+    except FileNotFoundError as exc:
+        raise LaunchCwdNotResolved(
+            f'resolve_launch_cwd({member!r}): management team config missing '
+            f'({exc})'
+        ) from exc
+
+    # 1. Management lead
+    if team.lead and member == team.lead:
+        return repo_root
+
+    # 2. Management-level members.agents
+    if member in (team.members_agents or []):
+        return repo_root
+
+    # 3. Management workgroups (lead or member)
+    try:
+        from teaparty.config.config_reader import load_management_workgroups
+        mgmt_workgroups = load_management_workgroups(team, teaparty_home)
+    except Exception:
+        mgmt_workgroups = []
+    for wg in mgmt_workgroups:
+        if wg.lead == member:
+            return repo_root
+        if member in (wg.members_agents or []):
+            return repo_root
+
+    # 4. Each project: lead, workgroup leads, workgroup members
+    for project_name in team.members_projects:
+        project_entry = None
+        for p in team.projects:
+            if p.get('name') == project_name:
+                project_entry = p
+                break
+        if project_entry is None:
+            continue
+
+        project_path = project_entry.get('path', '')
+        if not os.path.isabs(project_path):
+            project_path = os.path.join(repo_root, project_path)
+
+        config_path = project_entry.get('config', '')
+        full_config = (
+            os.path.join(project_path, config_path) if config_path else None
+        )
+
+        try:
+            project_team = load_project_team(
+                project_path, config_path=full_config,
+            )
+        except FileNotFoundError:
+            continue
+
+        if project_team.lead == member:
+            return project_path
+
+        try:
+            workgroups = resolve_workgroups(
+                project_team.workgroups,
+                project_dir=project_path,
+                teaparty_home=teaparty_home,
+            )
+        except Exception:
+            workgroups = []
+        for wg in workgroups:
+            if wg.lead == member:
+                return project_path
+            if member in (wg.members_agents or []):
+                return project_path
+
+    raise LaunchCwdNotResolved(
+        f'resolve_launch_cwd({member!r}): not found in management team, '
+        f'management workgroups, or any registered project roster under '
+        f'{teaparty_home}'
+    )
 
 
 def derive_project_roster(
