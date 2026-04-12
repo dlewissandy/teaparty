@@ -662,8 +662,12 @@ function connectWS() {
         onStateChanged(event.session_id, event.phase, event.state);
       } else if (event.type === 'input_requested') {
         onInputRequested(event.session_id, event.conversation_id);
-      } else if (event.type === 'message') {
-        onMessage(event.conversation_id, event.sender);
+      } else if (event.type === 'escalation_cleared') {
+        // Issue #398: dedicated server event for awaiting_input True→False
+        // transitions. Replaces the prior side channel that inferred clearance
+        // from human-sender 'message' broadcasts — index.html no longer
+        // subscribes to or inspects chat messages.
+        onEscalationCleared(event.session_id);
       } else if (event.type === 'session_completed') {
         // Session is done — its escalation no longer requires a response.
         delete pageState.escalationConvMap[event.session_id];
@@ -790,17 +794,12 @@ function onInputRequested(sessionId, convId) {
   });
 }
 
-// Clear escalation dot and decrement badge count when the human replies.
-// Looks up the session by reverse-mapping the conversation_id from escalationConvMap,
-// so job: and task: conversation IDs are handled correctly (not just session: ones).
-function onMessage(convId, sender) {
-  if (sender !== 'human' || !convId) return;
-  // Reverse lookup: find the session whose escalation conversation matches convId.
-  var sessionId = null;
-  Object.keys(pageState.escalationConvMap).forEach(function(sid) {
-    if (pageState.escalationConvMap[sid] === convId) { sessionId = sid; }
-  });
-  if (!sessionId) return;
+// Clear the escalation dot and decrement the project attention badge in
+// response to a server-emitted ``escalation_cleared`` event (issue #398).
+// The relay fires this exactly once when a conversation's awaiting_input
+// flag transitions True → False.
+function onEscalationCleared(sessionId) {
+  if (!sessionId || !pageState.escalationConvMap[sessionId]) return;
   delete pageState.escalationConvMap[sessionId];
   var row = document.querySelector('[data-session="' + sessionId + '"]');
   if (row) {

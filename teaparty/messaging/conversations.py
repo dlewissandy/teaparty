@@ -256,7 +256,7 @@ class SqliteMessageBus:
             'SELECT id, conversation, sender, content, timestamp '
             'FROM messages '
             'WHERE conversation = ? AND timestamp > ? '
-            'ORDER BY timestamp ASC',
+            'ORDER BY timestamp ASC, id ASC',
             (conversation_id, since_timestamp),
         )
         return [
@@ -264,6 +264,60 @@ class SqliteMessageBus:
                     content=row[3], timestamp=row[4])
             for row in cursor.fetchall()
         ]
+
+    def receive_since_cursor(
+        self, conversation_id: str, cursor: str = '',
+    ) -> tuple[list[Message], str]:
+        """Return (messages, new_cursor) for a cursor-based read.
+
+        ``cursor`` is an opaque string of the form ``"{timestamp:.9f}:{id}"``
+        or the empty string for a read from the beginning of the conversation.
+        The total order over rows is ``(timestamp ASC, id ASC)``, which is
+        stable under equal timestamps and across restarts.
+
+        The returned cursor is the watermark of the last row returned, or the
+        input cursor if no rows were returned. Both the rows and the cursor
+        are captured in the same SQLite read, so there is no skew between
+        "rows from time T" and "cursor from time T + delta".
+
+        This is the read path for the fetch-and-subscribe atomicity contract
+        (issue #398). Callers that want timestamp-based polling should keep
+        using ``receive()``.
+        """
+        if cursor:
+            try:
+                ts_part, id_part = cursor.split(':', 1)
+                ts = float(ts_part)
+            except ValueError as exc:
+                raise ValueError(f'invalid cursor: {cursor!r}') from exc
+            rows = self._conn.execute(
+                'SELECT id, conversation, sender, content, timestamp '
+                'FROM messages '
+                'WHERE conversation = ? '
+                '  AND (timestamp > ? OR (timestamp = ? AND id > ?)) '
+                'ORDER BY timestamp ASC, id ASC',
+                (conversation_id, ts, ts, id_part),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                'SELECT id, conversation, sender, content, timestamp '
+                'FROM messages '
+                'WHERE conversation = ? '
+                'ORDER BY timestamp ASC, id ASC',
+                (conversation_id,),
+            ).fetchall()
+
+        messages = [
+            Message(id=row[0], conversation=row[1], sender=row[2],
+                    content=row[3], timestamp=row[4])
+            for row in rows
+        ]
+        if messages:
+            last = messages[-1]
+            new_cursor = f'{last.timestamp:.9f}:{last.id}'
+        else:
+            new_cursor = cursor
+        return messages, new_cursor
 
     def conversations(self) -> list[str]:
         cursor = self._conn.execute(

@@ -432,6 +432,7 @@ class TeaPartyBridge:
 
         poller = StatePoller(self._state_reader, broadcast, bus_factory=bus_factory)
         relay = MessageRelay(self._buses, broadcast)
+        self._message_relay = relay
 
         app['_poller_task'] = asyncio.create_task(poller.run())
         app['_relay_task'] = asyncio.create_task(relay.run())
@@ -1036,16 +1037,17 @@ class TeaPartyBridge:
         return web.json_response([self._serialize_conversation(c) for c in convs])
 
     async def _handle_conversation_get(self, request: web.Request) -> web.Response:
-        conv_id = request.match_info['id']
-        since_str = request.rel_url.query.get('since', '0')
-        try:
-            since_ts = float(since_str)
-        except ValueError:
-            since_ts = 0.0
+        """Return ``{messages, cursor}`` for a conversation (issue #398).
 
+        The cursor is the atomic watermark captured in the same read as the
+        messages. Clients carry it in a WebSocket ``subscribe`` frame so the
+        server can deliver the join between fetch and live stream exactly
+        once.
+        """
+        conv_id = request.match_info['id']
         bus = self._bus_for_conversation(conv_id)
         if bus is None:
-            return web.json_response([], status=200)
+            return web.json_response({'messages': [], 'cursor': ''}, status=200)
 
         # Task conv IDs need remapping: the frontend asks for
         # task:{project}:{session_id}:{dispatch_id} but the child's bus
@@ -1058,8 +1060,11 @@ class TeaPartyBridge:
                 dispatch_id = ':'.join(parts[3:])
                 bus_conv_id = f'job:{project_slug}:{dispatch_id}'
 
-        messages = bus.receive(bus_conv_id, since_timestamp=since_ts)
-        return web.json_response([self._serialize_message(m) for m in messages])
+        messages, cursor = bus.receive_since_cursor(bus_conv_id, '')
+        return web.json_response({
+            'messages': [self._serialize_message(m) for m in messages],
+            'cursor': cursor,
+        })
 
     async def _handle_conversation_post(self, request: web.Request) -> web.Response:
         conv_id = request.match_info['id']
@@ -1990,13 +1995,75 @@ class TeaPartyBridge:
     # ── WebSocket handler ─────────────────────────────────────────────────────
 
     async def _handle_websocket(self, request: web.Request) -> web.WebSocketResponse:
+        """WebSocket endpoint for live chat subscriptions (issue #398).
+
+        The connection carries two kinds of traffic:
+
+        - Global broadcast events (state, input_requested, escalation_cleared,
+          etc.) are pushed to every connected client via the bridge's
+          broadcast callback.
+        - ``message`` events are scoped to (connection, conversation) and only
+          flow after the client sends a ``subscribe`` frame with an opaque
+          cursor from the most recent ``GET /api/conversations/{id}``.
+
+        Accepted client frames (JSON):
+            {"type": "subscribe",   "conversation_id": "...", "since_cursor": "..."}
+            {"type": "unsubscribe", "conversation_id": "..."}
+            {"type": "ping"}
+        """
         ws = web.WebSocketResponse()
         await ws.prepare(request)
         self._ws_clients.add(ws)
+        relay = getattr(self, '_message_relay', None)
+        if relay is not None:
+            relay.register_connection(ws)
         try:
-            async for msg in ws:
-                pass  # Clients send no messages; all traffic is server-push
+            async for raw in ws:
+                if raw.type != web.WSMsgType.TEXT:
+                    continue
+                try:
+                    frame = json.loads(raw.data)
+                except Exception:
+                    continue
+                if not isinstance(frame, dict):
+                    continue
+                kind = frame.get('type')
+                if kind == 'subscribe' and relay is not None:
+                    cid = frame.get('conversation_id')
+                    if not cid:
+                        continue
+                    # Open the per-task/per-job bus lazily if it hasn't been
+                    # touched by an HTTP handler yet; the relay only sees buses
+                    # that are in self._buses.
+                    self._bus_for_conversation(cid)
+                    bus_cid = cid
+                    if cid.startswith('task:'):
+                        parts = cid.split(':')
+                        if len(parts) >= 4:
+                            project_slug = parts[1]
+                            dispatch_id = ':'.join(parts[3:])
+                            bus_cid = f'job:{project_slug}:{dispatch_id}'
+                    await relay.subscribe(
+                        ws, bus_cid,
+                        since_cursor=str(frame.get('since_cursor', '')),
+                    )
+                elif kind == 'unsubscribe' and relay is not None:
+                    cid = frame.get('conversation_id')
+                    if not cid:
+                        continue
+                    bus_cid = cid
+                    if cid.startswith('task:'):
+                        parts = cid.split(':')
+                        if len(parts) >= 4:
+                            project_slug = parts[1]
+                            dispatch_id = ':'.join(parts[3:])
+                            bus_cid = f'job:{project_slug}:{dispatch_id}'
+                    await relay.unsubscribe(ws, bus_cid)
+                elif kind == 'ping':
+                    await ws.send_json({'type': 'pong'})
         finally:
+            if relay is not None:
+                relay.unregister_connection(ws)
             self._ws_clients.discard(ws)
         return ws
 

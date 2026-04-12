@@ -165,11 +165,15 @@ function toggleBlade() {
 function loadBladeMessages() {
   if (!bladeConvId) return;
   fetch('/api/conversations/' + encodeURIComponent(bladeConvId))
-    .then(function(r) { return r.ok ? r.json() : []; })
-    .then(function(msgs) {
+    .then(function(r) { return r.ok ? r.json() : { messages: [], cursor: '' }; })
+    .then(function(body) {
+      // Issue #398: response shape is {messages, cursor}. artifacts.html is
+      // a polling consumer and does not participate in the subscribe handshake,
+      // so it only uses the messages array.
+      var msgs = (body && Array.isArray(body.messages)) ? body.messages : [];
       var container = document.getElementById('blade-messages');
       if (!container) return;
-      var html = (msgs || []).map(function(m) {
+      var html = msgs.map(function(m) {
         var cls = m.sender === 'human' ? 'msg-sender-human' : 'msg-sender-agent';
         var label = m.sender === 'human' ? 'You' : 'Config Lead';
         return '<div class="msg"><div class="msg-sender ' + cls + '">' + escHtml(label) + '</div><div class="msg-text">' + escHtml(m.content) + '</div></div>';

@@ -92,6 +92,7 @@ var PARTICIPANT_NAMES = {
 // ── Page state ────────────────────────────────────────────────────────────────
 var pageState = {
   messages: [],          // messages for the currently displayed conversation
+  cursor: '',            // atomic watermark returned by GET /api/conversations/{id} (issue #398)
   taskConvs: [],         // job chat: conversation objects filtered to this job
   participantConvs: [],  // participant chat: conversation objects from ?type={type}
   cfaState: null,        // job chat: CfA state string from GET /api/cfa/{session_id}
@@ -131,12 +132,24 @@ function _flattenTasks(tasks, parentId, depth) {
 }
 
 // ── Fetch all data and render ─────────────────────────────────────────────────
+// Parse the {messages, cursor} response shape from GET /api/conversations/{id}.
+// Issue #398: cursor is the atomic watermark captured inside the same read as
+// the message rows. The client carries it in the WebSocket subscribe frame.
+function _parseConvResponse(body) {
+  if (body && typeof body === 'object' && Array.isArray(body.messages)) {
+    return { messages: body.messages, cursor: body.cursor || '' };
+  }
+  return { messages: [], cursor: '' };
+}
+
 function fetchAll() {
   var fetches = [
     fetch('/api/conversations/' + encodeURIComponent(activeConvId()))
       .then(function(r) { return r.json(); })
-      .then(function(msgs) {
-        pageState.messages = msgs || [];
+      .then(function(body) {
+        var parsed = _parseConvResponse(body);
+        pageState.messages = parsed.messages;
+        pageState.cursor = parsed.cursor;
       }),
   ];
 
@@ -183,7 +196,11 @@ function fetchAll() {
                 selectedItem = match.id;
                 return fetch('/api/conversations/' + encodeURIComponent(selectedItem))
                   .then(function(r) { return r.json(); })
-                  .then(function(msgs) { pageState.messages = msgs || []; });
+                  .then(function(body) {
+                    var parsed = _parseConvResponse(body);
+                    pageState.messages = parsed.messages;
+                    pageState.cursor = parsed.cursor;
+                  });
               }
             }
           })
@@ -309,9 +326,13 @@ function refilter() {
   msgsEl.scrollTop = msgsEl.scrollHeight;
 }
 
-// Track sent messages so WS echoes are suppressed — each entry expires after 5 s.
-// Using {content, expiry} prevents a delayed echo from suppressing a later identical send.
-var _pendingSent = [];
+// Optimistic entries awaiting reconciliation with the server's authoritative
+// echo. Keyed by the local optimistic id; resolved when the server returns a
+// real message id via the POST response, then matched by id against the WS
+// echo so the optimistic DOM entry is replaced rather than duplicated.
+// Issue #398: this is the only place the chat client dedups, and it is
+// reconciliation — match-then-replace — not a filter.
+var _optimisticById = {};  // real_id -> {optId, entry}
 
 // ── Send message ──────────────────────────────────────────────────────────────
 function sendMessage(ta) {
@@ -320,21 +341,39 @@ function sendMessage(ta) {
   var wireText = entityContext ? '[Viewing: ' + entityContext + ']\n' + displayText : displayText;
   ta.value = '';
   ta.style.height = '24px';
+
+  var optId = 'opt-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+  var optimistic = { id: optId, sender: 'human', content: displayText, _optimistic: true };
+  pageState.messages.push(optimistic);
+  var msgsEl = document.querySelector('.chat-messages');
+  if (msgsEl) {
+    var empty = msgsEl.querySelector('.empty');
+    if (empty) empty.remove();
+    var rendered = renderMessages([optimistic]);
+    if (rendered) {
+      var wrap = document.createElement('div');
+      wrap.innerHTML = rendered;
+      var node = wrap.firstChild;
+      if (node) {
+        node.setAttribute('data-opt-id', optId);
+        msgsEl.appendChild(node);
+        msgsEl.scrollTop = msgsEl.scrollHeight;
+      }
+    }
+  }
+
   fetch('/api/conversations/' + encodeURIComponent(activeConvId()), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content: wireText }),
-  }).then(function() {
-    // Optimistically show the message; record it so the WS echo is skipped.
-    _pendingSent.push({ content: wireText, expiry: Date.now() + 5000 });
-    var m = { sender: 'human', content: displayText };
-    pageState.messages.push(m);
-    var msgsEl = document.querySelector('.chat-messages');
-    if (msgsEl) {
-      var empty = msgsEl.querySelector('.empty');
-      if (empty) empty.remove();
-      var rendered = renderMessages([m]);
-      if (rendered) { msgsEl.innerHTML += rendered; msgsEl.scrollTop = msgsEl.scrollHeight; }
+  }).then(function(r) {
+    return r.ok ? r.json() : null;
+  }).then(function(body) {
+    if (body && body.id) {
+      // Bind the real message id to the optimistic entry so the WS echo
+      // reconciles against it instead of appending a duplicate.
+      optimistic.id = body.id;
+      _optimisticById[body.id] = optimistic;
     }
     // If this is a participant chat, ensure the conversation appears in the nav and is selected.
     if (!isJobChat) {
@@ -422,22 +461,36 @@ function gateReviewButtonHtml() {
 
 // ── Select sidebar item ───────────────────────────────────────────────────────
 function selectItem(id) {
+  var prevCid = _subscribedCid;
   selectedItem = id;
   var convTarget = isJobChat
     ? 'task:' + convProject + ':' + session_id + ':' + id
     : id;
   fetch('/api/conversations/' + encodeURIComponent(convTarget))
     .then(function(r) { return r.json(); })
-    .then(function(msgs) { pageState.messages = msgs || []; render(); })
-    .catch(function() { pageState.messages = []; render(); });
+    .then(function(body) {
+      var parsed = _parseConvResponse(body);
+      pageState.messages = parsed.messages;
+      pageState.cursor = parsed.cursor;
+      _rotateSubscription(prevCid, activeConvId(), parsed.cursor);
+      render();
+    })
+    .catch(function() { pageState.messages = []; pageState.cursor = ''; render(); });
 }
 
 function selectJobConv() {
+  var prevCid = _subscribedCid;
   selectedItem = null;
   fetch('/api/conversations/' + encodeURIComponent(convId))
     .then(function(r) { return r.json(); })
-    .then(function(msgs) { pageState.messages = msgs || []; render(); })
-    .catch(function() { pageState.messages = []; render(); });
+    .then(function(body) {
+      var parsed = _parseConvResponse(body);
+      pageState.messages = parsed.messages;
+      pageState.cursor = parsed.cursor;
+      _rotateSubscription(prevCid, activeConvId(), parsed.cursor);
+      render();
+    })
+    .catch(function() { pageState.messages = []; pageState.cursor = ''; render(); });
 }
 
 function selectNewConv() {
@@ -602,12 +655,68 @@ function renderMainArea(navHtml, headerTitle, headerScope, headerActions) {
   refilter();
 }
 
-// ── WebSocket ─────────────────────────────────────────────────────────────────
+// ── WebSocket (fetch-and-subscribe, issue #398) ─────────────────────────────
+// The chat client follows a handshake-ordered state machine: the WS opens
+// only after fetchAll() has captured an atomic (messages, cursor) snapshot.
+// The cursor is then carried in a subscribe frame, and the server delivers
+// every subsequent message exactly once. The client does not filter.
+var _ws = null;
+var _wsReady = false;
+var _subscribedCid = null;
+
+function _bladeBusConvId(cid) {
+  // The bus stores task conversations under job:{project}:{dispatch_id}
+  // while the UI addresses them as task:{project}:{session_id}:{dispatch_id}
+  // (issue #389). The subscribe frame must use the bus-side id so the server
+  // can find the right bus row.
+  if (cid && cid.indexOf('task:') === 0) {
+    var parts = cid.split(':');
+    if (parts.length >= 4) {
+      return 'job:' + parts[1] + ':' + parts.slice(3).join(':');
+    }
+  }
+  return cid;
+}
+
+function _sendSubscribe(cid, cursor) {
+  if (!_ws || !_wsReady || !cid) return;
+  _ws.send(JSON.stringify({
+    type: 'subscribe',
+    conversation_id: _bladeBusConvId(cid),
+    since_cursor: cursor || '',
+  }));
+  _subscribedCid = cid;
+}
+
+function _sendUnsubscribe(cid) {
+  if (!_ws || !_wsReady || !cid) return;
+  _ws.send(JSON.stringify({
+    type: 'unsubscribe',
+    conversation_id: _bladeBusConvId(cid),
+  }));
+  if (_subscribedCid === cid) _subscribedCid = null;
+}
+
+function _rotateSubscription(prevCid, nextCid, cursor) {
+  if (prevCid && prevCid !== nextCid) _sendUnsubscribe(prevCid);
+  if (nextCid) _sendSubscribe(nextCid, cursor);
+}
+
 function connectWS() {
   var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  var ws = new WebSocket(proto + '//' + location.host + '/ws');
+  _ws = new WebSocket(proto + '//' + location.host + '/ws');
+  _wsReady = false;
+  _subscribedCid = null;
 
-  ws.onmessage = function(e) {
+  _ws.onopen = function() {
+    _wsReady = true;
+    // If fetchAll has already populated the cursor, subscribe immediately.
+    if (pageState.cursor !== undefined) {
+      _sendSubscribe(activeConvId(), pageState.cursor);
+    }
+  };
+
+  _ws.onmessage = function(e) {
     try {
       var ev = JSON.parse(e.data);
       if (ev.type === 'message') {
@@ -624,31 +733,31 @@ function connectWS() {
     } catch (err) {}
   };
 
-  ws.onclose = function() { setTimeout(connectWS, 3000); };
+  _ws.onclose = function() {
+    _wsReady = false;
+    _subscribedCid = null;
+    setTimeout(connectWS, 3000);
+  };
 }
 
 function onWsMessage(ev) {
   var active = activeConvId();
-  var match = ev.conversation_id === active;
-  // For task convs, the child's bus stores messages under job:{project}:{dispatch_id}
-  // but the active conv ID is task:{project}:{session_id}:{dispatch_id} (issue #389).
-  if (!match && active.startsWith('task:')) {
-    var parts = active.split(':');
-    var remapped = 'job:' + parts[1] + ':' + parts.slice(3).join(':');
-    match = ev.conversation_id === remapped;
+  var bus_active = _bladeBusConvId(active);
+  if (ev.conversation_id !== active && ev.conversation_id !== bus_active) return;
+
+  // Reconciliation path: the server is echoing a message we already rendered
+  // optimistically. Replace the optimistic entry in place (by id) and do not
+  // append a duplicate. This is the sole permitted client-side dedup under
+  // issue #398.
+  if (ev.id && _optimisticById[ev.id]) {
+    var opt = _optimisticById[ev.id];
+    opt.timestamp = ev.timestamp;
+    delete opt._optimistic;
+    delete _optimisticById[ev.id];
+    return;
   }
-  if (!match) return;
-  // Skip the WS echo of messages we already showed via optimistic append.
-  if (ev.sender === 'human') {
-    var now = Date.now();
-    for (var i = 0; i < _pendingSent.length; i++) {
-      if (_pendingSent[i].content === ev.content && _pendingSent[i].expiry > now) {
-        _pendingSent.splice(i, 1);
-        return;
-      }
-    }
-  }
-  var m = { sender: ev.sender, content: ev.content, timestamp: ev.timestamp };
+
+  var m = { id: ev.id, sender: ev.sender, content: ev.content, timestamp: ev.timestamp };
   pageState.messages.push(m);
   var msgsEl = document.querySelector('.chat-messages');
   if (!msgsEl) return;
@@ -730,8 +839,11 @@ function onSessionCompleted(ev) {
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
-fetchAll();
-connectWS();
+// Issue #398: open the WS only after fetchAll resolves so the first subscribe
+// frame carries the same cursor that was captured by the HTTP fetch.
+fetchAll().then(function() {
+  connectWS();
+});
 </script>
 </body>
 </html>

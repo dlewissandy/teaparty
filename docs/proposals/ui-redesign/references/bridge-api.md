@@ -77,7 +77,7 @@ Config resolution follows existing precedence: org < workgroup < project. Norms 
 | Method | Path | Returns | Source |
 |--------|------|---------|--------|
 | GET | `/api/conversations?type=TYPE` | Active conversations, filterable | `bus.active_conversations(ConversationType[type.upper()])` |
-| GET | `/api/conversations/{id}?since=TS` | Messages since timestamp | `bus.receive(id, since_timestamp=float(TS))` |
+| GET | `/api/conversations/{id}` | `{messages, cursor}` atomic snapshot (issue #398) | `bus.receive_since_cursor(id, '')` |
 | POST | `/api/conversations/{id}` | Send human message (interjection or response) | `bus.send(id, 'human', content)` |
 
 Conversation types: `office_manager`, `project_session`, `subteam`, `job`, `task`, `proxy_review`, `liaison`.
@@ -181,7 +181,7 @@ Source: `conversations.awaiting_input = 1` in the session's `messages.db`. `Mess
 ```json
 {"type": "message", "id": "...", "conversation_id": "...", "sender": "...", "content": "...", "timestamp": 0.0}
 ```
-New message in any active conversation. The bridge polls each conversation's `bus.receive(id, since_timestamp=last_ts)`. The `id` field is the message's database ID, used by the chat page to filter echo events (see **Duplicate-message suppression** below).
+New message in a subscribed conversation. Issue #398: `message` events are scoped to per-`(connection, conversation)` subscriptions, not broadcast to every client. The relay advances each subscription's cursor as it dispatches and never re-sends a row to a subscription that has already received it. The `id` field is the message's database ID; see [chat-delivery-atomicity.md](../../../detailed-design/chat-delivery-atomicity.md) for the full contract.
 
 ```json
 {"type": "heartbeat", "session_id": "...", "status": "alive|stale|dead"}
@@ -195,20 +195,11 @@ Session reached a terminal state.
 
 ### Client Subscription
 
-Clients receive all events. Filtering is client-side (e.g., a chat page only cares about messages for its conversation). This keeps the server simple — no subscription management.
+Global events (`state_changed`, `input_requested`, `escalation_cleared`, `session_completed`, `heartbeat`, dispatch tree changes) are broadcast to every connected client. Chat `message` events are scoped: a connection only receives them for conversations it has subscribed to via a `subscribe` frame carrying an opaque cursor from the most recent `GET /api/conversations/{id}`. See [chat-delivery-atomicity.md](../../../detailed-design/chat-delivery-atomicity.md) for the full contract.
 
-**Scale assumption:** This broadcast-all design is appropriate for a single user with a handful of concurrent sessions. It does not scale to multi-user deployments where clients should not see each other's messages. If TeaParty ever becomes multi-user, per-client subscription management or per-session WebSocket channels would be required.
+The client does not filter inbound `message` events. The delivery contract is exactly-once.
 
-**Duplicate-message suppression (correlation ID scheme):** The chat page uses optimistic UI — it renders a message immediately when the human hits Enter, before the round-trip to the bridge. The bridge then polls the database, detects the new message, and broadcasts a `message` event to all clients including the sender. Without suppression, the sending tab would render the message twice.
-
-The fix is a client-side correlation ID set:
-1. The chat page POSTs the message to `POST /api/conversations/{id}` and receives `{"id": "<msg_id>"}` in the response.
-2. It stores `msg_id` in a local `sentIds` set.
-3. When a `message` WebSocket event arrives, if `event.id` is in `sentIds`, the event is an echo — skip it and remove the ID from the set.
-
-The server-side contract: every `message` event must include the `id` field (the message's database ID). The chat page relies on this to identify echoes.
-
-**Sticky escalation badges:** The home page tracks pending escalations in `escalationConvMap` (session_id → conversation_id). This map is the sticky source of truth: entries are added by `input_requested` WebSocket events and by REST data on page load, but are only removed when the human explicitly responds (sends a human message to the escalation conversation). `fetchAll()` merges new REST entries but never clears existing map entries — this prevents badge loss during page re-renders triggered by `session_completed` or `state_changed` events.
+**Sticky escalation badges:** The home page tracks pending escalations in `escalationConvMap` (session_id → conversation_id). Entries are added by `input_requested` and by REST data on page load, and are removed by `escalation_cleared` (issue #398) when a conversation's awaiting_input flag transitions True → False. `fetchAll()` merges new REST entries but never clears existing map entries, preventing badge loss during page re-renders triggered by `session_completed` or `state_changed`.
 
 ---
 
