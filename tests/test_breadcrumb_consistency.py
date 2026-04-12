@@ -316,18 +316,22 @@ class BreadcrumbCallSiteTests(unittest.TestCase):
                         "onClick — the current-page entry must be non-linked",
                     )
 
-    def test_no_page_renders_home_only_literal_bar(self):
-        """Reject the pre-fix pattern: <div class='breadcrumb-bar'><a href='index.html'>Home</a></div>."""
-        pat = re.compile(
-            r'<div[^>]*class="breadcrumb-bar"[^>]*>\s*<a\s+href="index\.html"[^>]*>\s*Home\s*</a>\s*</div>',
-            re.IGNORECASE,
-        )
+    def test_no_html_file_emits_inline_breadcrumb_markup(self):
+        """Criterion 4/5: every breadcrumb bar must be rendered via the shared
+        helper. No static HTML file may embed a literal `class="breadcrumb-bar"`
+        — only breadcrumb.js is allowed to produce that markup. This catches
+        both the pre-fix Home-only pattern AND any future hand-rolled bar
+        regardless of its entry count or link structure."""
         for html in STATIC_DIR.glob("*.html"):
             with self.subTest(page=html.name):
-                self.assertIsNone(
-                    pat.search(html.read_text()),
-                    f"{html.name} still contains the hand-rolled Home-only breadcrumb. "
-                    "It must render via breadcrumbBar([...]) instead.",
+                self.assertNotIn(
+                    'class="breadcrumb-bar"',
+                    html.read_text(),
+                    f"{html.name} contains a literal `class=\"breadcrumb-bar\"` "
+                    "attribute. All breadcrumb markup must come from "
+                    "breadcrumb.js so the shape is enforced in one place. "
+                    "Use a #breadcrumb-slot container and call breadcrumbBar(...) "
+                    "to populate it.",
                 )
 
 
