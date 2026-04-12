@@ -229,6 +229,10 @@ class TeaPartyBridge:
         # One-time on startup so compute_stats stays read-only.
         self._migrate_legacy_sessions()
 
+        # Restore paused-project flags from disk (issue #403).
+        # Each paused project has a marker file at {project}/.teaparty/paused.
+        self._restore_paused_flags()
+
     def _migrate_legacy_sessions(self) -> None:
         """Migrate .sessions/ data to .teaparty/jobs/ for all registered projects."""
         from teaparty.workspace.job_store import migrate_legacy_sessions
@@ -238,6 +242,36 @@ class TeaPartyBridge:
                 migrate_legacy_sessions(entry['path'])
         except Exception:
             _log.warning('Legacy session migration failed', exc_info=True)
+
+    def _restore_paused_flags(self) -> None:
+        """Read paused marker files from disk into _paused_projects."""
+        try:
+            team = load_management_team(teaparty_home=self.teaparty_home)
+            for entry in discover_projects(team):
+                marker = os.path.join(entry['path'], '.teaparty', 'paused')
+                if os.path.isfile(marker):
+                    slug = os.path.basename(entry['path'].rstrip('/'))
+                    self._paused_projects.add(slug)
+                    _log.info('Restored paused flag for project %s', slug)
+        except Exception:
+            _log.warning('Failed to restore paused flags', exc_info=True)
+
+    @staticmethod
+    def _write_paused_marker(project_path: str) -> None:
+        """Write the paused marker file for a project."""
+        marker = os.path.join(project_path, '.teaparty', 'paused')
+        os.makedirs(os.path.dirname(marker), exist_ok=True)
+        with open(marker, 'w') as f:
+            f.write('')
+
+    @staticmethod
+    def _remove_paused_marker(project_path: str) -> None:
+        """Remove the paused marker file for a project."""
+        marker = os.path.join(project_path, '.teaparty', 'paused')
+        try:
+            os.unlink(marker)
+        except FileNotFoundError:
+            pass
 
     def run(self, port: int = 8081) -> None:
         """Start the bridge server and block until interrupted."""
@@ -1174,6 +1208,9 @@ class TeaPartyBridge:
             # so keep the flag set for the project.
             if not target_root_sid:
                 self._paused_projects.discard(paused_slug)
+                project_path = self._lookup_project_path(paused_slug)
+                if project_path:
+                    self._remove_paused_marker(project_path)
 
         # Invoke the agent asynchronously; reply will appear in the bus and
         # be broadcast by MessageRelay.
@@ -1923,6 +1960,9 @@ class TeaPartyBridge:
             except Exception:
                 _log.exception('pause failed for agent_session')
         self._paused_projects.add(slug)
+        project_path = self._lookup_project_path(slug)
+        if project_path:
+            self._write_paused_marker(project_path)
         payload = json.dumps({
             'type': 'project_paused',
             'project': slug,
@@ -1972,6 +2012,9 @@ class TeaPartyBridge:
             except Exception:
                 _log.exception('resume failed for agent_session')
         self._paused_projects.discard(slug)
+        project_path = self._lookup_project_path(slug)
+        if project_path:
+            self._remove_paused_marker(project_path)
         payload = json.dumps({
             'type': 'project_resumed',
             'project': slug,
