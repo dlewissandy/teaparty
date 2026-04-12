@@ -141,6 +141,7 @@ class CloseConversationEmitsTelemetryTests(unittest.TestCase):
     def test_close_conversation_emits_events_for_target_and_descendants(
         self,
     ) -> None:
+        import asyncio
         import json as _json
         from teaparty.workspace.close_conversation import close_conversation
 
@@ -159,12 +160,14 @@ class CloseConversationEmitsTelemetryTests(unittest.TestCase):
             id = 'parent-1'
             conversation_map: dict = {}
 
-        close_conversation(
+        result = close_conversation(
             _FakeSession(),
             'dispatch:child-1',
             teaparty_home=self.home,
             scope=scope,
         )
+        if asyncio.iscoroutine(result):
+            asyncio.run(result)
 
         close_events = telemetry.query_events(
             event_type=E.CLOSE_CONVERSATION,
