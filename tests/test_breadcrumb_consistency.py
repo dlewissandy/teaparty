@@ -540,6 +540,171 @@ class PageSpecificLabelTests(unittest.TestCase):
         )
 
 
+class ConfigLoadingAndErrorBreadcrumbTests(unittest.TestCase):
+    """Criterion 1: every page shows its current location as the rightmost
+    breadcrumb entry — including during loading and after a fetch error.
+    config.html used to blank the slot in showLoading/showError, leaving the
+    user with no "you are here" indicator until the data resolved. The fix
+    pre-populates the slot from URL scope before the fetch fires."""
+
+    def test_show_loading_does_not_blank_breadcrumb_slot(self):
+        src = (STATIC_DIR / "config.html").read_text()
+        body = _find_function_body(src, "showLoading")
+        self.assertNotIn(
+            "breadcrumb-slot",
+            body,
+            "showLoading() must not touch #breadcrumb-slot — blanking the slot "
+            "during an in-flight fetch leaves the user with no 'you are here' "
+            "indicator. The slot is populated from URL scope before the fetch "
+            "fires in renderScope.",
+        )
+
+    def test_show_error_does_not_blank_breadcrumb_slot(self):
+        src = (STATIC_DIR / "config.html").read_text()
+        body = _find_function_body(src, "showError")
+        self.assertNotIn(
+            "breadcrumb-slot",
+            body,
+            "showError() must not touch #breadcrumb-slot — blanking the slot on "
+            "a failed fetch leaves the error screen with no location indicator. "
+            "The scope-derived crumb from renderScope must survive the error.",
+        )
+
+    def test_render_scope_populates_breadcrumb_before_loading(self):
+        """renderScope must call breadcrumbBar(scopeCrumbs(...)) into the slot
+        *before* awaiting the loader, so the bar is visible during the in-flight
+        fetch and survives a rejection."""
+        src = (STATIC_DIR / "config.html").read_text()
+        body = _find_function_body(src, "renderScope")
+        # Sequence: slot population → showLoading → loader.
+        idx_slot = body.find("breadcrumb-slot")
+        idx_load = body.find("showLoading")
+        idx_await = body.find("await loader")
+        self.assertGreater(
+            idx_slot, -1, "renderScope must set the breadcrumb-slot innerHTML"
+        )
+        self.assertGreater(
+            idx_load, idx_slot,
+            "renderScope must populate the breadcrumb slot BEFORE calling "
+            "showLoading — otherwise the Loading... placeholder flashes with "
+            "no location context",
+        )
+        self.assertGreater(
+            idx_await, idx_load,
+            "renderScope must await the loader only AFTER both the breadcrumb "
+            "is set and showLoading has run",
+        )
+        self.assertRegex(
+            body,
+            r"breadcrumbBar\s*\(\s*scopeCrumbs\s*\(\s*scope\s*\)\s*\)",
+            "renderScope must derive the initial crumbs via scopeCrumbs(scope) "
+            "so every scope level (global/project/workgroup/agent) has a "
+            "consistent pre-fetch breadcrumb",
+        )
+
+    def test_scope_crumbs_helper_covers_every_level(self):
+        """scopeCrumbs must handle all four scope levels and produce a
+        rightmost non-linked entry for each."""
+        src = (STATIC_DIR / "config.html").read_text()
+        body = _find_function_body(src, "scopeCrumbs")
+        for level in ("global", "project", "workgroup", "agent"):
+            with self.subTest(level=level):
+                # loadAgent and loadWorkgroup share the same tail branch, so
+                # 'global' and 'project' need explicit mentions; the tail
+                # catches 'workgroup' and 'agent' via the generic fallthrough.
+                if level in ("global", "project"):
+                    self.assertIn(
+                        f"'{level}'",
+                        body,
+                        f"scopeCrumbs must handle scope.level === '{level}' "
+                        "explicitly",
+                    )
+        # Rightmost entry must be non-linked in every branch: there must be at
+        # least one `crumbs.push({ label: ... })` that has no `onClick` field.
+        self.assertRegex(
+            body,
+            r"crumbs\.push\s*\(\s*\{\s*label:\s*[^}]*\}\s*\)",
+            "scopeCrumbs must push a current (non-linked) entry with just a label",
+        )
+        # Verify none of the terminal pushes leak an onClick by scanning the
+        # final push in every control-flow path.
+        pushes = re.findall(r"crumbs\.push\s*\(\s*(\{[^}]*\})\s*\)", body)
+        self.assertGreaterEqual(
+            len(pushes), 4,
+            f"scopeCrumbs must push at least 4 distinct entries across its "
+            f"branches (Home, Management Team, optional project, current). "
+            f"Found {len(pushes)}.",
+        )
+        # The helper must end with a non-onClick push in each terminal return
+        # path. Check that the LAST push before each `return crumbs;` has no
+        # onClick.
+        returns = [m.start() for m in re.finditer(r"return\s+crumbs\s*;", body)]
+        self.assertGreaterEqual(
+            len(returns), 2,
+            f"scopeCrumbs must have multiple return paths (at least "
+            "global-only and non-global). Found " f"{len(returns)}.",
+        )
+        for ret_pos in returns:
+            preceding = body[:ret_pos]
+            push_matches = list(
+                re.finditer(r"crumbs\.push\s*\(\s*(\{[^}]*\})\s*\)", preceding)
+            )
+            if not push_matches:
+                continue
+            last_push = push_matches[-1].group(1)
+            with self.subTest(last_push=last_push[:80]):
+                self.assertNotIn(
+                    "onClick",
+                    last_push,
+                    f"scopeCrumbs path ending at byte {ret_pos} has last push "
+                    f"{last_push!r} containing onClick — the rightmost crumb "
+                    "must be non-linked",
+                )
+
+    def test_every_renderscope_caller_passes_scope_metadata(self):
+        """Every renderScope(...) call site must pass a scope descriptor so
+        the pre-fetch breadcrumb is derivable. A caller that omits scope would
+        render an empty crumb during loading/error."""
+        src = (STATIC_DIR / "config.html").read_text()
+        # Match every renderScope(...) call and extract the argument list.
+        # Skip the function declaration itself.
+        for m in re.finditer(r"(?<!function\s)renderScope\s*\(", src):
+            start = m.end()
+            depth = 1
+            j = start
+            in_str: str | None = None
+            while j < len(src) and depth > 0:
+                c = src[j]
+                if in_str:
+                    if c == "\\":
+                        j += 2
+                        continue
+                    if c == in_str:
+                        in_str = None
+                    j += 1
+                    continue
+                if c in ("'", '"'):
+                    in_str = c
+                elif c == "(":
+                    depth += 1
+                elif c == ")":
+                    depth -= 1
+                j += 1
+            args = src[start : j - 1]
+            # Skip the function declaration (it has parameter names, not a call)
+            if re.match(r"\s*loader\s*,\s*scope\s*$", args):
+                continue
+            with self.subTest(args=args[:80]):
+                self.assertIn(
+                    "level:",
+                    args,
+                    f"renderScope call {args[:120]!r} is missing a scope "
+                    "descriptor with `level:`. Every call site must pass "
+                    "{level, name, projectSlug} so the pre-fetch breadcrumb "
+                    "matches the scope.",
+                )
+
+
 class MinimalChatBehaviorTests(unittest.TestCase):
     """chat.html minimal mode (iframe in accordion blade) must still hide the bar."""
 

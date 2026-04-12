@@ -229,15 +229,35 @@ function renderConfigPage(spec) {
 }
 
 function showError(msg) {
-  document.getElementById('breadcrumb-slot').innerHTML = '';
   document.getElementById('content').innerHTML =
     '<div style="padding:24px;color:var(--text-dim);font-size:11px">' + msg + '</div>';
 }
 
 function showLoading() {
-  document.getElementById('breadcrumb-slot').innerHTML = '';
   document.getElementById('content').innerHTML =
     '<div style="padding:24px;color:var(--text-dim);font-size:11px">Loading...</div>';
+}
+
+// Build a best-effort breadcrumb from the URL scope. Used by renderScope to
+// populate the bar before the fetch resolves so the current location is
+// visible during loading and survives a failed fetch. The scope loaders
+// replace this with a richer label (e.g. resolved team.name) on success.
+function scopeCrumbs(scope) {
+  var crumbs = [{ label: 'Home', onClick: "location.href='index.html'" }];
+  if (!scope || scope.level === 'global') {
+    crumbs.push({ label: 'Management Team' });
+    return crumbs;
+  }
+  crumbs.push({ label: 'Management Team', onClick: "configNav('global')" });
+  if (scope.level === 'project') {
+    crumbs.push({ label: scope.name + ' Team' });
+    return crumbs;
+  }
+  if (scope.projectSlug) {
+    crumbs.push({ label: scope.projectSlug + ' Team', onClick: "configNav('project','" + scope.projectSlug + "')" });
+  }
+  crumbs.push({ label: scope.name });
+  return crumbs;
 }
 
 // ── Scope loaders ────────────────────────────────────────────────────────────
@@ -529,26 +549,27 @@ function _buildAgentSpec() {
 function configNav(level, nameOrSlug, extra) {
   if (level === 'global') {
     history.pushState({}, '', 'config.html');
-    renderScope(loadGlobal);
+    renderScope(loadGlobal, {level: 'global'});
   } else if (level === 'project') {
     history.pushState({}, '', 'config.html?project=' + encodeURIComponent(nameOrSlug));
-    renderScope(function() { return loadProject(nameOrSlug); });
+    renderScope(function() { return loadProject(nameOrSlug); }, {level: 'project', name: nameOrSlug});
   } else if (level === 'workgroup') {
     var projectSlug = extra || null;
     var url = 'config.html?workgroup=' + encodeURIComponent(nameOrSlug);
     if (projectSlug) url += '&project=' + encodeURIComponent(projectSlug);
     history.pushState({}, '', url);
-    renderScope(function() { return loadWorkgroup(nameOrSlug, projectSlug); });
+    renderScope(function() { return loadWorkgroup(nameOrSlug, projectSlug); }, {level: 'workgroup', name: nameOrSlug, projectSlug: projectSlug});
   } else if (level === 'agent') {
     var projectSlug = extra || null;
     var url = 'config.html?agent=' + encodeURIComponent(nameOrSlug);
     if (projectSlug) url += '&project=' + encodeURIComponent(projectSlug);
     history.pushState({}, '', url);
-    renderScope(function() { return loadAgent(nameOrSlug, projectSlug); });
+    renderScope(function() { return loadAgent(nameOrSlug, projectSlug); }, {level: 'agent', name: nameOrSlug, projectSlug: projectSlug});
   }
 }
 
-async function renderScope(loader) {
+async function renderScope(loader, scope) {
+  document.getElementById('breadcrumb-slot').innerHTML = breadcrumbBar(scopeCrumbs(scope));
   showLoading();
   try {
     var spec = await loader();
@@ -645,11 +666,12 @@ async function toggleMembership(scope, type, name, active, projectSlug) {
     body: JSON.stringify({type: type, name: name, active: active}),
   });
   if (scope === 'global') {
-    renderScope(loadGlobal);
+    renderScope(loadGlobal, {level: 'global'});
   } else if (scope.startsWith('wg:')) {
-    renderScope(function() { return loadWorkgroup(scope.slice(3), projectSlug || null); });
+    var wgName = scope.slice(3);
+    renderScope(function() { return loadWorkgroup(wgName, projectSlug || null); }, {level: 'workgroup', name: wgName, projectSlug: projectSlug || null});
   } else {
-    renderScope(function() { return loadProject(scope); });
+    renderScope(function() { return loadProject(scope); }, {level: 'project', name: scope});
   }
 }
 
@@ -667,7 +689,7 @@ async function unpinWorkgroupArtifact(path) {
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({artifacts: updated}),
   });
-  renderScope(function() { return loadWorkgroup(_currentWgName, _currentWgProjectSlug); });
+  renderScope(function() { return loadWorkgroup(_currentWgName, _currentWgProjectSlug); }, {level: 'workgroup', name: _currentWgName, projectSlug: _currentWgProjectSlug});
 }
 
 async function unpinProjectPin(slug, relPath) {
@@ -679,7 +701,7 @@ async function unpinProjectPin(slug, relPath) {
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({artifact_pins: updated}),
   });
-  renderScope(function() { return loadProject(slug); });
+  renderScope(function() { return loadProject(slug); }, {level: 'project', name: slug});
 }
 
 // ── File browser modal ──────────────────────────────────────────────────────
@@ -742,14 +764,14 @@ async function openFileBrowser(type, name, projectSlug) {
       arts.push(newPin);
       await fetch(url, {method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({artifacts: arts})});
       closeModal();
-      renderScope(function() { return loadWorkgroup(name, projectSlug || null); });
+      renderScope(function() { return loadWorkgroup(name, projectSlug || null); }, {level: 'workgroup', name: name, projectSlug: projectSlug || null});
     } else {
       var pinsUrl = '/api/artifacts/' + encodeURIComponent(name) + '/pins';
       var pins = (_currentProjectPins || []).slice();
       pins.push(newPin);
       await fetch(pinsUrl, {method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({artifact_pins: pins})});
       closeModal();
-      renderScope(function() { return loadProject(name); });
+      renderScope(function() { return loadProject(name); }, {level: 'project', name: name});
     }
   }
 
@@ -870,13 +892,13 @@ async function openFileBrowser(type, name, projectSlug) {
   var initWorkgroup = urlParams.get('workgroup');
   var initProject = urlParams.get('project');
   if (initAgent) {
-    renderScope(function() { return loadAgent(initAgent, initProject); });
+    renderScope(function() { return loadAgent(initAgent, initProject); }, {level: 'agent', name: initAgent, projectSlug: initProject});
   } else if (initWorkgroup) {
-    renderScope(function() { return loadWorkgroup(initWorkgroup, initProject); });
+    renderScope(function() { return loadWorkgroup(initWorkgroup, initProject); }, {level: 'workgroup', name: initWorkgroup, projectSlug: initProject});
   } else if (initProject) {
-    renderScope(function() { return loadProject(initProject); });
+    renderScope(function() { return loadProject(initProject); }, {level: 'project', name: initProject});
   } else {
-    renderScope(loadGlobal);
+    renderScope(loadGlobal, {level: 'global'});
   }
 })();
 </script>
