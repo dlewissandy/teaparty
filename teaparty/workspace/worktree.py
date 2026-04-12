@@ -207,6 +207,17 @@ async def commit_all_pending(worktree_path: str, message: str) -> bool:
         await _run_git(worktree_path, 'add', '-A')
     except RuntimeError:
         return False
+    # Unstage harness artifacts — .claude/ is a composed artifact written at
+    # dispatch time and .mcp.json is per-session config.  Neither should
+    # appear in the session branch's commits.
+    for artifact in ('.claude/', '.mcp.json'):
+        proc = await asyncio.create_subprocess_exec(
+            'git', 'reset', 'HEAD', '--', artifact,
+            cwd=worktree_path,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await proc.wait()
     status = await _run_git_output(worktree_path, 'status', '--porcelain')
     if not status.strip():
         return False
