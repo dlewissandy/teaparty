@@ -117,8 +117,9 @@ async def _default_send_post(member: str, composite: str, context_id: str) -> st
                 'conversation_id': conv_id,
                 'message': 'Any changes the recipient makes to the codebase '
                            'will not take effect until you close this '
-                           'conversation. Call CloseConversation when you '
-                           'have concluded this thread of discussion.',
+                           'conversation. When the work is complete and you '
+                           'are satisfied with the result, use '
+                           'CloseConversation to merge their changes.',
             })
         except Exception as exc:
             _send_log.warning('send_registry failed for %r: %s', member, exc)
@@ -237,10 +238,18 @@ async def _default_close_conv_post(context_id: str) -> str:
     import logging as _logging
     _close_log = _logging.getLogger('teaparty.mcp.tools.messaging.close')
 
-    # Dispatch conversations: route through in-process registry
+    # Dispatch conversations: route through in-process registry.
+    # Only the agent that initiated the dispatch may close it.
     if context_id.startswith('dispatch:'):
         from teaparty.mcp.registry import get_close_fn
         close_fn = get_close_fn()
+        if close_fn is None:
+            return json.dumps({
+                'status': 'failed',
+                'conversation_id': context_id,
+                'message': 'You cannot close that conversation. '
+                           'You did not initiate it.',
+            })
         if close_fn is not None:
             try:
                 fn_result = await close_fn(context_id)
