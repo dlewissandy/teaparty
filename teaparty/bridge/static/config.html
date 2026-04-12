@@ -6,6 +6,7 @@
 <title>TeaParty — Configuration</title>
 <link rel="stylesheet" href="styles.css">
 <script src="breadcrumb.js"></script>
+<script src="accordion-chat.js"></script>
 </head>
 <body>
 
@@ -17,22 +18,13 @@
 </div>
 <div id="content" class="app-pane active" style="overflow-y:auto;flex:1;min-width:0"></div>
 </div>
-<div class="blade" id="blade">
-  <div class="blade-tab" onclick="toggleBlade()">Manager</div>
-  <div class="blade-body">
-    <div class="blade-header"><span class="blade-title" id="blade-title">Manager</span><button class="blade-close" onclick="toggleBlade()">&#215;</button></div>
-    <iframe id="blade-iframe" src="about:blank" style="flex:1;width:100%;border:none;display:block;min-height:0"></iframe>
-  </div>
-</div>
+<div class="blade" id="blade"></div>
 </div>
 
 <script>
 // ── State ────────────────────────────────────────────────────────────────────
-var omConvId = 'om:unknown';
-var bladeConvId = '';
-var bladeContext = '';
-var _bladeOpen = false;
 var _editMode = false;
+var _chatBlade = null;
 
 // Mutable context for re-rendering without re-fetching (agent toggles, etc.)
 var _agentCtx = null;
@@ -49,41 +41,8 @@ function toggleEditMode() {
   document.getElementById('edit-toggle').classList.toggle('active', _editMode);
 }
 
-function toggleBlade() {
-  _bladeOpen = !_bladeOpen;
-  localStorage.setItem('bladeOpen', _bladeOpen ? '1' : '0');
-  var el = document.getElementById('blade');
-  if (_bladeOpen) {
-    el.classList.add('open');
-    _updateBladeIframe();
-  } else {
-    el.classList.remove('open');
-  }
-}
-
-function _updateBladeIframe() {
-  if (!bladeConvId || !_bladeOpen) return;
-  var iframe = document.getElementById('blade-iframe');
-  if (iframe) {
-    var url = 'chat.html?conv=' + encodeURIComponent(bladeConvId) + '&minimal=1';
-    if (bladeContext) url += '&context=' + encodeURIComponent(bladeContext);
-    iframe.src = url;
-  }
-}
-
-if (localStorage.getItem('bladeOpen') === '1') {
-  _bladeOpen = true;
-  document.getElementById('blade').classList.add('open');
-}
-
 function seedBlade(seed) {
-  if (!omConvId) return;
-  if (!_bladeOpen) toggleBlade();
-  fetch('/api/conversations/' + encodeURIComponent(omConvId), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content: seed }),
-  });
+  if (_chatBlade) _chatBlade.seed(seed);
 }
 
 function escAttr(s) {
@@ -205,7 +164,7 @@ function cronItems(scheduled, toggleScope, projectSlug) {
 }
 
 // ── Generic page renderer ────────────────────────────────────────────────────
-// spec: { crumbs, description?, subtitle?, cards?, bladeConvId?, bladeTitle?, bladeContext? }
+// spec: { crumbs, description?, subtitle?, cards?, bladeConvId?, bladeTitle? }
 // crumbs: [{label, onClick?}, …] — the last entry is the current page; its
 //   label drives <title>, the breadcrumb's rightmost span, and the H1. There
 //   is exactly one source of truth for the page identity.
@@ -214,10 +173,12 @@ function renderConfigPage(spec) {
   var crumbs = spec.crumbs;
   var currentLabel = crumbs[crumbs.length - 1].label;
 
-  bladeConvId = spec.bladeConvId || '';
-  bladeContext = spec.bladeContext || '';
-  document.getElementById('blade-title').textContent = spec.bladeTitle || 'Manager';
-  _updateBladeIframe();
+  var bladeConfig = { convId: spec.bladeConvId || '', title: spec.bladeTitle || 'Manager' };
+  if (!_chatBlade) {
+    _chatBlade = AccordionChat.mount(document.getElementById('blade'), bladeConfig);
+  } else {
+    _chatBlade.configure(bladeConfig);
+  }
 
   document.title = 'TeaParty \u2014 ' + currentLabel;
   document.getElementById('breadcrumb-slot').innerHTML = breadcrumbBar(crumbs);
@@ -271,7 +232,6 @@ async function loadGlobal() {
 
   var m = configData.management_team || {};
   var projects = configData.projects || [];
-  omConvId = m.decider ? 'om:' + m.decider : 'om:unknown';
 
   var rosterByProject = {};
   (m.roster || []).forEach(function(r) {
@@ -310,9 +270,8 @@ async function loadGlobal() {
     ],
     description: m.description || 'Cross-project coordination, human interaction, organizational strategy, and configuration management.',
     subtitle: subtitle,
-    bladeConvId: omConvId,
-    bladeTitle: 'Office Manager',
-    bladeContext: 'management',
+    bladeConvId: m.lead && m.decider ? 'lead:' + m.lead + ':' + m.decider : '',
+    bladeTitle: 'Management Chat',
     cards: [
       { title: 'Workgroups', items: projectItems.concat(wgMgmtItems), opts: { addSeed: 'I would like to create a new workgroup for the management team.', addSeed2: { label: '+ Add Project', seed: 'I would like to add an existing project to the management team.' }, empty: 'No projects or workgroups' } },
       { title: 'Agents', items: agents, opts: { addSeed: 'I would like to create a new agent in the management agent catalog.' } },
@@ -341,7 +300,6 @@ async function loadProject(slug) {
 
   var team = projectData.team || {};
   var workgroups = projectData.workgroups || [];
-  omConvId = team.decider ? 'om:' + team.decider : 'om:unknown';
 
   var wgItems = workgroups.map(function(w) {
     var meta = (w.lead || '') + (w.agents_count != null ? ' · ' + w.agents_count + ' agents' : '');
@@ -371,9 +329,8 @@ async function loadProject(slug) {
     ],
     description: team.description || '',
     subtitle: 'Decider: ' + (team.decider || '') + ' &middot; Lead: ' + (team.lead || ''),
-    bladeConvId: omConvId,
-    bladeTitle: 'Office Manager',
-    bladeContext: 'project:' + slug,
+    bladeConvId: team.lead && team.decider ? 'lead:' + team.lead + ':' + team.decider : '',
+    bladeTitle: (team.name || slug) + ' Team Chat',
     cards: [
       { title: 'Workgroups', items: wgItems, opts: { addSeed: 'I would like to create a new workgroup for the ' + (team.name || slug) + ' project.', empty: 'No workgroups' } },
       { title: 'Agents', items: agents, opts: { addSeed: 'I would like to create a new agent in the ' + (team.name || slug) + ' project agent catalog.', empty: 'No agents' } },
@@ -391,16 +348,20 @@ async function loadWorkgroup(name, projectSlug) {
   if (projectSlug) url += '?project=' + encodeURIComponent(projectSlug);
   var pinsUrl = '/api/pins?scope=workgroup&name=' + encodeURIComponent(name);
   if (projectSlug) pinsUrl += '&project=' + encodeURIComponent(projectSlug);
+  var teamUrl = projectSlug
+    ? '/api/config/' + encodeURIComponent(projectSlug)
+    : '/api/config';
 
-  var [resp, pinsResp] = await Promise.all([fetch(url), fetch(pinsUrl)]);
+  var [resp, pinsResp, teamResp] = await Promise.all([fetch(url), fetch(pinsUrl), fetch(teamUrl)]);
   var wgData = await resp.json();
   if (!resp.ok) throw new Error(wgData.error || name);
   var wgPins = pinsResp.ok ? await pinsResp.json() : [];
+  var teamData = teamResp.ok ? await teamResp.json() : {};
+  var teamInfo = projectSlug ? (teamData.team || {}) : (teamData.management_team || {});
 
   _currentWgName = name;
   _currentWgProjectSlug = projectSlug || null;
   _currentWgArtifacts = (wgData.artifacts || []).slice();
-  omConvId = wgData.lead ? 'om:' + wgData.lead : (omConvId || 'om:unknown');
 
   var leadItems = [];
   if (wgData.lead) {
@@ -437,9 +398,8 @@ async function loadWorkgroup(name, projectSlug) {
     crumbs: crumbs,
     description: wgData.description || '',
     subtitle: 'Lead: ' + (wgData.lead || '') + ' &middot; ' + (wgData.agents_count || 0) + ' agents',
-    bladeConvId: omConvId,
-    bladeTitle: 'Office Manager',
-    bladeContext: 'workgroup:' + name + (projectSlug ? ':' + projectSlug : ''),
+    bladeConvId: teamInfo.lead && teamInfo.decider ? 'lead:' + teamInfo.lead + ':' + teamInfo.decider : '',
+    bladeTitle: (projectSlug || 'Management') + ' Team Chat',
     cards: [
       { title: 'Lead', items: leadItems, opts: { empty: 'No lead assigned' } },
       { title: 'Agents', items: memberItems, opts: { addSeed: 'I would like to add an agent to the ' + name + ' workgroup.', empty: 'No agents' } },
@@ -458,9 +418,12 @@ async function loadAgent(name, projectSlug) {
   var catalogUrl = '/api/catalog/' + (projectSlug ? encodeURIComponent(projectSlug) : 'org');
   var pinsUrl = '/api/pins?scope=agent&name=' + encodeURIComponent(name);
   if (projectSlug) pinsUrl += '&project=' + encodeURIComponent(projectSlug);
+  var teamUrl = projectSlug
+    ? '/api/config/' + encodeURIComponent(projectSlug)
+    : '/api/config';
 
-  var [agentResp, catalogResp, pinsResp] = await Promise.all([
-    fetch(agentUrl), fetch(catalogUrl), fetch(pinsUrl),
+  var [agentResp, catalogResp, pinsResp, teamResp] = await Promise.all([
+    fetch(agentUrl), fetch(catalogUrl), fetch(pinsUrl), fetch(teamUrl),
   ]);
   if (!agentResp.ok) {
     var err = await agentResp.json();
@@ -470,8 +433,10 @@ async function loadAgent(name, projectSlug) {
   var catalog = catalogResp.ok ? await catalogResp.json() : {agents: [], skills: [], hooks: [], tools: []};
   if (catalog.tools && catalog.tools.length) AVAILABLE_TOOLS = catalog.tools;
   var pins = pinsResp.ok ? await pinsResp.json() : [];
+  var teamData = teamResp.ok ? await teamResp.json() : {};
+  var teamInfo = projectSlug ? (teamData.team || {}) : (teamData.management_team || {});
 
-  _agentCtx = {name: fm.name || name, projectSlug: projectSlug || null, fm: fm, catalog: catalog, pins: pins};
+  _agentCtx = {name: fm.name || name, projectSlug: projectSlug || null, fm: fm, catalog: catalog, pins: pins, teamInfo: teamInfo};
 
   return _buildAgentSpec();
 }
@@ -481,6 +446,7 @@ function _buildAgentSpec() {
   var catalog = _agentCtx.catalog;
   var name = _agentCtx.name;
   var projectSlug = _agentCtx.projectSlug;
+  var teamInfo = _agentCtx.teamInfo || {};
 
   var validModels = ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5',
     'claude-opus-4-5', 'claude-sonnet-4-5', 'opus', 'sonnet', 'haiku'];
@@ -525,9 +491,8 @@ function _buildAgentSpec() {
   return {
     crumbs: crumbs,
     description: fm.description || '',
-    bladeConvId: omConvId,
-    bladeTitle: 'Office Manager',
-    bladeContext: 'agent:' + name + (projectSlug ? ':' + projectSlug : ''),
+    bladeConvId: teamInfo.lead && teamInfo.decider ? 'lead:' + teamInfo.lead + ':' + teamInfo.decider : '',
+    bladeTitle: (projectSlug || 'Management') + ' Team Chat',
     cards: [
       { title: 'Artifacts', items: renderPinItems(_agentCtx.pins) },
       { title: 'Settings', items: settingsItems },

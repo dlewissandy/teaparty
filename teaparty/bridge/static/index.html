@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TeaParty</title>
 <link rel="stylesheet" href="styles.css">
+<script src="accordion-chat.js"></script>
 <style>
   .home { padding: 20px; overflow-y: auto; flex: 1; }
   .home-title { font-size: 18px; font-weight: 600; color: var(--green); margin-bottom: 4px; }
@@ -75,34 +76,13 @@
     width: 6px; height: 6px; border-radius: 50%; background: var(--red);
     animation: pulse 1.5s infinite; display: inline-block;
   }
-
-  /* Accordion sections in the blade */
-  .accord-section { flex: 0 0 auto; }
-  .accord-section.expanded { flex: 1 1 0; display: flex; flex-direction: column; min-height: 0; }
-  .accord-header {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 6px 10px; cursor: pointer; border-bottom: 1px solid var(--border);
-    background: var(--surface); transition: background 0.15s;
-    gap: 6px; min-height: 24px; flex-shrink: 0;
-  }
-  .accord-header:hover { background: rgba(78,204,163,0.05); }
-  .accord-header.expanded { background: var(--surface2); border-left: 2px solid var(--green); }
-  .accord-label { font-size: 10px; font-weight: 600; color: var(--text); text-transform: capitalize; }
-  .accord-body { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
 </style>
 </head>
 <body>
 
 <div class="blade-layout">
 <div class="home" id="content" style="flex:1;min-width:0"></div>
-<div class="blade" id="blade">
-  <div class="blade-tab" onclick="toggleBlade()"><span id="blade-tab-chevron" style="writing-mode:horizontal-tb;display:inline-block;font-size:14px;line-height:1">&lt;</span></div>
-  <div class="blade-body">
-    <div class="blade-header"><span class="blade-title" id="blade-title" style="font-size:18px;color:var(--green);text-transform:none;letter-spacing:normal">Management Chat</span></div>
-    <div class="blade-filters" id="blade-filters"></div>
-    <div id="dispatch-accordion" style="flex:1;display:flex;flex-direction:column;min-height:0"></div>
-  </div>
-</div>
+<div class="blade" id="blade"></div>
 </div>
 
 <script>
@@ -123,236 +103,10 @@ function createJob(projectSlug) {
   .catch(function(err) { alert('Failed to create job: ' + err); });
 }
 
+var _chatBlade = null;
+
 function seedBlade(message) {
-  if (!pageState.omConvId) return;
-  if (!_bladeOpen) toggleBlade();
-  fetch('/api/conversations/' + encodeURIComponent(pageState.omConvId), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content: message }),
-  });
-}
-
-var _bladeOpen = false;
-
-function toggleBlade() {
-  _bladeOpen = !_bladeOpen;
-  localStorage.setItem('bladeOpen', _bladeOpen ? '1' : '0');
-  var el = document.getElementById('blade');
-  var chev = document.getElementById('blade-tab-chevron');
-  if (_bladeOpen) {
-    el.classList.add('open');
-    if (chev) chev.innerHTML = '&gt;';
-    _updateAccordion();
-  } else {
-    el.classList.remove('open');
-    if (chev) chev.innerHTML = '&lt;';
-  }
-}
-
-// ── Accordion state ─────────────────────────────────────────────────────────
-var _accordionExpanded = null;  // session_id of the currently expanded section
-var _dispatchTree = null;       // last fetched tree
-
-function _updateAccordion() {
-  if (!_bladeOpen) return;
-  var omSessionId = pageState.omSessionId;
-  if (!omSessionId) return;
-  fetch('/api/dispatch-tree/' + encodeURIComponent(omSessionId))
-    .then(function(r) { return r.ok ? r.json() : null; })
-    .then(function(tree) {
-      if (!tree) return;
-      _dispatchTree = tree;
-      if (!_accordionExpanded) _accordionExpanded = tree.session_id;
-      _renderAccordion();
-    })
-    .catch(function() {});
-}
-
-function _renderAccordion() {
-  var container = document.getElementById('dispatch-accordion');
-  if (!container || !_dispatchTree) return;
-
-  // Collect current session_ids in the DOM to detect structural changes.
-  var currentSections = container.querySelectorAll('.accord-section');
-  var currentIds = [];
-  for (var i = 0; i < currentSections.length; i++) {
-    currentIds.push(currentSections[i].getAttribute('data-session'));
-  }
-
-  // Flatten the new tree to get the expected session_id list.
-  var flat = _flattenTree(_dispatchTree);
-  var newIds = flat.map(function(n) { return n.session_id; });
-
-  // If the structure hasn't changed and the expanded section is the same,
-  // only update status badges — don't rebuild (preserves iframe state).
-  if (JSON.stringify(currentIds) === JSON.stringify(newIds)) {
-    // Update status badges in-place
-    flat.forEach(function(node) {
-      var section = container.querySelector('[data-session="' + node.session_id + '"]');
-      if (section) {
-        var badge = section.querySelector('.item-badge');
-        if (badge) {
-          var statusCls = node.status === 'active' ? 'badge-active' : 'badge-idle';
-          badge.className = 'item-badge ' + statusCls;
-          badge.textContent = node.status;
-        }
-      }
-    });
-    // Check if expanded section changed — if so, full rebuild needed
-    var expandedSection = container.querySelector('.accord-section.expanded');
-    var expandedId = expandedSection ? expandedSection.getAttribute('data-session') : null;
-    if (expandedId === _accordionExpanded) return;
-  }
-
-  // If the expanded section no longer exists in the tree, expand its parent.
-  var expandedExists = flat.some(function(n) { return n.session_id === _accordionExpanded; });
-  if (!expandedExists) {
-    _accordionExpanded = _findParent(_dispatchTree, _accordionExpanded) || _dispatchTree.session_id;
-  }
-
-  // Structure changed or expanded section changed — full rebuild
-  container.innerHTML = _renderNode(_dispatchTree, 0);
-  _syncFiltersToIframe();
-}
-
-function _renderNode(node, depth) {
-  var isExpanded = (_accordionExpanded === node.session_id);
-  var indent = depth * 16;
-  var statusCls = node.status === 'active' ? 'badge-active' : 'badge-idle';
-  var agentLabel = node.agent_name.replace(/-/g, ' ');
-  // Capitalize first letter
-  agentLabel = agentLabel.charAt(0).toUpperCase() + agentLabel.slice(1);
-
-  var html = '';
-  // Section header (always visible)
-  var sectionCls = 'accord-section' + (isExpanded ? ' expanded' : '');
-  html += '<div class="' + sectionCls + '" data-session="' + node.session_id + '" style="margin-left:' + indent + 'px">';
-  html += '<div class="accord-header' + (isExpanded ? ' expanded' : '') + '" onclick="accordionToggle(\'' + node.session_id + '\')">';
-  html += '<span class="accord-label">' + agentLabel + '</span>';
-  html += '<span class="item-badge ' + statusCls + '" style="font-size:7px">' + node.status + '</span>';
-  html += '</div>';
-
-  // Expanded content (iframe with chat)
-  if (isExpanded) {
-    // The dispatch tree's root node IS the office-manager session
-    // itself — its conversation_id in the tree falls back to
-    // `dispatch:{session_id}`, but the OM's real chat lives on
-    // `om:{qualifier}` (pageState.omConvId). Using the fallback
-    // produces a blank iframe, which is what the user sees when
-    // CloseConversation bubbles the expanded section back up to the
-    // root. Override with omConvId at depth 0.
-    var convId;
-    if (depth === 0 && pageState.omConvId) {
-      convId = pageState.omConvId;
-    } else {
-      convId = node.conversation_id || ('session:' + node.session_id);
-    }
-    html += '<div class="accord-body">';
-    html += '<iframe src="chat.html?conv=' + encodeURIComponent(convId) + '&minimal=1&_t=' + Date.now() + '" style="width:100%;flex:1;border:none;display:block;min-height:0"></iframe>';
-    html += '</div>';
-  }
-  html += '</div>';
-
-  // Children (rendered after this section, at greater depth)
-  if (node.children && node.children.length > 0) {
-    for (var i = 0; i < node.children.length; i++) {
-      html += _renderNode(node.children[i], depth + 1);
-    }
-  }
-  return html;
-}
-
-function accordionToggle(sessionId) {
-  _accordionExpanded = sessionId;
-  _renderAccordion();
-  _syncFiltersToIframe();
-}
-
-// When a session completes, remove it and expand the one above
-function _handleSessionRemoval(sessionId) {
-  if (!_dispatchTree) return;
-  var flat = _flattenTree(_dispatchTree);
-  var idx = -1;
-  for (var i = 0; i < flat.length; i++) {
-    if (flat[i].session_id === sessionId) { idx = i; break; }
-  }
-  if (idx >= 0 && _accordionExpanded === sessionId) {
-    // Expand the section above (previous sibling or parent)
-    _accordionExpanded = idx > 0 ? flat[idx - 1].session_id : flat[0].session_id;
-  }
-  _updateAccordion();
-}
-
-function _removeFromTree(node, sessionId) {
-  if (!node.children) return;
-  node.children = node.children.filter(function(c) { return c.session_id !== sessionId; });
-  for (var i = 0; i < node.children.length; i++) {
-    _removeFromTree(node.children[i], sessionId);
-  }
-}
-
-function _findParent(tree, targetId) {
-  if (!tree.children) return null;
-  for (var i = 0; i < tree.children.length; i++) {
-    if (tree.children[i].session_id === targetId) return tree.session_id;
-    var found = _findParent(tree.children[i], targetId);
-    if (found) return found;
-  }
-  return null;
-}
-
-function _flattenTree(node) {
-  var result = [node];
-  if (node.children) {
-    for (var i = 0; i < node.children.length; i++) {
-      result = result.concat(_flattenTree(node.children[i]));
-    }
-  }
-  return result;
-}
-
-// ── Blade-level filter bar ───────────────────────────────────────────────────
-var BLADE_FILTERS = ['agent', 'human', 'thinking', 'tools', 'results', 'system', 'state', 'cost', 'log'];
-var bladeActiveFilters = { agent: true, human: true };
-
-function _syncFiltersToIframe() {
-  setTimeout(function() {
-    var iframe = document.querySelector('.accord-section.expanded iframe');
-    if (iframe && iframe.contentWindow) {
-      iframe.contentWindow.postMessage({ type: 'setFilters', filters: bladeActiveFilters }, '*');
-    }
-  }, 300);
-}
-
-function renderBladeFilters() {
-  var html = BLADE_FILTERS.map(function(f) {
-    var on = bladeActiveFilters[f] ? ' on' : '';
-    return '<button class="filter-btn filter-' + f + on + '" onclick="toggleBladeFilter(\'' + f + '\')">' + f + '</button>';
-  }).join('');
-  document.getElementById('blade-filters').innerHTML = html;
-}
-
-function toggleBladeFilter(f) {
-  bladeActiveFilters[f] = !bladeActiveFilters[f];
-  renderBladeFilters();
-  _syncFiltersToIframe();
-}
-
-renderBladeFilters();
-
-// ── Blade filter CSS (inline) ───────────────────────────────────────────────
-(function() {
-  var style = document.createElement('style');
-  style.textContent = '.blade-filters { display:flex; gap:2px; padding:4px 6px; border-bottom:1px solid var(--border); flex-shrink:0; flex-wrap:wrap; }';
-  document.head.appendChild(style);
-})();
-
-if (localStorage.getItem('bladeOpen') === '1') {
-  _bladeOpen = true;
-  document.getElementById('blade').classList.add('open');
-  var _chev0 = document.getElementById('blade-tab-chevron');
-  if (_chev0) _chev0.innerHTML = '&gt;';
+  if (_chatBlade) _chatBlade.seed(message);
 }
 
 // Show a modal dialog for project onboarding (add or create).
@@ -503,10 +257,12 @@ function fetchAll() {
     var omConvs = results[1] || [];
     if (omConvs.length > 0) {
       pageState.omConvId = omConvs[0].id;
-      // Derive session_id: om:{qualifier} → office-manager-{qualifier}
-      var qualifier = omConvs[0].id.replace(/^om:/, '');
-      pageState.omSessionId = 'office-manager-' + qualifier;
-      _updateAccordion();
+      if (!_chatBlade) {
+        _chatBlade = AccordionChat.mount(
+          document.getElementById('blade'),
+          { convId: pageState.omConvId, title: 'Management Chat' }
+        );
+      }
     }
     var configFetches = pageState.projects.map(function(p) {
       return fetch('/api/config/' + encodeURIComponent(p.slug))
@@ -672,41 +428,11 @@ function connectWS() {
         onEscalationCleared(event.session_id);
       } else if (event.type === 'session_completed') {
         // Session is done — its escalation no longer requires a response.
+        // Accordion updates (session removal) are handled by accordion-chat.js.
         delete pageState.escalationConvMap[event.session_id];
-        _handleSessionRemoval(event.session_id);
         fetchAll();
-      } else if (event.type === 'dispatch_started') {
-        // New child — must re-fetch tree to discover it.
-        _updateAccordion();
-      } else if (event.type === 'dispatch_completed') {
-        // Child removed — apply locally for instant feedback.
-        // Don't re-fetch: the parent may still be running and we
-        // need to show it before its own completion event arrives.
-        if (_dispatchTree) {
-          // If we're viewing the child that just completed, expand its parent.
-          if (_accordionExpanded === event.child_session_id) {
-            _accordionExpanded = event.parent_session_id || _dispatchTree.session_id;
-          }
-          _removeFromTree(_dispatchTree, event.child_session_id);
-          // After removal, make sure _accordionExpanded still points to
-          // a node that exists. In a recursive-close cascade the parent
-          // we just jumped to may itself be about to be removed, or was
-          // already removed by a prior event in the same cascade — fall
-          // back up the chain until we hit a surviving node, or the
-          // tree root as a last resort. Without this the iframe
-          // renders nothing (blank section).
-          var flatAfter = _flattenTree(_dispatchTree);
-          var stillExists = flatAfter.some(function(n) {
-            return n.session_id === _accordionExpanded;
-          });
-          if (!stillExists) {
-            _accordionExpanded = _dispatchTree.session_id;
-          }
-          var container = document.getElementById('dispatch-accordion');
-          if (container) container.innerHTML = _renderNode(_dispatchTree, 0);
-          _syncFiltersToIframe();
-        }
       }
+      // dispatch_started / dispatch_completed: handled by accordion-chat.js WS.
     } catch (err) {}
   };
 
@@ -744,8 +470,6 @@ function onStateChanged(sessionId, phase, cfaState) {
       }
     });
   });
-  // Refresh accordion — new dispatches may have appeared
-  _updateAccordion();
 }
 
 // Add escalation dot to a session row on input_requested.

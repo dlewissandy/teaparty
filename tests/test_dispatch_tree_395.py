@@ -143,26 +143,39 @@ class TestBuildDispatchTree(unittest.TestCase):
 
 
 class TestAccordionHTMLPresent(unittest.TestCase):
-    """The index.html blade has accordion section rendering."""
+    """The accordion chat UX is in accordion-chat.js, not inline in index.html."""
 
-    def _make_index_content(self):
+    def _read_static(self, filename):
         path = os.path.join(
             os.path.dirname(__file__), '..', 'teaparty', 'bridge',
-            'static', 'index.html')
+            'static', filename)
         with open(path) as f:
             return f.read()
 
-    def test_accordion_container_exists(self):
-        """index.html has an accordion container for dispatch sections."""
-        content = self._make_index_content()
-        self.assertIn('dispatch-accordion', content)
+    def test_accordion_container_defined_in_shared_module(self):
+        """accordion-chat.js creates the dispatch-accordion container (not index.html)."""
+        accordion_js = self._read_static('accordion-chat.js')
+        self.assertIn(
+            'dispatch-accordion', accordion_js,
+            "accordion-chat.js must create the dispatch-accordion container"
+        )
+
+    def test_accordion_container_absent_from_index_html(self):
+        """index.html no longer hardcodes dispatch-accordion — the module creates it."""
+        content = self._read_static('index.html')
+        self.assertNotIn(
+            'dispatch-accordion', content,
+            "index.html hardcodes dispatch-accordion — extract to accordion-chat.js"
+        )
 
     def test_no_single_iframe_blade(self):
-        """The old single-iframe blade is replaced."""
-        content = self._make_index_content()
-        # The old pattern: a single blade-iframe for the OM chat
-        # Should no longer be the primary blade content
-        self.assertNotIn('blade-iframe', content)
+        """Neither index.html nor config.html uses the old single-iframe blade pattern."""
+        for page in ('index.html', 'config.html'):
+            content = self._read_static(page)
+            self.assertNotIn(
+                'blade-iframe', content,
+                f"{page} still contains 'blade-iframe' — the old simplified blade was not removed"
+            )
 
 
 if __name__ == '__main__':
