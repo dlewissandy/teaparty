@@ -61,10 +61,27 @@ def collect_descendants(sessions_dir: str, root_session_id: str) -> list[str]:
     Used by close_fn to find in-flight tasks that must be cancelled
     before close_conversation tears down the session directories.
     """
-    result: list[str] = []
+    return [sid for sid, _parent in collect_descendants_with_parents(
+        sessions_dir, root_session_id, root_parent='')]
 
-    def _walk(sid: str) -> None:
-        result.append(sid)
+
+def collect_descendants_with_parents(
+    sessions_dir: str,
+    root_session_id: str,
+    *,
+    root_parent: str,
+) -> list[tuple[str, str]]:
+    """Walk the conversation tree and return (session_id, parent_id) pairs.
+
+    Depth-first, root first. ``root_parent`` is the parent of the root
+    of the walk (typically the dispatcher session that owns the
+    conversation being closed). Used by close_fn to emit per-descendant
+    dispatch_completed events with the correct parent → child pairing.
+    """
+    result: list[tuple[str, str]] = []
+
+    def _walk(sid: str, parent: str) -> None:
+        result.append((sid, parent))
         meta_path = os.path.join(sessions_dir, sid, 'metadata.json')
         if not os.path.isfile(meta_path):
             return
@@ -74,9 +91,9 @@ def collect_descendants(sessions_dir: str, root_session_id: str) -> list[str]:
         except (json.JSONDecodeError, OSError):
             return
         for child_sid in meta.get('conversation_map', {}).values():
-            _walk(child_sid)
+            _walk(child_sid, sid)
 
-    _walk(root_session_id)
+    _walk(root_session_id, root_parent)
     return result
 
 

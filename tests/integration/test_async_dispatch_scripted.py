@@ -141,7 +141,7 @@ def _run(coro, timeout=30):
         asyncio.wait_for(coro, timeout=timeout))
 
 
-def _make_coordinator(qualifier, llm_caller):
+def _make_coordinator(qualifier, llm_caller, on_dispatch=None):
     from teaparty.teams.session import AgentSession
     from teaparty.messaging.conversations import ConversationType
     return AgentSession(
@@ -152,6 +152,7 @@ def _make_coordinator(qualifier, llm_caller):
         conversation_type=ConversationType.OFFICE_MANAGER,
         dispatches=True,
         llm_caller=llm_caller,
+        on_dispatch=on_dispatch,
     )
 
 
@@ -582,6 +583,7 @@ class TestRecursiveCloseScripted(unittest.TestCase):
     def test_close_parent_removes_grandchild(self):
         grandchild_started = asyncio.Event()
         release = asyncio.Event()
+        dispatch_events_seen: list = []
 
         async def hang_leaf(message):
             grandchild_started.set()
@@ -603,8 +605,10 @@ class TestRecursiveCloseScripted(unittest.TestCase):
             ],
             'leaf-agent': hang_leaf,
         }
-        session = _make_coordinator('recursive-close',
-                                    make_scripted_caller(scripts))
+        session = _make_coordinator(
+            'recursive-close',
+            make_scripted_caller(scripts),
+            on_dispatch=lambda ev: dispatch_events_seen.append(ev))
 
         async def run():
             _send_human(session, 'start')
@@ -655,6 +659,30 @@ class TestRecursiveCloseScripted(unittest.TestCase):
                 self.assertTrue(mid_task.done(), 'mid task must be cancelled')
             self.assertTrue(grand_task.done(),
                             'grandchild task must be cancelled recursively')
+
+            # UI accordion auto-activation: close_fn must emit a
+            # dispatch_completed event for every removed session, so
+            # the frontend moves the user from whatever they were
+            # viewing up to the parent. Previously this only happened
+            # on normal completion, not explicit CloseConversation.
+            completed = [e for e in dispatch_events_seen
+                         if e.get('type') == 'dispatch_completed']
+            closed_ids = {e['child_session_id'] for e in completed}
+            self.assertIn(grand_csid, closed_ids,
+                          'grandchild close must emit dispatch_completed')
+            self.assertIn(mid_csid, closed_ids,
+                          'mid close must emit dispatch_completed')
+            # The grandchild event must point to mid as its parent;
+            # the mid event must point to the coordinator session.
+            for e in completed:
+                if e['child_session_id'] == grand_csid:
+                    self.assertEqual(e['parent_session_id'], mid_csid,
+                                     'grandchild parent should be mid')
+                if e['child_session_id'] == mid_csid:
+                    self.assertEqual(
+                        e['parent_session_id'],
+                        session._dispatch_session.id,
+                        'mid parent should be coordinator')
 
         try:
             _run(run(), timeout=30)
