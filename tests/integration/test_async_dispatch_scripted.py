@@ -31,6 +31,7 @@ from teaparty.runners.scripted import (
 )
 
 BRIDGE_PORT = 19877
+_FIRST_COORD_IS_HUMAN = True
 
 _module_env = None
 _module_loop = None
@@ -328,8 +329,14 @@ class TestLinearDispatchScripted(unittest.TestCase):
         # mid-agent: first call dispatches leaf; resume call (after leaf
         # replies) echoes 'done' upward. Only one child, no race.
         first_mid = [True]
+        mid_calls = [0]
+        mid_messages: list = []
+        coord_resumes = [0]
+        coord_resume_messages: list = []
 
         def mid_script(message):
+            mid_calls[0] += 1
+            mid_messages.append(message)
             if first_mid[0]:
                 first_mid[0] = False
                 return [
@@ -340,15 +347,30 @@ class TestLinearDispatchScripted(unittest.TestCase):
                 ]
             return [text_event('done'), cost_event()]
 
+        # Wrap the stateful coord script so we can count resume turns
+        # and capture what the coordinator sees on each one. The fix
+        # for the "interim reply" bug is: coord must be resumed
+        # EXACTLY ONCE (with mid's final 'done'), never with mid's
+        # interim 'Dispatched leaf.' text.
+        inner_coord = _stateful_coordinator_script(
+            expected_replies={'done'},
+            dispatch_events=[
+                tool_use_event('mcp__teaparty-config__Send',
+                               {'member': 'mid-agent', 'message': 'run pipeline'}),
+                text_event('Dispatched.'),
+                cost_event(),
+            ])
+
+        def coord_script(message):
+            # The first call is the initial human dispatch. Every
+            # subsequent call is a resume with a child reply.
+            if coord_resumes[0] > 0 or not _FIRST_COORD_IS_HUMAN:
+                coord_resume_messages.append(message)
+            coord_resumes[0] += 1
+            return inner_coord(message)
+
         scripts = {
-            'coordinator': _stateful_coordinator_script(
-                expected_replies={'done'},
-                dispatch_events=[
-                    tool_use_event('mcp__teaparty-config__Send',
-                                   {'member': 'mid-agent', 'message': 'run pipeline'}),
-                    text_event('Dispatched.'),
-                    cost_event(),
-                ]),
+            'coordinator': coord_script,
             'mid-agent': mid_script,
             'leaf-agent': {
                 'do work': [text_event('leaf-done'), cost_event()],
@@ -365,6 +387,33 @@ class TestLinearDispatchScripted(unittest.TestCase):
         result = _run(run(), timeout=30)
         self.assertIsNotNone(result, 'Coordinator must produce RESULT')
         self.assertIn('done', result)
+
+        # Regression: coordinator must be resumed EXACTLY ONCE — with
+        # mid's final 'done'. Before the subtree-loop fix, mid's first
+        # turn ('Dispatched leaf.') was delivered as an interim reply
+        # BEFORE leaf had even run, so the coord was resumed twice:
+        # once with the stale interim text and once with the real
+        # answer. Two resumes here = regression.
+        self.assertEqual(
+            coord_resumes[0], 2,
+            'coord should be invoked exactly twice (initial + one '
+            'resume with the final reply), got %d; messages=%r' % (
+                coord_resumes[0], coord_resume_messages))
+        # And the resume must not contain the interim 'Dispatched leaf.'
+        # text that mid emits on its first turn.
+        self.assertTrue(
+            all('Dispatched leaf' not in m for m in coord_resume_messages),
+            'coord resume must not contain mid\'s interim text; '
+            'messages=%r' % (coord_resume_messages,))
+
+        # mid must have been launched twice: once to dispatch leaf,
+        # once (via --resume) with leaf's reply so mid could integrate.
+        self.assertEqual(mid_calls[0], 2,
+                         'mid should be launched twice (first turn + '
+                         'resume with leaf reply), got %d' % mid_calls[0])
+        self.assertIn('leaf-done', mid_messages[1],
+                      'mid\'s second launch message must contain '
+                      'leaf\'s reply; got %r' % mid_messages[1])
 
         _close_all(session)
         self.assertEqual(len(session._dispatch_session.conversation_map), 0)
