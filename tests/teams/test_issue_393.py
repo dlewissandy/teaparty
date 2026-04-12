@@ -211,8 +211,14 @@ class TestClearClosesAgentContexts(unittest.TestCase):
         infra_bus.close()
 
 
-class TestClearReleasesChildWorktrees(unittest.TestCase):
-    """/clear must release child worktrees stored in agent context records."""
+class TestClearDoesNotTouchNonWorktreeDirs(unittest.TestCase):
+    """Chat-tier /clear must NOT call ``git worktree remove`` on cwd
+    paths stored in child contexts.
+
+    Under issue #397 chat-tier children launch at the real repo and do
+    not have their own worktree. The stored ``agent_worktree_path`` is
+    just an opaque cwd handle — removing it would delete real repo state.
+    """
 
     def setUp(self):
         self._tmpdir = tempfile.mkdtemp()
@@ -221,12 +227,12 @@ class TestClearReleasesChildWorktrees(unittest.TestCase):
     def tearDown(self):
         self._session._bus.close()
 
-    def test_clear_calls_git_worktree_remove_for_each_child(self):
-        """Worktree paths from this session's child contexts are removed."""
+    def test_clear_skips_non_worktree_paths(self):
+        """Plain directories (no .git file) stored on child contexts
+        must not be passed to ``git worktree remove``."""
         bus = self._session._bus
         conv_id = self._session.conversation_id
 
-        # Set up this session's lead context
         lead_ctx = 'agent:office-manager:lead:wt-session'
         self._session._bus_context_id = lead_ctx
 
@@ -237,33 +243,22 @@ class TestClearReleasesChildWorktrees(unittest.TestCase):
         infra_db_path = os.path.join(infra_dir, 'messages.db')
         infra_bus = SqliteMessageBus(infra_db_path)
 
-        # Create the lead context first
         infra_bus.create_agent_context(
             lead_ctx,
             initiator_agent_id='office-manager',
             recipient_agent_id='office-manager',
         )
-
-        # Create child contexts with worktree paths
         infra_bus.create_agent_context_and_increment_parent(
             'agent:om:teaparty-lead:ctx-1',
             initiator_agent_id='office-manager',
             recipient_agent_id='teaparty-lead',
             parent_context_id=lead_ctx,
         )
-        wt_path_1 = os.path.join(self._tmpdir, 'wt1')
-        os.makedirs(wt_path_1, exist_ok=True)
-        infra_bus.set_agent_context_worktree_path('agent:om:teaparty-lead:ctx-1', wt_path_1)
-
-        infra_bus.create_agent_context_and_increment_parent(
-            'agent:om:config-lead:ctx-2',
-            initiator_agent_id='office-manager',
-            recipient_agent_id='config-lead',
-            parent_context_id=lead_ctx,
+        plain_dir = os.path.join(self._tmpdir, 'not-a-worktree')
+        os.makedirs(plain_dir, exist_ok=True)
+        infra_bus.set_agent_context_worktree_path(
+            'agent:om:teaparty-lead:ctx-1', plain_dir,
         )
-        wt_path_2 = os.path.join(self._tmpdir, 'wt2')
-        os.makedirs(wt_path_2, exist_ok=True)
-        infra_bus.set_agent_context_worktree_path('agent:om:config-lead:ctx-2', wt_path_2)
         infra_bus.close()
 
         bus.send(conv_id, 'human', '/clear')
@@ -274,7 +269,7 @@ class TestClearReleasesChildWorktrees(unittest.TestCase):
         def capture_worktree_remove(*args, **kwargs):
             cmd = args[0] if args else kwargs.get('args', [])
             if isinstance(cmd, list) and 'worktree' in cmd and 'remove' in cmd:
-                removed_paths.append(cmd[-1])  # last arg is the path
+                removed_paths.append(cmd[-1])
             return original_run(*args, **kwargs)
 
         with patch.object(self._session, 'load_state'), \
@@ -282,10 +277,10 @@ class TestClearReleasesChildWorktrees(unittest.TestCase):
              patch('subprocess.run', side_effect=capture_worktree_remove):
             asyncio.run(self._session.invoke(cwd=self._tmpdir))
 
-        self.assertIn(wt_path_1, removed_paths,
-                       'First child worktree should be removed')
-        self.assertIn(wt_path_2, removed_paths,
-                       'Second child worktree should be removed')
+        self.assertNotIn(plain_dir, removed_paths,
+                         'Chat-tier cwd paths must not be removed as worktrees')
+        self.assertTrue(os.path.isdir(plain_dir),
+                        'The non-worktree dir must still exist after /clear')
 
 
 class TestBuildContextEmptyAfterClear(unittest.TestCase):

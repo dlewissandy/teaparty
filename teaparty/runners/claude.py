@@ -87,6 +87,9 @@ class ClaudeRunner:
         children_file: str = '',
         tools: str | None = None,
         on_stream_event: Callable[[dict], None] | None = None,
+        settings_path: str = '',
+        mcp_config_path: str = '',
+        strict_mcp_config: bool = False,
     ):
         self.prompt = prompt
         self.cwd = cwd
@@ -95,6 +98,9 @@ class ClaudeRunner:
         self.agents_json = agents_json
         self.tools = tools
         self.on_stream_event = on_stream_event
+        self.settings_path = settings_path
+        self.mcp_config_path = mcp_config_path
+        self.strict_mcp_config = strict_mcp_config
         self.lead = lead
         self.settings = settings or {}
         self.permission_mode = permission_mode
@@ -128,18 +134,22 @@ class ClaudeRunner:
         # compose_launch_worktree with the correct scope. Claude Code
         # reads it from cwd automatically. No --mcp-config flag needed.
 
-        # Write settings to temp file
+        # Settings: chat tier passes a persistent path (no tempfile).
+        # Job tier still writes a tempfile from the settings dict.
         settings_file = None
-        settings = dict(self.settings) if self.settings else {}
-        if settings:
-            settings_file = tempfile.NamedTemporaryFile(
-                mode='w', suffix='.json', delete=False,
-            )
-            json.dump(settings, settings_file)
-            settings_file.close()
+        effective_settings_path = self.settings_path or None
+        if not effective_settings_path:
+            settings = dict(self.settings) if self.settings else {}
+            if settings:
+                settings_file = tempfile.NamedTemporaryFile(
+                    mode='w', suffix='.json', delete=False,
+                )
+                json.dump(settings, settings_file)
+                settings_file.close()
+                effective_settings_path = settings_file.name
 
         try:
-            args = self._build_args(settings_file.name if settings_file else None)
+            args = self._build_args(effective_settings_path)
             env = self._build_env()
             start_time = time.time()
 
@@ -246,9 +256,18 @@ class ClaudeRunner:
             args.extend(['--resume', self.resume_session])
         # --setting-sources user prevents Claude Code from reading
         # project-level .mcp.json.  Pass it explicitly via --mcp-config.
-        mcp_path = os.path.join(self.cwd, '.mcp.json')
-        if os.path.isfile(mcp_path):
+        # Chat tier passes an explicit per-session path that lives
+        # outside the cwd; job tier falls back to the worktree-composed
+        # .mcp.json under cwd.
+        mcp_path = self.mcp_config_path
+        if not mcp_path:
+            candidate = os.path.join(self.cwd, '.mcp.json')
+            if os.path.isfile(candidate):
+                mcp_path = candidate
+        if mcp_path and os.path.isfile(mcp_path):
             args.extend(['--mcp-config', mcp_path])
+            if self.strict_mcp_config:
+                args.append('--strict-mcp-config')
         return args
 
     # Env vars the Claude CLI needs to function.  Everything else is
