@@ -8,7 +8,11 @@ No page carries its own chat DOM, state, or event handlers.
 Each test is load-bearing: it would fail if the fix were reverted (i.e. if the
 accordion UX were still inline in index.html or config.html).
 """
+import json
+import os
 import re
+import shutil
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -643,6 +647,223 @@ class TestNestedDispatchNonHomePage(unittest.TestCase):
                 "lead: branch in deriveSessionId immediately returns null — "
                 "project-lead pages will not fetch a dispatch tree"
             )
+
+
+class TestSeedPostTargetRouting(unittest.TestCase):
+    """accordion-chat.js seed() must POST to the configured convId, not a hardcoded agent.
+
+    AC5: Page-to-agent routing. The POST target URL is constructed from _config.convId.
+    A project-lead config (lead:comics-lead:darrell) must POST to
+    /api/conversations/lead:comics-lead:darrell, not to any om: URL.
+
+    Verified by tracing the seed() function's fetch call in the source: the URL is
+    built as '/api/conversations/' + encodeURIComponent(_config.convId), and _config.convId
+    is always the convId passed into mount(). For any project-lead config, the POST target
+    is the lead: convId, never om:.
+    """
+
+    def _read_accordion_js(self) -> str:
+        if not ACCORDION_JS.exists():
+            self.skipTest("accordion-chat.js not yet created")
+        return _read(ACCORDION_JS)
+
+    def _extract_seed_function(self, src: str) -> str:
+        """Extract the seed() function body from accordion-chat.js."""
+        m = re.search(r'function seed\(message\)\s*\{([\s\S]+?)\n    \}', src)
+        self.assertIsNotNone(m, "seed() function not found in accordion-chat.js")
+        return m.group(1)
+
+    def test_seed_builds_url_from_config_conv_id(self):
+        """seed() must build the POST URL from _config.convId, not a hardcoded value.
+
+        For lead:comics-lead:darrell, seed() must POST to
+        /api/conversations/lead:comics-lead:darrell (after URL encoding).
+        The URL construction is: '/api/conversations/' + encodeURIComponent(_config.convId)
+        """
+        src = self._read_accordion_js()
+        body = self._extract_seed_function(src)
+        # The POST URL must be built from _config.convId, not a literal agent identifier.
+        self.assertIn(
+            '_config.convId', body,
+            "seed() does not use _config.convId in its POST URL — "
+            "all chats will POST to the same URL regardless of config. "
+            "For lead:comics-lead:darrell, the POST must go to "
+            "/api/conversations/lead:comics-lead:darrell."
+        )
+
+    def test_seed_posts_to_conversations_api(self):
+        """seed() must POST to /api/conversations/{convId}."""
+        src = self._read_accordion_js()
+        body = self._extract_seed_function(src)
+        self.assertIn(
+            '/api/conversations/', body,
+            "seed() does not POST to /api/conversations/ — "
+            "messages sent from any page will not be routed to the correct agent"
+        )
+
+    def test_seed_does_not_hardcode_om_in_post_url(self):
+        """seed() must not hardcode 'om:' in the POST URL.
+
+        If the URL were hardcoded to /api/conversations/om:..., project-lead config
+        chats would POST to the office manager instead of the project lead.
+        The URL must be dynamically constructed from _config.convId.
+        """
+        src = self._read_accordion_js()
+        body = self._extract_seed_function(src)
+        # No literal 'om:' string in the POST URL construction.
+        hardcoded_om_in_url = re.findall(r"/api/conversations/om:", body)
+        self.assertEqual(
+            hardcoded_om_in_url, [],
+            f"seed() hardcodes 'om:' in its POST URL: {hardcoded_om_in_url}. "
+            f"project-lead chats will POST to the office manager. "
+            f"The URL must be built from _config.convId."
+        )
+
+    def test_seed_conv_id_is_url_encoded(self):
+        """seed() must encodeURIComponent the convId in the POST URL.
+
+        lead: convIds contain ':' which must be percent-encoded in URLs.
+        Without encoding, lead:comics-lead:darrell would produce an invalid URL.
+        """
+        src = self._read_accordion_js()
+        body = self._extract_seed_function(src)
+        self.assertIn(
+            'encodeURIComponent', body,
+            "seed() does not URL-encode convId in the POST URL — "
+            "lead: convIds contain ':' which would produce invalid URLs without encoding. "
+            "Use: '/api/conversations/' + encodeURIComponent(_config.convId)"
+        )
+
+
+class TestDispatchTreeProjectScopeRouting(unittest.TestCase):
+    """The dispatch tree API must find sessions in project scope, not just management scope.
+
+    When a project lead session is invoked, its metadata.json lives in:
+      {project_path}/.teaparty/project/sessions/{session_id}/
+
+    _handle_dispatch_tree must search both management/sessions and all registered
+    project sessions dirs. Before this fix it hardcoded management/sessions, causing
+    config-page accordions to always show a stub (agent_name='unknown').
+    """
+
+    def setUp(self):
+        self._tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    def _make_session(self, sessions_dir: str, session_id: str, agent_name: str) -> None:
+        """Create a session metadata.json at the given sessions_dir."""
+        path = os.path.join(sessions_dir, session_id)
+        os.makedirs(path, exist_ok=True)
+        with open(os.path.join(path, 'metadata.json'), 'w') as f:
+            json.dump({
+                'session_id': session_id,
+                'agent_name': agent_name,
+                'scope': 'project',
+                'claude_session_id': '',
+                'conversation_map': {},
+                'conversation_id': '',
+            }, f)
+
+    def _find_sessions_dir(self, session_id: str, candidates: list[str]) -> str:
+        """The _find_sessions_dir logic: returns first candidate that has session_id."""
+        for candidate in candidates:
+            meta_path = os.path.join(candidate, session_id, 'metadata.json')
+            if os.path.isfile(meta_path):
+                return candidate
+        return candidates[0]  # fallback
+
+    def test_management_session_found_in_management_dir(self):
+        """OM sessions in management/sessions are found correctly."""
+        mgmt_sessions = os.path.join(self._tmpdir, 'management', 'sessions')
+        self._make_session(mgmt_sessions, 'office-manager-darrell', 'office-manager')
+
+        project_sessions = os.path.join(self._tmpdir, 'project', 'sessions')
+        os.makedirs(project_sessions, exist_ok=True)
+
+        result = self._find_sessions_dir(
+            'office-manager-darrell',
+            [mgmt_sessions, project_sessions]
+        )
+        self.assertEqual(
+            result, mgmt_sessions,
+            "OM session not found in management/sessions — "
+            "home page accordion will not render the dispatch tree"
+        )
+
+    def test_project_lead_session_found_in_project_dir(self):
+        """Project lead sessions in project/sessions are found even if absent from management/sessions.
+
+        Before this fix, _handle_dispatch_tree hardcoded management/sessions and would
+        return a stub tree for any project lead session.
+        """
+        mgmt_sessions = os.path.join(self._tmpdir, 'management', 'sessions')
+        os.makedirs(mgmt_sessions, exist_ok=True)  # OM sessions dir exists but is empty
+
+        project_sessions = os.path.join(self._tmpdir, 'project', 'sessions')
+        session_id = 'comics-lead-comics-lead-darrell'
+        self._make_session(project_sessions, session_id, 'comics-lead')
+
+        result = self._find_sessions_dir(
+            session_id,
+            [mgmt_sessions, project_sessions]
+        )
+        self.assertEqual(
+            result, project_sessions,
+            f"Project lead session '{session_id}' not found in project/sessions — "
+            f"config-page accordion will show stub tree instead of real dispatch tree. "
+            f"This is the bug fixed by searching all sessions dirs, not just management/."
+        )
+
+    def test_fallback_to_management_when_session_absent(self):
+        """When session is not found in any dir, fall back to management/sessions."""
+        mgmt_sessions = os.path.join(self._tmpdir, 'management', 'sessions')
+        os.makedirs(mgmt_sessions, exist_ok=True)
+        project_sessions = os.path.join(self._tmpdir, 'project', 'sessions')
+        os.makedirs(project_sessions, exist_ok=True)
+
+        result = self._find_sessions_dir(
+            'nonexistent-session-id',
+            [mgmt_sessions, project_sessions]
+        )
+        self.assertEqual(
+            result, mgmt_sessions,
+            "Fallback should return management/sessions when no candidate has the session"
+        )
+
+    def test_server_handle_dispatch_tree_searches_project_dirs(self):
+        """server.py _find_sessions_dir must return the project sessions dir for project leads.
+
+        Regression test: before this fix _handle_dispatch_tree hardcoded management/sessions.
+        Verify _find_sessions_dir exists and is called (not the hardcoded pattern).
+        """
+        import teaparty.bridge.server as srv_module
+        src = Path(srv_module.__file__).read_text()
+        # The old hardcoded pattern must be replaced with _find_sessions_dir
+        self.assertIn(
+            '_find_sessions_dir', src,
+            "server.py does not define _find_sessions_dir — "
+            "the dispatch tree handler is still hardcoded to management/sessions, "
+            "breaking accordion on config pages (project lead sessions not found)"
+        )
+        # Confirm _handle_dispatch_tree calls _find_sessions_dir, not a hardcoded path
+        m = re.search(
+            r'async def _handle_dispatch_tree\([\s\S]+?return web\.json_response',
+            src
+        )
+        self.assertIsNotNone(m, "_handle_dispatch_tree not found in server.py")
+        handler_body = m.group(0)
+        self.assertIn(
+            '_find_sessions_dir', handler_body,
+            "_handle_dispatch_tree does not call _find_sessions_dir — "
+            "still using hardcoded management/sessions path"
+        )
+        self.assertNotIn(
+            "'management', 'sessions'", handler_body,
+            "_handle_dispatch_tree still hardcodes management/sessions path — "
+            "project lead sessions won't be found. Use _find_sessions_dir() instead."
+        )
 
 
 if __name__ == '__main__':

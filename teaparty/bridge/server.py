@@ -1865,17 +1865,58 @@ class TeaPartyBridge:
 
         GET /api/dispatch-tree/{session_id}
         Returns a nested tree of dispatched conversations with their status.
+
+        Sessions can live in either management scope or a project's scope,
+        depending on which agent was invoked:
+          - OM sessions: {teaparty_home}/management/sessions/
+          - Project lead sessions: {project_path}/.teaparty/project/sessions/
+
+        Search all candidate directories and use the first one that contains
+        the requested session_id.
         """
         session_id = request.match_info['session_id']
         from teaparty.bridge.state.dispatch_tree import build_dispatch_tree
-        # _repo_root is the teaparty/ package; .teaparty/ is one level up
-        repo_root = os.path.dirname(self._repo_root)
-        sessions_dir = os.path.join(
-            repo_root, '.teaparty', 'management', 'sessions')
+
+        sessions_dir = self._find_sessions_dir(session_id)
         tree = build_dispatch_tree(sessions_dir, session_id)
         _log.debug('dispatch-tree %s: %d children, sessions_dir=%s',
                    session_id, len(tree.get('children', [])), sessions_dir)
         return web.json_response(tree)
+
+    def _find_sessions_dir(self, session_id: str) -> str:
+        """Return the sessions directory that contains the given session_id.
+
+        Tries management/sessions first (OM), then each registered project's
+        project/sessions dir. Falls back to management/sessions if not found.
+        """
+        candidates = self._all_sessions_dirs()
+        for candidate in candidates:
+            meta_path = os.path.join(candidate, session_id, 'metadata.json')
+            if os.path.isfile(meta_path):
+                return candidate
+        return candidates[0]  # management/sessions as fallback
+
+    def _all_sessions_dirs(self) -> list[str]:
+        """Return all sessions directories: management first, then each project."""
+        mgmt_sessions = os.path.join(self.teaparty_home, 'management', 'sessions')
+        dirs = [mgmt_sessions]
+        try:
+            team = load_management_team(teaparty_home=self.teaparty_home)
+            repo_root = os.path.dirname(self.teaparty_home)
+            for project_name in (team.members_projects or []):
+                for p in (team.projects or []):
+                    if p.get('name') != project_name:
+                        continue
+                    project_path = p.get('path', '')
+                    if not os.path.isabs(project_path):
+                        project_path = os.path.join(repo_root, project_path)
+                    project_sessions = os.path.join(
+                        project_path, '.teaparty', 'project', 'sessions')
+                    dirs.append(project_sessions)
+                    break
+        except Exception:
+            _log.debug('_all_sessions_dirs: could not enumerate projects', exc_info=True)
+        return dirs
 
     async def _handle_create_job(self, request: web.Request) -> web.Response:
         """Create a new CfA session for a project.
