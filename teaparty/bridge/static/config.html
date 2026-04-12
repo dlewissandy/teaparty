@@ -202,20 +202,24 @@ function cronItems(scheduled, toggleScope, projectSlug) {
 }
 
 // ── Generic page renderer ────────────────────────────────────────────────────
-// spec: { breadcrumb, title, description, subtitle, cards, bladeConvId, bladeTitle }
-// cards: [ { title, items, opts } ]
+// spec: { crumbs, description?, subtitle?, cards?, bladeConvId?, bladeTitle?, bladeContext? }
+// crumbs: [{label, onClick?}, …] — the last entry is the current page; its
+//   label drives <title>, the breadcrumb's rightmost span, and the H1. There
+//   is exactly one source of truth for the page identity.
+// cards: [{title, items, opts}, …]
 function renderConfigPage(spec) {
+  var crumbs = spec.crumbs;
+  var currentLabel = crumbs[crumbs.length - 1].label;
+
   bladeConvId = spec.bladeConvId || '';
   bladeContext = spec.bladeContext || '';
   document.getElementById('blade-title').textContent = spec.bladeTitle || 'Manager';
   _updateBladeIframe();
 
-  document.title = 'TeaParty \u2014 ' + (spec.title || 'Configuration');
+  document.title = 'TeaParty \u2014 ' + currentLabel;
+  document.getElementById('breadcrumb-slot').innerHTML = breadcrumbBar(crumbs);
 
-  var el = document.getElementById('breadcrumb-slot');
-  if (el) el.innerHTML = spec.breadcrumb || '';
-
-  var html = '<div class="pane-title">' + escAttr(spec.title || '') + '</div>';
+  var html = '<div class="pane-title">' + escAttr(currentLabel) + '</div>';
   if (spec.description) html += '<div class="pane-description">' + escAttr(spec.description) + '</div>';
   if (spec.subtitle) html += '<div class="pane-subtitle">' + spec.subtitle + '</div>';
 
@@ -228,20 +232,10 @@ function renderConfigPage(spec) {
   document.getElementById('content').innerHTML = html;
 }
 
-function showError(msg) {
-  document.getElementById('content').innerHTML =
-    '<div style="padding:24px;color:var(--text-dim);font-size:11px">' + msg + '</div>';
-}
-
-function showLoading() {
-  document.getElementById('content').innerHTML =
-    '<div style="padding:24px;color:var(--text-dim);font-size:11px">Loading...</div>';
-}
-
-// Build a best-effort breadcrumb from the URL scope. Used by renderScope to
-// populate the bar before the fetch resolves so the current location is
-// visible during loading and survives a failed fetch. The scope loaders
-// replace this with a richer label (e.g. resolved team.name) on success.
+// Build a best-effort crumb trail from the URL scope. Used by renderScope for
+// the Loading / Failed-to-load specs so the current location is visible
+// before the fetch resolves and survives a rejection. The scope loaders
+// return a richer trail (resolved team.name, etc.) on success.
 function scopeCrumbs(scope) {
   var crumbs = [{ label: 'Home', onClick: "location.href='index.html'" }];
   if (!scope || scope.level === 'global') {
@@ -307,11 +301,10 @@ async function loadGlobal() {
   var subtitle = projects.length + ' projects &middot; ' + (workgroupsData || []).length + ' workgroups &middot; ' + (m.agents || []).length + ' agents';
 
   return {
-    breadcrumb: breadcrumbBar([
+    crumbs: [
       { label: 'Home', onClick: "location.href='index.html'" },
       { label: 'Management Team' },
-    ]),
-    title: 'Management Team',
+    ],
     description: m.description || 'Cross-project coordination, human interaction, organizational strategy, and configuration management.',
     subtitle: subtitle,
     bladeConvId: omConvId,
@@ -368,12 +361,11 @@ async function loadProject(slug) {
   });
 
   return {
-    breadcrumb: breadcrumbBar([
+    crumbs: [
       { label: 'Home', onClick: "location.href='index.html'" },
       { label: 'Management Team', onClick: "configNav('global')" },
       { label: (team.name || slug) + ' Team' },
-    ]),
-    title: (team.name || slug) + ' Team',
+    ],
     description: team.description || '',
     subtitle: 'Decider: ' + (team.decider || '') + ' &middot; Lead: ' + (team.lead || ''),
     bladeConvId: omConvId,
@@ -439,8 +431,7 @@ async function loadWorkgroup(name, projectSlug) {
   crumbs.push({ label: name });
 
   return {
-    breadcrumb: breadcrumbBar(crumbs),
-    title: name,
+    crumbs: crumbs,
     description: wgData.description || '',
     subtitle: 'Lead: ' + (wgData.lead || '') + ' &middot; ' + (wgData.agents_count || 0) + ' agents',
     bladeConvId: omConvId,
@@ -529,8 +520,7 @@ function _buildAgentSpec() {
   crumbs.push({ label: name });
 
   return {
-    breadcrumb: breadcrumbBar(crumbs),
-    title: name,
+    crumbs: crumbs,
     description: fm.description || '',
     bladeConvId: omConvId,
     bladeTitle: 'Office Manager',
@@ -569,13 +559,12 @@ function configNav(level, nameOrSlug, extra) {
 }
 
 async function renderScope(loader, scope) {
-  document.getElementById('breadcrumb-slot').innerHTML = breadcrumbBar(scopeCrumbs(scope));
-  showLoading();
+  var placeholder = scopeCrumbs(scope);
+  renderConfigPage({crumbs: placeholder, description: 'Loading\u2026'});
   try {
-    var spec = await loader();
-    renderConfigPage(spec);
+    renderConfigPage(await loader());
   } catch (e) {
-    showError('Failed to load: ' + e.message);
+    renderConfigPage({crumbs: placeholder, description: 'Failed to load: ' + e.message});
   }
 }
 
