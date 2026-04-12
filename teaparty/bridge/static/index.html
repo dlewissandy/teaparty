@@ -232,7 +232,19 @@ function _renderNode(node, depth) {
 
   // Expanded content (iframe with chat)
   if (isExpanded) {
-    var convId = node.conversation_id || ('session:' + node.session_id);
+    // The dispatch tree's root node IS the office-manager session
+    // itself — its conversation_id in the tree falls back to
+    // `dispatch:{session_id}`, but the OM's real chat lives on
+    // `om:{qualifier}` (pageState.omConvId). Using the fallback
+    // produces a blank iframe, which is what the user sees when
+    // CloseConversation bubbles the expanded section back up to the
+    // root. Override with omConvId at depth 0.
+    var convId;
+    if (depth === 0 && pageState.omConvId) {
+      convId = pageState.omConvId;
+    } else {
+      convId = node.conversation_id || ('session:' + node.session_id);
+    }
     html += '<div class="accord-body">';
     html += '<iframe src="chat.html?conv=' + encodeURIComponent(convId) + '&minimal=1&_t=' + Date.now() + '" style="width:100%;flex:1;border:none;display:block;min-height:0"></iframe>';
     html += '</div>';
@@ -665,6 +677,20 @@ function connectWS() {
             _accordionExpanded = event.parent_session_id || _dispatchTree.session_id;
           }
           _removeFromTree(_dispatchTree, event.child_session_id);
+          // After removal, make sure _accordionExpanded still points to
+          // a node that exists. In a recursive-close cascade the parent
+          // we just jumped to may itself be about to be removed, or was
+          // already removed by a prior event in the same cascade — fall
+          // back up the chain until we hit a surviving node, or the
+          // tree root as a last resort. Without this the iframe
+          // renders nothing (blank section).
+          var flatAfter = _flattenTree(_dispatchTree);
+          var stillExists = flatAfter.some(function(n) {
+            return n.session_id === _accordionExpanded;
+          });
+          if (!stillExists) {
+            _accordionExpanded = _dispatchTree.session_id;
+          }
           var container = document.getElementById('dispatch-accordion');
           if (container) container.innerHTML = _renderNode(_dispatchTree, 0);
           _syncFiltersToIframe();
