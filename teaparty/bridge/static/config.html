@@ -126,7 +126,11 @@ function itemCard(opts) {
   if (o.meta) bodyHtml += '<div class="item-meta">' + o.meta + '</div>';
   bodyHtml += '</div>';
   if (o.href) {
-    html += '<a class="item-link" href="' + o.href + '" style="display:contents;color:inherit;text-decoration:none">' + iconHtml + bodyHtml + '</a>';
+    // Flex-container anchor wraps icon+body so clicks anywhere inside
+    // — including the 7px gap between icon and body — navigate. Toggle
+    // and trailing elements remain outside the anchor as siblings so
+    // their own click handlers don't compete.
+    html += '<a class="item-link" href="' + o.href + '" style="flex:1;display:flex;align-items:center;gap:7px;min-width:0;color:inherit;text-decoration:none">' + iconHtml + bodyHtml + '</a>';
   } else {
     html += iconHtml + bodyHtml;
   }

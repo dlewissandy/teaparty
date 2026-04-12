@@ -619,7 +619,7 @@ function render() {
         } else {
           projectsHtml += '<a style="width:6px;display:inline-block"></a>';
         }
-        projectsHtml += '<a href="chat.html?conv=' + convId + '" style="display:contents;color:inherit;text-decoration:none">';
+        projectsHtml += '<a href="chat.html?conv=' + convId + '" style="flex:1;display:flex;align-items:center;gap:6px;color:inherit;text-decoration:none;min-width:0">';
         projectsHtml += '<span style="flex-shrink:0;width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;color:var(--text)">' + jobName + '</span>';
         projectsHtml += '<span style="flex:1">' + renderWorkflow(pIdx, false, s.needs_input || !!stickyConvId) + '</span>';
         var liveness = s.heartbeat_status === 'alive' ? 'active' : 'idle';

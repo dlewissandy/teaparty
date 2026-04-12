@@ -77,10 +77,14 @@ def check_home(page) -> list[str]:
                 f'home pc-esc-item: expected exactly 1 dot-slot anchor, got {len(dots)}'
             )
         if body_anchors:
+            # Body anchor is a flex container (flex:1) so clicks anywhere
+            # inside — including the flex gaps between jobName/workflow/
+            # badge — navigate. display:contents was tried earlier but
+            # left the outer row's flex gaps dead.
             disp = body_anchors[0].evaluate('el => getComputedStyle(el).display')
-            if disp != 'contents':
+            if disp != 'flex':
                 errors.append(
-                    f'home pc-esc-item body anchor display={disp}, expected contents'
+                    f'home pc-esc-item body anchor display={disp}, expected flex'
                 )
 
     if org_cards:
@@ -113,8 +117,8 @@ def check_config(page) -> list[str]:
 
     for link in item_links[:3]:
         disp = link.evaluate('el => getComputedStyle(el).display')
-        if disp != 'contents':
-            errors.append(f'config: item-link display={disp}, expected contents')
+        if disp != 'flex':
+            errors.append(f'config: item-link display={disp}, expected flex')
 
     bad = page.eval_on_selector_all(
         '[onclick]',
