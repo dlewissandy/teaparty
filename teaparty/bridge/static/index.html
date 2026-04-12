@@ -109,6 +109,19 @@ function seedBlade(message) {
   if (_chatBlade) _chatBlade.seed(message);
 }
 
+// Project pause / resume — direct operational controls (issue #403).
+// These POST straight to the bridge; no OM interpretation step.
+function pauseProject(slug) {
+  fetch('/api/projects/' + encodeURIComponent(slug) + '/pause', {
+    method: 'POST',
+  }).then(function() { fetchAll(); });
+}
+function resumeProject(slug) {
+  fetch('/api/projects/' + encodeURIComponent(slug) + '/resume', {
+    method: 'POST',
+  }).then(function() { fetchAll(); });
+}
+
 // Show a modal dialog for project onboarding (add or create).
 // title: dialog heading; endpoint: '/api/projects/add' or '/api/projects/create'
 function showProjectModal(title, endpoint) {
@@ -246,7 +259,7 @@ function renderWorkflow(phaseIdx, large, needsInput) {
 
 // Page state: updated by fetchAll() and WebSocket events.
 // escalationConvMap: session_id → conversation_id from input_requested events.
-var pageState = { projects: [], configs: {}, omConvId: 'om:darrell', omSessionId: 'office-manager-darrell', escalationConvMap: {} };
+var pageState = { projects: [], configs: {}, omConvId: 'om:darrell', omSessionId: 'office-manager-darrell', escalationConvMap: {}, pausedProjects: {} };
 
 function fetchAll() {
   Promise.all([
@@ -254,6 +267,11 @@ function fetchAll() {
     fetch('/api/conversations?type=office_manager').then(function(r) { return r.json(); })
   ]).then(function(results) {
     pageState.projects = results[0] || [];
+    // Seed pausedProjects from REST so the status pills render
+    // correctly on first load (issue #403).
+    pageState.projects.forEach(function(p) {
+      if (p.paused) { pageState.pausedProjects[p.slug] = true; }
+    });
     var omConvs = results[1] || [];
     if (omConvs.length > 0) {
       pageState.omConvId = omConvs[0].id;
@@ -378,7 +396,12 @@ function render() {
         projectsHtml += '<a href="chat.html?conv=' + convId + '" style="flex:1;display:flex;align-items:center;gap:6px;color:inherit;text-decoration:none;min-width:0">';
         projectsHtml += '<span style="flex-shrink:0;width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;color:var(--text)">' + jobName + '</span>';
         projectsHtml += '<span style="flex:1">' + renderWorkflow(pIdx, false, s.needs_input || !!stickyConvId) + '</span>';
-        var liveness = s.heartbeat_status === 'alive' ? 'active' : 'idle';
+        var liveness;
+        if (pageState.pausedProjects && pageState.pausedProjects[p.slug]) {
+          liveness = 'paused';
+        } else {
+          liveness = s.heartbeat_status === 'alive' ? 'active' : 'idle';
+        }
         projectsHtml += '<span class="item-badge badge-' + liveness + '" style="flex-shrink:0">' + liveness + '</span>';
         projectsHtml += '</a>';
         projectsHtml += '</div>';
@@ -390,8 +413,8 @@ function render() {
     var pName = p.name || p.slug;
     projectsHtml += '<div class="pc-actions">';
     projectsHtml += '<button class="pc-action" onclick="createJob(\'' + p.slug + '\')"><span class="pc-action-icon">&#9654;</span>New Job</button>';
-    projectsHtml += '<button class="pc-action" onclick="seedBlade(\'Please pause all running jobs for the ' + pName + ' project.\')"><span class="pc-action-icon">&#9646;&#9646;</span>Pause All</button>';
-    projectsHtml += '<button class="pc-action" onclick="seedBlade(\'Please restart all paused jobs for the ' + pName + ' project.\')"><span class="pc-action-icon">&#9654;</span>Restart All</button>';
+    projectsHtml += '<button class="pc-action" onclick="pauseProject(\'' + p.slug + '\')"><span class="pc-action-icon">&#9646;&#9646;</span>Pause All</button>';
+    projectsHtml += '<button class="pc-action" onclick="resumeProject(\'' + p.slug + '\')"><span class="pc-action-icon">&#9654;</span>Resume All</button>';
     projectsHtml += '<button class="pc-action" onclick="seedBlade(\'Please ask the ' + pName + ' lead for a status update.\')"><span class="pc-action-icon">&#9733;</span>Status</button>';
     projectsHtml += '</div>';
 
@@ -430,6 +453,12 @@ function connectWS() {
         // Session is done — its escalation no longer requires a response.
         // Accordion updates (session removal) are handled by accordion-chat.js.
         delete pageState.escalationConvMap[event.session_id];
+        fetchAll();
+      } else if (event.type === 'project_paused') {
+        pageState.pausedProjects[event.project] = true;
+        fetchAll();
+      } else if (event.type === 'project_resumed') {
+        delete pageState.pausedProjects[event.project];
         fetchAll();
       }
       // dispatch_started / dispatch_completed: handled by accordion-chat.js WS.

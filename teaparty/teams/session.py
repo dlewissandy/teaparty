@@ -71,6 +71,8 @@ class AgentSession:
         build_prompt_hook: BuildPromptHook | None = None,
         on_dispatch: Callable[[dict], Any] | None = None,
         llm_caller: Callable | None = None,
+        project_slug: str = '',
+        paused_check: Callable[[], bool] | None = None,
     ):
         self.teaparty_home = os.path.expanduser(teaparty_home)
         self.agent_name = agent_name
@@ -83,6 +85,8 @@ class AgentSession:
         self._build_prompt_hook = build_prompt_hook
         self._on_dispatch = on_dispatch
         self._llm_caller = llm_caller  # None → use launcher default
+        self.project_slug = project_slug
+        self._paused_check = paused_check
 
         self.conversation_id = make_conversation_id(conversation_type, qualifier)
         self.claude_session_id: str | None = None
@@ -111,6 +115,13 @@ class AgentSession:
         # child_session_id → running _run_child task, so close_fn can
         # cancel a specific in-flight conversation.
         self._tasks_by_child: dict[str, asyncio.Task] = {}
+        # child_session_id → factory that re-creates the _run_child
+        # coroutine for that child. Populated by spawn_fn; consulted by
+        # the pause/resume walker (issue #403) to rebuild the task
+        # chain without having to duplicate spawn_fn's closure state.
+        # Signature: factory(start_at_phase, initial_gc_task_ids,
+        #                    resume_claude_session) -> Coroutine
+        self._run_child_factories: dict[str, Any] = {}
 
     # ── Message bus ──────────────────────────────────────────────────────
 
@@ -245,6 +256,9 @@ class AgentSession:
             remove_child_session as _remove_child,
             check_slot_available as _check_slot,
             _save_session_metadata as _save_meta,
+            mark_launching as _mark_launching,
+            mark_awaiting as _mark_awaiting,
+            mark_complete as _mark_complete,
         )
 
         infra_dir = os.path.join(
@@ -300,6 +314,14 @@ class AgentSession:
                 _log.warning(
                     '%s spawn_fn: at conversation limit, dispatch to %s blocked',
                     self.agent_name, member,
+                )
+                return ('', '', '')
+
+            # Refuse new dispatches while the project is paused (issue #403).
+            if self._paused_check is not None and self._paused_check():
+                _log.warning(
+                    '%s spawn_fn: project %s paused, dispatch to %s refused',
+                    self.agent_name, self.project_slug, member,
                 )
                 return ('', '', '')
 
@@ -405,6 +427,16 @@ class AgentSession:
 
             _save_meta(child_session)
 
+            # Record parent/project on the child so the pause walker can
+            # reconstruct the tree from disk (issue #403).
+            child_session.parent_session_id = dispatcher_session.id
+            child_session.project_slug = getattr(
+                self, 'project_slug', '') or ''
+            child_session.phase = 'launching'
+            child_session.initial_message = composite
+            child_session.current_message = composite
+            _save_meta(child_session)
+
             # Register the child's session so its dispatches are recorded
             # in its own conversation_map.
             session_registry[child_session.id] = child_session
@@ -440,7 +472,11 @@ class AgentSession:
             # The child runs asynchronously; its response is written to
             # the parent's bus when it completes.
 
-            async def _run_child() -> str:
+            async def _run_child(
+                start_at_phase: str = 'launching',
+                initial_gc_task_ids: list[str] | None = None,
+                resume_claude_session: str = '',
+            ) -> str:
                 """Run the dispatched child through its full lifecycle.
 
                 Loops until the child's turn emits no new Send tool_uses:
@@ -476,8 +512,37 @@ class AgentSession:
                             response_parts.append(content)
 
                 mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
-                current_claude_session = ''
+                current_claude_session = resume_claude_session or ''
                 current_message = composite
+
+                # Resume-at-awaiting: skip the first _launch and go
+                # straight to gather on the pre-captured grandchild
+                # tasks (issue #403). After gather returns normally,
+                # the loop below computes the next-turn message and
+                # re-enters _launch with --resume, exactly as the
+                # normal path would have.
+                if start_at_phase == 'awaiting':
+                    gc_tasks = [
+                        self._tasks_by_child[g]
+                        for g in (initial_gc_task_ids or [])
+                        if g in self._tasks_by_child
+                    ]
+                    if gc_tasks:
+                        _mark_awaiting(
+                            child_session, list(initial_gc_task_ids or []))
+                        gc_results = await _asyncio.gather(
+                            *gc_tasks, return_exceptions=True)
+                        gc_replies: list[str] = []
+                        for gid, r in zip(initial_gc_task_ids or [], gc_results):
+                            if isinstance(r, str) and r:
+                                gc_replies.append(
+                                    f'[dispatch:{gid}] {r}')
+                        if gc_replies:
+                            current_message = '\n'.join(gc_replies)
+                    # Fall through to the normal loop, which will now
+                    # do a _launch with --resume and the integrated
+                    # grandchild replies as the new prompt.
+
                 while True:
                     # Snapshot which children this session already
                     # has before the turn — anything new after the
@@ -525,6 +590,7 @@ class AgentSession:
                         launch_kwargs['llm_caller'] = self._llm_caller
 
                     try:
+                        _mark_launching(child_session, current_message)
                         result = await _launch(**launch_kwargs)
                         if result.session_id:
                             child_session.claude_session_id = result.session_id
@@ -551,6 +617,7 @@ class AgentSession:
                     ]
                     if not gc_tasks:
                         break
+                    _mark_awaiting(child_session, list(new_gc_ids))
                     gc_results = await _asyncio.gather(
                         *gc_tasks, return_exceptions=True)
                     gc_replies: list[str] = []
@@ -583,6 +650,7 @@ class AgentSession:
                           self.agent_name, member, _time.monotonic() - t0)
 
                 response_text = '\n'.join(response_parts)
+                _mark_complete(child_session, response_text)
                 if not response_text:
                     return ''
 
@@ -601,6 +669,7 @@ class AgentSession:
 
                 return response_text
 
+            self._run_child_factories[child_session.id] = _run_child
             task = _asyncio.create_task(_run_child())
             self._background_tasks.add(task)
             self._tasks_by_child[child_session.id] = task

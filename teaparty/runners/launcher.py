@@ -62,6 +62,30 @@ class Session:
     merge_target_repo: str = ''
     merge_target_branch: str = ''
     merge_target_worktree: str = ''
+    # Execution phase — written continuously by the subtree loop so that
+    # a pause (task cancellation) lands with an accurate snapshot.
+    # One of 'launching', 'awaiting', 'complete'.
+    phase: str = 'launching'
+    # Final integrated reply text — populated on normal loop exit so a
+    # resumed parent can collect a 'complete' child's answer without
+    # re-running any LLM work.
+    response_text: str = ''
+    # The project this session belongs to (slug). Empty for management
+    # sessions. Used by pause/resume to scope subtree walks.
+    project_slug: str = ''
+    # Parent session id for on-disk tree walking. Empty at the root.
+    parent_session_id: str = ''
+    # The message currently being processed. Persisted at the start of
+    # each turn so a launching-phase resume can re-run that turn via
+    # --resume with the same input. The in-flight grandchild ids at the
+    # time the session entered 'awaiting' are needed by the resume
+    # walker to rebuild the task chain.
+    current_message: str = ''
+    in_flight_gc_ids: list[str] = field(default_factory=list)
+    # Dispatcher's initial input to this session (the `composite` used
+    # on the first _launch). Retained so a launching-phase resume of
+    # the very first turn has the original prompt to re-run.
+    initial_message: str = ''
 
 
 # ── Agent definition resolution ──────────────────────────────────────────────
@@ -427,6 +451,13 @@ def load_session(
             merge_target_repo=meta.get('merge_target_repo', ''),
             merge_target_branch=meta.get('merge_target_branch', ''),
             merge_target_worktree=meta.get('merge_target_worktree', ''),
+            phase=meta.get('phase', 'launching'),
+            response_text=meta.get('response_text', ''),
+            project_slug=meta.get('project_slug', ''),
+            parent_session_id=meta.get('parent_session_id', ''),
+            current_message=meta.get('current_message', ''),
+            in_flight_gc_ids=list(meta.get('in_flight_gc_ids', [])),
+            initial_message=meta.get('initial_message', ''),
         )
     except (json.JSONDecodeError, OSError):
         return None
@@ -446,12 +477,84 @@ def _save_session_metadata(session: Session) -> None:
         'merge_target_repo': session.merge_target_repo,
         'merge_target_branch': session.merge_target_branch,
         'merge_target_worktree': session.merge_target_worktree,
+        'phase': session.phase,
+        'response_text': session.response_text,
+        'project_slug': session.project_slug,
+        'parent_session_id': session.parent_session_id,
+        'current_message': session.current_message,
+        'in_flight_gc_ids': session.in_flight_gc_ids,
+        'initial_message': session.initial_message,
     }
     meta_path = os.path.join(session.path, 'metadata.json')
     tmp = meta_path + '.tmp'
     with open(tmp, 'w') as f:
         json.dump(meta, f, indent=2)
     os.replace(tmp, meta_path)
+
+
+# ── Phase transitions (pause/resume plumbing, issue #403) ───────────────────
+
+def _update_phase_fields(session: Session, fields: dict[str, Any]) -> None:
+    """Read-modify-write only the named phase fields in metadata.json.
+
+    Other fields (claude_session_id, conversation_map, etc.) are preserved
+    from disk so a concurrent update from a different codepath is not
+    clobbered. Same pattern as _update_conversation_map.
+    """
+    meta_path = os.path.join(session.path, 'metadata.json')
+    try:
+        with open(meta_path) as f:
+            meta = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        meta = {}
+    meta.update(fields)
+    tmp = meta_path + '.tmp'
+    with open(tmp, 'w') as f:
+        json.dump(meta, f, indent=2)
+    os.replace(tmp, meta_path)
+
+
+def mark_launching(session: Session, current_message: str) -> None:
+    """Record that the session is about to enter ``await _launch(...)``.
+
+    The current_message is persisted so a launching-phase resume can
+    re-send the same turn input under --resume. Cancellation between
+    this call and the next transition lands in the launching await
+    with phase='launching' and the correct input already on disk.
+    """
+    session.phase = 'launching'
+    session.current_message = current_message
+    _update_phase_fields(
+        session,
+        {'phase': 'launching', 'current_message': current_message},
+    )
+
+
+def mark_awaiting(session: Session, in_flight_gc_ids: list[str]) -> None:
+    """Record that the session is about to enter ``await gather(...)``.
+
+    The grandchild ids being awaited are persisted so the resume walker
+    can locate those sessions on disk and rebuild the gather target set.
+    """
+    session.phase = 'awaiting'
+    session.in_flight_gc_ids = list(in_flight_gc_ids)
+    _update_phase_fields(
+        session,
+        {'phase': 'awaiting', 'in_flight_gc_ids': list(in_flight_gc_ids)},
+    )
+
+
+def mark_complete(session: Session, response_text: str) -> None:
+    """Record that the subtree loop exited normally with a final reply.
+
+    The stored response_text lets a resumed parent collect this session's
+    answer without re-running any LLM work.
+    """
+    session.phase = 'complete'
+    session.response_text = response_text
+    _update_phase_fields(
+        session, {'phase': 'complete', 'response_text': response_text},
+    )
 
 
 def record_child_session(
