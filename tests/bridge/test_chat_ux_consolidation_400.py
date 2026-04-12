@@ -15,6 +15,7 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 STATIC_DIR = Path(__file__).resolve().parent.parent.parent / "teaparty" / "bridge" / "static"
@@ -741,13 +742,27 @@ class TestDispatchTreeProjectScopeRouting(unittest.TestCase):
     When a project lead session is invoked, its metadata.json lives in:
       {project_path}/.teaparty/project/sessions/{session_id}/
 
-    _handle_dispatch_tree must search both management/sessions and all registered
-    project sessions dirs. Before this fix it hardcoded management/sessions, causing
-    config-page accordions to always show a stub (agent_name='unknown').
+    TeaPartyBridge._find_sessions_dir must search both management/sessions and all registered
+    project sessions dirs. Before this fix _handle_dispatch_tree hardcoded management/sessions,
+    causing config-page accordions to always show a stub (agent_name='unknown').
+
+    These tests call TeaPartyBridge._find_sessions_dir directly with _all_sessions_dirs
+    patched to control the candidate list, so we exercise the real server method.
     """
 
     def setUp(self):
         self._tmpdir = tempfile.mkdtemp()
+        # Construct a minimal TeaPartyBridge instance.
+        # _migrate_legacy_sessions is protected by try/except; StateReader.__init__
+        # is lightweight (no I/O). This is safe with an empty temp dir.
+        from unittest.mock import patch
+        from teaparty.bridge.server import TeaPartyBridge  # noqa: E402
+        # Patch _migrate_legacy_sessions to avoid registry filesystem setup.
+        with patch.object(TeaPartyBridge, '_migrate_legacy_sessions', lambda self: None):
+            self._server = TeaPartyBridge(
+                teaparty_home=self._tmpdir,
+                static_dir=str(STATIC_DIR),
+            )
 
     def tearDown(self):
         shutil.rmtree(self._tmpdir, ignore_errors=True)
@@ -766,88 +781,70 @@ class TestDispatchTreeProjectScopeRouting(unittest.TestCase):
                 'conversation_id': '',
             }, f)
 
-    def _find_sessions_dir(self, session_id: str, candidates: list[str]) -> str:
-        """The _find_sessions_dir logic: returns first candidate that has session_id."""
-        for candidate in candidates:
-            meta_path = os.path.join(candidate, session_id, 'metadata.json')
-            if os.path.isfile(meta_path):
-                return candidate
-        return candidates[0]  # fallback
-
     def test_management_session_found_in_management_dir(self):
-        """OM sessions in management/sessions are found correctly."""
+        """OM sessions in management/sessions are found by TeaPartyBridge._find_sessions_dir."""
         mgmt_sessions = os.path.join(self._tmpdir, 'management', 'sessions')
         self._make_session(mgmt_sessions, 'office-manager-darrell', 'office-manager')
-
         project_sessions = os.path.join(self._tmpdir, 'project', 'sessions')
         os.makedirs(project_sessions, exist_ok=True)
 
-        result = self._find_sessions_dir(
-            'office-manager-darrell',
-            [mgmt_sessions, project_sessions]
-        )
+        with patch.object(self._server, '_all_sessions_dirs', return_value=[mgmt_sessions, project_sessions]):
+            result = self._server._find_sessions_dir('office-manager-darrell')
+
         self.assertEqual(
             result, mgmt_sessions,
-            "OM session not found in management/sessions — "
+            "TeaPartyBridge._find_sessions_dir: OM session not found in management/sessions — "
             "home page accordion will not render the dispatch tree"
         )
 
     def test_project_lead_session_found_in_project_dir(self):
-        """Project lead sessions in project/sessions are found even if absent from management/sessions.
+        """Project lead sessions in project/sessions are found by TeaPartyBridge._find_sessions_dir.
 
         Before this fix, _handle_dispatch_tree hardcoded management/sessions and would
-        return a stub tree for any project lead session.
+        return a stub tree for any project lead session. This test calls the actual server
+        method (not a local reimplementation) to catch bugs in the server's path.
         """
         mgmt_sessions = os.path.join(self._tmpdir, 'management', 'sessions')
-        os.makedirs(mgmt_sessions, exist_ok=True)  # OM sessions dir exists but is empty
+        os.makedirs(mgmt_sessions, exist_ok=True)  # present but empty
 
         project_sessions = os.path.join(self._tmpdir, 'project', 'sessions')
         session_id = 'comics-lead-comics-lead-darrell'
         self._make_session(project_sessions, session_id, 'comics-lead')
 
-        result = self._find_sessions_dir(
-            session_id,
-            [mgmt_sessions, project_sessions]
-        )
+        with patch.object(self._server, '_all_sessions_dirs', return_value=[mgmt_sessions, project_sessions]):
+            result = self._server._find_sessions_dir(session_id)
+
         self.assertEqual(
             result, project_sessions,
-            f"Project lead session '{session_id}' not found in project/sessions — "
-            f"config-page accordion will show stub tree instead of real dispatch tree. "
-            f"This is the bug fixed by searching all sessions dirs, not just management/."
+            f"TeaPartyBridge._find_sessions_dir: project lead session '{session_id}' not found "
+            f"in project/sessions — config-page accordion will show stub tree. "
+            f"This is the regression this fix prevents: management/sessions was hardcoded."
         )
 
-    def test_fallback_to_management_when_session_absent(self):
-        """When session is not found in any dir, fall back to management/sessions."""
+    def test_fallback_to_first_candidate_when_session_absent(self):
+        """When session is not found in any candidate dir, fall back to the first (management)."""
         mgmt_sessions = os.path.join(self._tmpdir, 'management', 'sessions')
         os.makedirs(mgmt_sessions, exist_ok=True)
         project_sessions = os.path.join(self._tmpdir, 'project', 'sessions')
         os.makedirs(project_sessions, exist_ok=True)
 
-        result = self._find_sessions_dir(
-            'nonexistent-session-id',
-            [mgmt_sessions, project_sessions]
-        )
+        with patch.object(self._server, '_all_sessions_dirs', return_value=[mgmt_sessions, project_sessions]):
+            result = self._server._find_sessions_dir('nonexistent-session-id')
+
         self.assertEqual(
             result, mgmt_sessions,
-            "Fallback should return management/sessions when no candidate has the session"
+            "TeaPartyBridge._find_sessions_dir must fall back to first candidate when session absent"
         )
 
-    def test_server_handle_dispatch_tree_searches_project_dirs(self):
-        """server.py _find_sessions_dir must return the project sessions dir for project leads.
+    def test_server_handle_dispatch_tree_calls_find_sessions_dir(self):
+        """_handle_dispatch_tree must call _find_sessions_dir, not a hardcoded path.
 
-        Regression test: before this fix _handle_dispatch_tree hardcoded management/sessions.
-        Verify _find_sessions_dir exists and is called (not the hardcoded pattern).
+        Source-level check to catch the regression: the old code was
+        `sessions_dir = os.path.join(repo_root, '.teaparty', 'management', 'sessions')`.
+        After the fix, _handle_dispatch_tree delegates to _find_sessions_dir.
         """
         import teaparty.bridge.server as srv_module
         src = Path(srv_module.__file__).read_text()
-        # The old hardcoded pattern must be replaced with _find_sessions_dir
-        self.assertIn(
-            '_find_sessions_dir', src,
-            "server.py does not define _find_sessions_dir — "
-            "the dispatch tree handler is still hardcoded to management/sessions, "
-            "breaking accordion on config pages (project lead sessions not found)"
-        )
-        # Confirm _handle_dispatch_tree calls _find_sessions_dir, not a hardcoded path
         m = re.search(
             r'async def _handle_dispatch_tree\([\s\S]+?return web\.json_response',
             src
@@ -857,13 +854,53 @@ class TestDispatchTreeProjectScopeRouting(unittest.TestCase):
         self.assertIn(
             '_find_sessions_dir', handler_body,
             "_handle_dispatch_tree does not call _find_sessions_dir — "
-            "still using hardcoded management/sessions path"
+            "project lead sessions won't be found (regression to hardcoded management path)"
         )
         self.assertNotIn(
             "'management', 'sessions'", handler_body,
-            "_handle_dispatch_tree still hardcodes management/sessions path — "
-            "project lead sessions won't be found. Use _find_sessions_dir() instead."
+            "_handle_dispatch_tree still hardcodes management/sessions — "
+            "project lead sessions won't be found. Delegate to _find_sessions_dir() instead."
         )
+
+
+class TestExcludedPagesCarryNoChat(unittest.TestCase):
+    """Job screens, artifacts pages, and stats pages must carry no chat affordance.
+
+    AC10: These pages are explicitly excluded from the chat UX. They must not include
+    accordion-chat.js or call AccordionChat. If their redesigns later adopt the chat,
+    they will mount the shared implementation — but today they carry nothing.
+    """
+
+    # Pages explicitly excluded from the chat UX by the issue.
+    EXCLUDED_PAGES = ['artifacts.html', 'stats.html']
+
+    def test_excluded_pages_do_not_include_accordion_chat_js(self):
+        """artifacts.html and stats.html must not load accordion-chat.js."""
+        for page in self.EXCLUDED_PAGES:
+            path = STATIC_DIR / page
+            if not path.exists():
+                continue  # page not present; no chat affordance by absence
+            src = path.read_text(encoding='utf-8')
+            self.assertNotIn(
+                'accordion-chat.js', src,
+                f"{page} includes accordion-chat.js — "
+                f"this page is explicitly excluded from the chat UX (AC10). "
+                f"If it needs a chat, mount the shared implementation and update this test."
+            )
+
+    def test_excluded_pages_do_not_call_accordion_chat(self):
+        """artifacts.html and stats.html must not reference AccordionChat."""
+        for page in self.EXCLUDED_PAGES:
+            path = STATIC_DIR / page
+            if not path.exists():
+                continue
+            src = path.read_text(encoding='utf-8')
+            self.assertNotIn(
+                'AccordionChat', src,
+                f"{page} references AccordionChat — "
+                f"this page is explicitly excluded from the chat UX (AC10). "
+                f"If it needs a chat, it must mount the shared implementation and this test updates."
+            )
 
 
 if __name__ == '__main__':
