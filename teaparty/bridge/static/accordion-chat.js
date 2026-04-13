@@ -34,6 +34,11 @@
       var qualifier = convId.slice(3);
       return 'office-manager-' + qualifier;
     }
+    if (convId.startsWith('job:')) {
+      // job:{project}:{session_id} — session_id is the dispatch tree root
+      var jobParts = convId.split(':');
+      return jobParts.length >= 3 ? jobParts[2] : null;
+    }
     if (convId.startsWith('lead:')) {
       var rest = convId.slice(5);
       var colonIdx = rest.indexOf(':');
