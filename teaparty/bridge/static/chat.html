@@ -745,16 +745,32 @@ function onWsMessage(ev) {
   var bus_active = _bladeBusConvId(active);
   if (ev.conversation_id !== active && ev.conversation_id !== bus_active) return;
 
-  // Reconciliation path: the server is echoing a message we already rendered
-  // optimistically. Replace the optimistic entry in place (by id) and do not
-  // append a duplicate. This is the sole permitted client-side dedup under
-  // issue #398.
+  // Fast-path reconciliation: POST response already bound a real id to the
+  // optimistic entry before the WS echo arrived. Replace in place, no append.
+  // This is the sole permitted client-side dedup under issue #398.
   if (ev.id && _optimisticById[ev.id]) {
     var opt = _optimisticById[ev.id];
     opt.timestamp = ev.timestamp;
     delete opt._optimistic;
     delete _optimisticById[ev.id];
     return;
+  }
+
+  // Race-path reconciliation: the WS echo arrived before the POST response
+  // so the optimistic entry still carries its placeholder id. Find the oldest
+  // pending human entry and reconcile it in place so the POST-response handler
+  // sees _optimisticById already populated and skips creating a duplicate.
+  if (ev.id && ev.sender === 'human') {
+    for (var i = 0; i < pageState.messages.length; i++) {
+      var pending = pageState.messages[i];
+      if (pending._optimistic && pending.sender === 'human') {
+        pending.id = ev.id;
+        pending.timestamp = ev.timestamp;
+        delete pending._optimistic;
+        _optimisticById[ev.id] = pending;
+        return;
+      }
+    }
   }
 
   var m = { id: ev.id, sender: ev.sender, content: ev.content, timestamp: ev.timestamp };

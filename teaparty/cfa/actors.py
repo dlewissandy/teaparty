@@ -762,13 +762,32 @@ class ApprovalGate:
             # Dialog — generate a reply, then loop back.  The reply becomes
             # the bridge text for the next turn so the human sees the answer.
             dialog_history += f'{speaker}: {response_text}\n'
-            agent_reply = await loop.run_in_executor(
-                None, lambda: self._generate_dialog_response(
-                    ctx.state, response_text, artifact_path,
-                    os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file),
-                    ctx.task, dialog_history,
-                    session_worktree=ctx.session_worktree,
-                ),
+            stream_path = (
+                os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file)
+                if ctx.phase_spec and ctx.infra_dir
+                else ''
+            )
+            try:
+                agent_reply = await loop.run_in_executor(
+                    None, lambda: self._generate_dialog_response(
+                        ctx.state, response_text, artifact_path,
+                        stream_path,
+                        ctx.task, dialog_history,
+                        session_worktree=ctx.session_worktree,
+                    ),
+                )
+            except Exception:
+                _actor_log.warning(
+                    'Dialog response generation failed at %s — using fallback',
+                    ctx.state, exc_info=True,
+                )
+                agent_reply = (
+                    "I'm not sure I can answer that right now. "
+                    "Could you rephrase, or let me know your decision?"
+                )
+            _actor_log.info(
+                'Gate dialog reply at %s: action=%s agent_reply=%r',
+                ctx.state, action, agent_reply[:120] if agent_reply else '',
             )
             dialog_history += f'AGENT: {agent_reply}\n'
             next_bridge = agent_reply
