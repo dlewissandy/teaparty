@@ -524,16 +524,21 @@ class StateReader:
 
     def _read_intent(self, infra_dir: str) -> str:
         """Read the session task from INTENT.md title or session.log."""
-        # Try INTENT.md title first
-        intent_path = os.path.join(infra_dir, 'INTENT.md')
-        try:
-            with open(intent_path) as f:
-                for line in f:
-                    line = line.strip()
-                    if line.startswith('# INTENT:'):
-                        return line[len('# INTENT:'):].strip()
-        except (FileNotFoundError, OSError):
-            pass
+        # INTENT.md lives in the worktree root; also check infra_dir for
+        # backward compat with sessions created before issue #407.
+        candidates = [
+            os.path.join(infra_dir, 'worktree', 'INTENT.md'),
+            os.path.join(infra_dir, 'INTENT.md'),
+        ]
+        for intent_path in candidates:
+            try:
+                with open(intent_path) as f:
+                    for line in f:
+                        line = line.strip()
+                        if line.startswith('# INTENT:'):
+                            return line[len('# INTENT:'):].strip()
+            except (FileNotFoundError, OSError):
+                pass
         # Fall back to session.log Task: line
         log_path = os.path.join(infra_dir, 'session.log')
         try:

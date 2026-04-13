@@ -1250,9 +1250,9 @@ class Orchestrator:
         if not any(os.path.isdir(d) for _, d in skills_dirs):
             return False
 
-        # Read the approved intent from infra_dir (Issue #147)
+        # Read the approved intent from the session worktree
         intent = ''
-        intent_path = os.path.join(self.infra_dir, 'INTENT.md')
+        intent_path = os.path.join(self.session_worktree, 'INTENT.md')
         try:
             with open(intent_path) as f:
                 intent = f.read()
@@ -1283,8 +1283,8 @@ class Orchestrator:
         if not match:
             return False
 
-        # Write the skill template as PLAN.md to infra_dir (Issue #147)
-        plan_path = os.path.join(self.infra_dir, 'PLAN.md')
+        # Write the skill template as PLAN.md to the session worktree
+        plan_path = os.path.join(self.session_worktree, 'PLAN.md')
         with open(plan_path, 'w') as f:
             f.write(match.template)
 
@@ -2077,10 +2077,9 @@ class Orchestrator:
     async def _commit_artifacts(self, old_state: str, action: str) -> None:
         """Auto-commit deliverables to the session worktree after writes.
 
-        Only execution deliverables are committed (TASK_ASSERT).  INTENT.md
-        and PLAN.md live exclusively in infra_dir — they are not committed
-        to the worktree.  Dispatch agents receive context via the task
-        string, not git branch inheritance.  Issue #148.
+        Only execution deliverables are committed (TASK_ASSERT).  INTENT.md,
+        PLAN.md, and WORK_SUMMARY.md live in the worktree root but are
+        gitignored so they never reach main.
         """
         wt = self.session_worktree
         if not wt:
@@ -2097,9 +2096,7 @@ class Orchestrator:
         """Detect the project stage from INTENT.md and retire old-stage memory."""
         from pathlib import Path
 
-        intent_path = os.path.join(self.infra_dir, 'INTENT.md')
-        if not os.path.exists(intent_path):
-            intent_path = os.path.join(self.session_worktree, 'INTENT.md')
+        intent_path = os.path.join(self.session_worktree, 'INTENT.md')
         if not os.path.exists(intent_path):
             return
 
@@ -2163,7 +2160,7 @@ class Orchestrator:
         artifact_name = artifact_names.get(phase_name)
         artifact_content = ''
         if artifact_name:
-            artifact_path = os.path.join(self.infra_dir, artifact_name)
+            artifact_path = os.path.join(self.session_worktree, artifact_name)
             if os.path.isfile(artifact_path):
                 try:
                     artifact_content = _Path(artifact_path).read_text(errors='replace')
@@ -2261,8 +2258,8 @@ class Orchestrator:
 
         base_task = ''
         if phase_name == 'execution':
-            plan_path = os.path.join(self.infra_dir, 'PLAN.md')
-            intent_path = os.path.join(self.infra_dir, 'INTENT.md')
+            plan_path = os.path.join(self.session_worktree, 'PLAN.md')
+            intent_path = os.path.join(self.session_worktree, 'INTENT.md')
             parts = []
             try:
                 with open(plan_path) as f:
@@ -2280,7 +2277,7 @@ class Orchestrator:
             if parts:
                 return '\n\n'.join(parts)
         elif phase_name == 'planning':
-            intent_path = os.path.join(self.infra_dir, 'INTENT.md')
+            intent_path = os.path.join(self.session_worktree, 'INTENT.md')
             try:
                 with open(intent_path) as f:
                     base_task = f.read()
@@ -2565,7 +2562,7 @@ class Orchestrator:
 
         from pathlib import Path
 
-        plan_path = os.path.join(self.infra_dir, 'PLAN.md')
+        plan_path = os.path.join(self.session_worktree, 'PLAN.md')
         if not os.path.isfile(plan_path):
             return
 

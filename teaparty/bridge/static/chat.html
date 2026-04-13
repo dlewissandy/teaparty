@@ -96,6 +96,7 @@ var pageState = {
   taskConvs: [],         // job chat: conversation objects filtered to this job
   participantConvs: [],  // participant chat: conversation objects from ?type={type}
   cfaState: null,        // job chat: CfA state string from GET /api/cfa/{session_id}
+  worktreePath: '',      // absolute path to session worktree (for artifact links)
 };
 
 // Return the conversation ID that is currently active (job conv or selected task/session).
@@ -170,7 +171,10 @@ function fetchAll() {
     fetches.push(
       fetch('/api/cfa/' + encodeURIComponent(session_id))
         .then(function(r) { return r.ok ? r.json() : null; })
-        .then(function(cfa) { pageState.cfaState = cfa ? cfa.state : null; })
+        .then(function(cfa) {
+          pageState.cfaState = cfa ? cfa.state : null;
+          pageState.worktreePath = (cfa && cfa.worktree_path) ? cfa.worktree_path : '';
+        })
         .catch(function() { pageState.cfaState = null; })
     );
   } else {
@@ -445,14 +449,15 @@ function confirmWithdraw() {
 var GATE_ARTIFACTS = {
   'INTENT_ASSERT': { label: 'Review INTENT', file: 'INTENT.md' },
   'PLAN_ASSERT':   { label: 'Review PLAN',   file: 'PLAN.md'   },
-  'WORK_ASSERT':   { label: 'Review WORK',   file: 'WORK_ASSERT.md' },
+  'WORK_ASSERT':   { label: 'Review WORK',   file: 'WORK_SUMMARY.md' },
 };
 
 function gateReviewButtonHtml() {
   if (!pageState.cfaState || !GATE_ARTIFACTS[pageState.cfaState]) return '';
+  if (!pageState.worktreePath) return '';
   var ga = GATE_ARTIFACTS[pageState.cfaState];
   var artifactUrl = 'artifacts.html?project=' + encodeURIComponent(convProject) +
-    '&file=' + encodeURIComponent('.sessions/' + session_id + '/' + ga.file);
+    '&file=' + encodeURIComponent(pageState.worktreePath + '/' + ga.file);
   return '<a href="' + artifactUrl + '" ' +
     'style="background:rgba(78,204,163,0.15);border:1px solid var(--green);color:var(--green);' +
     'padding:3px 10px;border-radius:3px;cursor:pointer;font-family:inherit;font-size:9px;text-decoration:none;display:inline-block">' +
@@ -809,6 +814,7 @@ function onStateChanged(ev) {
     .then(function(r) { return r.ok ? r.json() : null; })
     .then(function(cfa) {
       pageState.cfaState = cfa ? cfa.state : null;
+      if (cfa && cfa.worktree_path) pageState.worktreePath = cfa.worktree_path;
       var actionsEl = document.querySelector('.chat-header-actions');
       if (actionsEl) {
         actionsEl.innerHTML = gateReviewButtonHtml() +

@@ -245,12 +245,12 @@ class TestSkillLookupIntegrationWithEngine(unittest.TestCase):
         return orch
 
     def test_skill_match_writes_plan_md(self):
-        """When a skill matches, its template is written as PLAN.md in infra_dir."""
+        """When a skill matches, its template is written as PLAN.md in the worktree."""
         with tempfile.TemporaryDirectory() as worktree, \
              tempfile.TemporaryDirectory() as project_dir, \
              tempfile.TemporaryDirectory() as infra_dir:
-            # Write INTENT.md to infra_dir (Issue #147: artifacts live there)
-            with open(os.path.join(infra_dir, 'INTENT.md'), 'w') as f:
+            # Write INTENT.md to the worktree (artifacts live in the worktree, issue #407)
+            with open(os.path.join(worktree, 'INTENT.md'), 'w') as f:
                 f.write('Research and write a paper surveying distributed consensus.')
 
             # Create skill library
@@ -268,7 +268,7 @@ class TestSkillLookupIntegrationWithEngine(unittest.TestCase):
             result = asyncio.run(orch._try_skill_lookup())
 
             self.assertTrue(result)
-            plan_path = os.path.join(infra_dir, 'PLAN.md')
+            plan_path = os.path.join(worktree, 'PLAN.md')
             self.assertTrue(os.path.exists(plan_path))
             with open(plan_path) as f:
                 plan_content = f.read()

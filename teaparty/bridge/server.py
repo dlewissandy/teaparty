@@ -648,6 +648,8 @@ class TeaPartyBridge:
         state = _load_cfa_state(infra_dir)
         if state is None:
             return web.json_response({'error': 'cfa-state.json not found'}, status=404)
+        # Include worktree_path so the browser can construct absolute artifact URLs.
+        state['worktree_path'] = os.path.join(infra_dir, 'worktree')
         return web.json_response(state)
 
     async def _handle_heartbeat(self, request: web.Request) -> web.Response:
