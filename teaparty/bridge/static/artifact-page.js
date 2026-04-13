@@ -111,7 +111,8 @@
   var _fileContent = null;
   var _loadError = null;
   var _gitStatuses = {};
-  var _showChangedOnly = false;
+  var _filterPinned = false;
+  var _filterChanged = false;
   var _refreshInterval = null;
   var _ws = null;
   var _wsDestroyed = false;
@@ -129,7 +130,9 @@
     _fileContent = null;
     _loadError = null;
     _gitStatuses = {};
-    _showChangedOnly = false;
+    // Default filters: job mode shows changed files, browse mode shows pinned
+    _filterPinned = _config.mode !== 'job';
+    _filterChanged = _config.mode === 'job';
 
     // Mount accordion chat blade via #400 shared implementation.
     if (typeof AccordionChat !== 'undefined' && _bladeEl) {
@@ -461,11 +464,6 @@
         var pIdx = typeof phaseIndex === 'function' ? phaseIndex(_config.workflowPhase, _config.workflowState) : 0;
         topStripHtml += '<span style="flex:1">' + renderWorkflow(pIdx, true, !!_config.needsInput) + '</span>';
       }
-      // Changed / All toggle
-      topStripHtml += '<div class="job-strip-filter">';
-      topStripHtml += '<button class="artifact-header-btn' + (_showChangedOnly ? ' active' : '') + '" onclick="ArtifactPage._toggleChangedFilter()">changed (' + changedCount + ')</button>';
-      topStripHtml += '<button class="artifact-header-btn' + (!_showChangedOnly ? ' active' : '') + '" onclick="ArtifactPage._toggleChangedFilter()">all files</button>';
-      topStripHtml += '</div>';
       topStripHtml += '</div>';
     }
 
@@ -474,48 +472,76 @@
     var copyBtn = showCopy
       ? '<button id="copy-btn" class="artifact-header-btn" onclick="ArtifactPage._copyFileContent()" title="Copy file content">Copy</button>'
       : '';
+    var changedCount = Object.keys(_gitStatuses).length;
+    var pinnedCount = _pinnedNodes.length;
+    var filterHtml =
+      '<button class="artifact-header-btn' + (_filterPinned ? ' active' : '') + '" onclick="ArtifactPage._toggleFilter(\'pinned\')">Pinned' + (pinnedCount ? ' (' + pinnedCount + ')' : '') + '</button>' +
+      '<button class="artifact-header-btn' + (_filterChanged ? ' active' : '') + '" onclick="ArtifactPage._toggleFilter(\'changed\')">Changed' + (changedCount ? ' (' + changedCount + ')' : '') + '</button>';
     var headerHtml = '<div class="artifact-header">' +
       '<span class="artifact-header-title">' + escHtml(displayName) + (_config.mode === 'job' ? ' Job' : ' Artifacts') + '</span>' +
-      '<div style="display:flex;gap:6px">' + copyBtn +
+      '<div style="display:flex;gap:6px">' + filterHtml + copyBtn +
       '<button class="artifact-header-btn" onclick="ArtifactPage._refresh()" title="Reload">\u21ba Refresh</button>' +
       '</div>' +
       '</div>';
 
     // ── Nav ─────────────────────────────────────────────────────────────────
+    // ── Nav with [Pinned][Changed] conjunctive filters ────────────────────
     var navHtml = '<div class="artifact-nav">';
 
-    if (_pinnedNodes.length > 0) {
+    // Build a set of pinned paths for filter matching
+    var pinnedPathSet = {};
+    (function collectPinned(nodes) {
+      nodes.forEach(function(n) {
+        pinnedPathSet[n.path] = true;
+        if (n.children) collectPinned(n.children);
+      });
+    })(_pinnedNodes);
+
+    function _isFileChanged(filepath) {
+      if (_gitStatuses[filepath]) return true;
+      var basename = filepath.split('/').pop();
+      for (var key in _gitStatuses) {
+        if (key === filepath || key.endsWith('/' + basename)) return true;
+      }
+      return false;
+    }
+
+    function _passesFilter(filepath) {
+      if (!_filterPinned && !_filterChanged) return true;
+      var passesPinned = !_filterPinned || !!pinnedPathSet[filepath];
+      var passesChanged = !_filterChanged || _isFileChanged(filepath);
+      return passesPinned && passesChanged;
+    }
+
+    // Pinned section — show when pinned filter is active or no filter is active
+    if (_pinnedNodes.length > 0 && (!_filterChanged || _filterPinned)) {
       navHtml += '<div class="artifact-nav-section">Pinned</div>';
       navHtml += _renderPinnedNodes(_pinnedNodes, 0);
     }
 
+    // Documentation sections
     if (_sections.length > 0) {
-      if (_pinnedNodes.length > 0) {
+      if (_pinnedNodes.length > 0 && (!_filterChanged || _filterPinned)) {
         navHtml += '<div class="artifact-nav-divider">Documentation</div>';
       } else {
         navHtml += '<div class="artifact-nav-section">Documentation</div>';
       }
     }
     _sections.forEach(function(sec) {
-      if (_pinnedNodes.length > 0) {
+      var visibleItems = sec.items.filter(function(item) {
+        return _passesFilter(item.path);
+      });
+      if (visibleItems.length === 0 && (_filterPinned || _filterChanged)) return;
+      if (_pinnedNodes.length > 0 && (!_filterChanged || _filterPinned)) {
         navHtml += '<div class="artifact-nav-folder" style="cursor:default;color:var(--text-dim);padding-left:10px">' +
           '<span class="artifact-nav-item-label">' + escHtml(sec.heading) + '</span></div>';
       } else {
         navHtml += '<div class="artifact-nav-section">' + escHtml(sec.heading) + '</div>';
       }
-      if (sec.items.length === 0) {
+      if (visibleItems.length === 0) {
         navHtml += '<div class="artifact-nav-item" style="font-style:italic;cursor:default">(no items)</div>';
       }
-      sec.items.forEach(function(item) {
-        // Apply changed-only filter in job mode
-        if (_showChangedOnly && _config.mode === 'job') {
-          var basename = item.path.split('/').pop();
-          var isChanged = false;
-          for (var key in _gitStatuses) {
-            if (key === item.path || key.endsWith('/' + basename)) { isChanged = true; break; }
-          }
-          if (!isChanged) return;
-        }
+      visibleItems.forEach(function(item) {
         var isActive = _selectedFile === item.path;
         var statusHtml = _gitStatusIndicator(item.path);
         navHtml += '<div class="artifact-nav-item ' + (isActive ? 'active' : '') + '">' +
@@ -525,6 +551,32 @@
           '</div>';
       });
     });
+
+    // When Changed filter is active, also show changed files not in pinned/docs
+    if (_filterChanged) {
+      var shownPaths = {};
+      _sections.forEach(function(sec) {
+        sec.items.forEach(function(item) { shownPaths[item.path] = true; });
+      });
+      Object.keys(pinnedPathSet).forEach(function(p) { shownPaths[p] = true; });
+      var extraChanged = Object.keys(_gitStatuses).filter(function(p) {
+        return !shownPaths[p] && (!_filterPinned || !!pinnedPathSet[p]);
+      });
+      if (extraChanged.length > 0) {
+        navHtml += '<div class="artifact-nav-divider">Changed Files</div>';
+        extraChanged.forEach(function(filepath) {
+          var name = filepath.split('/').pop();
+          var isActive = _selectedFile === filepath;
+          var statusHtml = _gitStatusIndicator(filepath);
+          var escapedPath = filepath.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+          navHtml += '<div class="artifact-nav-item ' + (isActive ? 'active' : '') + '">' +
+            statusHtml +
+            '<span class="artifact-nav-item-label" onclick="ArtifactPage._loadFile(\'' + escapedPath + '\')">' + escHtml(name) + '</span>' +
+            '</div>';
+        });
+      }
+    }
+
     navHtml += '</div>';
 
     // ── Main ────────────────────────────────────────────────────────────────
@@ -646,8 +698,9 @@
     _render();
   }
 
-  function _toggleChangedFilter() {
-    _showChangedOnly = !_showChangedOnly;
+  function _toggleFilter(which) {
+    if (which === 'pinned') _filterPinned = !_filterPinned;
+    if (which === 'changed') _filterChanged = !_filterChanged;
     _render();
   }
 
@@ -785,7 +838,7 @@
     _toggleFolder: toggleFolder,
     _refresh: _refresh,
     _copyFileContent: _copyFileContent,
-    _toggleChangedFilter: _toggleChangedFilter,
+    _toggleFilter: _toggleFilter,
   };
 
 })(window);

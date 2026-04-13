@@ -539,16 +539,22 @@ class TestJobModeTopStrip(unittest.TestCase):
             "job mode must show original request, workflow bar, and changed/all toggle"
         )
 
-    def test_artifact_page_has_changed_all_toggle(self):
-        """Job mode must have a changed/all files toggle."""
+    def test_artifact_page_has_pinned_and_changed_filters(self):
+        """Both modes must have [Pinned] and [Changed] filter buttons."""
         if not ARTIFACT_PAGE_JS.exists():
             self.skipTest("artifact-page.js not yet created")
         src = _read(ARTIFACT_PAGE_JS)
-        has_toggle = 'changed' in src.lower() and ('toggle' in src.lower() or 'filter' in src.lower())
-        self.assertTrue(
-            has_toggle,
-            "artifact-page.js does not implement a changed/all files toggle "
-            "for job mode"
+        self.assertIn(
+            '_filterPinned', src,
+            "artifact-page.js must have a _filterPinned state variable"
+        )
+        self.assertIn(
+            '_filterChanged', src,
+            "artifact-page.js must have a _filterChanged state variable"
+        )
+        self.assertIn(
+            '_toggleFilter', src,
+            "artifact-page.js must define _toggleFilter for the filter buttons"
         )
 
 
