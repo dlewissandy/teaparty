@@ -2330,7 +2330,7 @@ class TeaPartyBridge:
         """POST /api/projects/add — register an existing directory as a project.
 
         Body: {"name": str, "path": str, "description": str, "lead": str,
-               "decider": str, "agents": list, "humans": list, "skills": list}
+               "decider": str, "workgroups": list}
         Response: updated management team serialization.
         """
         from teaparty.config.config_reader import add_project
@@ -2351,10 +2351,7 @@ class TeaPartyBridge:
                 description=body.get('description', ''),
                 lead=body.get('lead', ''),
                 decider=body.get('decider', ''),
-                agents=body.get('agents') or [],
-                humans=body.get('humans') or [],
                 workgroups=body.get('workgroups') or [],
-                skills=body.get('skills') or [],
             )
         except ValueError as exc:
             return web.json_response({'error': str(exc)}, status=409)
@@ -2373,7 +2370,7 @@ class TeaPartyBridge:
         """POST /api/projects/create — scaffold a new project directory and register it.
 
         Body: {"name": str, "path": str, "description": str, "lead": str,
-               "decider": str, "agents": list, "humans": list, "skills": list}
+               "decider": str, "workgroups": list}
         Response: updated management team serialization.
         """
         from teaparty.config.config_reader import create_project
@@ -2394,10 +2391,7 @@ class TeaPartyBridge:
                 description=body.get('description', ''),
                 lead=body.get('lead', ''),
                 decider=body.get('decider', ''),
-                agents=body.get('agents') or [],
-                humans=body.get('humans') or [],
                 workgroups=body.get('workgroups') or [],
-                skills=body.get('skills') or [],
             )
         except ValueError as exc:
             return web.json_response({'error': str(exc)}, status=409)
