@@ -2,7 +2,7 @@
 name: add-project
 description: Register an existing directory as a TeaParty project. Dialogs with the human to discover the path and collect frontmatter before calling AddProject.
 user-invocable: false
-allowed-tools: Read, Glob, Grep, Bash
+allowed-tools: Read, Glob, Grep, Bash, mcp__teaparty-config__AddProject
 ---
 
 # Add Project

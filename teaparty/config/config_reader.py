@@ -221,6 +221,7 @@ class ManagementTeam:
     hooks: list[dict[str, str]] = field(default_factory=list)
     budget: dict[str, float] = field(default_factory=dict)
     stats: dict[str, str] = field(default_factory=dict)
+    allowed_project_roots: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -362,6 +363,7 @@ def load_management_team(
         hooks=data.get('hooks', []),
         budget=data.get('budget', {}),
         stats=data.get('stats', {}),
+        allowed_project_roots=data.get('allowed_project_roots') or [],
     )
 
 
@@ -1095,6 +1097,23 @@ def _scaffold_project_yaml(
 
 # ── Project management operations ─────────────────────────────────────────────
 
+def _check_allowed_project_roots(path: str, roots: list[str]) -> None:
+    """Raise ValueError if path is not under any of the allowed roots.
+
+    If roots is empty, the check is skipped (permissive mode).
+    """
+    if not roots:
+        return
+    for root in roots:
+        root = os.path.expanduser(os.path.realpath(root))
+        if path.startswith(root + os.sep) or path == root:
+            return
+    raise ValueError(
+        f'Path {path!r} is not under any allowed project root. '
+        f'Allowed roots: {roots!r}'
+    )
+
+
 def add_project(
     name: str,
     path: str,
@@ -1120,6 +1139,7 @@ def add_project(
 
     # Check for duplicates across both tracked and external project lists
     team = load_management_team(teaparty_home=teaparty_home)
+    _check_allowed_project_roots(path, team.allowed_project_roots)
     for p in team.projects:
         if p['name'] == name:
             raise ValueError(f"Project '{name}' already exists")
@@ -1177,6 +1197,7 @@ def create_project(
 
     # Check for duplicates across both tracked and external project lists
     team = load_management_team(teaparty_home=teaparty_home)
+    _check_allowed_project_roots(path, team.allowed_project_roots)
     for p in team.projects:
         if p['name'] == name:
             raise ValueError(f"Project '{name}' already exists")
