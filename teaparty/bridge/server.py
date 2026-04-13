@@ -3248,6 +3248,7 @@ class TeaPartyBridge:
             'total_cost_usd': s.total_cost_usd,
             'backtrack_count': s.backtrack_count,
             'infra_dir': s.infra_dir,
+            'worktree_path': s.worktree_path,
         }
 
     def _serialize_conversation(self, c) -> dict:

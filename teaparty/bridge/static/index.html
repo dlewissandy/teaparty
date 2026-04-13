@@ -210,6 +210,7 @@ function jobUrl(slug, convId, opts) {
   if (opts.state) url += '&state=' + encodeURIComponent(opts.state);
   if (opts.needsInput) url += '&needs_input=1';
   if (opts.request) url += '&request=' + encodeURIComponent(opts.request);
+  if (opts.worktree) url += '&worktree=' + encodeURIComponent(opts.worktree);
   return url;
 }
 
@@ -334,12 +335,12 @@ function render() {
           var escConv = (escParts[0] === 'task' && escParts.length === 4)
             ? ('job:' + escParts[1] + ':' + escParts[2])
             : convId;
-          var escUrl = jobUrl(p.slug, escConv, {lead: cfg.lead, phase: s.cfa_phase, state: s.cfa_state, needsInput: true, request: s.task});
+          var escUrl = jobUrl(p.slug, escConv, {lead: cfg.lead, phase: s.cfa_phase, state: s.cfa_state, needsInput: true, request: s.task, worktree: s.worktree_path});
           projectsHtml += '<a class="attention-dot" href="' + escUrl + '"></a>';
         } else {
           projectsHtml += '<a style="width:6px;display:inline-block"></a>';
         }
-        var jobHref = jobUrl(p.slug, convId, {lead: cfg.lead, phase: s.cfa_phase, state: s.cfa_state, needsInput: s.needs_input, request: s.task});
+        var jobHref = jobUrl(p.slug, convId, {lead: cfg.lead, phase: s.cfa_phase, state: s.cfa_state, needsInput: s.needs_input, request: s.task, worktree: s.worktree_path});
         projectsHtml += '<a href="' + jobHref + '" style="flex:1;display:flex;align-items:center;gap:6px;color:inherit;text-decoration:none;min-width:0">';
         projectsHtml += '<span style="flex-shrink:0;width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;color:var(--text)">' + jobName + '</span>';
         projectsHtml += '<span style="flex:1">' + renderWorkflow(pIdx, false, s.needs_input || !!stickyConvId) + '</span>';
@@ -461,6 +462,7 @@ function onInputRequested(sessionId, convId) {
   var parts = convId ? convId.split(':') : [];
   var dotSlug = '';
   var dotConv = convId;
+  var dotWorktree = '';
   if (parts[0] === 'task' && parts.length === 4) {
     dotSlug = parts[1];
     dotConv = 'job:' + parts[1] + ':' + parts[2];
@@ -469,7 +471,7 @@ function onInputRequested(sessionId, convId) {
   } else {
     pageState.projects.forEach(function(proj) {
       (proj.sessions || []).forEach(function(s) {
-        if (s.session_id === sessionId) { dotSlug = proj.slug; }
+        if (s.session_id === sessionId) { dotSlug = proj.slug; dotWorktree = s.worktree_path || ''; }
       });
     });
     if (dotSlug) {
@@ -477,7 +479,7 @@ function onInputRequested(sessionId, convId) {
     }
   }
   var dotUrl = dotSlug
-    ? jobUrl(dotSlug, dotConv, {needsInput: true})
+    ? jobUrl(dotSlug, dotConv, {needsInput: true, worktree: dotWorktree})
     : 'chat.html?conv=session:' + sessionId;
   var row = document.querySelector('[data-session="' + sessionId + '"]');
   if (row) {
