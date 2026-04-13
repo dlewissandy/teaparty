@@ -629,7 +629,8 @@ class ApprovalGate:
         to the actual human (if not).  The approval gate does not know or
         care which source produced the text.
         """
-        artifact_path = ctx.data.get('artifact_path', '')
+        artifact_path = ctx.data.get('artifact_path', '') or ctx.data.get('artifact_expected', '')
+        artifact_missing = ctx.data.get('artifact_missing', False)
         project_slug = ctx.env_vars.get('POC_PROJECT', 'default')
         team = ctx.env_vars.get('POC_TEAM', '')
 
@@ -658,6 +659,7 @@ class ApprovalGate:
                 ctx=ctx,
                 question=gate_question,
                 artifact_path=artifact_path,
+                artifact_missing=artifact_missing,
                 project_slug=project_slug,
                 team=team,
                 dialog_history=dialog_history,
@@ -796,6 +798,7 @@ class ApprovalGate:
         self, ctx: ActorContext, question: str, artifact_path: str,
         project_slug: str, team: str, dialog_history: str,
         bridge_override: str = '',
+        artifact_missing: bool = False,
     ) -> tuple[str, bool]:
         """Ask the human through the proxy.  Returns (response_text, from_proxy).
 
@@ -823,13 +826,14 @@ class ApprovalGate:
                 self.gate_queue.dequeue()
             return await self._ask_human_through_proxy_inner(
                 ctx, question, artifact_path, project_slug, team,
-                dialog_history, bridge_override,
+                dialog_history, bridge_override, artifact_missing,
             )
 
     async def _ask_human_through_proxy_inner(
         self, ctx: ActorContext, question: str, artifact_path: str,
         project_slug: str, team: str, dialog_history: str,
         bridge_override: str = '',
+        artifact_missing: bool = False,
     ) -> tuple[str, bool]:
         """Inner implementation of _ask_human_through_proxy (runs under _gate_lock)."""
         from teaparty.proxy.agent import (
@@ -860,6 +864,7 @@ class ApprovalGate:
             # Human is present — ask them directly, record observation
             bridge_text = bridge_override or self._generate_bridge(
                 artifact_path, ctx.state, ctx.task,
+                artifact_missing=artifact_missing,
                 session_worktree=ctx.session_worktree, infra_dir=ctx.infra_dir,
             )
             await ctx.event_bus.publish(Event(
@@ -922,6 +927,7 @@ class ApprovalGate:
         # question), show that instead of the generic gate question.
         bridge_text = bridge_override or self._generate_bridge(
             artifact_path, ctx.state, ctx.task,
+            artifact_missing=artifact_missing,
             session_worktree=ctx.session_worktree, infra_dir=ctx.infra_dir,
         )
         await ctx.event_bus.publish(Event(
