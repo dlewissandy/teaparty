@@ -495,6 +495,19 @@ def stats_summary(
         'errors_today':            _count(E.TURN_ERROR, **kw),
         'conversations_started_today': _count(E.SESSION_CREATE, **kw),
         'conversations_closed_today':  _count(E.CLOSE_CONVERSATION, **kw),
+        # Friction / infra
+        'commits_today':           _count(E.COMMIT_MADE, **kw),
+        'stalls_today':            _count(E.STALL_DETECTED, **kw),
+        'ratelimits_today':        _count(E.RATELIMIT_BACKOFF, **kw),
+        'ctx_compacted_today':     _count(E.CONTEXT_COMPACTED, **kw),
+        'ctx_warnings_today':      _count(E.CONTEXT_SATURATION_WARNED, **kw),
+        'mcp_failures_today':      _count(E.MCP_SERVER_FAILURE, **kw),
+        # Human involvement
+        'interjections_today':     _count(E.INTERJECTION_RECEIVED, **kw),
+        'corrections_today':       _count(E.CORRECTION_RECEIVED, **kw),
+        'sess_timed_out_today':    _count(E.SESSION_TIMED_OUT, **kw),
+        'sess_abandoned_today':    _count(E.SESSION_ABANDONED, **kw),
+        # Summaries
         'escalation_count_today':  _count(E.ESCALATION_REQUESTED, **kw),
         'proxy_answered_fraction': par['proxy_rate'],
         'gate_pass_rate':          gate_pass_rate(**kw),

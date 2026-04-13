@@ -24,7 +24,6 @@
 var StatsBar = (function () {
   'use strict';
 
-  var PAGE_SIZE        = 5;
   var PAGE_INTERVAL_MS = 10000;
   var FADE_MS          = 200;
 
@@ -35,24 +34,43 @@ var StatsBar = (function () {
   var _statsBarState = null; // eslint-disable-line no-unused-vars
 
   // ── Stat definitions ────────────────────────────────────────────────────────
-  // Single source of truth for which stats appear and in what order.
-  // Config-independent: same list for every scope.
+  // Single source of truth for stat metadata.  Config-independent.
 
   var STAT_DEFS = [
-    { key: 'turns',        label: 'Turns',          fmt: _fmtInt,      cls: 'green'  },
-    { key: 'cost',         label: 'Cost',            fmt: _fmtCost,     cls: 'purple' },
-    { key: 'tokens',       label: 'Tokens',          fmt: _fmtTokens,   cls: null     },
-    { key: 'proc_ms',      label: 'Proc Time',       fmt: _fmtDuration, cls: null     },
-    { key: 'jobs_started', label: 'Jobs Started',    fmt: _fmtInt,      cls: null     },
-    { key: 'sess_closed',  label: 'Completed',       fmt: _fmtInt,      cls: 'green'  },
-    { key: 'withdrawals',  label: 'Withdrawals',     fmt: _fmtInt,      cls: 'yellow' },
-    { key: 'backtracks',   label: 'Backtracks',      fmt: _fmtInt,      cls: 'yellow' },
-    { key: 'esc_proxy',    label: 'Esc\u2192Proxy',  fmt: _fmtInt,      cls: null     },
-    { key: 'esc_human',    label: 'Esc\u2192Human',  fmt: _fmtInt,      cls: 'red'    },
-    { key: 'tool_retries', label: 'Tool Retries',    fmt: _fmtInt,      cls: 'orange' },
-    { key: 'errors',       label: 'Errors',          fmt: _fmtInt,      cls: 'red'    },
-    { key: 'conv_started', label: 'Conv Started',    fmt: _fmtInt,      cls: null     },
-    { key: 'conv_closed',  label: 'Conv Closed',     fmt: _fmtInt,      cls: null     },
+    // Page 1 — Throughput
+    { key: 'turns',          label: 'Turns',          fmt: _fmtInt,      cls: 'green'  },
+    { key: 'cost',           label: 'Cost',            fmt: _fmtCost,     cls: 'purple' },
+    { key: 'tokens',         label: 'Tokens',          fmt: _fmtTokens,   cls: null     },
+    { key: 'proc_ms',        label: 'Proc Time',       fmt: _fmtDuration, cls: null     },
+    { key: 'commits',        label: 'Commits',         fmt: _fmtInt,      cls: 'green'  },
+    { key: 'jobs_started',   label: 'Jobs Started',    fmt: _fmtInt,      cls: null     },
+    { key: 'sess_closed',    label: 'Completed',       fmt: _fmtInt,      cls: 'green'  },
+    { key: 'conv_started',   label: 'Conv Started',    fmt: _fmtInt,      cls: null     },
+    { key: 'conv_closed',    label: 'Conv Closed',     fmt: _fmtInt,      cls: null     },
+    // Page 2 — Friction
+    { key: 'backtracks',     label: 'Backtracks',      fmt: _fmtInt,      cls: 'yellow' },
+    { key: 'stalls',         label: 'Stalls',          fmt: _fmtInt,      cls: 'yellow' },
+    { key: 'ratelimits',     label: 'Rate Limits',     fmt: _fmtInt,      cls: 'orange' },
+    { key: 'ctx_compacted',  label: 'Compacted',       fmt: _fmtInt,      cls: null     },
+    { key: 'ctx_warnings',   label: 'Ctx Warnings',    fmt: _fmtInt,      cls: 'yellow' },
+    { key: 'tool_retries',   label: 'Tool Retries',    fmt: _fmtInt,      cls: 'orange' },
+    { key: 'errors',         label: 'Errors',          fmt: _fmtInt,      cls: 'red'    },
+    { key: 'mcp_failures',   label: 'MCP Failures',    fmt: _fmtInt,      cls: 'red'    },
+    // Page 3 — Human involvement
+    { key: 'interjections',  label: 'Interjections',   fmt: _fmtInt,      cls: null     },
+    { key: 'corrections',    label: 'Corrections',     fmt: _fmtInt,      cls: null     },
+    { key: 'esc_proxy',      label: 'Esc\u2192Proxy',  fmt: _fmtInt,      cls: null     },
+    { key: 'esc_human',      label: 'Esc\u2192Human',  fmt: _fmtInt,      cls: 'red'    },
+    { key: 'withdrawals',    label: 'Withdrawals',     fmt: _fmtInt,      cls: 'yellow' },
+    { key: 'sess_timed_out', label: 'Timed Out',       fmt: _fmtInt,      cls: 'orange' },
+    { key: 'sess_abandoned', label: 'Abandoned',       fmt: _fmtInt,      cls: 'red'    },
+  ];
+
+  // Page groupings — explicit semantic groups, not fixed-size slices.
+  var STAT_PAGE_KEYS = [
+    ['turns','cost','tokens','proc_ms','commits','jobs_started','sess_closed','conv_started','conv_closed'],
+    ['backtracks','stalls','ratelimits','ctx_compacted','ctx_warnings','tool_retries','errors','mcp_failures'],
+    ['interjections','corrections','esc_proxy','esc_human','withdrawals','sess_timed_out','sess_abandoned'],
   ];
 
   // ── Formatters ───────────────────────────────────────────────────────────────
@@ -89,28 +107,40 @@ var StatsBar = (function () {
   function _zeroCells() {
     return {
       turns: 0, cost: 0, tokens: 0, proc_ms: 0,
-      jobs_started: 0, sess_closed: 0, withdrawals: 0, backtracks: 0,
-      esc_proxy: 0, esc_human: 0, tool_retries: 0, errors: 0,
-      conv_started: 0, conv_closed: 0,
+      commits: 0, jobs_started: 0, sess_closed: 0, conv_started: 0, conv_closed: 0,
+      backtracks: 0, stalls: 0, ratelimits: 0, ctx_compacted: 0, ctx_warnings: 0,
+      tool_retries: 0, errors: 0, mcp_failures: 0,
+      interjections: 0, corrections: 0, esc_proxy: 0, esc_human: 0,
+      withdrawals: 0, sess_timed_out: 0, sess_abandoned: 0,
     };
   }
 
   function _parseCells(data) {
     return {
-      turns:        parseInt(data.turn_count, 10)            || 0,
-      cost:         parseFloat(data.total_cost)              || 0,
-      tokens:       parseInt(data.total_tokens, 10)          || 0,
-      proc_ms:      parseInt(data.processing_ms, 10)         || 0,
-      jobs_started: parseInt(data.jobs_started, 10)          || 0,
-      sess_closed:  parseInt(data.sessions_closed, 10)       || 0,
-      withdrawals:  parseInt(data.withdrawals, 10)           || 0,
-      backtracks:   parseInt(data.backtrack_count, 10)       || 0,
-      esc_proxy:    parseInt(data.escalations_proxy, 10)     || 0,
-      esc_human:    parseInt(data.escalations_human, 10)     || 0,
-      tool_retries: parseInt(data.tool_retries, 10)          || 0,
-      errors:       parseInt(data.errors, 10)                || 0,
-      conv_started: parseInt(data.conversations_started, 10) || 0,
-      conv_closed:  parseInt(data.conversations_closed, 10)  || 0,
+      turns:          parseInt(data.turn_count, 10)            || 0,
+      cost:           parseFloat(data.total_cost)              || 0,
+      tokens:         parseInt(data.total_tokens, 10)          || 0,
+      proc_ms:        parseInt(data.processing_ms, 10)         || 0,
+      commits:        parseInt(data.commits, 10)               || 0,
+      jobs_started:   parseInt(data.jobs_started, 10)          || 0,
+      sess_closed:    parseInt(data.sessions_closed, 10)       || 0,
+      conv_started:   parseInt(data.conversations_started, 10) || 0,
+      conv_closed:    parseInt(data.conversations_closed, 10)  || 0,
+      backtracks:     parseInt(data.backtrack_count, 10)       || 0,
+      stalls:         parseInt(data.stalls, 10)                || 0,
+      ratelimits:     parseInt(data.ratelimits, 10)            || 0,
+      ctx_compacted:  parseInt(data.ctx_compacted, 10)         || 0,
+      ctx_warnings:   parseInt(data.ctx_warnings, 10)          || 0,
+      tool_retries:   parseInt(data.tool_retries, 10)          || 0,
+      errors:         parseInt(data.errors, 10)                || 0,
+      mcp_failures:   parseInt(data.mcp_failures, 10)          || 0,
+      interjections:  parseInt(data.interjections, 10)         || 0,
+      corrections:    parseInt(data.corrections, 10)           || 0,
+      esc_proxy:      parseInt(data.escalations_proxy, 10)     || 0,
+      esc_human:      parseInt(data.escalations_human, 10)     || 0,
+      withdrawals:    parseInt(data.withdrawals, 10)           || 0,
+      sess_timed_out: parseInt(data.sess_timed_out, 10)        || 0,
+      sess_abandoned: parseInt(data.sess_abandoned, 10)        || 0,
     };
   }
 
@@ -135,42 +165,72 @@ var StatsBar = (function () {
                     + (parseInt(data.output_tokens,     10) || 0)
                     + (parseInt(data.cache_read_tokens, 10) || 0);
       cells.proc_ms += (parseInt(data.duration_ms, 10) || 0);
+    } else if (et === 'commit_made') {
+      cells.commits += 1;
     } else if (et === 'job_created') {
       cells.jobs_started += 1;
     } else if (et === 'session_complete' || et === 'session_closed') {
       cells.sess_closed += 1;
-    } else if (et === 'session_withdrawn') {
-      cells.withdrawals += 1;
-    } else if (et === 'phase_backtrack') {
-      cells.backtracks += 1;
-    } else if (et === 'proxy_answered') {
-      cells.esc_proxy += 1;
-    } else if (et === 'proxy_escalated_to_human') {
-      cells.esc_human += 1;
-    } else if (et === 'tool_call_retry') {
-      cells.tool_retries += 1;
-    } else if (et === 'turn_error') {
-      cells.errors += 1;
     } else if (et === 'session_create') {
       cells.conv_started += 1;
     } else if (et === 'close_conversation') {
       cells.conv_closed += 1;
+    } else if (et === 'phase_backtrack') {
+      cells.backtracks += 1;
+    } else if (et === 'stall_detected') {
+      cells.stalls += 1;
+    } else if (et === 'ratelimit_backoff') {
+      cells.ratelimits += 1;
+    } else if (et === 'context_compacted') {
+      cells.ctx_compacted += 1;
+    } else if (et === 'context_saturation_warned') {
+      cells.ctx_warnings += 1;
+    } else if (et === 'tool_call_retry') {
+      cells.tool_retries += 1;
+    } else if (et === 'turn_error') {
+      cells.errors += 1;
+    } else if (et === 'mcp_server_failure') {
+      cells.mcp_failures += 1;
+    } else if (et === 'interjection_received') {
+      cells.interjections += 1;
+    } else if (et === 'correction_received') {
+      cells.corrections += 1;
+    } else if (et === 'proxy_answered') {
+      cells.esc_proxy += 1;
+    } else if (et === 'proxy_escalated_to_human') {
+      cells.esc_human += 1;
+    } else if (et === 'session_withdrawn') {
+      cells.withdrawals += 1;
+    } else if (et === 'session_timed_out') {
+      cells.sess_timed_out += 1;
+    } else if (et === 'session_abandoned') {
+      cells.sess_abandoned += 1;
     }
   }
 
   function _affectedKeys(eventType) {
-    if (eventType === 'turn_complete')            return ['turns', 'cost', 'tokens', 'proc_ms'];
-    if (eventType === 'job_created')              return ['jobs_started'];
+    if (eventType === 'turn_complete')              return ['turns', 'cost', 'tokens', 'proc_ms'];
+    if (eventType === 'commit_made')                return ['commits'];
+    if (eventType === 'job_created')                return ['jobs_started'];
     if (eventType === 'session_complete'
-     || eventType === 'session_closed')           return ['sess_closed'];
-    if (eventType === 'session_withdrawn')        return ['withdrawals'];
-    if (eventType === 'phase_backtrack')          return ['backtracks'];
-    if (eventType === 'proxy_answered')           return ['esc_proxy'];
-    if (eventType === 'proxy_escalated_to_human') return ['esc_human'];
-    if (eventType === 'tool_call_retry')          return ['tool_retries'];
-    if (eventType === 'turn_error')               return ['errors'];
-    if (eventType === 'session_create')           return ['conv_started'];
-    if (eventType === 'close_conversation')       return ['conv_closed'];
+     || eventType === 'session_closed')             return ['sess_closed'];
+    if (eventType === 'session_create')             return ['conv_started'];
+    if (eventType === 'close_conversation')         return ['conv_closed'];
+    if (eventType === 'phase_backtrack')            return ['backtracks'];
+    if (eventType === 'stall_detected')             return ['stalls'];
+    if (eventType === 'ratelimit_backoff')           return ['ratelimits'];
+    if (eventType === 'context_compacted')          return ['ctx_compacted'];
+    if (eventType === 'context_saturation_warned')  return ['ctx_warnings'];
+    if (eventType === 'tool_call_retry')            return ['tool_retries'];
+    if (eventType === 'turn_error')                 return ['errors'];
+    if (eventType === 'mcp_server_failure')         return ['mcp_failures'];
+    if (eventType === 'interjection_received')      return ['interjections'];
+    if (eventType === 'correction_received')        return ['corrections'];
+    if (eventType === 'proxy_answered')             return ['esc_proxy'];
+    if (eventType === 'proxy_escalated_to_human')   return ['esc_human'];
+    if (eventType === 'session_withdrawn')          return ['withdrawals'];
+    if (eventType === 'session_timed_out')          return ['sess_timed_out'];
+    if (eventType === 'session_abandoned')          return ['sess_abandoned'];
     return [];
   }
 
@@ -179,11 +239,12 @@ var StatsBar = (function () {
   // ── Pages ─────────────────────────────────────────────────────────────────────
 
   function _makePages() {
-    var pages = [];
-    for (var i = 0; i < STAT_DEFS.length; i += PAGE_SIZE) {
-      pages.push(STAT_DEFS.slice(i, i + PAGE_SIZE));
-    }
-    return pages;
+    var byKey = {};
+    STAT_DEFS.forEach(function (d) { byKey[d.key] = d; });
+    return STAT_PAGE_KEYS.map(function (keys) {
+      return keys.filter(function (k) { return byKey[k]; })
+                 .map(function (k) { return byKey[k]; });
+    });
   }
 
   // ── DOM construction ──────────────────────────────────────────────────────────

@@ -741,6 +741,18 @@ class TeaPartyBridge:
             'errors':                  summary['errors_today'],
             'conversations_started':   summary['conversations_started_today'],
             'conversations_closed':    summary['conversations_closed_today'],
+            # Friction / infra
+            'commits':                 summary['commits_today'],
+            'stalls':                  summary['stalls_today'],
+            'ratelimits':              summary['ratelimits_today'],
+            'ctx_compacted':           summary['ctx_compacted_today'],
+            'ctx_warnings':            summary['ctx_warnings_today'],
+            'mcp_failures':            summary['mcp_failures_today'],
+            # Human involvement
+            'interjections':           summary['interjections_today'],
+            'corrections':             summary['corrections_today'],
+            'sess_timed_out':          summary['sess_timed_out_today'],
+            'sess_abandoned':          summary['sess_abandoned_today'],
             # Scalar summaries kept for chart page / legacy consumers
             'escalation_count':        summary['escalation_count_today'],
             'proxy_answered_fraction': summary['proxy_answered_fraction'],

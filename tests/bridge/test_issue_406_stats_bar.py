@@ -170,16 +170,15 @@ class StatsBarModuleExistsTests(unittest.TestCase):
         )
 
     def test_stats_bar_has_core_stat_labels(self) -> None:
-        """stats-bar.js must reference the core stat labels (#406 AC3)."""
+        """stats-bar.js must reference stats from all three page groups (#406 AC3)."""
         if not STATS_BAR_JS.exists():
             self.skipTest('stats-bar.js not yet created')
         src = _read(STATS_BAR_JS)
-        # Check for core stats the paged ticker must include.
-        for label in ('cost', 'turns', 'tokens', 'backtracks'):
+        for label in ('cost', 'turns', 'backtracks', 'stalls', 'interjections', 'corrections'):
             self.assertIn(
                 label.lower(), src.lower(),
                 f'stats-bar.js does not reference the "{label}" stat — '
-                f'core stats are incomplete (#406 AC3)',
+                f'stat groups are incomplete (#406 AC3)',
             )
 
 
@@ -483,25 +482,45 @@ class StructuralDOMEquivalenceTests(unittest.TestCase):
         )
 
     def test_stat_defs_has_minimum_entries(self) -> None:
-        """STAT_DEFS must define at least 10 stats (#406 AC3)."""
+        """STAT_DEFS must define at least 20 stats (#406 AC3)."""
         src = self._src()
         # Each entry has exactly one 'key:' field.
         key_count = len(re.findall(r'\bkey\s*:', src))
         self.assertGreaterEqual(
-            key_count, 10,
-            f'STAT_DEFS defines only {key_count} stats, expected at least 10 '
-            '(the user-requested stat set) (#406 AC3)',
+            key_count, 20,
+            f'STAT_DEFS defines only {key_count} stats, expected at least 20 '
+            '(three semantic page groups) (#406 AC3)',
+        )
+
+    def test_stat_page_keys_defines_three_groups(self) -> None:
+        """STAT_PAGE_KEYS must define exactly 3 semantic page groups (#406 AC3)."""
+        src = self._src()
+        self.assertIn(
+            'STAT_PAGE_KEYS', src,
+            'stats-bar.js does not define STAT_PAGE_KEYS — explicit page groups missing (#406 AC3)',
+        )
+        # Three arrays inside STAT_PAGE_KEYS: count the sub-arrays by leading '['
+        m = re.search(r'var STAT_PAGE_KEYS\s*=\s*\[(.+?)\];', src, re.DOTALL)
+        self.assertIsNotNone(m, 'STAT_PAGE_KEYS not parseable in stats-bar.js')
+        group_count = m.group(1).count('\n    [')
+        self.assertEqual(
+            group_count, 3,
+            f'STAT_PAGE_KEYS has {group_count} groups, expected 3 '
+            '(Throughput, Friction, Human involvement) (#406 AC3)',
         )
 
     def test_required_stat_labels_fixed_in_stat_defs(self) -> None:
-        """Core stat labels must be fixed string literals in STAT_DEFS (#406 AC8)."""
+        """All three page groups must have representative labels (#406 AC8)."""
         src = self._src()
-        for label in ("'Turns'", "'Cost'", "'Tokens'", "'Backtracks'"):
-            self.assertIn(
-                label, src,
-                f'stats-bar.js is missing fixed label {label} in STAT_DEFS — '
-                'stat labels must not vary with scope (#406 AC8)',
-            )
+        # Throughput page
+        for label in ("'Turns'", "'Cost'", "'Tokens'", "'Commits'"):
+            self.assertIn(label, src, f'stats-bar.js missing fixed label {label} (#406 AC8)')
+        # Friction page
+        for label in ("'Backtracks'", "'Stalls'", "'Errors'"):
+            self.assertIn(label, src, f'stats-bar.js missing fixed label {label} (#406 AC8)')
+        # Human page
+        for label in ("'Withdrawals'", "'Corrections'"):
+            self.assertIn(label, src, f'stats-bar.js missing fixed label {label} (#406 AC8)')
 
     def test_page_interval_constant_defined(self) -> None:
         """stats-bar.js must define a PAGE_INTERVAL_MS constant for auto-advance (#406)."""
@@ -678,13 +697,20 @@ class TelemetryStatsEndpointTests(unittest.TestCase):
                 self.assertEqual(resp.status, 200)
                 data = await resp.json()
                 required = {
+                    # Throughput
                     'total_cost', 'turn_count', 'total_tokens', 'processing_ms',
-                    'active_sessions', 'gates_awaiting_input', 'backtrack_count',
-                    'jobs_started', 'sessions_closed', 'withdrawals',
-                    'escalations_proxy', 'escalations_human',
-                    'tool_retries', 'errors',
+                    'commits', 'jobs_started', 'sessions_closed',
                     'conversations_started', 'conversations_closed',
-                    'gate_pass_rate',
+                    # Friction
+                    'backtrack_count', 'stalls', 'ratelimits',
+                    'ctx_compacted', 'ctx_warnings',
+                    'tool_retries', 'errors', 'mcp_failures',
+                    # Human
+                    'interjections', 'corrections',
+                    'escalations_proxy', 'escalations_human',
+                    'withdrawals', 'sess_timed_out', 'sess_abandoned',
+                    # Infra
+                    'active_sessions', 'gates_awaiting_input', 'gate_pass_rate',
                 }
                 missing = required - data.keys()
                 self.assertEqual(
