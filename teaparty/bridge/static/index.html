@@ -225,14 +225,12 @@ function fetchAll() {
       if (p.paused) { pageState.pausedProjects[p.slug] = true; }
     });
     var omConvs = results[1] || [];
-    if (omConvs.length > 0) {
-      pageState.omConvId = omConvs[0].id;
-      if (!_chatBlade) {
-        _chatBlade = AccordionChat.mount(
-          document.getElementById('blade'),
-          { convId: pageState.omConvId, title: 'Management Chat' }
-        );
-      }
+    if (omConvs.length > 0) pageState.omConvId = omConvs[0].id;
+    if (!_chatBlade) {
+      _chatBlade = AccordionChat.mount(
+        document.getElementById('blade'),
+        { convId: pageState.omConvId, title: 'Management Chat' }
+      );
     }
     var configFetches = pageState.projects.map(function(p) {
       return fetch('/api/config/' + encodeURIComponent(p.slug))
@@ -271,11 +269,6 @@ function render() {
   orgHtml += '<a class="org-card" href="config.html">';
   orgHtml += '<span class="oc-icon">&#9881;</span>';
   orgHtml += '<div><div class="oc-label">Management Team</div><div class="oc-meta">Organization catalog</div></div>';
-  orgHtml += '</a>';
-
-  orgHtml += '<a class="org-card" href="stats.html">';
-  orgHtml += '<span class="oc-icon">&#9733;</span>';
-  orgHtml += '<div><div class="oc-label">Statistics</div><div class="oc-meta">Org-wide metrics</div></div>';
   orgHtml += '</a>';
 
   if (totalEsc > 0) {

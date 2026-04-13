@@ -358,6 +358,57 @@ class PerPageMountingTests(unittest.TestCase):
         """job.html must call StatsBar.mount."""
         self._assert_mounts_stats_bar(JOB_HTML, 'job.html')
 
+    def test_job_html_passes_session_filter(self) -> None:
+        """job.html must extract session_id from conv param and pass session_filter (#406 NOT OK).
+
+        conv format is job:{project}:{session_id}; stats bar must filter to that
+        session so job-page telemetry is scoped to the job, not the whole project.
+        """
+        src = _read(JOB_HTML)
+        self.assertIn(
+            'session_filter',
+            src,
+            'job.html does not pass session_filter to StatsBar.mount — '
+            'stats bar will show project-wide telemetry instead of this job\'s data (#406)',
+        )
+        self.assertIn(
+            "conv.split(':')",
+            src,
+            'job.html does not extract session_id from conv URL param — '
+            'session_filter will always be undefined (#406)',
+        )
+
+    def test_index_html_no_statistics_button(self) -> None:
+        """index.html must not contain a Statistics org-card link (#406 ticker replaces it)."""
+        src = _read(INDEX_HTML)
+        self.assertNotIn(
+            'stats.html',
+            src,
+            'index.html still links to stats.html — '
+            'the Statistics org-card should be removed; the ticker replaces it (#406)',
+        )
+
+    def test_index_html_chat_blade_always_mounts(self) -> None:
+        """index.html must mount AccordionChat unconditionally, not gated on omConvs.length."""
+        src = _read(INDEX_HTML)
+        # The blade mount must not be inside the omConvs.length > 0 branch.
+        # Simplest structural check: AccordionChat.mount must appear outside
+        # the if (omConvs.length > 0) block. We verify there is no pattern
+        # where both conditions appear in the same if-block.
+        import re
+        # Find if the AccordionChat.mount call is inside a block gated on
+        # omConvs.length > 0.  A single-line `if (...) pageState.omConvId = …`
+        # is fine; only block-form `if (...) { … AccordionChat.mount … }` is bad.
+        gated = re.search(
+            r'if\s*\(\s*omConvs\.length\s*>\s*0\s*\)\s*\{[\s\S]{0,500}AccordionChat\.mount',
+            src,
+        )
+        self.assertIsNone(
+            gated,
+            'index.html gates AccordionChat.mount on omConvs.length > 0 — '
+            'blade tab is invisible when no OM conversations exist (#406)',
+        )
+
 
 # ── Stats graph page (stats.html redesign) ───────────────────────────────────
 
