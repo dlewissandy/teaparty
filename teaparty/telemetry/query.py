@@ -386,6 +386,56 @@ def gate_pass_rate(
     return counts
 
 
+def total_tokens(
+    scope: Optional[str] = None,
+    agent: Optional[str] = None,
+    session: Optional[str] = None,
+    time_range: Optional[tuple[float, float]] = None,
+) -> int:
+    """Sum input + output + cache tokens across all ``turn_complete`` events."""
+    start, end = (time_range or (None, None))
+    events = query_events(
+        event_type=E.TURN_COMPLETE, scope=scope, agent=agent, session=session,
+        start_ts=start, end_ts=end,
+    )
+    total = 0
+    for ev in events:
+        total += int(ev.data.get('input_tokens', 0) or 0)
+        total += int(ev.data.get('output_tokens', 0) or 0)
+        total += int(ev.data.get('cache_read_tokens', 0) or 0)
+    return total
+
+
+def processing_ms(
+    scope: Optional[str] = None,
+    agent: Optional[str] = None,
+    session: Optional[str] = None,
+    time_range: Optional[tuple[float, float]] = None,
+) -> int:
+    """Sum ``duration_ms`` across all ``turn_complete`` events."""
+    start, end = (time_range or (None, None))
+    events = query_events(
+        event_type=E.TURN_COMPLETE, scope=scope, agent=agent, session=session,
+        start_ts=start, end_ts=end,
+    )
+    return sum(int(ev.data.get('duration_ms', 0) or 0) for ev in events)
+
+
+def _count(
+    event_type: str,
+    scope: Optional[str] = None,
+    agent: Optional[str] = None,
+    session: Optional[str] = None,
+    time_range: Optional[tuple[float, float]] = None,
+) -> int:
+    """Count events of a single type matching the given filters."""
+    start, end = (time_range or (None, None))
+    return len(query_events(
+        event_type=event_type, scope=scope, agent=agent, session=session,
+        start_ts=start, end_ts=end,
+    ))
+
+
 def stats_summary(
     scope: Optional[str] = None,
     agent: Optional[str] = None,
@@ -399,33 +449,53 @@ def stats_summary(
     (or ``(0, float('inf'))``) to override.
 
     Keys returned:
-      cost_today             — float, sum of turn_complete.cost_usd
-      turn_count_today       — int, count of turn_complete events
-      active_sessions        — int, count of open sessions
-      gates_waiting          — int, count of open gate requests
-      backtrack_count_today  — int, count of phase_backtrack events
-      escalation_count_today — int, count of escalation_requested events
+      cost_today              — float, sum of turn_complete.cost_usd
+      turn_count_today        — int, count of turn_complete events
+      total_tokens_today      — int, sum of input+output+cache tokens
+      processing_ms_today     — int, sum of turn duration_ms
+      active_sessions         — int, count of open sessions (not time-ranged)
+      gates_waiting           — int, count of open gate requests (not time-ranged)
+      backtrack_count_today   — int, count of phase_backtrack events
+      jobs_started_today      — int, count of job_created events
+      sessions_closed_today   — int, count of session_complete/closed events
+      withdrawals_today       — int, count of session_withdrawn events
+      escalations_proxy_today — int, count of proxy_answered events
+      escalations_human_today — int, count of proxy_escalated_to_human events
+      tool_retries_today      — int, count of tool_call_retry events
+      errors_today            — int, count of turn_error events
+      conversations_started_today — int, count of session_create events
+      conversations_closed_today  — int, count of close_conversation events
+      escalation_count_today  — int, count of escalation_requested events
       proxy_answered_fraction — float 0–1, fraction answered by proxy
-      gate_pass_rate         — dict, per gate_type pass rate
+      gate_pass_rate          — dict, per gate_type pass rate
     """
     tr = time_range if time_range is not None else _today_range()
-    esc = escalation_stats(scope=scope, agent=agent, session=session, time_range=tr)
     par = proxy_answer_rate(scope=scope, agent=agent, session=session, time_range=tr)
+
+    kw = dict(scope=scope, agent=agent, session=session, time_range=tr)
+    sess_closed = (
+        _count(E.SESSION_COMPLETE, **kw)
+        + _count(E.SESSION_CLOSED, **kw)
+    )
+
     return {
-        'cost_today':              total_cost(
-            scope=scope, agent=agent, session=session, time_range=tr,
-        ),
-        'turn_count_today':        turn_count(
-            scope=scope, agent=agent, session=session, time_range=tr,
-        ),
+        'cost_today':              total_cost(**kw),
+        'turn_count_today':        turn_count(**kw),
+        'total_tokens_today':      total_tokens(**kw),
+        'processing_ms_today':     processing_ms(**kw),
         'active_sessions':         len(active_sessions(scope=scope, agent=agent)),
         'gates_waiting':           len(gates_awaiting_input(scope=scope, agent=agent)),
-        'backtrack_count_today':   backtrack_count(
-            scope=scope, agent=agent, session=session, time_range=tr,
-        ),
-        'escalation_count_today':  esc['requested'],
+        'backtrack_count_today':   backtrack_count(**kw),
+        'jobs_started_today':      _count(E.JOB_CREATED, **kw),
+        'sessions_closed_today':   sess_closed,
+        'withdrawals_today':       _count(E.SESSION_WITHDRAWN, **kw),
+        'escalations_proxy_today': _count(E.PROXY_ANSWERED, **kw),
+        'escalations_human_today': _count(E.PROXY_ESCALATED_TO_HUMAN, **kw),
+        'tool_retries_today':      _count(E.TOOL_CALL_RETRY, **kw),
+        'errors_today':            _count(E.TURN_ERROR, **kw),
+        'conversations_started_today': _count(E.SESSION_CREATE, **kw),
+        'conversations_closed_today':  _count(E.CLOSE_CONVERSATION, **kw),
+        'escalation_count_today':  _count(E.ESCALATION_REQUESTED, **kw),
         'proxy_answered_fraction': par['proxy_rate'],
-        'gate_pass_rate':          gate_pass_rate(
-            scope=scope, agent=agent, session=session, time_range=tr,
-        ),
+        'gate_pass_rate':          gate_pass_rate(**kw),
     }

@@ -1,6 +1,6 @@
 /**
- * StatsBar — one parameterized stats-bar component, mounted on every
- * non-excluded page with a scope config.  Issue #406.
+ * StatsBar — paged ticker stats strip, one parameterized component mounted
+ * on every non-excluded page.  Issue #406.
  *
  * Usage:
  *   StatsBar.mount(container, { scope, label, agent_filter?, session_filter?,
@@ -11,179 +11,261 @@
  *  1. Inserts a compact horizontal strip into container.
  *  2. Fetches baseline from GET /api/telemetry/stats/{scope}?agent=...&session=...
  *  3. Subscribes to `telemetry_event` messages on window._teapartyWS.
- *  4. Updates cells incrementally — no backend round-trip per event.
- *  5. Clicking the strip navigates to /stats.html?scope=...&agent=...&session=...
+ *  4. Updates stats incrementally — no backend round-trip per event.
+ *  5. Shows PAGE_SIZE stats at a time, cycling pages every PAGE_INTERVAL_MS.
+ *  6. Clicking the strip navigates to stats.html scoped to the same context.
  *
- * Note on workgroup_filter: workgroup-level telemetry filtering requires knowing
- * which agents belong to a workgroup at query time.  The telemetry store (#405)
- * records events by scope and agent_name but has no workgroup field.  When
- * workgroup_filter is present, the bar shows stats for the parent scope
- * (filtered by scope only), not for the specific workgroup.  Workgroup-level
- * drill-down is a backend enhancement outside the scope of #406.
+ * Note on workgroup_filter: workgroup-level telemetry filtering requires
+ * knowing which agents belong to a workgroup at query time.  The telemetry
+ * store (#405) records events by scope and agent_name but has no workgroup
+ * field.  When workgroup_filter is present the bar shows parent-scope stats.
  */
 
 var StatsBar = (function () {
   'use strict';
 
-  // Per-container state.  Key: container element, value: _statsBarState object.
+  var PAGE_SIZE        = 5;
+  var PAGE_INTERVAL_MS = 10000;
+  var FADE_MS          = 200;
+
+  // Per-container state — key: DOM element, value: state object.
   var _mounted = new WeakMap();
 
-  // ── Internal state type ──────────────────────────────────────────────────
-  // { config, cells, wsListener }
-  // cells: { cost, turns, active, gates, backtracks, escalations, proxyPct }
-  var _statsBarState = null; // eslint-disable-line no-unused-vars — referenced by test CI check
+  // Marker referenced by single-codepath enforcement test (AC11).
+  var _statsBarState = null; // eslint-disable-line no-unused-vars
 
-  // ── Scope matching ────────────────────────────────────────────────────────
+  // ── Stat definitions ────────────────────────────────────────────────────────
+  // Single source of truth for which stats appear and in what order.
+  // Config-independent: same list for every scope.
+
+  var STAT_DEFS = [
+    { key: 'turns',        label: 'Turns',          fmt: _fmtInt,      cls: 'green'  },
+    { key: 'cost',         label: 'Cost',            fmt: _fmtCost,     cls: 'purple' },
+    { key: 'tokens',       label: 'Tokens',          fmt: _fmtTokens,   cls: null     },
+    { key: 'proc_ms',      label: 'Proc Time',       fmt: _fmtDuration, cls: null     },
+    { key: 'jobs_started', label: 'Jobs Started',    fmt: _fmtInt,      cls: null     },
+    { key: 'sess_closed',  label: 'Completed',       fmt: _fmtInt,      cls: 'green'  },
+    { key: 'withdrawals',  label: 'Withdrawals',     fmt: _fmtInt,      cls: 'yellow' },
+    { key: 'backtracks',   label: 'Backtracks',      fmt: _fmtInt,      cls: 'yellow' },
+    { key: 'esc_proxy',    label: 'Esc\u2192Proxy',  fmt: _fmtInt,      cls: null     },
+    { key: 'esc_human',    label: 'Esc\u2192Human',  fmt: _fmtInt,      cls: 'red'    },
+    { key: 'tool_retries', label: 'Tool Retries',    fmt: _fmtInt,      cls: 'orange' },
+    { key: 'errors',       label: 'Errors',          fmt: _fmtInt,      cls: 'red'    },
+    { key: 'conv_started', label: 'Conv Started',    fmt: _fmtInt,      cls: null     },
+    { key: 'conv_closed',  label: 'Conv Closed',     fmt: _fmtInt,      cls: null     },
+  ];
+
+  // ── Formatters ───────────────────────────────────────────────────────────────
+
+  function _fmtInt(n) { return String(n || 0); }
+
+  function _fmtCost(n) {
+    n = +(n || 0);
+    return n < 0.01 ? '$' + n.toFixed(4) : '$' + n.toFixed(2);
+  }
+
+  function _fmtTokens(n) {
+    n = n || 0;
+    if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+    if (n >= 1000)    return (n / 1000).toFixed(1) + 'K';
+    return String(n);
+  }
+
+  function _fmtDuration(ms) {
+    ms = ms || 0;
+    if (ms === 0) return '0s';
+    if (ms < 1000) return ms + 'ms';
+    if (ms < 60000) return (ms / 1000).toFixed(1) + 's';
+    var m = Math.floor(ms / 60000);
+    var s = Math.floor((ms % 60000) / 1000);
+    if (ms < 3600000) return m + 'm' + (s > 0 ? s + 's' : '');
+    var h = Math.floor(ms / 3600000);
+    m = Math.floor((ms % 3600000) / 60000);
+    return h + 'h' + (m > 0 ? m + 'm' : '');
+  }
+
+  // ── Cells ────────────────────────────────────────────────────────────────────
+
+  function _zeroCells() {
+    return {
+      turns: 0, cost: 0, tokens: 0, proc_ms: 0,
+      jobs_started: 0, sess_closed: 0, withdrawals: 0, backtracks: 0,
+      esc_proxy: 0, esc_human: 0, tool_retries: 0, errors: 0,
+      conv_started: 0, conv_closed: 0,
+    };
+  }
+
+  function _parseCells(data) {
+    return {
+      turns:        parseInt(data.turn_count, 10)            || 0,
+      cost:         parseFloat(data.total_cost)              || 0,
+      tokens:       parseInt(data.total_tokens, 10)          || 0,
+      proc_ms:      parseInt(data.processing_ms, 10)         || 0,
+      jobs_started: parseInt(data.jobs_started, 10)          || 0,
+      sess_closed:  parseInt(data.sessions_closed, 10)       || 0,
+      withdrawals:  parseInt(data.withdrawals, 10)           || 0,
+      backtracks:   parseInt(data.backtrack_count, 10)       || 0,
+      esc_proxy:    parseInt(data.escalations_proxy, 10)     || 0,
+      esc_human:    parseInt(data.escalations_human, 10)     || 0,
+      tool_retries: parseInt(data.tool_retries, 10)          || 0,
+      errors:       parseInt(data.errors, 10)                || 0,
+      conv_started: parseInt(data.conversations_started, 10) || 0,
+      conv_closed:  parseInt(data.conversations_closed, 10)  || 0,
+    };
+  }
+
+  // ── Scope matching ────────────────────────────────────────────────────────────
 
   function _matchesScope(event, config) {
-    // scope: null means org-wide (all events match)
     if (config.scope !== null && event.scope !== config.scope) return false;
     if (config.agent_filter && event.agent_name !== config.agent_filter) return false;
     if (config.session_filter && event.session_id !== config.session_filter) return false;
     return true;
   }
 
-  // ── Cell incremental update ───────────────────────────────────────────────
+  // ── Incremental cell update ───────────────────────────────────────────────────
 
   function _applyEvent(cells, event) {
     var et = event.event_type;
     var data = event.data || {};
     if (et === 'turn_complete') {
-      cells.cost = round6(cells.cost + (parseFloat(data.cost_usd) || 0));
-      cells.turns += 1;
-    } else if (et === 'session_create') {
-      cells.active += 1;
-    } else if (
-      et === 'session_complete' || et === 'session_closed' ||
-      et === 'session_withdrawn' || et === 'session_timed_out' ||
-      et === 'session_abandoned'
-    ) {
-      cells.active = Math.max(0, cells.active - 1);
-    } else if (et === 'gate_input_requested') {
-      cells.gates += 1;
-    } else if (et === 'gate_input_received') {
-      cells.gates = Math.max(0, cells.gates - 1);
+      cells.turns  += 1;
+      cells.cost    = _round6(cells.cost + (parseFloat(data.cost_usd) || 0));
+      cells.tokens += (parseInt(data.input_tokens,      10) || 0)
+                    + (parseInt(data.output_tokens,     10) || 0)
+                    + (parseInt(data.cache_read_tokens, 10) || 0);
+      cells.proc_ms += (parseInt(data.duration_ms, 10) || 0);
+    } else if (et === 'job_created') {
+      cells.jobs_started += 1;
+    } else if (et === 'session_complete' || et === 'session_closed') {
+      cells.sess_closed += 1;
+    } else if (et === 'session_withdrawn') {
+      cells.withdrawals += 1;
     } else if (et === 'phase_backtrack') {
       cells.backtracks += 1;
-    } else if (et === 'escalation_requested') {
-      cells.escalations += 1;
-    } else if (et === 'escalation_resolved') {
-      var src = data.final_answer_source;
-      cells.proxyResolved += 1;
-      if (src === 'proxy') cells.proxyAnswered += 1;
-      cells.proxyPct = cells.proxyResolved > 0
-        ? Math.round(100 * cells.proxyAnswered / cells.proxyResolved)
-        : null;
+    } else if (et === 'proxy_answered') {
+      cells.esc_proxy += 1;
+    } else if (et === 'proxy_escalated_to_human') {
+      cells.esc_human += 1;
+    } else if (et === 'tool_call_retry') {
+      cells.tool_retries += 1;
+    } else if (et === 'turn_error') {
+      cells.errors += 1;
+    } else if (et === 'session_create') {
+      cells.conv_started += 1;
+    } else if (et === 'close_conversation') {
+      cells.conv_closed += 1;
     }
   }
 
-  function round6(n) {
-    return Math.round(n * 1000000) / 1000000;
+  function _affectedKeys(eventType) {
+    if (eventType === 'turn_complete')            return ['turns', 'cost', 'tokens', 'proc_ms'];
+    if (eventType === 'job_created')              return ['jobs_started'];
+    if (eventType === 'session_complete'
+     || eventType === 'session_closed')           return ['sess_closed'];
+    if (eventType === 'session_withdrawn')        return ['withdrawals'];
+    if (eventType === 'phase_backtrack')          return ['backtracks'];
+    if (eventType === 'proxy_answered')           return ['esc_proxy'];
+    if (eventType === 'proxy_escalated_to_human') return ['esc_human'];
+    if (eventType === 'tool_call_retry')          return ['tool_retries'];
+    if (eventType === 'turn_error')               return ['errors'];
+    if (eventType === 'session_create')           return ['conv_started'];
+    if (eventType === 'close_conversation')       return ['conv_closed'];
+    return [];
   }
 
-  // ── DOM construction ──────────────────────────────────────────────────────
+  function _round6(n) { return Math.round(n * 1000000) / 1000000; }
 
-  function _buildDOM(container, config, cells) {
-    var clickUrl = _buildClickUrl(config);
+  // ── Pages ─────────────────────────────────────────────────────────────────────
 
+  function _makePages() {
+    var pages = [];
+    for (var i = 0; i < STAT_DEFS.length; i += PAGE_SIZE) {
+      pages.push(STAT_DEFS.slice(i, i + PAGE_SIZE));
+    }
+    return pages;
+  }
+
+  // ── DOM construction ──────────────────────────────────────────────────────────
+
+  function _buildBar(container, config, state) {
     var bar = document.createElement('div');
     bar.className = 'stats-bar';
-    bar.title = 'Click to view ' + (config.label || 'stats') + ' details';
-    bar.onclick = function () { window.location.href = clickUrl; };
+    bar.title = 'Click for ' + (config.label || 'stats') + ' detail view';
+    bar.onclick = function () { window.location.href = _buildClickUrl(config); };
 
-    var lbl = document.createElement('span');
+    var lbl = document.createElement('div');
     lbl.className = 'stats-bar-label';
     lbl.textContent = config.label || 'Stats';
     bar.appendChild(lbl);
 
-    var cellDefs = _cellDefs(cells);
-    cellDefs.forEach(function (def) {
-      var cell = document.createElement('div');
-      cell.className = 'stats-bar-cell' + (def.optional ? ' optional' : '');
-      cell.dataset.metric = def.metric;
-      if (def.optional && !def.show) cell.style.display = 'none';
+    var ticker = document.createElement('div');
+    ticker.className = 'stats-ticker';
+    bar.appendChild(ticker);
 
-      var val = document.createElement('div');
-      val.className = 'stats-bar-cell-value' + (def.colorClass ? ' ' + def.colorClass : '');
-      val.textContent = def.value;
-
-      var lbl2 = document.createElement('div');
-      lbl2.className = 'stats-bar-cell-label';
-      lbl2.textContent = def.label;
-
-      cell.appendChild(val);
-      cell.appendChild(lbl2);
-      bar.appendChild(cell);
+    var nav = document.createElement('div');
+    nav.className = 'stats-ticker-nav';
+    state.pages.forEach(function () {
+      var dot = document.createElement('span');
+      dot.className = 'stats-ticker-dot';
+      nav.appendChild(dot);
     });
+    bar.appendChild(nav);
 
     container.innerHTML = '';
     container.appendChild(bar);
+    state.barEl    = bar;
+    state.tickerEl = ticker;
+    state.navEl    = nav;
+
+    _renderPage(state);
   }
 
-  function _cellDefs(cells) {
-    return [
-      {
-        metric: 'cost', label: 'Cost', optional: false,
-        value: '$' + cells.cost.toFixed(2),
-        colorClass: 'stats-bar-cell-value--purple',
-      },
-      {
-        metric: 'turns', label: 'Turns', optional: false,
-        value: String(cells.turns),
-        colorClass: 'stats-bar-cell-value--green',
-      },
-      {
-        metric: 'active', label: 'Active', optional: false,
-        value: String(cells.active),
-        colorClass: cells.active > 0 ? 'stats-bar-cell-value--green' : '',
-      },
-      {
-        metric: 'gates', label: 'Gates Waiting', optional: false,
-        value: String(cells.gates),
-        colorClass: cells.gates > 0 ? 'stats-bar-cell-value--yellow' : '',
-      },
-      {
-        metric: 'backtracks', label: 'Backtracks', optional: true,
-        show: cells.backtracks > 0,
-        value: String(cells.backtracks),
-        colorClass: 'stats-bar-cell-value--yellow',
-      },
-      {
-        metric: 'escalations', label: 'Escalations', optional: true,
-        show: cells.escalations > 0,
-        value: String(cells.escalations),
-        colorClass: 'stats-bar-cell-value--red',
-      },
-      {
-        metric: 'proxyPct', label: 'Proxy Ans %', optional: true,
-        show: cells.proxyPct !== null,
-        value: cells.proxyPct !== null ? cells.proxyPct + '%' : '—',
-        colorClass: '',
-      },
-    ];
+  function _renderPage(state) {
+    var page = state.pages[state.page] || [];
+
+    // Update nav dots.
+    if (state.navEl) {
+      var dots = state.navEl.children;
+      for (var i = 0; i < dots.length; i++) {
+        dots[i].className = 'stats-ticker-dot' + (i === state.page ? ' active' : '');
+      }
+    }
+
+    if (!state.tickerEl) return;
+    state.tickerEl.innerHTML = '';
+
+    page.forEach(function (def) {
+      var cell = document.createElement('div');
+      cell.className = 'stats-bar-cell';
+
+      var val = document.createElement('div');
+      val.className = 'stats-bar-cell-value'
+        + (def.cls ? ' stats-bar-cell-value--' + def.cls : '');
+      val.textContent = def.fmt(state.cells[def.key]);
+
+      var lbl = document.createElement('div');
+      lbl.className = 'stats-bar-cell-label';
+      lbl.textContent = def.label;
+
+      cell.appendChild(val);
+      cell.appendChild(lbl);
+      state.tickerEl.appendChild(cell);
+    });
   }
 
-  function _updateCell(container, metric, cells) {
-    var cell = container.querySelector('[data-metric="' + metric + '"]');
-    if (!cell) return;
-    var defs = _cellDefs(cells);
-    var def = null;
-    for (var i = 0; i < defs.length; i++) {
-      if (defs[i].metric === metric) { def = defs[i]; break; }
-    }
-    if (!def) return;
-
-    var valEl = cell.querySelector('.stats-bar-cell-value');
-    if (valEl) {
-      valEl.textContent = def.value;
-      valEl.className = 'stats-bar-cell-value' + (def.colorClass ? ' ' + def.colorClass : '');
-    }
-    if (def.optional) {
-      cell.style.display = def.show ? '' : 'none';
-    }
+  function _advancePage(state) {
+    if (!state.tickerEl) return;
+    var ticker = state.tickerEl;
+    ticker.classList.add('fading');
+    setTimeout(function () {
+      state.page = (state.page + 1) % state.pages.length;
+      _renderPage(state);
+      ticker.classList.remove('fading');
+    }, FADE_MS);
   }
 
-  // ── Click-through URL ─────────────────────────────────────────────────────
+  // ── Navigation URL ────────────────────────────────────────────────────────────
 
   function _buildClickUrl(config) {
     var params = [];
@@ -199,137 +281,113 @@ var StatsBar = (function () {
     return 'stats.html' + (params.length ? '?' + params.join('&') : '');
   }
 
-  // ── Baseline fetch ────────────────────────────────────────────────────────
+  // ── Baseline fetch ────────────────────────────────────────────────────────────
 
   function _fetchUrl(config) {
     var s = (config.scope !== null && config.scope !== undefined)
       ? config.scope : 'all';
     var params = [];
-    if (config.agent_filter) params.push('agent=' + encodeURIComponent(config.agent_filter));
-    if (config.session_filter) params.push('session=' + encodeURIComponent(config.session_filter));
-    var qs = params.length ? '?' + params.join('&') : '';
-    return '/api/telemetry/stats/' + encodeURIComponent(s) + qs;
+    if (config.agent_filter) {
+      params.push('agent=' + encodeURIComponent(config.agent_filter));
+    }
+    if (config.session_filter) {
+      params.push('session=' + encodeURIComponent(config.session_filter));
+    }
+    return '/api/telemetry/stats/' + encodeURIComponent(s)
+      + (params.length ? '?' + params.join('&') : '');
   }
 
-  function _parseCells(data) {
-    var par = data.proxy_answer_rate || {};
-    var proxyResolved = (par.total || 0);
-    var proxyAnswered = (par.by_proxy || 0);
-    return {
-      cost:           parseFloat(data.total_cost) || 0,
-      turns:          parseInt(data.turn_count, 10) || 0,
-      active:         (data.active_sessions || []).length !== undefined
-                        ? (Array.isArray(data.active_sessions) ? data.active_sessions.length
-                           : (parseInt(data.active_sessions, 10) || 0))
-                        : 0,
-      gates:          (data.gates_awaiting_input || []).length !== undefined
-                        ? (Array.isArray(data.gates_awaiting_input)
-                           ? data.gates_awaiting_input.length
-                           : (parseInt(data.gates_awaiting_input, 10) || 0))
-                        : 0,
-      backtracks:     parseInt(data.backtrack_count, 10) || 0,
-      escalations:    parseInt(data.escalation_count, 10) || 0,
-      proxyResolved:  proxyResolved,
-      proxyAnswered:  proxyAnswered,
-      proxyPct:       proxyResolved > 0
-                        ? Math.round(100 * proxyAnswered / proxyResolved)
-                        : null,
-    };
-  }
+  // ── WebSocket subscription ────────────────────────────────────────────────────
 
-  // ── WebSocket subscription ────────────────────────────────────────────────
-
-  function _makeWsListener(state, container) {
+  function _makeWsListener(state) {
     return function (msgEvent) {
       var event;
       try { event = JSON.parse(msgEvent.data); } catch (e) { return; }
       if (event.type !== 'telemetry_event') return;
       if (!_matchesScope(event, state.config)) return;
 
-      var affected = _affectedMetrics(event.event_type);
+      var affected = _affectedKeys(event.event_type);
+      if (!affected.length) return;
       _applyEvent(state.cells, event);
-      affected.forEach(function (m) { _updateCell(container, m, state.cells); });
+
+      // Re-render current page only if an affected key is visible on it.
+      var currentDefs = state.pages[state.page] || [];
+      var visible = currentDefs.some(function (def) {
+        return affected.indexOf(def.key) !== -1;
+      });
+      if (visible) _renderPage(state);
     };
   }
 
-  function _affectedMetrics(eventType) {
-    if (eventType === 'turn_complete') return ['cost', 'turns'];
-    if (eventType === 'session_create') return ['active'];
-    if (
-      eventType === 'session_complete' || eventType === 'session_closed' ||
-      eventType === 'session_withdrawn' || eventType === 'session_timed_out' ||
-      eventType === 'session_abandoned'
-    ) return ['active'];
-    if (eventType === 'gate_input_requested') return ['gates'];
-    if (eventType === 'gate_input_received') return ['gates'];
-    if (eventType === 'phase_backtrack') return ['backtracks'];
-    if (eventType === 'escalation_requested') return ['escalations'];
-    if (eventType === 'escalation_resolved') return ['proxyPct'];
-    return [];
+  function _subscribeWS(state) {
+    var ws = window._teapartyWS;
+    if (!ws) return;
+    state.wsListener = _makeWsListener(state);
+    ws.addEventListener('message', state.wsListener);
   }
 
-  // ── Public API ────────────────────────────────────────────────────────────
+  // ── Public API ────────────────────────────────────────────────────────────────
 
   /**
-   * Mount the stats bar into container.
+   * Mount a paged ticker stats bar into container.
    *
    * config: {
    *   scope: string | null,   // null = org-wide
    *   label: string,
    *   agent_filter?: string,
    *   session_filter?: string,
+   *   workgroup_filter?: string,  // informational only — see module header
    * }
    */
   function mount(container, config) {
-    // Unmount any existing bar in this container first.
     unmount(container);
 
     var state = {
-      config: config,
-      cells: { cost: 0, turns: 0, active: 0, gates: 0, backtracks: 0,
-               escalations: 0, proxyResolved: 0, proxyAnswered: 0, proxyPct: null },
+      config:    config,
+      cells:     _zeroCells(),
+      pages:     _makePages(),
+      page:      0,
+      barEl:     null,
+      tickerEl:  null,
+      navEl:     null,
+      timer:     null,
       wsListener: null,
     };
 
-    // Render placeholder immediately.
-    _buildDOM(container, config, state.cells);
+    _buildBar(container, config, state);
 
-    // Fetch baseline.
+    // Auto-advance pages.
+    if (state.pages.length > 1) {
+      state.timer = setInterval(function () {
+        _advancePage(state);
+      }, PAGE_INTERVAL_MS);
+    }
+
+    // Fetch baseline; wire WS listener after snapshot is in place.
     fetch(_fetchUrl(config))
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (data) {
         if (!data) return;
         state.cells = _parseCells(data);
-        _buildDOM(container, config, state.cells);
-        // Wire up WS listener after baseline is in place so deltas are
-        // applied to a known-good snapshot.
-        _subscribeWS(state, container);
+        _renderPage(state);
+        _subscribeWS(state);
       })
       .catch(function () {
-        // Baseline fetch failed; still show the bar with zeros and subscribe
-        // so live events start populating it.
-        _subscribeWS(state, container);
+        _subscribeWS(state);
       });
 
     _mounted.set(container, state);
   }
 
-  function _subscribeWS(state, container) {
-    var ws = window._teapartyWS;
-    if (!ws) return;
-    state.wsListener = _makeWsListener(state, container);
-    ws.addEventListener('message', state.wsListener);
-  }
-
   /**
-   * Unmount the stats bar from container, removing DOM and WS subscription.
+   * Unmount the stats bar from container — removes DOM, timer, WS listener.
    */
   function unmount(container) {
     var state = _mounted.get(container);
     if (!state) return;
-    var ws = window._teapartyWS;
-    if (ws && state.wsListener) {
-      ws.removeEventListener('message', state.wsListener);
+    if (state.timer) { clearInterval(state.timer); }
+    if (window._teapartyWS && state.wsListener) {
+      window._teapartyWS.removeEventListener('message', state.wsListener);
     }
     container.innerHTML = '';
     _mounted.delete(container);

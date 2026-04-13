@@ -724,15 +724,28 @@ class TeaPartyBridge:
         )
         return web.json_response({
             'scope':                   scope,
+            # Core counts (paged ticker)
             'total_cost':              summary['cost_today'],
             'turn_count':              summary['turn_count_today'],
+            'total_tokens':            summary['total_tokens_today'],
+            'processing_ms':           summary['processing_ms_today'],
             'active_sessions':         summary['active_sessions'],
             'gates_awaiting_input':    summary['gates_waiting'],
             'backtrack_count':         summary['backtrack_count_today'],
+            'jobs_started':            summary['jobs_started_today'],
+            'sessions_closed':         summary['sessions_closed_today'],
+            'withdrawals':             summary['withdrawals_today'],
+            'escalations_proxy':       summary['escalations_proxy_today'],
+            'escalations_human':       summary['escalations_human_today'],
+            'tool_retries':            summary['tool_retries_today'],
+            'errors':                  summary['errors_today'],
+            'conversations_started':   summary['conversations_started_today'],
+            'conversations_closed':    summary['conversations_closed_today'],
+            # Scalar summaries kept for chart page / legacy consumers
             'escalation_count':        summary['escalation_count_today'],
             'proxy_answered_fraction': summary['proxy_answered_fraction'],
             'gate_pass_rate':          summary['gate_pass_rate'],
-            # Detailed breakdowns for richer consumers.
+            # Detailed breakdowns for the chart page.
             'backtrack_cost':      telemetry.backtrack_cost(
                 scope=s, agent=agent, session=session, time_range=tr,
             ),

@@ -30,6 +30,7 @@ STATIC_DIR = REPO_ROOT / 'teaparty' / 'bridge' / 'static'
 STATS_BAR_JS  = STATIC_DIR / 'stats-bar.js'
 INDEX_HTML    = STATIC_DIR / 'index.html'
 CONFIG_HTML   = STATIC_DIR / 'config.html'
+JOB_HTML      = STATIC_DIR / 'job.html'
 STATS_HTML    = STATIC_DIR / 'stats.html'
 ARTIFACTS_HTML = STATIC_DIR / 'artifacts.html'
 STYLES_CSS    = STATIC_DIR / 'styles.css'
@@ -168,17 +169,17 @@ class StatsBarModuleExistsTests(unittest.TestCase):
             'the baseline-then-incremental model is broken (#406 AC10)',
         )
 
-    def test_stats_bar_has_four_core_cells(self) -> None:
-        """stats-bar.js must reference all four core cell labels (#406 AC3)."""
+    def test_stats_bar_has_core_stat_labels(self) -> None:
+        """stats-bar.js must reference the core stat labels (#406 AC3)."""
         if not STATS_BAR_JS.exists():
             self.skipTest('stats-bar.js not yet created')
         src = _read(STATS_BAR_JS)
-        # Check for the four core stat names (case-insensitive substring match).
-        for label in ('cost', 'turns', 'active', 'gates'):
+        # Check for core stats the paged ticker must include.
+        for label in ('cost', 'turns', 'tokens', 'backtracks'):
             self.assertIn(
                 label.lower(), src.lower(),
-                f'stats-bar.js does not reference the "{label}" cell — '
-                f'the core cells are incomplete (#406 AC3)',
+                f'stats-bar.js does not reference the "{label}" stat — '
+                f'core stats are incomplete (#406 AC3)',
             )
 
 
@@ -346,6 +347,18 @@ class PerPageMountingTests(unittest.TestCase):
             'the graph page is the click-through destination, not a host (#406 AC2)',
         )
 
+    def test_job_html_loads_stats_bar_js(self) -> None:
+        """job.html must load stats-bar.js."""
+        self._assert_loads_stats_bar(JOB_HTML, 'job.html')
+
+    def test_job_html_has_stats_bar_slot(self) -> None:
+        """job.html must have a stats-bar-slot div."""
+        self._assert_has_mount_slot(JOB_HTML, 'job.html')
+
+    def test_job_html_mounts_stats_bar(self) -> None:
+        """job.html must call StatsBar.mount."""
+        self._assert_mounts_stats_bar(JOB_HTML, 'job.html')
+
 
 # ── Stats graph page (stats.html redesign) ───────────────────────────────────
 
@@ -446,77 +459,78 @@ class StatsCSSTests(unittest.TestCase):
         )
 
 
-# ── Structural DOM equivalence (#406 AC8) ─────────────────────────────────────
+# ── Paged ticker structural invariants (#406 AC8) ─────────────────────────────
 
 
 class StructuralDOMEquivalenceTests(unittest.TestCase):
-    """The stats bar on any two pages must produce structurally identical markup
-    modulo the parameterized fields (scope label, cell values). (#406 AC8)
+    """The paged ticker must produce config-independent DOM structure.
 
-    Because stats-bar.js uses a single _cellDefs(cells) function — not
-    _cellDefs(cells, config) — the DOM structure is guaranteed to be
-    config-independent.  These tests verify that invariant by inspecting the
-    source."""
+    The invariant is enforced by a single top-level STAT_DEFS array — all
+    scopes get the same stat list, same page layout.  DOM varies only in cell
+    values, not in structure. (#406 AC8)
+    """
 
     def _src(self) -> str:
         return _read(STATS_BAR_JS)
 
-    def test_cell_defs_has_four_core_cells(self) -> None:
-        """_cellDefs must define exactly 4 core (non-optional) cells."""
+    def test_stat_defs_array_exists(self) -> None:
+        """stats-bar.js must define a STAT_DEFS constant array (#406 AC8)."""
         src = self._src()
-        # Count occurrences of 'optional: false' — one per core cell.
-        core_count = src.count('optional: false')
-        self.assertEqual(
-            core_count, 4,
-            f'stats-bar.js defines {core_count} core cells (optional:false), '
-            'expected exactly 4 (Cost, Turns, Active, Gates Waiting) (#406 AC8)',
+        self.assertIn(
+            'STAT_DEFS', src,
+            'stats-bar.js does not define STAT_DEFS — the paged ticker has no '
+            'config-independent stat list, violating structural equivalence (#406 AC8)',
         )
 
-    def test_cell_defs_has_three_optional_cells(self) -> None:
-        """_cellDefs must define exactly 3 optional cells."""
+    def test_stat_defs_has_minimum_entries(self) -> None:
+        """STAT_DEFS must define at least 10 stats (#406 AC3)."""
         src = self._src()
-        optional_count = src.count('optional: true')
-        self.assertEqual(
-            optional_count, 3,
-            f'stats-bar.js defines {optional_count} optional cells, '
-            'expected exactly 3 (Backtracks, Escalations, Proxy Ans %) (#406 AC8)',
+        # Each entry has exactly one 'key:' field.
+        key_count = len(re.findall(r'\bkey\s*:', src))
+        self.assertGreaterEqual(
+            key_count, 10,
+            f'STAT_DEFS defines only {key_count} stats, expected at least 10 '
+            '(the user-requested stat set) (#406 AC3)',
         )
 
-    def test_required_cell_labels_are_fixed(self) -> None:
-        """The core cell labels must be fixed strings, not config-derived."""
+    def test_required_stat_labels_fixed_in_stat_defs(self) -> None:
+        """Core stat labels must be fixed string literals in STAT_DEFS (#406 AC8)."""
         src = self._src()
-        for label in ("'Cost'", "'Turns'", "'Active'", "'Gates Waiting'"):
+        for label in ("'Turns'", "'Cost'", "'Tokens'", "'Backtracks'"):
             self.assertIn(
                 label, src,
-                f'stats-bar.js is missing fixed label {label} — '
-                'core cell labels must not vary with scope (#406 AC8)',
+                f'stats-bar.js is missing fixed label {label} in STAT_DEFS — '
+                'stat labels must not vary with scope (#406 AC8)',
             )
 
-    def test_cell_defs_takes_only_cells_not_config(self) -> None:
-        """_cellDefs(cells) must not take a config parameter.
-
-        If _cellDefs had a config parameter it could produce different DOM
-        structures on different pages, violating structural equivalence."""
+    def test_page_interval_constant_defined(self) -> None:
+        """stats-bar.js must define a PAGE_INTERVAL_MS constant for auto-advance (#406)."""
         src = self._src()
-        m = re.search(r'function _cellDefs\(([^)]*)\)', src)
-        self.assertIsNotNone(
-            m, 'stats-bar.js does not define _cellDefs() (#406 AC8)',
-        )
-        params = m.group(1).strip()
-        self.assertNotIn(
-            'config', params,
-            f'_cellDefs({params}) takes a config param — DOM structure would '
-            'vary across scopes, violating structural equivalence (#406 AC8)',
+        self.assertIn(
+            'PAGE_INTERVAL', src,
+            'stats-bar.js does not define PAGE_INTERVAL — '
+            'the paged ticker has no auto-advance timing (#406)',
         )
 
-    def test_build_dom_does_not_branch_on_scope(self) -> None:
-        """_buildDOM must not contain branches on config.scope that would
-        produce different cell counts on different pages."""
+    def test_advance_page_function_exists(self) -> None:
+        """stats-bar.js must define _advancePage for page cycling (#406)."""
         src = self._src()
-        # Extract just the _buildDOM function body.
-        start = src.find('function _buildDOM(')
-        self.assertGreater(start, -1, '_buildDOM not found in stats-bar.js')
-        # Find the matching closing brace.
+        self.assertIn(
+            '_advancePage', src,
+            'stats-bar.js does not define _advancePage — '
+            'the paged ticker cannot cycle between pages (#406)',
+        )
+
+    def test_build_bar_does_not_branch_on_scope(self) -> None:
+        """_buildBar must not branch on config scope to produce different cell counts.
+
+        The invariant: _renderPage (called from _buildBar) always uses STAT_DEFS,
+        so _buildBar should not call _renderPage more than once or alter STAT_DEFS
+        conditionally on scope.
+        """
+        src = self._src()
+        start = src.find('function _buildBar(')
+        self.assertGreater(start, -1, '_buildBar not found in stats-bar.js')
         depth, i = 0, start
         while i < len(src):
             if src[i] == '{':
@@ -527,14 +541,11 @@ class StructuralDOMEquivalenceTests(unittest.TestCase):
                     break
             i += 1
         body = src[start:i + 1]
-        # _buildDOM should NOT contain a reference to config.scope or
-        # config.agent_filter inside a conditional that controls cell count.
-        # A simple proxy: assert _cellDefs is called exactly once in _buildDOM.
-        cell_defs_calls = body.count('_cellDefs(')
+        render_calls = body.count('_renderPage(')
         self.assertEqual(
-            cell_defs_calls, 1,
-            f'_buildDOM calls _cellDefs {cell_defs_calls} times — '
-            'expected exactly 1, no per-scope branching (#406 AC8)',
+            render_calls, 1,
+            f'_buildBar calls _renderPage {render_calls} times — '
+            'expected exactly 1; per-scope branching would violate structural equivalence (#406 AC8)',
         )
 
 
@@ -657,7 +668,7 @@ class TelemetryStatsEndpointTests(unittest.TestCase):
         self._run(_run())
 
     def test_stats_endpoint_response_has_all_required_fields(self) -> None:
-        """/api/telemetry/stats/proj must return all stats-bar fields."""
+        """/api/telemetry/stats/proj must return all paged-ticker stat fields."""
         from aiohttp.test_utils import TestServer, TestClient
         app = self._make_app()
 
@@ -667,8 +678,12 @@ class TelemetryStatsEndpointTests(unittest.TestCase):
                 self.assertEqual(resp.status, 200)
                 data = await resp.json()
                 required = {
-                    'total_cost', 'turn_count', 'active_sessions',
-                    'gates_awaiting_input', 'backtrack_count',
+                    'total_cost', 'turn_count', 'total_tokens', 'processing_ms',
+                    'active_sessions', 'gates_awaiting_input', 'backtrack_count',
+                    'jobs_started', 'sessions_closed', 'withdrawals',
+                    'escalations_proxy', 'escalations_human',
+                    'tool_retries', 'errors',
+                    'conversations_started', 'conversations_closed',
                     'gate_pass_rate',
                 }
                 missing = required - data.keys()
