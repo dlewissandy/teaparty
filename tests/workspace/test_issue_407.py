@@ -9,6 +9,7 @@ Tests that:
 6. _MERGE_EXCLUDE tracks WORK_SUMMARY.md (not .work-summary.md)
 7. _interpret_output finds execution artifact in session_worktree, not infra_dir
 8. _check_skill_correction reads PLAN.md from session_worktree, not infra_dir
+9. _build_artifact_context searches worktree first, then infra_dir; uses WORK_SUMMARY.md name
 """
 from __future__ import annotations
 
@@ -594,6 +595,101 @@ class TestCheckSkillCorrectionReadsFromWorktree(unittest.TestCase):
                 '(only session_worktree is checked after #407). If this fails, '
                 'plan_path is still using infra_dir.',
             )
+
+
+# ── SC9: _build_artifact_context proxy search order ──────────────────────────
+
+
+class TestProxyArtifactSearchOrder(unittest.TestCase):
+    """_build_artifact_context must search worktree first, then infra_dir (issue #407).
+
+    Before this fix, search order was (infra_dir, session_worktree).
+    The correct order after #407 is (session_worktree, infra_dir) so the
+    worktree copy is always preferred. WORK_SUMMARY.md replaces .work-summary.md.
+    """
+
+    def setUp(self):
+        self.worktree_td = tempfile.TemporaryDirectory()
+        self.infra_td = tempfile.TemporaryDirectory()
+        self.worktree = self.worktree_td.name
+        self.infra_dir = self.infra_td.name
+
+    def tearDown(self):
+        self.worktree_td.cleanup()
+        self.infra_td.cleanup()
+
+    def _call(self, state: str, artifact_path: str = '') -> list:
+        from teaparty.proxy.agent import _build_artifact_context
+        return _build_artifact_context(
+            artifact_path=artifact_path,
+            session_worktree=self.worktree,
+            infra_dir=self.infra_dir,
+            state=state,
+        )
+
+    def test_intent_md_found_in_worktree_preferred_over_infra(self):
+        """When INTENT.md exists in both worktree and infra_dir, worktree path is used."""
+        wt_intent = os.path.join(self.worktree, 'INTENT.md')
+        infra_intent = os.path.join(self.infra_dir, 'INTENT.md')
+        Path(wt_intent).write_text('# INTENT: Worktree version\n')
+        Path(infra_intent).write_text('# INTENT: Infra version\n')
+
+        parts = self._call('PLAN_ASSERT')
+
+        intent_parts = [p for p in parts if 'INTENT.md' in p]
+        self.assertEqual(len(intent_parts), 1,
+                         f'Expected exactly 1 INTENT.md context entry, got {intent_parts}')
+        self.assertIn(self.worktree, intent_parts[0],
+                      'INTENT.md context must reference the worktree path, not infra_dir. '
+                      'If this fails, search order is still (infra_dir, worktree).')
+        self.assertNotIn(self.infra_dir, intent_parts[0],
+                         'infra_dir INTENT.md must NOT be used when worktree copy exists')
+
+    def test_intent_md_fallback_to_infra_when_worktree_missing(self):
+        """When INTENT.md is only in infra_dir (old session), it is used as fallback."""
+        infra_intent = os.path.join(self.infra_dir, 'INTENT.md')
+        Path(infra_intent).write_text('# INTENT: Legacy session\n')
+        self.assertFalse(os.path.isfile(os.path.join(self.worktree, 'INTENT.md')))
+
+        parts = self._call('PLAN_ASSERT')
+
+        intent_parts = [p for p in parts if 'INTENT.md' in p]
+        self.assertEqual(len(intent_parts), 1)
+        self.assertIn(self.infra_dir, intent_parts[0],
+                      'infra_dir fallback must be used when INTENT.md is absent from worktree')
+
+    def test_work_summary_md_name_used_not_dot_work_summary(self):
+        """WORK_SUMMARY.md (not .work-summary.md) is the artifact name searched."""
+        # Write WORK_SUMMARY.md (new name)
+        Path(os.path.join(self.worktree, 'WORK_SUMMARY.md')).write_text('# Work Summary\n')
+        # Also write the old name — it must NOT appear
+        Path(os.path.join(self.worktree, '.work-summary.md')).write_text('# Old hidden file\n')
+
+        parts = self._call('WORK_ASSERT')
+
+        summary_parts = [p for p in parts if 'WORK_SUMMARY.md' in p]
+        old_parts = [p for p in parts if '.work-summary.md' in p]
+
+        self.assertEqual(len(summary_parts), 1,
+                         'WORK_SUMMARY.md must appear in context for WORK_ASSERT state. '
+                         'If this fails, the artifact name was not updated from .work-summary.md.')
+        self.assertEqual(len(old_parts), 0,
+                         '.work-summary.md must NOT appear — it is the old hidden artifact name')
+
+    def test_plan_md_found_in_worktree_for_work_assert(self):
+        """PLAN.md in worktree is included in WORK_ASSERT context (worktree-first)."""
+        wt_plan = os.path.join(self.worktree, 'PLAN.md')
+        infra_plan = os.path.join(self.infra_dir, 'PLAN.md')
+        Path(wt_plan).write_text('# Plan: worktree\n')
+        Path(infra_plan).write_text('# Plan: infra\n')
+
+        parts = self._call('WORK_ASSERT')
+
+        plan_parts = [p for p in parts if 'PLAN.md' in p]
+        self.assertEqual(len(plan_parts), 1)
+        self.assertIn(self.worktree, plan_parts[0],
+                      'PLAN.md context must reference worktree path for WORK_ASSERT. '
+                      'If this fails, search order is still (infra_dir, worktree).')
 
 
 if __name__ == '__main__':
