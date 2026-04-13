@@ -872,7 +872,7 @@ class TestExcludedPagesCarryNoChat(unittest.TestCase):
     """
 
     # Pages explicitly excluded from the chat UX by the issue.
-    EXCLUDED_PAGES = ['artifacts.html', 'stats.html']
+    EXCLUDED_PAGES = ['stats.html']
 
     def test_excluded_pages_do_not_include_accordion_chat_js(self):
         """artifacts.html and stats.html must not load accordion-chat.js."""

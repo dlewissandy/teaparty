@@ -184,6 +184,40 @@ def _parse_artifacts(content: str) -> dict[str, str]:
     return sections
 
 
+def parse_git_status(worktree_path: str) -> dict[str, str]:
+    """Run ``git status --porcelain`` and return ``{relative_path: status}``.
+
+    Status values: ``'new'`` (untracked), ``'modified'``, ``'deleted'``.
+    Files with no changes are omitted.
+    """
+    import subprocess as _sp
+    try:
+        result = _sp.run(
+            ['git', 'status', '--porcelain'],
+            cwd=worktree_path, capture_output=True, text=True, timeout=10,
+        )
+    except (FileNotFoundError, _sp.TimeoutExpired):
+        return {}
+    if result.returncode != 0:
+        return {}
+    statuses: dict[str, str] = {}
+    for line in result.stdout.splitlines():
+        if len(line) < 4:
+            continue
+        xy = line[:2]
+        filepath = line[3:].strip()
+        # Handle renames: "R  old -> new"
+        if ' -> ' in filepath:
+            filepath = filepath.split(' -> ')[-1]
+        if xy == '??' or xy == 'A ' or xy == 'AM':  # staged-new then modified
+            statuses[filepath] = 'new'
+        elif xy[1] == 'D' or xy[0] == 'D':
+            statuses[filepath] = 'deleted'
+        else:
+            statuses[filepath] = 'modified'
+    return statuses
+
+
 # ── Bridge class ──────────────────────────────────────────────────────────────
 
 class TeaPartyBridge:
@@ -338,6 +372,7 @@ class TeaPartyBridge:
 
         # ── Filesystem navigation endpoint ────────────────────────────────────
         app.router.add_get('/api/fs/list', self._handle_fs_list)
+        app.router.add_get('/api/git-status', self._handle_git_status)
 
         # ── Project management endpoints ──────────────────────────────────────
         app.router.add_post('/api/projects/add', self._handle_projects_add)
@@ -1974,6 +2009,30 @@ class TeaPartyBridge:
         except FileNotFoundError as exc:
             return web.json_response({'error': str(exc)}, status=404)
         return web.json_response({'path': path, 'entries': entries})
+
+    async def _handle_git_status(self, request: web.Request) -> web.Response:
+        """GET /api/git-status?path=<worktree> — git status for a worktree.
+
+        Returns ``{files: {relative_path: status}}`` where status is
+        ``'new'``, ``'modified'``, or ``'deleted'``.
+        """
+        path = request.rel_url.query.get('path', '')
+        project = request.rel_url.query.get('project', '')
+        if not path and project:
+            proj_path = self._lookup_project_path(project)
+            if proj_path is None:
+                return web.json_response(
+                    {'error': f'project not found: {project}'}, status=404)
+            path = proj_path
+        if not path:
+            return web.json_response(
+                {'error': 'path or project parameter required'}, status=400)
+        path = os.path.expanduser(path)
+        if not os.path.isdir(path):
+            return web.json_response(
+                {'error': f'directory not found: {path}'}, status=404)
+        files = parse_git_status(path)
+        return web.json_response({'files': files})
 
     # ── Project management handlers ───────────────────────────────────────────
 
