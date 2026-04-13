@@ -107,6 +107,36 @@ async def _run_git(cwd: str, *args: str) -> None:
         )
 
 
+async def _write_artifact_gitignore(worktree_path: str) -> None:
+    """Write and commit a .gitignore to *worktree_path* that excludes process artifacts.
+
+    INTENT.md, PLAN.md, and WORK_SUMMARY.md live in the worktree root for
+    visibility (reviewer can navigate to them) but must never reach main — they
+    are planning scaffolding, not deliverables.  The .gitignore is the belt;
+    _MERGE_EXCLUDE in merge.py is the suspenders.
+    """
+    gitignore_path = os.path.join(worktree_path, '.gitignore')
+    with open(gitignore_path, 'a') as f:
+        f.write(
+            '# Process artifacts — planning scaffolding, not deliverables\n'
+            'INTENT.md\n'
+            'PLAN.md\n'
+            'WORK_SUMMARY.md\n'
+            '# Per-launch infrastructure\n'
+            '.mcp.json\n'
+            '.claude/\n'
+            'stream.jsonl\n'
+        )
+    await _run_git(worktree_path, 'add', '.gitignore')
+    proc = await asyncio.create_subprocess_exec(
+        'git', 'commit', '-m', 'chore: add worktree .gitignore',
+        cwd=worktree_path,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    await proc.wait()
+
+
 # ── Job operations ───────────────────────────────────────────────────────────
 
 async def create_job(
@@ -139,6 +169,10 @@ async def create_job(
 
     # Create git worktree
     await _run_git(project_root, 'worktree', 'add', '-b', branch_name, worktree_path)
+
+    # Gitignore for process artifacts — belt: agents cannot accidentally commit them.
+    # These files live in the worktree root for visibility but must never reach main.
+    await _write_artifact_gitignore(worktree_path)
 
     # Write job state
     now = datetime.now(timezone.utc).isoformat()
@@ -227,6 +261,18 @@ async def create_task(
 
     # Create git worktree branching from the job's branch
     await _run_git(repo_root, 'worktree', 'add', '-b', branch_name, worktree_path, job_branch)
+
+    # Gitignore for process artifacts — same as job worktree.
+    await _write_artifact_gitignore(worktree_path)
+
+    # Copy planning artifacts from parent job worktree so the subagent has
+    # the same context without relying on the task string alone.
+    for name in ('INTENT.md', 'PLAN.md'):
+        src = os.path.join(job_worktree, name)
+        dst = os.path.join(worktree_path, name)
+        if os.path.isfile(src):
+            import shutil
+            shutil.copy2(src, dst)
 
     # Write task state
     now = datetime.now(timezone.utc).isoformat()

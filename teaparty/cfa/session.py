@@ -250,12 +250,12 @@ class Session:
             conversation_id=self._conversation_id,
         )
 
-        # 4b. Copy pre-written artifacts into infra_dir (Issue #147).
-        # Session artifacts live in the session folder, not the worktree.
+        # 4b. Copy pre-written artifacts into the worktree so they are
+        # visible in the file tree and accessible to the agent.
         if self.intent_file:
-            shutil.copy2(self.intent_file, os.path.join(infra_dir, 'INTENT.md'))
+            shutil.copy2(self.intent_file, os.path.join(worktree_path, 'INTENT.md'))
         if self.plan_file:
-            shutil.copy2(self.plan_file, os.path.join(infra_dir, 'PLAN.md'))
+            shutil.copy2(self.plan_file, os.path.join(worktree_path, 'PLAN.md'))
 
         # Persist the full prompt so it's never lost to truncation
         with open(os.path.join(infra_dir, 'PROMPT.txt'), 'w') as f:

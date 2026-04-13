@@ -85,54 +85,7 @@ class ActorContext:
     children_file: str = ''
 
 
-# ── Work summary generation ──────────────────────────────────────────────────
-
 _actor_log = _logging.getLogger('teaparty.cfa.actors')
-
-
-async def _generate_work_summary(worktree: str, *, infra_dir: str = '') -> None:
-    """Generate .work-summary.md from dispatch merge commits in the worktree.
-
-    Called before _interpret_output() during the execution phase so that
-    the artifact exists for the approval gate (WORK_ASSERT) to review.
-    Regenerated on every pass so correction rounds accumulate.
-
-    The summary is written to infra_dir (session infrastructure) rather than
-    the worktree, so it doesn't pollute the git branch or leak into future
-    sessions.  Issue #147.
-    """
-    from teaparty.workspace.merge import git_output
-
-    target_dir = infra_dir or worktree
-
-    # Scope the log to session-only commits by finding where the branch
-    # diverged from main.  Without this, the entire main history leaks
-    # into the work summary (Issue #127).
-    merge_base = (await git_output(worktree, 'merge-base', 'HEAD', 'main')).strip()
-    range_spec = f'{merge_base}..HEAD' if merge_base else 'HEAD'
-
-    # Get dispatch merge commits with per-commit file stats,
-    # filtering out WIP infrastructure commits from merge.py.
-    log_output = await git_output(
-        worktree, 'log',
-        range_spec,
-        '--format=### %s%n%n%b',
-        '--stat',
-        '--reverse',
-        '--grep=^WIP:', '--invert-grep',
-    )
-
-    if not log_output.strip():
-        # No work to summarize — write a minimal placeholder so the
-        # artifact still exists for the approval gate.
-        content = '# Work Summary\n\nNo dispatch work recorded.\n'
-    else:
-        content = '# Work Summary\n\n' + log_output.strip() + '\n'
-
-    summary_path = os.path.join(target_dir, '.work-summary.md')
-    with open(summary_path, 'w') as f:
-        f.write(content)
-    _actor_log.info('Generated work summary: %s', summary_path)
 
 
 # ── AgentRunner ──────────────────────────────────────────────────────────────
@@ -263,30 +216,20 @@ class AgentRunner:
         # Relocate plan files from ~/.claude/plans/ if needed.
         # Claude stores plans internally when running with --permission-mode plan.
         if ctx.phase_spec.artifact and getattr(ctx.phase_spec, "permission_mode", None) == "plan":
-            artifact_path = os.path.join(ctx.infra_dir, ctx.phase_spec.artifact)
+            artifact_path = os.path.join(ctx.session_worktree, ctx.phase_spec.artifact)
             if not os.path.exists(artifact_path):
                 _relocate_plan_file(artifact_path, result.start_time)
 
         # Relocate misplaced artifacts: agents sometimes write to arbitrary
-        # absolute paths instead of the infra dir.  They may write to their
-        # cwd (the worktree), to ~/.claude/plans/, or elsewhere.  Parse
-        # the stream JSONL to find where the agent actually wrote, and move
-        # the file to infra_dir so session artifacts don't pollute the
-        # worktree.  Issue #147.
+        # absolute paths.  Parse the stream JSONL to find where the agent
+        # actually wrote, and move the file to session_worktree so it is
+        # visible to the reviewer and to subagents.
         stream_path = os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file)
         if ctx.phase_spec.artifact:
             _relocate_misplaced_artifact(
-                ctx.infra_dir, stream_path,
+                ctx.session_worktree, stream_path,
                 ctx.phase_spec.artifact,
             )
-
-        # Generate work summary for execution phase (Issue #116).
-        # Only at WORK_IN_PROGRESS — this is where the lead has finished
-        # delegating and the summary should reflect all dispatch merges.
-        # Other execution states (TASK_IN_PROGRESS, COMPLETED_TASK) don't
-        # need the summary and would produce stale content.
-        if ctx.state == 'WORK_IN_PROGRESS':
-            await _generate_work_summary(ctx.session_worktree, infra_dir=ctx.infra_dir)
 
         # Detect what the agent produced
         actor_result = self._interpret_output(ctx, result)
@@ -328,10 +271,10 @@ class AgentRunner:
         # Pass context budget to the engine for turn-boundary decisions (Issue #260)
         data['context_budget'] = result.context_budget
 
-        # Check for expected artifact — look in infra_dir (Issue #147).
+        # Check for expected artifact in the session worktree.
         if ctx.phase_spec.artifact:
             artifact_path = _find_artifact(
-                ctx.infra_dir, ctx.phase_spec.artifact,
+                ctx.session_worktree, ctx.phase_spec.artifact,
             )
             if artifact_path:
                 data['artifact_path'] = artifact_path

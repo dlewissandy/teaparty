@@ -827,7 +827,7 @@ def _build_artifact_context(
 
     if state in ('PLAN_ASSERT', 'WORK_ASSERT', 'TASK_ASSERT', 'TASK_ESCALATE'):
         for name in ('INTENT.md',):
-            for search_dir in (infra_dir, session_worktree):
+            for search_dir in (session_worktree, infra_dir):
                 if not search_dir:
                     continue
                 path = os.path.join(search_dir, name)
@@ -835,8 +835,8 @@ def _build_artifact_context(
                     context_parts.append(f'Upstream context: {path}')
                     break
     if state in ('WORK_ASSERT', 'TASK_ASSERT', 'TASK_ESCALATE'):
-        for name in ('PLAN.md', '.work-summary.md'):
-            for search_dir in (infra_dir, session_worktree):
+        for name in ('PLAN.md', 'WORK_SUMMARY.md'):
+            for search_dir in (session_worktree, infra_dir):
                 if not search_dir:
                     continue
                 path = os.path.join(search_dir, name)

@@ -936,98 +936,8 @@ class TestClaudeResultHadErrors(unittest.TestCase):
         self.assertFalse(r.had_errors)
 
 
-# ── _generate_work_summary ────────────────────────────────────────────────────
-
-class TestGenerateWorkSummary(unittest.TestCase):
-    """Work summary is generated from git log for WORK_ASSERT gate."""
-
-    def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-        # Simulate real session branching: commits on main, then branch off.
-        # This ensures _generate_work_summary scopes to session-only commits
-        # and doesn't leak main's history (Issue #127).
-        _run_sync('git', 'init', '-b', 'main', cwd=self.tmpdir)
-        _run_sync('git', 'commit', '--allow-empty', '-m', 'initial', cwd=self.tmpdir)
-        _run_sync('git', 'commit', '--allow-empty', '-m', 'main: unrelated work', cwd=self.tmpdir)
-        _run_sync('git', 'checkout', '-b', 'session-branch', cwd=self.tmpdir)
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
-
-    def _add_dispatch_commit(self, message: str):
-        """Simulate a dispatch squash-merge commit."""
-        _run_sync('git', 'commit', '--allow-empty', '-m', message, cwd=self.tmpdir)
-
-    def test_creates_summary_from_dispatch_commits(self):
-        from teaparty.cfa.actors import _generate_work_summary
-        self._add_dispatch_commit('coding: implement API endpoint\n\nAdds REST API for users.')
-        self._add_dispatch_commit('art: create logo assets\n\nPixel art sprites for all entities.')
-
-        _run(_generate_work_summary(self.tmpdir))
-
-        summary_path = os.path.join(self.tmpdir, '.work-summary.md')
-        self.assertTrue(os.path.exists(summary_path))
-        content = Path(summary_path).read_text()
-        self.assertIn('coding: implement API endpoint', content)
-        self.assertIn('art: create logo assets', content)
-
-    def test_includes_all_rounds_on_regeneration(self):
-        """After correction, re-generation includes both old and new commits."""
-        from teaparty.cfa.actors import _generate_work_summary
-        self._add_dispatch_commit('coding: first pass')
-
-        _run(_generate_work_summary(self.tmpdir))
-        content1 = Path(os.path.join(self.tmpdir, '.work-summary.md')).read_text()
-        self.assertIn('first pass', content1)
-
-        # Simulate correction round — more dispatch work
-        self._add_dispatch_commit('coding: fix validation')
-        _run(_generate_work_summary(self.tmpdir))
-
-        content2 = Path(os.path.join(self.tmpdir, '.work-summary.md')).read_text()
-        self.assertIn('first pass', content2)
-        self.assertIn('fix validation', content2)
-
-    def test_filters_wip_commits(self):
-        """WIP infrastructure commits from merge.py should not appear."""
-        from teaparty.cfa.actors import _generate_work_summary
-        _run_sync('git', 'commit', '--allow-empty', '-m',
-                  'WIP: [coding] some task', cwd=self.tmpdir)
-        self._add_dispatch_commit('coding: real work')
-
-        _run(_generate_work_summary(self.tmpdir))
-
-        content = Path(os.path.join(self.tmpdir, '.work-summary.md')).read_text()
-        self.assertNotIn('WIP:', content)
-        self.assertIn('real work', content)
-
-    def test_placeholder_when_no_work(self):
-        """Empty git log still creates a summary file for the artifact check."""
-        from teaparty.cfa.actors import _generate_work_summary
-        # Only the initial commit exists — filtered because no dispatch commits
-        _run(_generate_work_summary(self.tmpdir))
-
-        summary_path = os.path.join(self.tmpdir, '.work-summary.md')
-        self.assertTrue(os.path.exists(summary_path))
-        content = Path(summary_path).read_text()
-        self.assertIn('Work Summary', content)
-
-    def test_excludes_main_history(self):
-        """Work summary must not include commits from main (Issue #127)."""
-        from teaparty.cfa.actors import _generate_work_summary
-        self._add_dispatch_commit('coding: session work')
-
-        _run(_generate_work_summary(self.tmpdir))
-
-        content = Path(os.path.join(self.tmpdir, '.work-summary.md')).read_text()
-        self.assertIn('session work', content)
-        self.assertNotIn('initial', content)
-        self.assertNotIn('unrelated work', content)
-
-
 class TestInterpretOutputExecutionArtifact(unittest.TestCase):
-    """Execution phase with .work-summary.md routes to assert, not auto-approve."""
+    """Execution phase with WORK_SUMMARY.md routes to assert, not auto-approve."""
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
@@ -1044,7 +954,7 @@ class TestInterpretOutputExecutionArtifact(unittest.TestCase):
             lead='project-lead',
             permission_mode='acceptEdits',
             stream_file='.exec-stream.jsonl',
-            artifact='.work-summary.md',
+            artifact='WORK_SUMMARY.md',
             approval_state='WORK_ASSERT',
             settings_overlay={},
         )
@@ -1057,16 +967,16 @@ class TestInterpretOutputExecutionArtifact(unittest.TestCase):
             infra_dir=self.tmpdir,
             phase_spec=spec,
         )
-        # Write the work summary
-        Path(os.path.join(self.tmpdir, '.work-summary.md')).write_text('# Work Summary\n')
+        # Write the work summary to the worktree (agent writes it there)
+        Path(os.path.join(self.tmpdir, 'WORK_SUMMARY.md')).write_text('# Work Summary\n')
 
         result = self.runner._interpret_output(ctx, _make_claude_result())
 
         self.assertEqual(result.action, 'assert')
-        self.assertIn('.work-summary.md', result.data.get('artifact_path', ''))
+        self.assertIn('WORK_SUMMARY.md', result.data.get('artifact_path', ''))
 
     def test_work_summary_missing_still_routes_to_assert(self):
-        """If .work-summary.md is expected but missing, still route to assert
+        """If WORK_SUMMARY.md is expected but missing, still route to assert
         with artifact_missing=True so the gate can handle it."""
         spec = self._make_execution_spec()
         ctx = _make_ctx(
