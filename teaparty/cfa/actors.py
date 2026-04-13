@@ -180,7 +180,10 @@ class AgentRunner:
             message=prompt,
             scope='project',
             telemetry_scope=ctx.env_vars.get('POC_PROJECT', 'project'),
-            teaparty_home=ctx.poc_root,
+            # Agent definitions live in the project's own .teaparty/project/agents/
+            # directory; the org management catalog is the fallback (Issue #408).
+            teaparty_home=os.path.join(ctx.project_workdir, '.teaparty'),
+            org_home=os.path.join(ctx.poc_root, '.teaparty'),
             worktree=ctx.session_worktree,
             resume_session=ctx.resume_session or '',
             on_stream_event=self.on_stream_event,

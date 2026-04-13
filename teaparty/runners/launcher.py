@@ -96,22 +96,33 @@ def resolve_agent_definition(
     agent_name: str,
     scope: str,
     teaparty_home: str,
+    *,
+    org_home: str | None = None,
 ) -> str:
     """Resolve the agent definition path: scope-first, fall back to management.
+
+    Search order:
+      1. {teaparty_home}/{scope}/agents/{agent_name}/agent.md
+      2. {teaparty_home}/management/agents/{agent_name}/agent.md
+      3. {org_home}/management/agents/{agent_name}/agent.md  (if org_home differs)
+
+    The org_home parameter supports CfA project jobs, where teaparty_home is
+    the project's .teaparty/ directory and the org-level management catalog
+    lives at {poc_root}/.teaparty/ (Issue #408).
 
     Returns the absolute path to the agent.md file.
 
     Raises:
-        FileNotFoundError: If no agent definition exists in either scope.
+        FileNotFoundError: If no agent definition exists in any search location.
     """
-    # Scope-specific path
+    # 1. Scope-specific path in primary home
     scope_path = os.path.join(
         teaparty_home, scope, 'agents', agent_name, 'agent.md',
     )
     if os.path.isfile(scope_path):
         return scope_path
 
-    # Fall back to management (unless already looking there)
+    # 2. Management fallback in primary home (unless already looking there)
     if scope != 'management':
         mgmt_path = os.path.join(
             teaparty_home, 'management', 'agents', agent_name, 'agent.md',
@@ -119,9 +130,18 @@ def resolve_agent_definition(
         if os.path.isfile(mgmt_path):
             return mgmt_path
 
+    # 3. Org management catalog (CfA project jobs: project home ≠ org home)
+    if org_home and os.path.normpath(org_home) != os.path.normpath(teaparty_home):
+        org_mgmt_path = os.path.join(
+            org_home, 'management', 'agents', agent_name, 'agent.md',
+        )
+        if os.path.isfile(org_mgmt_path):
+            return org_mgmt_path
+
     raise FileNotFoundError(
         f'No agent definition for {agent_name!r} in scope {scope!r} '
-        f'or management at {teaparty_home}'
+        f'at {teaparty_home!r}'
+        + (f' or org management at {org_home!r}' if org_home else '')
     )
 
 
@@ -133,6 +153,7 @@ def compose_launch_worktree(
     agent_name: str,
     scope: str,
     teaparty_home: str,
+    org_home: str | None = None,
     mcp_port: int = 0,
     session_id: str = '',
 ) -> None:
@@ -147,11 +168,17 @@ def compose_launch_worktree(
     - .claude/skills/{name}/ — filtered by agent's skills: frontmatter
     - .claude/settings.json — scope settings merged with agent settings
     - .mcp.json — HTTP MCP endpoint scoped to the agent
+
+    org_home: when set, the org-level .teaparty/ directory used as a
+    management-catalog fallback for agent definitions and skills that
+    are not found in teaparty_home (Issue #408).
     """
     from teaparty.config.config_reader import read_agent_frontmatter
 
     try:
-        agent_def_path = resolve_agent_definition(agent_name, scope, teaparty_home)
+        agent_def_path = resolve_agent_definition(
+            agent_name, scope, teaparty_home, org_home=org_home,
+        )
         fm = read_agent_frontmatter(agent_def_path)
     except FileNotFoundError:
         # Agent definition not in .teaparty/ — compose what we can
@@ -181,7 +208,8 @@ def compose_launch_worktree(
         shutil.rmtree(skills_dest)
     if allowed_skills:
         os.makedirs(skills_dest, exist_ok=True)
-        # Look in scope first, then management
+        # Search order: scope in primary home → management in primary home
+        # → management in org home (Issue #408 fallback for project jobs)
         for skill_name in allowed_skills:
             skill_src = os.path.join(
                 teaparty_home, scope, 'skills', skill_name,
@@ -189,6 +217,10 @@ def compose_launch_worktree(
             if not os.path.isdir(skill_src) and scope != 'management':
                 skill_src = os.path.join(
                     teaparty_home, 'management', 'skills', skill_name,
+                )
+            if not os.path.isdir(skill_src) and org_home:
+                skill_src = os.path.join(
+                    org_home, 'management', 'skills', skill_name,
                 )
             if os.path.isdir(skill_src):
                 os.symlink(
@@ -673,6 +705,7 @@ async def launch(
     message: str,
     scope: str,
     teaparty_home: str,
+    org_home: str | None = None,
     worktree: str = '',
     tier: str = 'job',
     launch_cwd: str = '',
@@ -747,13 +780,16 @@ async def launch(
             agent_name=agent_name,
             scope=scope,
             teaparty_home=teaparty_home,
+            org_home=org_home,
             mcp_port=mcp_port,
             session_id=session_id,
         )
 
     # Read agent frontmatter for tools and permission mode
     try:
-        agent_def_path = resolve_agent_definition(agent_name, scope, teaparty_home)
+        agent_def_path = resolve_agent_definition(
+            agent_name, scope, teaparty_home, org_home=org_home,
+        )
         fm = read_agent_frontmatter(agent_def_path)
     except FileNotFoundError:
         fm = {}

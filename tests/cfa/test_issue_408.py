@@ -12,7 +12,7 @@ Specification-based tests covering:
 
 Acceptance criteria mapped to test methods (see issue #408):
   AC1: planning/execution run project lead → TestPhaseConfigLeadResolution
-  AC2: lead agent tools/skills/prompt active → satisfied by AC1 (same lead, same config)
+  AC2: lead agent tools/skills/prompt active → TestAgentDefinitionResolution
   AC3: messages attributed to lead by name → TestStreamEventHandlerSender +
        TestMessageBusInputProviderSender + TestResumeSenderAttribution
   AC4: projects without lead fall back → TestPhaseConfigLeadResolution.*fallback*
@@ -30,6 +30,7 @@ import yaml
 from teaparty.cfa.engine import _make_stream_event_handler
 from teaparty.cfa.phase_config import PhaseConfig
 from teaparty.cfa.session import _resolve_project_lead_sender
+from teaparty.runners.launcher import resolve_agent_definition
 from teaparty.messaging.bus import InputRequest
 from teaparty.messaging.conversations import (
     ConversationType,
@@ -741,6 +742,103 @@ class TestResumeSenderAttribution(unittest.TestCase):
         self.assertEqual(sender_a, 'comics-lead', f"project A must resolve to 'comics-lead'; got '{sender_a}'")
         self.assertEqual(sender_b, 'scifi-lead', f"project B must resolve to 'scifi-lead'; got '{sender_b}'")
         self.assertNotEqual(sender_a, sender_b, 'two different projects must not share the same sender')
+
+
+class TestAgentDefinitionResolution(unittest.TestCase):
+    """resolve_agent_definition uses project-first, org-fallback lookup order.
+
+    Covers AC2: lead agent tools/skills/prompt active.
+
+    The user-specified lookup order:
+      1. {project_dir}/.teaparty/project/agents/{name}/agent.md
+      2. {poc_root}/.teaparty/management/agents/{name}/agent.md  (org fallback)
+    """
+
+    def _write_agent_md(self, base_dir: str, scope: str, agent_name: str) -> str:
+        """Write a minimal agent.md and return its path."""
+        agent_dir = os.path.join(base_dir, scope, 'agents', agent_name)
+        os.makedirs(agent_dir, exist_ok=True)
+        path = os.path.join(agent_dir, 'agent.md')
+        with open(path, 'w') as f:
+            f.write(f'# {agent_name}\n')
+        return path
+
+    def test_finds_agent_in_project_teaparty_directory(self):
+        """resolve_agent_definition finds agent.md under {project}/.teaparty/project/agents/."""
+        project_home = _make_tmp(self)
+        expected = self._write_agent_md(project_home, 'project', 'comics-lead')
+
+        result = resolve_agent_definition(
+            'comics-lead',
+            'project',
+            teaparty_home=project_home,
+        )
+
+        self.assertEqual(
+            result, expected,
+            f"must find agent.md in project teaparty_home; got '{result}'",
+        )
+
+    def test_falls_back_to_org_management_catalog_when_not_in_project(self):
+        """Falls back to org management catalog when agent not found in project home."""
+        project_home = _make_tmp(self)  # no agent here
+        org_home = _make_tmp(self)
+        expected = self._write_agent_md(org_home, 'management', 'comics-lead')
+
+        result = resolve_agent_definition(
+            'comics-lead',
+            'project',
+            teaparty_home=project_home,
+            org_home=org_home,
+        )
+
+        self.assertEqual(
+            result, expected,
+            f"must fall back to org management catalog; got '{result}'",
+        )
+
+    def test_project_scope_wins_over_org_management(self):
+        """Project-scope definition wins when both project and org have the agent."""
+        project_home = _make_tmp(self)
+        org_home = _make_tmp(self)
+        expected = self._write_agent_md(project_home, 'project', 'comics-lead')
+        self._write_agent_md(org_home, 'management', 'comics-lead')
+
+        result = resolve_agent_definition(
+            'comics-lead',
+            'project',
+            teaparty_home=project_home,
+            org_home=org_home,
+        )
+
+        self.assertEqual(
+            result, expected,
+            f"project-scope definition must win over org management; got '{result}'",
+        )
+
+    def test_raises_when_agent_not_found_anywhere(self):
+        """FileNotFoundError raised when agent not in project or org catalog."""
+        project_home = _make_tmp(self)
+        org_home = _make_tmp(self)
+
+        with self.assertRaises(FileNotFoundError):
+            resolve_agent_definition(
+                'nonexistent-lead',
+                'project',
+                teaparty_home=project_home,
+                org_home=org_home,
+            )
+
+    def test_raises_without_org_home_when_not_in_project(self):
+        """FileNotFoundError raised when org_home is absent and agent not in project home."""
+        project_home = _make_tmp(self)
+
+        with self.assertRaises(FileNotFoundError):
+            resolve_agent_definition(
+                'comics-lead',
+                'project',
+                teaparty_home=project_home,
+            )
 
 
 if __name__ == '__main__':
