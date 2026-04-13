@@ -235,6 +235,8 @@ async function loadGlobal() {
     fetch('/api/workgroups'),
     fetch('/api/pins?scope=system'),
   ]);
+  if (!cfgResp.ok) throw new Error('Failed to load config (' + cfgResp.status + ')');
+  if (!wgResp.ok) throw new Error('Failed to load workgroups (' + wgResp.status + ')');
   var configData = await cfgResp.json();
   var workgroupsData = await wgResp.json();
   var pinsData = pinsResp.ok ? await pinsResp.json() : [];
