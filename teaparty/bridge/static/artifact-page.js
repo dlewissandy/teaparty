@@ -577,11 +577,11 @@
       var indent = (depth * 12) + 'px';
       nodes.forEach(function(node) {
         var escapedPath = node.path.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-        // Apply filters
         if (node.is_dir) {
           var dirPrefix = node.path.endsWith('/') ? node.path : node.path + '/';
-          // Apply filters to dirs: skip if no descendants match
-          if (_filterChanged && !_isDirChanged(node.path)) {
+          var dirChanged = _isDirChanged(node.path);
+          // Skip dirs with no matching descendants under active filters
+          if (_filterChanged && !dirChanged) {
             if (!_filterPinned) return;
           }
           if (_filterPinned) {
@@ -622,11 +622,43 @@
     if (_repoFiles.length > 0) {
       navHtml += _renderFileTree(_repoFiles, 0);
     } else if (_pinnedNodes.length > 0) {
-      // Fallback: show pinned nodes if repo listing unavailable
       navHtml += '<div class="artifact-nav-section">Pinned</div>';
       navHtml += _renderPinnedNodes(_pinnedNodes, 0);
     } else {
       navHtml += '<div class="artifact-nav-item" style="font-style:italic;cursor:default">(no files)</div>';
+    }
+
+    // When Changed filter is active, show changed files that aren't visible
+    // in the repo tree (e.g. dotfiles filtered out of the directory listing).
+    if (_filterChanged && Object.keys(_gitStatuses).length > 0) {
+      var worktree = _config.chatLaunchRepo || '';
+      var renderedPaths = {};
+      // Collect all paths that _renderFileTree could have shown
+      (function collectRendered(nodes) {
+        nodes.forEach(function(n) {
+          renderedPaths[n.path] = true;
+          if (n.expanded && n.children) collectRendered(n.children);
+        });
+      })(_repoFiles);
+
+      var missing = [];
+      for (var relPath in _gitStatuses) {
+        var absPath = (worktree && !relPath.startsWith('/')) ? worktree + '/' + relPath : relPath;
+        if (!renderedPaths[absPath]) missing.push({rel: relPath, abs: absPath});
+      }
+      if (missing.length > 0) {
+        navHtml += '<div class="artifact-nav-divider">Changed Files</div>';
+        missing.forEach(function(f) {
+          var name = f.rel.split('/').pop();
+          var isActive = _selectedFile === f.abs;
+          var statusHtml = _gitStatusIndicator(f.abs);
+          var escapedPath = f.abs.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+          navHtml += '<div class="artifact-nav-item ' + (isActive ? 'active' : '') + '">' +
+            statusHtml +
+            '<span class="artifact-nav-item-label" onclick="ArtifactPage._loadFile(\'' + escapedPath + '\')">' + escHtml(f.rel) + '</span>' +
+            '</div>';
+        });
+      }
     }
 
     navHtml += '</div>';
