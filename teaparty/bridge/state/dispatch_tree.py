@@ -34,6 +34,10 @@ def agent_name_from_conv_id(conv_id: str) -> str:
     if prefix == 'lead':
         name, _, _ = rest.partition(':')
         return name or 'unknown'
+    if prefix == 'job':
+        # job:{project}:{session_id} — derive from project slug + '-lead'
+        project, _, _ = rest.partition(':')
+        return (project + '-lead') if project else 'unknown'
     return 'unknown'
 
 
