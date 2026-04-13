@@ -616,34 +616,29 @@ class TestStructuralEquivalence(unittest.TestCase):
             "conditional — it is shared between both modes"
         )
 
-    def test_both_shells_mount_same_container_structure(self):
-        """Both artifacts.html and job.html must mount into a #page-root container
-        with the same basic structure — proving they use the same entry point."""
+    def test_both_shells_use_same_page_chrome(self):
+        """Both shells must use the same blade-layout > content-wrap > blade structure
+        matching the pattern established by config.html and other pages."""
         arts_src = _read(ARTIFACTS_HTML)
         job_src = _read(JOB_HTML) if JOB_HTML.exists() else self.skipTest("job.html not created")
 
-        # Both must have a page-root container
-        self.assertIn(
-            'page-root', arts_src,
-            "artifacts.html must have a #page-root container"
-        )
-        self.assertIn(
-            'page-root', job_src,
-            "job.html must have a #page-root container"
-        )
-
-        # Both must call ArtifactPage.mount with document.getElementById('page-root')
-        mount_pattern = re.compile(
-            r"ArtifactPage\s*\.\s*mount\s*\(\s*document\.getElementById\s*\(\s*['\"]page-root['\"]\s*\)"
-        )
-        self.assertTrue(
-            mount_pattern.search(arts_src),
-            "artifacts.html must mount into #page-root via ArtifactPage.mount"
-        )
-        self.assertTrue(
-            mount_pattern.search(job_src),
-            "job.html must mount into #page-root via ArtifactPage.mount"
-        )
+        for name, src in [('artifacts.html', arts_src), ('job.html', job_src)]:
+            self.assertIn(
+                'blade-layout', src,
+                f"{name} must use the blade-layout container"
+            )
+            self.assertIn(
+                'content-wrap', src,
+                f"{name} must wrap content in content-wrap for correct flex layout"
+            )
+            self.assertIn(
+                'artifact-content', src,
+                f"{name} must have an artifact-content element"
+            )
+            self.assertTrue(
+                MOUNT_CALL_PATTERN.search(src),
+                f"{name} must call ArtifactPage.mount()"
+            )
 
 
 class TestAccordionRetargeting(unittest.TestCase):

@@ -102,6 +102,7 @@
 
   var _config = {};
   var _container = null;
+  var _breadcrumbEl = null;
   var _bladeEl = null;
   var _chatInstance = null;
   var _sections = [];
@@ -117,9 +118,11 @@
 
   // ── Mount / Unmount ────────────────────────────────────────────────────────
 
-  function mount(container, config) {
+  function mount(config) {
     _config = config || {};
-    _container = container;
+    _container = _config.contentEl || null;
+    _bladeEl = _config.bladeEl || null;
+    _breadcrumbEl = _config.breadcrumbEl || null;
     _sections = [];
     _pinnedNodes = [];
     _selectedFile = null;
@@ -128,19 +131,7 @@
     _gitStatuses = {};
     _showChangedOnly = false;
 
-    // Build page shell: breadcrumb slot, content pane, blade
-    container.innerHTML =
-      '<div class="blade-layout">' +
-      '<div id="breadcrumb-slot" style="padding:6px 12px"></div>' +
-      '<div id="artifact-content" class="app-pane active" style="flex:1;min-width:0"></div>' +
-      '<div class="blade" id="artifact-blade"></div>' +
-      '</div>';
-
-    _bladeEl = document.getElementById('artifact-blade');
-
     // Mount accordion chat blade via #400 shared implementation.
-    // Forward chatLaunchRepo and chatAgentName so the blade can route the
-    // agent to the correct repo once #397 adds launchRepo support.
     if (typeof AccordionChat !== 'undefined' && _bladeEl) {
       _chatInstance = AccordionChat.mount(_bladeEl, {
         convId: _config.chatConversationId || '',
@@ -427,7 +418,7 @@
   }
 
   function _render() {
-    var contentEl = document.getElementById('artifact-content');
+    var contentEl = _container;
     if (!contentEl) return;
 
     var project = _config.projectSlug || '';
@@ -435,7 +426,7 @@
     document.title = 'TeaParty \u2014 ' + displayName + (_config.mode === 'job' ? ' Job' : ' Artifacts');
 
     // Breadcrumb
-    var bcSlot = document.getElementById('breadcrumb-slot');
+    var bcSlot = _breadcrumbEl;
     if (bcSlot && typeof breadcrumbBar === 'function') {
       var crumbs = [{ label: 'Home', href: 'index.html' }];
       if (_config.mode === 'job') {
