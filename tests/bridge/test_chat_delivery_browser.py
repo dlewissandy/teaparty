@@ -208,7 +208,12 @@ class TestChatHtmlHandshake(unittest.TestCase):
         self.server._ready.wait(timeout=5)
 
         self.pw = sync_playwright().start()
-        self.browser = self.pw.chromium.launch(headless=True)
+        try:
+            self.browser = self.pw.chromium.launch(headless=True)
+        except Exception as exc:
+            self.pw.stop()
+            self.server.stop()
+            self.skipTest(f'chromium binary not available: {exc}')
         self.context = self.browser.new_context()
 
     def tearDown(self):
