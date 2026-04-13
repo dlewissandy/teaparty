@@ -289,11 +289,11 @@ body {
 /* ── Stats bar / paged ticker (Issue #406) ── */
 .stats-bar {
   display: flex; align-items: stretch; flex-shrink: 0;
-  background: var(--surface); border: 1px solid var(--border); border-radius: 4px;
-  margin-bottom: 8px; cursor: pointer; min-height: 36px;
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  cursor: pointer; min-height: 36px;
   transition: border-color 0.15s; overflow: hidden;
 }
-.stats-bar:hover { border-color: var(--purple); }
+.stats-bar:hover { border-bottom-color: var(--purple); }
 .stats-ticker {
   flex: 1; display: flex; align-items: stretch; overflow: hidden;
   transition: opacity 0.2s;
