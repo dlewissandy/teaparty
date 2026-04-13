@@ -29,6 +29,7 @@ ARTIFACTS_HTML = STATIC_DIR / "artifacts.html"
 JOB_HTML = STATIC_DIR / "job.html"
 INDEX_HTML = STATIC_DIR / "index.html"
 ACCORDION_JS = STATIC_DIR / "accordion-chat.js"
+STYLES_CSS = STATIC_DIR / "styles.css"
 
 
 def _read(path: Path) -> str:
@@ -306,6 +307,55 @@ class TestWorkflowBarExtracted(unittest.TestCase):
                 'workflow-bar.js', src,
                 "job.html does not include workflow-bar.js — "
                 "the job-mode top strip needs the workflow bar"
+            )
+
+
+class TestArtifactCSSInStylesheet(unittest.TestCase):
+    """All artifact CSS must live in styles.css, not inline in HTML shells.
+
+    The original artifacts.html had ~100 lines of inline CSS. After consolidation,
+    all of it must be in styles.css so both shells (artifacts.html, job.html) and
+    the shared module render correctly."""
+
+    # Core CSS classes that artifact-page.js renders — every one of these must
+    # have a rule in styles.css or the page is visually broken.
+    REQUIRED_CSS_CLASSES = [
+        '.artifact-layout',
+        '.artifact-header',
+        '.artifact-nav',
+        '.artifact-nav-item',
+        '.artifact-nav-section',
+        '.artifact-nav-folder',
+        '.artifact-main',
+        '.artifact-content',
+        '.artifact-title',
+        '.artifact-path',
+        '.artifact-loading',
+        '.artifact-empty',
+    ]
+
+    def test_artifact_css_in_styles_css(self):
+        """Every artifact layout class must have a CSS rule in styles.css."""
+        css = _read(STYLES_CSS)
+        missing = [cls for cls in self.REQUIRED_CSS_CLASSES if cls not in css]
+        self.assertEqual(
+            missing, [],
+            f"styles.css is missing CSS rules for {missing} — "
+            f"the artifact page will render unstyled. These rules were in the "
+            f"original artifacts.html inline <style> block and must be moved "
+            f"to styles.css during consolidation."
+        )
+
+    def test_no_inline_styles_in_shells(self):
+        """Neither HTML shell should contain a <style> block — all CSS is in styles.css."""
+        for name, path in [('artifacts.html', ARTIFACTS_HTML), ('job.html', JOB_HTML)]:
+            if not path.exists():
+                continue
+            src = _read(path)
+            self.assertNotIn(
+                '<style>', src,
+                f"{name} contains an inline <style> block — "
+                f"all artifact CSS must be in styles.css"
             )
 
 
