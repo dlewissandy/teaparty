@@ -208,13 +208,13 @@ class TestJobHtmlExists(unittest.TestCase):
         )
 
     def test_job_html_is_short(self):
-        """job.html must be ≤60 lines (thin shell; ≤50 before #406 added stats bar mount)."""
+        """job.html must be ≤70 lines (thin shell; grew from ≤50 → ≤60 for stats bar, ≤70 for WS)."""
         if not JOB_HTML.exists():
             self.skipTest("job.html not yet created")
         count = _line_count(JOB_HTML)
         self.assertLessEqual(
-            count, 60,
-            f"job.html is {count} lines — a thin shell should be ≤60 lines"
+            count, 70,
+            f"job.html is {count} lines — a thin shell should be ≤70 lines"
         )
 
     def test_job_html_imports_artifact_page_js(self):

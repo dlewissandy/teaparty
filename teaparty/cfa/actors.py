@@ -226,6 +226,7 @@ class AgentRunner:
             agent_name=ctx.phase_spec.lead,
             message=prompt,
             scope='project',
+            telemetry_scope=ctx.env_vars.get('POC_PROJECT', 'project'),
             teaparty_home=ctx.poc_root,
             worktree=ctx.session_worktree,
             resume_session=ctx.resume_session or '',

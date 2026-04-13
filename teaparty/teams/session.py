@@ -86,6 +86,7 @@ class AgentSession:
         self._on_dispatch = on_dispatch
         self._llm_caller = llm_caller  # None → use launcher default
         self.project_slug = project_slug
+        self._telemetry_scope = project_slug or scope
         self._paused_check = paused_check
 
         self.conversation_id = make_conversation_id(conversation_type, qualifier)
@@ -546,6 +547,7 @@ class AgentSession:
             result = await _launch(
                 agent_name=member, message=composite,
                 scope=self.scope, teaparty_home=self.teaparty_home,
+                telemetry_scope=self._telemetry_scope,
                 worktree=existing.worktree_path,
                 resume_session=session_id, mcp_port=mcp_port,
                 session_id=child_session_id,
@@ -955,6 +957,7 @@ class AgentSession:
                 launch_kwargs = dict(
                     agent_name=member, message=current_message,
                     scope=self.scope, teaparty_home=self.teaparty_home,
+                    telemetry_scope=self._telemetry_scope,
                     worktree=worktree_path,
                     mcp_port=mcp_port,
                     session_id=child_session.id,
@@ -974,6 +977,7 @@ class AgentSession:
                 launch_kwargs = dict(
                     agent_name=member, message=current_message,
                     scope=self.scope, teaparty_home=self.teaparty_home,
+                    telemetry_scope=self._telemetry_scope,
                     tier='chat',
                     launch_cwd=child_session.launch_cwd,
                     config_dir=child_config_dir,
@@ -1234,6 +1238,7 @@ class AgentSession:
             agent_name=self.agent_name,
             message=prompt,
             scope=self.scope,
+            telemetry_scope=self._telemetry_scope,
             teaparty_home=self.teaparty_home,
             tier='chat',
             launch_cwd=launch_cwd,

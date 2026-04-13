@@ -1900,6 +1900,7 @@ class TeaPartyBridge:
             teaparty_home=project_tp,
             scope='project',
             cwd=cwd,
+            project_slug=project_slug,
         )
 
     async def _invoke_proxy(self, qualifier: str) -> None:

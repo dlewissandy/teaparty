@@ -682,6 +682,7 @@ async def launch(
     on_stream_event: Callable[[dict], None] | None = None,
     event_bus: Any = None,
     session_id: str = '',
+    telemetry_scope: str = '',
     heartbeat_file: str = '',
     parent_heartbeat: str = '',
     children_file: str = '',
@@ -807,9 +808,10 @@ async def launch(
     except Exception:
         pass
 
+    _tscope = telemetry_scope or scope
     record_event(
         _telem_events.TURN_START,
-        scope=scope,
+        scope=_tscope,
         agent_name=agent_name,
         session_id=session_id,
         data={
@@ -852,7 +854,7 @@ async def launch(
     # Emit turn_complete with per-turn cost, tokens, and duration.
     record_event(
         _telem_events.TURN_COMPLETE,
-        scope=scope,
+        scope=_tscope,
         agent_name=agent_name,
         session_id=session_id or result.session_id,
         data={
