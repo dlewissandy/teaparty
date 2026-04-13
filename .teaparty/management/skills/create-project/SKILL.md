@@ -3,7 +3,7 @@ name: create-project
 description: Create a new project directory with full scaffolding and register it in TeaParty. Dialogs with the human to collect path, name, and frontmatter before calling CreateProject.
 argument-hint: <project-name> [--path <path>]
 user-invocable: false
-allowed-tools: Read, Glob, Grep, Bash
+allowed-tools: Read, Glob, Grep, Bash, mcp__teaparty-config__CreateProject
 ---
 
 # Create Project

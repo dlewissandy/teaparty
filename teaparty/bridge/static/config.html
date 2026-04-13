@@ -283,7 +283,8 @@ async function loadGlobal() {
     bladeTitle: 'Management Chat',
     statsBarConfig: { scope: 'management', label: 'Management' },
     cards: [
-      { title: 'Workgroups', items: projectItems.concat(wgMgmtItems), opts: { addSeed: 'I would like to create a new workgroup for the management team.', addSeed2: { label: '+ Add Project', seed: 'I would like to add an existing project to the management team.' }, empty: 'No projects or workgroups' } },
+      { title: 'Projects', items: projectItems, opts: { addSeed: 'I would like to create a new project.', addSeed2: { label: '+ Add Project', seed: 'I would like to add an existing project to the management team.' }, empty: 'No projects' } },
+      { title: 'Workgroups', items: wgMgmtItems, opts: { addSeed: 'I would like to create a new workgroup for the management team.', empty: 'No workgroups' } },
       { title: 'Agents', items: agents, opts: { addSeed: 'I would like to create a new agent in the management agent catalog.' } },
       { title: 'Participants', items: participantItems(m.humans, 'global') },
       { title: 'Artifacts', items: renderPinItems(pinsData), opts: { empty: 'No organizational artifacts' } },
