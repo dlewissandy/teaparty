@@ -231,8 +231,10 @@ class TeaPartyBridge:
         static_dir:    Path to the directory containing static HTML files.
     """
 
-    # Repo root: bridge/ is at repo root, so dirname(dirname(__file__)) = repo root
-    _repo_root: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    # Repo root: walk up from this file to find the root (Issue #320 moved
+    # server.py from repo root into teaparty/bridge/, so dirname(dirname) is wrong).
+    from teaparty import find_poc_root as _find_poc_root
+    _repo_root: str = _find_poc_root()
 
     def __init__(self, teaparty_home: str, static_dir: str):
         self.teaparty_home = os.path.expanduser(teaparty_home)
@@ -2704,8 +2706,9 @@ class TeaPartyBridge:
             )
 
         # Generate session_id upfront so we can return it immediately.
+        # Include microseconds to guarantee uniqueness within a second.
         from datetime import datetime
-        session_id = datetime.now().strftime('%Y%m%d-%H%M%S')
+        session_id = datetime.now().strftime('%Y%m%d-%H%M%S-%f')
         conversation_id = f'job:{project_slug}:{session_id}'
 
         # Create and launch the CfA session as a background task.

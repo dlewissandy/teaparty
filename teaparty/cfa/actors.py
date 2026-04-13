@@ -577,6 +577,21 @@ class ApprovalGate:
         project_slug = ctx.env_vars.get('POC_PROJECT', 'default')
         team = ctx.env_vars.get('POC_TEAM', '')
 
+        # Socratic querying: at INTENT_ASSERT with no artifact yet, the agent is
+        # still gathering information through conversation.  Skip the proxy gate
+        # entirely — just wait for the human's next message and feed it back as a
+        # correction so the agent can iterate with more context.  The state machine's
+        # INTENT_ASSERT → correct → INTENT_RESPONSE → INTENT_RUN loop provides the
+        # iteration automatically.
+        if artifact_missing and ctx.state == 'INTENT_ASSERT':
+            request = InputRequest(
+                type='input',
+                state=ctx.state,
+                bridge_text='',  # agent's questions are already visible in the conversation
+            )
+            human_reply = await self.input_provider(request)
+            return ActorResult(action='correct', feedback=human_reply.strip())
+
         # Telemetry: gate_opened (Issue #405)
         try:
             from teaparty.telemetry import record_event

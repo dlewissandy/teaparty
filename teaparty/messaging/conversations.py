@@ -708,12 +708,15 @@ class MessageBusInputProvider:
         self._current_request = request
         self._waiting = True
         try:
-            # Record the question attributed to the project lead (or 'orchestrator' fallback)
-            self.bus.send(
-                self.conversation_id,
-                self.sender,
-                request.bridge_text,
-            )
+            # Record the question attributed to the project lead (or 'orchestrator' fallback).
+            # Skip if empty — the agent's output is already visible in the conversation
+            # (Socratic querying: INTENT_ASSERT with no artifact yet).
+            if request.bridge_text:
+                self.bus.send(
+                    self.conversation_id,
+                    self.sender,
+                    request.bridge_text,
+                )
             # Structural signal for the bridge (issue #288)
             self.bus.set_awaiting_input(self.conversation_id, True)
 

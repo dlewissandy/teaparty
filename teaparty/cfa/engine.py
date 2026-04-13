@@ -98,6 +98,7 @@ def _make_stream_event_handler(bus: Any, conv_id: str, agent_sender: str = 'agen
     """
     seen_tool_use: set[str] = set()
     seen_tool_result: set[str] = set()
+    wrote_text: list[bool] = [False]  # True once any agent text has been streamed
 
     def _send_tool_result(content: Any) -> None:
         """Normalize tool_result content (string or block array) and send."""
@@ -120,6 +121,7 @@ def _make_stream_event_handler(bus: Any, conv_id: str, agent_sender: str = 'agen
             content = message.get('content', '') if isinstance(message, dict) else ''
             if isinstance(content, str) and content:
                 bus.send(conv_id, agent_sender, content)
+                wrote_text[0] = True
             elif isinstance(content, list):
                 for block in content:
                     if not isinstance(block, dict):
@@ -129,6 +131,7 @@ def _make_stream_event_handler(bus: Any, conv_id: str, agent_sender: str = 'agen
                         text = block.get('text', '')
                         if text:
                             bus.send(conv_id, agent_sender, text)
+                            wrote_text[0] = True
                     elif btype == 'thinking':
                         thinking = block.get('thinking', '')
                         if thinking:
@@ -176,8 +179,11 @@ def _make_stream_event_handler(bus: Any, conv_id: str, agent_sender: str = 'agen
                 bus.send(conv_id, 'system', msg)
 
         elif etype == 'result':
+            # Only write the result event if no streaming text was captured —
+            # in streaming mode the content blocks already cover the full output,
+            # and a second write would produce a visible duplicate.
             result_text = event.get('result', '')
-            if result_text:
+            if result_text and not wrote_text[0]:
                 bus.send(conv_id, agent_sender, result_text)
 
     return handler
@@ -514,7 +520,7 @@ class Orchestrator:
             return None
 
         wg_dicts = [
-            {'name': wg.name, 'lead': wg.lead, 'agents': wg.members_agents}
+            {'name': wg.name, 'lead': wg.lead, 'agents': [{'role': a} for a in wg.members_agents]}
             for wg in workgroups
         ]
         project_name = self.project_slug or os.path.basename(self.project_dir)
