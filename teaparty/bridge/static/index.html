@@ -318,7 +318,6 @@ function render() {
     // Header — click navigates to project config
     projectsHtml += '<a class="pc-header" href="config.html?project=' + encodeURIComponent(p.slug) + '">';
     projectsHtml += '<div class="pc-name">' + p.slug + '</div>';
-    projectsHtml += '<span class="item-badge badge-' + status + '">' + status.toUpperCase() + '</span>';
     projectsHtml += '</a>';
 
     // Description (only shown when config provides one)
