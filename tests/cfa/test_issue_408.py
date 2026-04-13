@@ -14,7 +14,7 @@ Acceptance criteria mapped to test methods (see issue #408):
   AC1: planning/execution run project lead → TestPhaseConfigLeadResolution
   AC2: lead agent tools/skills/prompt active → satisfied by AC1 (same lead, same config)
   AC3: messages attributed to lead by name → TestStreamEventHandlerSender +
-       TestMessageBusInputProviderSender
+       TestMessageBusInputProviderSender + TestResumeSenderAttribution
   AC4: projects without lead fall back → TestPhaseConfigLeadResolution.*fallback*
   AC5: one source of truth → TestPhaseConfigLeadResolution (reads same project.yaml)
 """
@@ -29,6 +29,7 @@ import yaml
 
 from teaparty.cfa.engine import _make_stream_event_handler
 from teaparty.cfa.phase_config import PhaseConfig
+from teaparty.cfa.session import _resolve_project_lead_sender
 from teaparty.messaging.bus import InputRequest
 from teaparty.messaging.conversations import (
     ConversationType,
@@ -456,17 +457,17 @@ class TestMessageBusInputProviderSender(unittest.TestCase):
             bus=bus,
             conversation_id=conv_id,
             sender='comics-lead',
+            poll_interval=0.01,
         )
 
-        # Simulate the gate: send a question, then immediately inject a human reply
-        # so the provider doesn't block indefinitely.
-        human_reply_sent = []
-
         async def run_provider():
-            # Fire a concurrent task that posts the human reply after the provider sends
+            # Inject the human reply only after the gate question appears in the bus
+            # (deterministic ordering — no fixed sleep).
             async def inject_reply():
-                import asyncio as _a
-                await _a.sleep(0.05)
+                for _ in range(200):
+                    if any(m.sender != 'human' for m in bus.receive(conv_id)):
+                        break
+                    await asyncio.sleep(0.01)
                 bus.send(conv_id, 'human', 'approved')
 
             request = InputRequest(type='approval', state='PLAN_ASSERT', bridge_text='Approve this plan?')
@@ -499,12 +500,15 @@ class TestMessageBusInputProviderSender(unittest.TestCase):
             bus=bus,
             conversation_id=conv_id,
             sender='comics-lead',
+            poll_interval=0.01,
         )
 
         async def run_provider():
             async def inject_reply():
-                import asyncio as _a
-                await _a.sleep(0.05)
+                for _ in range(200):
+                    if any(m.sender != 'human' for m in bus.receive(conv_id)):
+                        break
+                    await asyncio.sleep(0.01)
                 bus.send(conv_id, 'human', 'approved')
 
             from teaparty.messaging.bus import InputRequest
@@ -532,13 +536,16 @@ class TestMessageBusInputProviderSender(unittest.TestCase):
         provider = MessageBusInputProvider(
             bus=bus,
             conversation_id=conv_id,
+            poll_interval=0.01,
             # no sender= specified
         )
 
         async def run_provider():
             async def inject_reply():
-                import asyncio as _a
-                await _a.sleep(0.05)
+                for _ in range(200):
+                    if any(m.sender != 'human' for m in bus.receive(conv_id)):
+                        break
+                    await asyncio.sleep(0.01)
                 bus.send(conv_id, 'human', 'approved')
 
             from teaparty.messaging.bus import InputRequest
@@ -621,7 +628,7 @@ class TestCheckMessageBusRequest(unittest.TestCase):
         )
 
     def test_does_not_return_human_message_as_gate_question(self):
-        """check_message_bus_request never treats a human message as the gate question."""
+        """check_message_bus_request returns None when only human messages are present."""
         bus, db_path = _make_bus(self)
         conv_id = make_conversation_id(ConversationType.JOB, 'comics:test-007')
         bus.create_conversation(ConversationType.JOB, 'comics:test-007')
@@ -632,12 +639,12 @@ class TestCheckMessageBusRequest(unittest.TestCase):
 
         result = check_message_bus_request(db_path, conv_id)
 
-        # No non-human message to use as gate question
-        if result is not None:
-            self.assertNotEqual(
-                result.get('bridge_text'), 'Start the job',
-                "check_message_bus_request must not return a human message as the gate question",
-            )
+        # No non-human message available — must return None, not the human message.
+        self.assertIsNone(
+            result,
+            'check_message_bus_request must return None when the only message is from human; '
+            f'got: {result}',
+        )
 
     def test_gate_question_is_most_recent_non_human_message(self):
         """check_message_bus_request returns the MOST RECENT non-human message, not the first."""
@@ -658,6 +665,82 @@ class TestCheckMessageBusRequest(unittest.TestCase):
             f"must return the most recent non-human message, "
             f"got: '{result.get('bridge_text')}'",
         )
+
+
+# ── Layer 6: Resume path sender attribution ───────────────────────────────────
+
+class TestResumeSenderAttribution(unittest.TestCase):
+    """_resolve_project_lead_sender() must return the project lead for resume-path attribution.
+
+    This function is the extracted helper used by Session.resume_from_disk() to
+    resolve the sender for MessageBusInputProvider — the code path responsible for
+    AC3 on resumed sessions.
+    """
+
+    def test_returns_project_lead_when_project_yaml_has_lead(self):
+        """Returns the project lead name when project.yaml defines one."""
+        tmp = _make_tmp(self)
+        _make_project_yaml(tmp, lead='comics-lead')
+
+        sender = _resolve_project_lead_sender(tmp)
+
+        self.assertEqual(
+            sender, 'comics-lead',
+            f"resume sender must be 'comics-lead' when project.yaml defines that lead; "
+            f"got '{sender}'",
+        )
+
+    def test_returns_orchestrator_when_no_project_yaml(self):
+        """Falls back to 'orchestrator' when project.yaml is absent."""
+        tmp = _make_tmp(self)
+        # No project.yaml created
+
+        sender = _resolve_project_lead_sender(tmp)
+
+        self.assertEqual(
+            sender, 'orchestrator',
+            f"resume sender must fall back to 'orchestrator' when project.yaml is absent; "
+            f"got '{sender}'",
+        )
+
+    def test_returns_orchestrator_when_lead_field_absent(self):
+        """Falls back to 'orchestrator' when project.yaml has no lead field."""
+        tmp = _make_tmp(self)
+        _make_project_yaml(tmp, lead='')  # project.yaml exists but no lead key
+
+        sender = _resolve_project_lead_sender(tmp)
+
+        self.assertEqual(
+            sender, 'orchestrator',
+            f"resume sender must fall back to 'orchestrator' when project.yaml has no 'lead'; "
+            f"got '{sender}'",
+        )
+
+    def test_returns_orchestrator_when_project_dir_missing(self):
+        """Falls back to 'orchestrator' when the project directory does not exist."""
+        nonexistent = '/tmp/teaparty-test-nonexistent-project-dir-408'
+
+        sender = _resolve_project_lead_sender(nonexistent)
+
+        self.assertEqual(
+            sender, 'orchestrator',
+            f"resume sender must fall back to 'orchestrator' when project dir is missing; "
+            f"got '{sender}'",
+        )
+
+    def test_different_projects_resolve_independently(self):
+        """Two different project dirs resolve to their own leads (no cross-contamination)."""
+        tmp_a = _make_tmp(self)
+        tmp_b = _make_tmp(self)
+        _make_project_yaml(tmp_a, lead='comics-lead')
+        _make_project_yaml(tmp_b, lead='scifi-lead')
+
+        sender_a = _resolve_project_lead_sender(tmp_a)
+        sender_b = _resolve_project_lead_sender(tmp_b)
+
+        self.assertEqual(sender_a, 'comics-lead', f"project A must resolve to 'comics-lead'; got '{sender_a}'")
+        self.assertEqual(sender_b, 'scifi-lead', f"project B must resolve to 'scifi-lead'; got '{sender_b}'")
+        self.assertNotEqual(sender_a, sender_b, 'two different projects must not share the same sender')
 
 
 if __name__ == '__main__':

@@ -82,6 +82,19 @@ def _make_stream_bus_writer(bus: SqliteMessageBus, conversation_id: str, session
     return _on_event
 
 
+def _resolve_project_lead_sender(project_dir: str) -> str:
+    """Return the project lead name for gate-prompt sender attribution.
+
+    Reads project.yaml and returns its 'lead' field, or 'orchestrator' if
+    no lead is configured or the file cannot be read.  Used by the resume
+    path to match the fresh-run sender resolution in Session.run().
+    """
+    try:
+        return load_project_team(project_dir).lead or 'orchestrator'
+    except (FileNotFoundError, OSError):
+        return 'orchestrator'
+
+
 def _resolve_cost_tracker_impl(project_dir: str) -> CostTracker | None:
     """Create a CostTracker from the resolved budget configuration.
 
@@ -811,12 +824,7 @@ class Session:
         )
         message_bus.create_conversation(ConversationType.JOB, f'{project_slug}:{session_id}')
         # Resolve project lead for gate-prompt attribution (Issue #408).
-        _resume_sender = 'orchestrator'
-        try:
-            from teaparty.config.config_reader import load_project_team as _lpt  # noqa: PLC0415
-            _resume_sender = _lpt(project_dir).lead or 'orchestrator'
-        except (FileNotFoundError, OSError):
-            pass
+        _resume_sender = _resolve_project_lead_sender(project_dir)
         bus_input_provider = MessageBusInputProvider(
             bus=message_bus,
             conversation_id=conversation_id,
