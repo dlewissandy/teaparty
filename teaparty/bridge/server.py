@@ -840,7 +840,34 @@ class TeaPartyBridge:
             })
 
         elif chart_type == 'active_sessions_timeline':
-            # Sample active session count at each 6-hour mark over the range.
+            # Compute historically accurate active session counts at each
+            # 6-hour checkpoint.  At checkpoint t: count sessions whose
+            # session_create.ts <= t and whose first terminal event (if any)
+            # has ts > t.
+            from teaparty.telemetry import events as _tev
+            terminal_types = [
+                _tev.SESSION_COMPLETE, _tev.SESSION_CLOSED,
+                _tev.SESSION_WITHDRAWN, _tev.SESSION_TIMED_OUT,
+                _tev.SESSION_ABANDONED,
+            ]
+            created_events = telemetry.query_events(
+                event_type=_tev.SESSION_CREATE, scope=scope, agent=agent,
+            )
+            terminal_events = telemetry.query_events(
+                event_types=terminal_types, scope=scope, agent=agent,
+            )
+            # Build maps: session_id -> earliest create/close timestamp.
+            created_at: dict[str, float] = {}
+            for e in created_events:
+                if e.session_id and (e.session_id not in created_at
+                                     or e.ts < created_at[e.session_id]):
+                    created_at[e.session_id] = e.ts
+            closed_at: dict[str, float] = {}
+            for e in terminal_events:
+                if e.session_id and (e.session_id not in closed_at
+                                     or e.ts < closed_at[e.session_id]):
+                    closed_at[e.session_id] = e.ts
+
             now_ts = _t.time()
             start_ts = tr[0] if tr else (now_ts - days * 86400)
             end_ts   = tr[1] if tr else now_ts
@@ -848,9 +875,12 @@ class TeaPartyBridge:
             samples = []
             t = start_ts
             while t <= end_ts:
-                active = len(telemetry.active_sessions(scope=scope, agent=agent))
+                count = sum(
+                    1 for sid, c_ts in created_at.items()
+                    if c_ts <= t and (sid not in closed_at or closed_at[sid] > t)
+                )
                 dt_str = datetime.fromtimestamp(t, tz=timezone.utc).strftime('%Y-%m-%d %H:%M')
-                samples.append({'ts': t, 'datetime': dt_str, 'count': active})
+                samples.append({'ts': t, 'datetime': dt_str, 'count': count})
                 t += interval
             return web.json_response({'chart_type': chart_type, 'data': samples})
 

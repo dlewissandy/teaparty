@@ -3,7 +3,8 @@
  * non-excluded page with a scope config.  Issue #406.
  *
  * Usage:
- *   StatsBar.mount(container, { scope, label, agent_filter?, session_filter? });
+ *   StatsBar.mount(container, { scope, label, agent_filter?, session_filter?,
+ *                               workgroup_filter? });
  *   StatsBar.unmount(container);
  *
  * The component:
@@ -12,6 +13,13 @@
  *  3. Subscribes to `telemetry_event` messages on window._teapartyWS.
  *  4. Updates cells incrementally — no backend round-trip per event.
  *  5. Clicking the strip navigates to /stats.html?scope=...&agent=...&session=...
+ *
+ * Note on workgroup_filter: workgroup-level telemetry filtering requires knowing
+ * which agents belong to a workgroup at query time.  The telemetry store (#405)
+ * records events by scope and agent_name but has no workgroup field.  When
+ * workgroup_filter is present, the bar shows stats for the parent scope
+ * (filtered by scope only), not for the specific workgroup.  Workgroup-level
+ * drill-down is a backend enhancement outside the scope of #406.
  */
 
 var StatsBar = (function () {
