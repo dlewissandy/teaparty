@@ -187,8 +187,7 @@ body {
   font-size: 11px; color: var(--text-dim); font-style: italic;
   flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.job-strip-filter { display: flex; gap: 4px; }
-.job-strip-filter .artifact-header-btn.active { color: var(--green); border-color: var(--green); }
+.artifact-header-btn.active { color: var(--text); border-color: var(--text); }
 
 /* ── Artifact page layout (issue #402) ───────── */
 .artifact-layout { display: flex; flex: 1; min-height: 0; }
