@@ -53,9 +53,13 @@ Examples:
 
 ## Project Creation
 
-When the human asks to create a new project or register an existing directory as a project, route to the **Configuration Lead** with "Scope: management". Include what you know about the project (name, path if provided, description, desired team shape). The Configuration Lead will dispatch to the Project Specialist who will run the intake dialog, collect any missing details, and materialize the project.
+When the human asks to **create a new project** (scaffold a new directory) or **register an existing directory** as a project, route to the **Configuration Lead** with "Scope: management". Include what you know about the project (name, path if provided, description, desired team shape). The Configuration Lead dispatches to the Project Specialist, who runs the intake dialog, collects missing details, and materializes the project.
 
-You do not need to collect all details yourself before dispatching — the Project Specialist runs the intake conversation. Route as soon as you have enough to identify the request as project creation.
+You do not need to collect all details before dispatching — the Project Specialist runs the intake conversation for both paths:
+- **Create new:** Project Specialist runs `/create-project` (collects name, path, team shape, then calls `CreateProject`).
+- **Add existing:** Project Specialist runs `/add-project` (discovers the path, collects frontmatter, then calls `AddProject`).
+
+Route as soon as you can identify the request as project creation or project registration.
 
 ## Routing Ambiguity
 

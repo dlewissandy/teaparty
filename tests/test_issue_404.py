@@ -113,9 +113,14 @@ class TestAddProjectAllowedRoots(unittest.TestCase):
         home = _make_teaparty_home(tmp, allowed_project_roots=[root])
         with self.assertRaises(ValueError) as ctx:
             add_project('proj', outside, teaparty_home=home)
+        msg = str(ctx.exception)
         self.assertIn(
-            'allowed', str(ctx.exception).lower(),
+            'allowed', msg.lower(),
             'ValueError must mention allowed roots, not just "invalid path"',
+        )
+        self.assertIn(
+            os.path.realpath(outside), msg,
+            'ValueError must name the disallowed path so the operator knows what was rejected',
         )
 
     def test_path_within_allowed_root_succeeds(self):
@@ -178,9 +183,14 @@ class TestAddProjectAllowedRoots(unittest.TestCase):
         home = _make_teaparty_home(tmp, allowed_project_roots=[root1, root2])
         with self.assertRaises(ValueError) as ctx:
             add_project('outside', outside, teaparty_home=home)
+        msg = str(ctx.exception)
         self.assertIn(
-            'allowed', str(ctx.exception).lower(),
+            'allowed', msg.lower(),
             'ValueError must mention allowed roots when path is outside all roots',
+        )
+        self.assertIn(
+            os.path.realpath(outside), msg,
+            'ValueError must name the disallowed path so the operator knows what was rejected',
         )
 
 
@@ -197,9 +207,14 @@ class TestCreateProjectAllowedRoots(unittest.TestCase):
         home = _make_teaparty_home(tmp, allowed_project_roots=[root])
         with self.assertRaises(ValueError) as ctx:
             create_project('brand-new', outside, teaparty_home=home)
+        msg = str(ctx.exception)
         self.assertIn(
-            'allowed', str(ctx.exception).lower(),
+            'allowed', msg.lower(),
             'ValueError must mention allowed roots when create path is outside allowed roots',
+        )
+        self.assertIn(
+            os.path.realpath(outside), msg,
+            'ValueError must name the disallowed path so the operator knows what was rejected',
         )
 
     def test_path_within_allowed_root_succeeds(self):
@@ -276,6 +291,81 @@ class TestProjectSpecialistAgentConfig(unittest.TestCase):
         self.assertIn(
             'mcp__teaparty-config__AddProject', tools,
             'project-specialist must list mcp__teaparty-config__AddProject in tools '
+            f'(current tools: {tools})',
+        )
+
+    def _parse_skills(self) -> list[str]:
+        path = self._agent_path()
+        with open(path) as f:
+            content = f.read()
+        parts = content.split('---')
+        fm = yaml.safe_load(parts[1])
+        return fm.get('skills') or []
+
+    def test_add_project_skill_listed(self):
+        skills = self._parse_skills()
+        self.assertIn(
+            'add-project', skills,
+            'project-specialist must list add-project in skills frontmatter '
+            f'(current skills: {skills})',
+        )
+
+    def test_create_project_skill_listed(self):
+        skills = self._parse_skills()
+        self.assertIn(
+            'create-project', skills,
+            'project-specialist must list create-project in skills frontmatter '
+            f'(current skills: {skills})',
+        )
+
+
+class TestOfficeManagerAgentConfig(unittest.TestCase):
+    """office-manager agent must have a Project Creation routing section
+    that explicitly covers both create-new and add-existing paths."""
+
+    def _agent_path(self) -> str:
+        root = _project_root()
+        return os.path.join(root, '.teaparty', 'management', 'agents',
+                            'office-manager', 'agent.md')
+
+    def _agent_body(self) -> str:
+        with open(self._agent_path()) as f:
+            return f.read()
+
+    def _parse_tools(self) -> list[str]:
+        content = self._agent_body()
+        parts = content.split('---')
+        fm = yaml.safe_load(parts[1])
+        tools_str = fm.get('tools', '')
+        return [t.strip() for t in tools_str.split(',') if t.strip()]
+
+    def test_project_creation_section_present(self):
+        body = self._agent_body()
+        self.assertIn(
+            '## Project Creation', body,
+            'office-manager/agent.md must have a ## Project Creation routing section',
+        )
+
+    def test_project_creation_routes_to_configuration_lead(self):
+        body = self._agent_body()
+        self.assertIn(
+            'Configuration Lead', body,
+            'office-manager/agent.md must instruct routing project creation to the Configuration Lead',
+        )
+
+    def test_add_existing_project_path_covered(self):
+        body = self._agent_body()
+        # The OM must explicitly address the add-existing-project path
+        self.assertTrue(
+            'add-project' in body or 'existing' in body.lower(),
+            'office-manager/agent.md Project Creation section must cover the add-existing-project path',
+        )
+
+    def test_office_manager_does_not_have_create_project_tool(self):
+        tools = self._parse_tools()
+        self.assertNotIn(
+            'mcp__teaparty-config__CreateProject', tools,
+            'office-manager must NOT have CreateProject in its tools — it delegates, not materializes '
             f'(current tools: {tools})',
         )
 
