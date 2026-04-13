@@ -238,7 +238,9 @@ class TeaPartyBridge:
         self.teaparty_home = os.path.expanduser(teaparty_home)
         self.static_dir = os.path.expanduser(static_dir)
         self._llm_backend = os.environ.get('TEAPARTY_LLM_BACKEND', 'claude')
-        self._mcp_asgi_app = None  # Set in _on_startup
+        self._mcp_asgi_app = None       # Set in _on_startup
+        self._mcp_task: asyncio.Task | None = None
+        self._mcp_shutdown_event: asyncio.Event | None = None
         self._ws_clients: Set[web.WebSocketResponse] = set()
         # Shared bus registry: session_id -> SqliteMessageBus.
         # Populated by the StatePoller; consumed by MessageRelay.
@@ -492,10 +494,25 @@ class TeaPartyBridge:
         # Start the shared MCP server (same event loop, no threading)
         from teaparty.mcp.server.main import create_http_app
         self._mcp_asgi_app, mcp_starlette, mcp_server = create_http_app()
-        # Start the session manager via its lifespan
-        self._mcp_session_mgr = mcp_server.session_manager
-        self._mcp_session_ctx = self._mcp_session_mgr.run()
-        await self._mcp_session_ctx.__aenter__()
+        # Run the session manager inside a dedicated asyncio task so that the
+        # anyio task group it uses enters and exits within the same task —
+        # a requirement anyio enforces.  Calling __aenter__/__aexit__ from
+        # aiohttp's on_startup/on_shutdown hooks violates this because those
+        # hooks run in different tasks, leaving a dangling async generator on
+        # shutdown (logged as "asyncgen error during closing").
+        self._mcp_shutdown_event = asyncio.Event()
+        ready = asyncio.Event()
+
+        async def _run_mcp_session(session_mgr, shutdown_event, ready_event):
+            async with session_mgr.run():
+                ready_event.set()
+                await shutdown_event.wait()
+
+        self._mcp_task = asyncio.ensure_future(
+            _run_mcp_session(mcp_server.session_manager,
+                             self._mcp_shutdown_event, ready)
+        )
+        await ready.wait()
         _log.info('MCP server started (in-process, same event loop)')
 
         async def broadcast(event: dict) -> None:
@@ -569,12 +586,19 @@ class TeaPartyBridge:
         except Exception:
             pass
 
-        # Shut down MCP session manager
-        if hasattr(self, '_mcp_session_ctx') and self._mcp_session_ctx:
+        # Shut down MCP session manager — signal the dedicated task to exit
+        # the anyio task group from within the same task that entered it.
+        if self._mcp_shutdown_event is not None:
+            self._mcp_shutdown_event.set()
+        if self._mcp_task is not None:
             try:
-                await self._mcp_session_ctx.__aexit__(None, None, None)
-            except Exception:
-                pass
+                await asyncio.wait_for(self._mcp_task, timeout=5.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+                self._mcp_task.cancel()
+                try:
+                    await self._mcp_task
+                except (asyncio.CancelledError, Exception):
+                    pass
 
         for key in ('_poller_task', '_relay_task'):
             task = app.get(key)
