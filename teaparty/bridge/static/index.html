@@ -134,7 +134,7 @@ function resumeProject(slug) {
 function withdrawJob(sessionId, event) {
   event.preventDefault();
   event.stopPropagation();
-  if (!confirm('Withdraw this job?\n\nRunning agents will be stopped and the worktree removed. Stats are preserved.')) return;
+  if (!confirm('Are you certain? If you withdraw, all work in progress will be lost.')) return;
   fetch('/api/withdraw/' + encodeURIComponent(sessionId), { method: 'POST' })
     .then(function(r) { return r.json(); })
     .then(function(data) {
