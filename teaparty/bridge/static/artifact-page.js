@@ -404,7 +404,7 @@
     if (isJobArtifact(path)) {
       var convId = jobConvId(path);
       if (convId) {
-        html += '<a class="artifact-job-link" href="chat.html?conv=' + encodeURIComponent(convId) + '">View job conversation &#8594;</a>';
+        html += '<a class="artifact-job-link" href="job.html?conv=' + encodeURIComponent(convId) + '">View job &#8594;</a>';
       }
     }
 

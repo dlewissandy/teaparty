@@ -198,6 +198,17 @@ function pickAndAddProject() { showProjectModal('Add Project', '/api/projects/ad
 // escalationConvMap: session_id → conversation_id from input_requested events.
 var pageState = { projects: [], configs: {}, omConvId: 'om:darrell', omSessionId: 'office-manager-darrell', escalationConvMap: {}, pausedProjects: {} };
 
+function jobUrl(slug, convId, opts) {
+  opts = opts || {};
+  var url = 'job.html?project=' + encodeURIComponent(slug) + '&conv=' + encodeURIComponent(convId);
+  if (opts.lead) url += '&lead=' + encodeURIComponent(opts.lead);
+  if (opts.phase) url += '&phase=' + encodeURIComponent(opts.phase);
+  if (opts.state) url += '&state=' + encodeURIComponent(opts.state);
+  if (opts.needsInput) url += '&needs_input=1';
+  if (opts.request) url += '&request=' + encodeURIComponent(opts.request);
+  return url;
+}
+
 function fetchAll() {
   Promise.all([
     fetch('/api/state').then(function(r) { return r.json(); }),
@@ -323,14 +334,16 @@ function render() {
           // task: conv → job:…&task=…  |  job: conv → job:…  |  fallback → job: (no task)
           var rawConvId = stickyConvId || s.input_conv_id || '';
           var escParts = rawConvId.split(':');
-          var escUrl = (escParts[0] === 'task' && escParts.length === 4)
-            ? ('chat.html?conv=job:' + escParts[1] + ':' + escParts[2] + '&task=' + escParts[3])
-            : ('chat.html?conv=' + convId);
+          var escConv = (escParts[0] === 'task' && escParts.length === 4)
+            ? ('job:' + escParts[1] + ':' + escParts[2])
+            : convId;
+          var escUrl = jobUrl(p.slug, escConv, {lead: cfg.lead, phase: s.cfa_phase, state: s.cfa_state, needsInput: true, request: s.task});
           projectsHtml += '<a class="attention-dot" href="' + escUrl + '"></a>';
         } else {
           projectsHtml += '<a style="width:6px;display:inline-block"></a>';
         }
-        projectsHtml += '<a href="chat.html?conv=' + convId + '" style="flex:1;display:flex;align-items:center;gap:6px;color:inherit;text-decoration:none;min-width:0">';
+        var jobHref = jobUrl(p.slug, convId, {lead: cfg.lead, phase: s.cfa_phase, state: s.cfa_state, needsInput: s.needs_input, request: s.task});
+        projectsHtml += '<a href="' + jobHref + '" style="flex:1;display:flex;align-items:center;gap:6px;color:inherit;text-decoration:none;min-width:0">';
         projectsHtml += '<span style="flex-shrink:0;width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;color:var(--text)">' + jobName + '</span>';
         projectsHtml += '<span style="flex:1">' + renderWorkflow(pIdx, false, s.needs_input || !!stickyConvId) + '</span>';
         var liveness;
@@ -447,23 +460,26 @@ function onInputRequested(sessionId, convId) {
   // job: conv → use as-is
   // session: conv (uberteam requesting input directly) → rewrite as job:{slug}:{sessionId}
   var parts = convId ? convId.split(':') : [];
-  var dotUrl;
+  var dotSlug = '';
+  var dotConv = convId;
   if (parts[0] === 'task' && parts.length === 4) {
-    dotUrl = 'chat.html?conv=job:' + parts[1] + ':' + parts[2] + '&task=' + parts[3];
-  } else if (parts[0] === 'job') {
-    dotUrl = 'chat.html?conv=' + convId;
+    dotSlug = parts[1];
+    dotConv = 'job:' + parts[1] + ':' + parts[2];
+  } else if (parts[0] === 'job' && parts.length >= 3) {
+    dotSlug = parts[1];
   } else {
-    // session: type or unknown — look up project slug to build job: URL
-    var projectSlug = '';
     pageState.projects.forEach(function(proj) {
       (proj.sessions || []).forEach(function(s) {
-        if (s.session_id === sessionId) { projectSlug = proj.slug; }
+        if (s.session_id === sessionId) { dotSlug = proj.slug; }
       });
     });
-    dotUrl = projectSlug
-      ? 'chat.html?conv=job:' + projectSlug + ':' + sessionId
-      : 'chat.html?conv=session:' + sessionId;
+    if (dotSlug) {
+      dotConv = 'job:' + dotSlug + ':' + sessionId;
+    }
   }
+  var dotUrl = dotSlug
+    ? jobUrl(dotSlug, dotConv, {needsInput: true})
+    : 'chat.html?conv=session:' + sessionId;
   var row = document.querySelector('[data-session="' + sessionId + '"]');
   if (row) {
     var dotSlot = row.firstElementChild;
