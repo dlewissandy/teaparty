@@ -127,16 +127,17 @@ function resumeProject(slug) {
   }).then(function() { fetchAll(); });
 }
 
-// Show a modal dialog for project onboarding (add or create).
-// title: dialog heading; endpoint: '/api/projects/add' or '/api/projects/create'
-function showProjectModal(title, endpoint) {
+// Show a modal dialog for project onboarding.
+// Tries /api/projects/add (existing directory) first; if the path does not
+// exist on disk, falls back to /api/projects/create (scaffold new directory).
+function showProjectModal() {
   var overlay = document.createElement('div');
   overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;' +
     'background:rgba(0,0,0,0.7);z-index:1000;display:flex;align-items:center;justify-content:center;';
   overlay.innerHTML =
     '<div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;' +
       'padding:20px;width:380px;font-family:inherit;">' +
-      '<div style="font-size:13px;font-weight:600;color:var(--green);margin-bottom:16px;">' + title + '</div>' +
+      '<div style="font-size:13px;font-weight:600;color:var(--green);margin-bottom:16px;">Add Project</div>' +
       '<label style="display:block;font-size:10px;color:var(--text-dim);margin-bottom:4px;">Directory path</label>' +
       '<input id="om-path" type="text" placeholder="/path/to/project" ' +
         'style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);' +
@@ -178,12 +179,19 @@ function showProjectModal(title, endpoint) {
     if (!path) { errorEl.textContent = 'Directory path is required.'; return; }
     if (!name) { errorEl.textContent = 'Project name is required.'; return; }
     try {
-      var resp = await fetch(endpoint, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({name: name, path: path}),
+      // Try registering an existing directory first; if the server says it
+      // does not exist, scaffold a new one instead.
+      var payload = JSON.stringify({name: name, path: path});
+      var resp = await fetch('/api/projects/add', {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: payload,
       });
       var data = await resp.json();
+      if (!resp.ok && data.error && data.error.indexOf('does not exist') !== -1) {
+        resp = await fetch('/api/projects/create', {
+          method: 'POST', headers: {'Content-Type': 'application/json'}, body: payload,
+        });
+        data = await resp.json();
+      }
       if (!resp.ok) { errorEl.textContent = data.error || 'Request failed (' + resp.status + ').'; return; }
       close();
       loadData();
@@ -192,9 +200,6 @@ function showProjectModal(title, endpoint) {
 
   pathInput.focus();
 }
-
-function pickAndCreateProject() { showProjectModal('New Project', '/api/projects/create'); }
-function pickAndAddProject() { showProjectModal('Add Project', '/api/projects/add'); }
 
 // PHASES, STATE_TO_PHASE_IDX, phaseIndex, renderWorkflow — provided by workflow-bar.js
 
@@ -375,7 +380,7 @@ function render() {
     '<div class="home-title">TeaParty</div>' +
     '<div class="home-subtitle">Agent coordination platform</div>' +
     orgHtml +
-    '<div style="display:flex;align-items:center;margin-bottom:8px"><span style="font-size:11px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px">Projects</span><span style="flex:1"></span><button style="background:var(--accent2);color:var(--text);border:none;padding:4px 8px;border-radius:3px;font-size:9px;font-family:inherit;cursor:pointer;margin-right:4px" onclick="pickAndAddProject()">Add Project</button><button style="background:var(--accent2);color:var(--text);border:none;padding:4px 10px;border-radius:3px;font-size:9px;font-family:inherit;cursor:pointer" onclick="pickAndCreateProject()">+ New Project</button></div>' +
+    '<div style="display:flex;align-items:center;margin-bottom:8px"><span style="font-size:11px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px">Projects</span><span style="flex:1"></span><button style="background:var(--accent2);color:var(--text);border:none;padding:4px 10px;border-radius:3px;font-size:9px;font-family:inherit;cursor:pointer" onclick="showProjectModal()">+ Project</button></div>' +
     projectsHtml;
 }
 
