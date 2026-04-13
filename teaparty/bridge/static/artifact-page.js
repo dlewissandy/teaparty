@@ -454,10 +454,12 @@
       if (_config.originalRequest) {
         topStripHtml += '<div class="job-strip-request">' + escHtml(_config.originalRequest) + '</div>';
       }
-      // Workflow bar (from workflow-bar.js)
+      // Workflow bar — same renderWorkflow/phaseIndex from workflow-bar.js
+      // that the home page uses. Wrapped in flex:1 span so it fills available
+      // space in the job-strip row, matching the home page pattern.
       if (typeof renderWorkflow === 'function') {
         var pIdx = typeof phaseIndex === 'function' ? phaseIndex(_config.workflowPhase, _config.workflowState) : 0;
-        topStripHtml += renderWorkflow(pIdx, true, !!_config.needsInput);
+        topStripHtml += '<span style="flex:1">' + renderWorkflow(pIdx, true, !!_config.needsInput) + '</span>';
       }
       // Changed / All toggle
       topStripHtml += '<div class="job-strip-filter">';
