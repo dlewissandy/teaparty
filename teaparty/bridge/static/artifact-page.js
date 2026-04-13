@@ -318,7 +318,13 @@
       var resp = await fetch('/api/git-status?path=' + encodeURIComponent(worktree));
       if (resp.ok) {
         var data = await resp.json();
-        _gitStatuses = data.files || {};
+        var raw = data.files || {};
+        // Exclude files in hidden directories
+        _gitStatuses = {};
+        for (var k in raw) {
+          if (k.split('/').some(function(seg) { return seg.startsWith('.'); })) continue;
+          _gitStatuses[k] = raw[k];
+        }
       } else {
         _gitStatuses = {};
       }
@@ -628,39 +634,6 @@
       navHtml += '<div class="artifact-nav-item" style="font-style:italic;cursor:default">(no files)</div>';
     }
 
-    // When Changed filter is active, show changed files that aren't visible
-    // in the repo tree (e.g. dotfiles filtered out of the directory listing).
-    if (_filterChanged && Object.keys(_gitStatuses).length > 0) {
-      var worktree = _config.chatLaunchRepo || '';
-      var renderedPaths = {};
-      // Collect all paths that _renderFileTree could have shown
-      (function collectRendered(nodes) {
-        nodes.forEach(function(n) {
-          renderedPaths[n.path] = true;
-          if (n.expanded && n.children) collectRendered(n.children);
-        });
-      })(_repoFiles);
-
-      var missing = [];
-      for (var relPath in _gitStatuses) {
-        var absPath = (worktree && !relPath.startsWith('/')) ? worktree + '/' + relPath : relPath;
-        if (!renderedPaths[absPath]) missing.push({rel: relPath, abs: absPath});
-      }
-      if (missing.length > 0) {
-        navHtml += '<div class="artifact-nav-divider">Changed Files</div>';
-        missing.forEach(function(f) {
-          var name = f.rel.split('/').pop();
-          var isActive = _selectedFile === f.abs;
-          var statusHtml = _gitStatusIndicator(f.abs);
-          var escapedPath = f.abs.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-          navHtml += '<div class="artifact-nav-item ' + (isActive ? 'active' : '') + '">' +
-            statusHtml +
-            '<span class="artifact-nav-item-label" onclick="ArtifactPage._loadFile(\'' + escapedPath + '\')">' + escHtml(f.rel) + '</span>' +
-            '</div>';
-        });
-      }
-    }
-
     navHtml += '</div>';
 
     // ── Main ────────────────────────────────────────────────────────────────
@@ -782,10 +755,69 @@
     _render();
   }
 
-  function _toggleFilter(which) {
+  async function _toggleFilter(which) {
     if (which === 'pinned') _filterPinned = !_filterPinned;
     if (which === 'changed') _filterChanged = !_filterChanged;
+    // Auto-expand directories needed to reveal matching files
+    await _autoExpandForFilters();
     _render();
+  }
+
+  async function _autoExpandForFilters() {
+    if (!_filterPinned && !_filterChanged) return;
+    var worktree = _config.chatLaunchRepo || '';
+    // Collect absolute paths of files that pass the active filter
+    var targets = [];
+    if (_filterChanged) {
+      for (var rel in _gitStatuses) {
+        var abs = (worktree && !rel.startsWith('/')) ? worktree + '/' + rel : rel;
+        targets.push(abs);
+      }
+    }
+    if (_filterPinned) {
+      // Include pinned file paths (not dirs — dirs are expanded to show contents)
+      (function walk(nodes) {
+        nodes.forEach(function(n) {
+          if (!n.is_dir) targets.push(n.path);
+          if (n.children) walk(n.children);
+        });
+      })(_pinnedNodes);
+    }
+    // For each target, expand every ancestor directory in _repoFiles
+    for (var i = 0; i < targets.length; i++) {
+      await _expandAncestors(targets[i], _repoFiles);
+    }
+  }
+
+  async function _expandAncestors(filepath, nodes) {
+    for (var i = 0; i < nodes.length; i++) {
+      var node = nodes[i];
+      if (!node.is_dir) continue;
+      var dirPrefix = node.path.endsWith('/') ? node.path : node.path + '/';
+      if (!filepath.startsWith(dirPrefix)) continue;
+      // This directory is an ancestor — expand it
+      node.expanded = true;
+      if (node.children === null) {
+        try {
+          var resp = await fetch('/api/fs/list?path=' + encodeURIComponent(node.path));
+          if (resp.ok) {
+            var data = await resp.json();
+            node.children = (data.entries || [])
+              .filter(function(e) { return !e.name.startsWith('.'); })
+              .map(function(e) {
+                return {path: e.path, label: e.name, is_dir: e.is_dir, expanded: false, children: null};
+              });
+          } else {
+            node.children = [];
+          }
+        } catch(e) {
+          node.children = [];
+        }
+      }
+      // Recurse into children
+      await _expandAncestors(filepath, node.children);
+      return;
+    }
   }
 
   async function _refresh() {
@@ -907,6 +939,8 @@
       return;
     }
 
+    // Auto-expand tree for default filters before first render
+    await _autoExpandForFilters();
     _render();
     _startLiveRefresh();
   }
