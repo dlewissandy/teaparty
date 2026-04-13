@@ -271,7 +271,6 @@ async def create_task(
         src = os.path.join(job_worktree, name)
         dst = os.path.join(worktree_path, name)
         if os.path.isfile(src):
-            import shutil
             shutil.copy2(src, dst)
 
     # Write task state
