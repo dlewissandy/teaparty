@@ -102,7 +102,7 @@ function createJob(projectSlug) {
   .then(function(r) { return r.json(); })
   .then(function(data) {
     if (data.conversation_id) {
-      location.href = 'chat.html?conv=' + encodeURIComponent(data.conversation_id);
+      location.href = jobUrl(projectSlug, data.conversation_id, { request: task });
     }
   })
   .catch(function(err) { alert('Failed to create job: ' + err); });

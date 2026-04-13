@@ -180,7 +180,10 @@ class AgentRunner:
             message=prompt,
             scope='project',
             telemetry_scope=ctx.env_vars.get('POC_PROJECT', 'project'),
-            teaparty_home=ctx.poc_root,
+            # Agent definitions live in the project's own .teaparty/project/agents/
+            # directory; the org management catalog is the fallback (Issue #408).
+            teaparty_home=os.path.join(ctx.project_workdir, '.teaparty'),
+            org_home=os.path.join(ctx.poc_root, '.teaparty'),
             worktree=ctx.session_worktree,
             resume_session=ctx.resume_session or '',
             on_stream_event=self.on_stream_event,
@@ -573,6 +576,21 @@ class ApprovalGate:
         artifact_missing = ctx.data.get('artifact_missing', False)
         project_slug = ctx.env_vars.get('POC_PROJECT', 'default')
         team = ctx.env_vars.get('POC_TEAM', '')
+
+        # Socratic querying: at INTENT_ASSERT with no artifact yet, the agent is
+        # still gathering information through conversation.  Skip the proxy gate
+        # entirely — just wait for the human's next message and feed it back as a
+        # correction so the agent can iterate with more context.  The state machine's
+        # INTENT_ASSERT → correct → INTENT_RESPONSE → INTENT_RUN loop provides the
+        # iteration automatically.
+        if artifact_missing and ctx.state == 'INTENT_ASSERT':
+            request = InputRequest(
+                type='input',
+                state=ctx.state,
+                bridge_text='',  # agent's questions are already visible in the conversation
+            )
+            human_reply = await self.input_provider(request)
+            return ActorResult(action='correct', feedback=human_reply.strip())
 
         # Telemetry: gate_opened (Issue #405)
         try:

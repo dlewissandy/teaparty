@@ -77,20 +77,20 @@ PLAN_ESCALATION_STATES = frozenset({'INTENT_ESCALATE', 'PLANNING_ESCALATE'})
 WORK_ESCALATION_STATES = frozenset({'TASK_ESCALATE'})
 
 
-def _make_stream_event_handler(bus: Any, conv_id: str):
+def _make_stream_event_handler(bus: Any, conv_id: str, agent_sender: str = 'agent'):
     """Return a callback that relays Claude CLI stream events to the message bus.
 
     Each event type maps to a sender value that the chat.html filter bar
     can match:
 
-      assistant (text blocks)    → 'agent'
+      assistant (text blocks)    → agent_sender (default: 'agent', or project lead name)
       assistant (thinking)       → 'thinking'
       assistant (tool_use block) → 'tool_use'
       tool_use (top-level)       → 'tool_use'
       tool_result (top-level)    → 'tool_result'
       user (tool_result blocks)  → 'tool_result'
       system                     → 'system'
-      result                     → 'agent'
+      result                     → agent_sender
 
     tool_use and tool_result can appear both as content blocks within
     assistant/user events and as top-level events.  Deduplicates by
@@ -98,6 +98,7 @@ def _make_stream_event_handler(bus: Any, conv_id: str):
     """
     seen_tool_use: set[str] = set()
     seen_tool_result: set[str] = set()
+    wrote_text: list[bool] = [False]  # True once any agent text has been streamed
 
     def _send_tool_result(content: Any) -> None:
         """Normalize tool_result content (string or block array) and send."""
@@ -119,7 +120,8 @@ def _make_stream_event_handler(bus: Any, conv_id: str):
             message = event.get('message', {})
             content = message.get('content', '') if isinstance(message, dict) else ''
             if isinstance(content, str) and content:
-                bus.send(conv_id, 'agent', content)
+                bus.send(conv_id, agent_sender, content)
+                wrote_text[0] = True
             elif isinstance(content, list):
                 for block in content:
                     if not isinstance(block, dict):
@@ -128,7 +130,8 @@ def _make_stream_event_handler(bus: Any, conv_id: str):
                     if btype == 'text':
                         text = block.get('text', '')
                         if text:
-                            bus.send(conv_id, 'agent', text)
+                            bus.send(conv_id, agent_sender, text)
+                            wrote_text[0] = True
                     elif btype == 'thinking':
                         thinking = block.get('thinking', '')
                         if thinking:
@@ -176,9 +179,12 @@ def _make_stream_event_handler(bus: Any, conv_id: str):
                 bus.send(conv_id, 'system', msg)
 
         elif etype == 'result':
+            # Only write the result event if no streaming text was captured —
+            # in streaming mode the content blocks already cover the full output,
+            # and a second write would produce a visible duplicate.
             result_text = event.get('result', '')
-            if result_text:
-                bus.send(conv_id, 'agent', result_text)
+            if result_text and not wrote_text[0]:
+                bus.send(conv_id, agent_sender, result_text)
 
     return handler
 
@@ -286,8 +292,9 @@ class Orchestrator:
             self._stream_bus = _StreamBus(bus_path)
             self._stream_conv_id = f'job:{project_slug}:{session_id}'
 
+        _agent_sender = self.config.project_lead or 'agent'
         _on_stream_event = (
-            _make_stream_event_handler(self._stream_bus, self._stream_conv_id)
+            _make_stream_event_handler(self._stream_bus, self._stream_conv_id, _agent_sender)
             if self._stream_bus
             else None
         )
@@ -513,7 +520,7 @@ class Orchestrator:
             return None
 
         wg_dicts = [
-            {'name': wg.name, 'lead': wg.lead, 'agents': wg.members_agents}
+            {'name': wg.name, 'lead': wg.lead, 'agents': [{'role': a} for a in wg.members_agents]}
             for wg in workgroups
         ]
         project_name = self.project_slug or os.path.basename(self.project_dir)
@@ -2225,12 +2232,14 @@ class Orchestrator:
         # --flat: swap the project team for a flat team where the lead
         # recruits agents dynamically via the Agent tool.
         # Only affects phases that use uber-team.json (planning, execution).
+        # Use the already-resolved base.lead so the project lead from project.yaml
+        # is preserved rather than re-hardcoding 'project-lead' (Issue #408).
         if self.flat and base.agent_file == 'uber':
             from teaparty.cfa.phase_config import PhaseSpec
             return PhaseSpec(
                 name=base.name,
                 agent_file='flat',
-                lead='project-lead',
+                lead=base.lead,
                 permission_mode=base.permission_mode,
                 stream_file=base.stream_file,
                 artifact=base.artifact,

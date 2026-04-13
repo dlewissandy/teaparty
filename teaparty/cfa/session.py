@@ -82,6 +82,19 @@ def _make_stream_bus_writer(bus: SqliteMessageBus, conversation_id: str, session
     return _on_event
 
 
+def _resolve_project_lead_sender(project_dir: str) -> str:
+    """Return the project lead name for gate-prompt sender attribution.
+
+    Reads project.yaml and returns its 'lead' field, or 'orchestrator' if
+    no lead is configured or the file cannot be read.  Used by the resume
+    path to match the fresh-run sender resolution in Session.run().
+    """
+    try:
+        return load_project_team(project_dir).lead or 'orchestrator'
+    except (FileNotFoundError, OSError):
+        return 'orchestrator'
+
+
 def _resolve_cost_tracker_impl(project_dir: str) -> CostTracker | None:
     """Create a CostTracker from the resolved budget configuration.
 
@@ -248,6 +261,7 @@ class Session:
         self._bus_input_provider = MessageBusInputProvider(
             bus=self._message_bus,
             conversation_id=self._conversation_id,
+            sender=self.config.project_lead or 'orchestrator',
         )
 
         # 4b. Copy pre-written artifacts into the worktree so they are
@@ -809,9 +823,12 @@ class Session:
             ConversationType.JOB, f'{project_slug}:{session_id}',
         )
         message_bus.create_conversation(ConversationType.JOB, f'{project_slug}:{session_id}')
+        # Resolve project lead for gate-prompt attribution (Issue #408).
+        _resume_sender = _resolve_project_lead_sender(project_dir)
         bus_input_provider = MessageBusInputProvider(
             bus=message_bus,
             conversation_id=conversation_id,
+            sender=_resume_sender,
         )
 
         # 6. Start state writer + publish SESSION_STARTED with resumed flag

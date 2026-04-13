@@ -49,6 +49,7 @@ class PhaseConfig:
         self._project_config: dict[str, Any] = {}
         self._org_agents: dict[str, dict[str, Any]] = {}
         self._project_claude_md: str = ''
+        self._project_lead: str = ''
         self.stall_timeout: int = 1800
         self.max_dispatch_retries: int = 5
 
@@ -130,9 +131,26 @@ class PhaseConfig:
             self.valid_actions_by_state[state] = [e['action'] for e in edges]
 
     def _load_project_config(self) -> None:
-        """Load project-scoped team config from project_dir/project.json."""
+        """Load project-scoped config from project.yaml (lead) and project.json (overrides)."""
         if not self.project_dir:
             return
+
+        # Load project lead from project.yaml — the canonical project config.
+        # This is the same file the bridge reads via load_project_team() (Issue #408).
+        yaml_path = os.path.join(
+            self.project_dir, '.teaparty', 'project', 'project.yaml',
+        )
+        if os.path.exists(yaml_path):
+            try:
+                import yaml as _yaml
+                with open(yaml_path) as f:
+                    data = _yaml.safe_load(f)
+                if data and isinstance(data, dict):
+                    self._project_lead = data.get('lead', '') or ''
+            except Exception:
+                pass
+
+        # Legacy: project.json phase/team overrides (no project currently has one).
         path = os.path.join(self.project_dir, 'project.json')
         if not os.path.exists(path):
             return
@@ -299,24 +317,52 @@ class PhaseConfig:
     def resolve_phase(self, phase_name: str) -> PhaseSpec:
         """Resolve a PhaseSpec with project overrides applied.
 
-        Project config can override agent_file, lead, permission_mode,
-        and settings_overlay per phase.  Unoverridden fields keep org defaults.
+        Resolution order:
+          1. Org defaults from phase-config.json.
+          2. Project.json phase overrides (legacy, no project currently uses this).
+          3. Project lead from project.yaml: substituted when the org default is
+             the generic 'project-lead' sentinel (Issue #408).
+
+        The intent phase is not substituted — it has its own lead ('intent-lead')
+        and is explicitly out of scope.
         """
         base = self._phases[phase_name]
+
+        # Apply legacy project.json phase overrides if present.
         project_phases = self._project_config.get('phases', {})
         overrides = project_phases.get(phase_name, {})
-        if not overrides:
-            return base
-        return PhaseSpec(
-            name=base.name,
-            agent_file=overrides.get('agent_file', base.agent_file),
-            lead=overrides.get('lead', base.lead),
-            permission_mode=overrides.get('permission_mode', base.permission_mode),
-            stream_file=base.stream_file,
-            artifact=base.artifact,
-            approval_state=base.approval_state,
-            settings_overlay=overrides.get('settings_overlay', base.settings_overlay),
-        )
+        if overrides:
+            base = PhaseSpec(
+                name=base.name,
+                agent_file=overrides.get('agent_file', base.agent_file),
+                lead=overrides.get('lead', base.lead),
+                permission_mode=overrides.get('permission_mode', base.permission_mode),
+                stream_file=base.stream_file,
+                artifact=base.artifact,
+                approval_state=base.approval_state,
+                settings_overlay=overrides.get('settings_overlay', base.settings_overlay),
+            )
+
+        # Substitute project lead from project.yaml when the phase uses the generic
+        # 'project-lead' sentinel and the project has a configured lead (Issue #408).
+        if base.lead == 'project-lead' and self._project_lead:
+            base = PhaseSpec(
+                name=base.name,
+                agent_file=base.agent_file,
+                lead=self._project_lead,
+                permission_mode=base.permission_mode,
+                stream_file=base.stream_file,
+                artifact=base.artifact,
+                approval_state=base.approval_state,
+                settings_overlay=base.settings_overlay,
+            )
+
+        return base
+
+    @property
+    def project_lead(self) -> str:
+        """The project's configured lead agent name, or empty string if not set."""
+        return self._project_lead
 
     def resolve_team_agents(self, team_name: str) -> dict[str, dict[str, Any]]:
         """Resolve agent definitions for a team with project overrides applied.
