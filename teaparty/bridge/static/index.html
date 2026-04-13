@@ -68,8 +68,7 @@
   }
   .pc-action:last-child { border-right: none; }
   .pc-action:hover { background: rgba(255,255,255,0.03); color: var(--text); }
-  .pc-action-danger { color: var(--red, #e06c75); }
-  .pc-action-danger:hover { background: rgba(224,108,117,0.08); color: var(--red, #e06c75); }
+
   .pc-action-icon { font-size: 12px; display: block; margin-bottom: 2px; }
 
   .attention-badge {
@@ -385,7 +384,7 @@ function render() {
     projectsHtml += '<button class="pc-action" onclick="createJob(\'' + p.slug + '\')"><span class="pc-action-icon">&#9654;</span>New Job</button>';
     projectsHtml += '<button class="pc-action" onclick="pauseProject(\'' + p.slug + '\')"><span class="pc-action-icon">&#9646;&#9646;</span>Pause All</button>';
     projectsHtml += '<button class="pc-action" onclick="resumeProject(\'' + p.slug + '\')"><span class="pc-action-icon">&#9654;</span>Resume All</button>';
-    projectsHtml += '<button class="pc-action pc-action-danger" onclick="removeProject(\'' + p.slug + '\',\'' + escHtml(pName) + '\')"><span class="pc-action-icon">&#10005;</span>Remove</button>';
+    projectsHtml += '<button class="pc-action" onclick="removeProject(\'' + p.slug + '\',\'' + escHtml(pName) + '\')"><span class="pc-action-icon">&#10005;</span>Remove</button>';
     projectsHtml += '</div>';
 
     projectsHtml += '</div>';
