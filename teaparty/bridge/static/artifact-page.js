@@ -111,6 +111,7 @@
   var _fileContent = null;
   var _loadError = null;
   var _gitStatuses = {};
+  var _repoFiles = [];    // [{path, label, is_dir, expanded, children}] — full repo tree
   var _filterPinned = false;
   var _filterChanged = false;
   var _refreshInterval = null;
@@ -177,7 +178,47 @@
     }
   }
 
-  // ── Pinned nodes ──────────────────────────────────────────────────────��───
+  // ── Repo file tree ─────────────────────────────────────────────────────
+
+  async function _fetchRepoFiles() {
+    var worktree = _config.chatLaunchRepo || '';
+    if (!worktree) {
+      // For browse mode, resolve from project slug
+      try {
+        var resp = await fetch('/api/fs/list?project=' + encodeURIComponent(_config.projectSlug || ''));
+        if (resp.ok) {
+          var data = await resp.json();
+          worktree = data.path || '';
+          _config.chatLaunchRepo = worktree;
+          _repoFiles = (data.entries || [])
+            .filter(function(e) { return !e.name.startsWith('.'); })
+            .map(function(e) {
+              return {path: e.path, label: e.name, is_dir: e.is_dir, expanded: false, children: null};
+            });
+          return;
+        }
+      } catch(e) {}
+      _repoFiles = [];
+      return;
+    }
+    try {
+      var resp = await fetch('/api/fs/list?path=' + encodeURIComponent(worktree));
+      if (resp.ok) {
+        var data = await resp.json();
+        _repoFiles = (data.entries || [])
+          .filter(function(e) { return !e.name.startsWith('.'); })
+          .map(function(e) {
+            return {path: e.path, label: e.name, is_dir: e.is_dir, expanded: false, children: null};
+          });
+      } else {
+        _repoFiles = [];
+      }
+    } catch(e) {
+      _repoFiles = [];
+    }
+  }
+
+  // ── Pinned nodes ──────────────────────────────────────────────────────────
 
   async function fetchPins() {
     var project = _config.projectSlug || '';
@@ -194,7 +235,7 @@
   }
 
   async function toggleFolder(path) {
-    var node = _findNode(_pinnedNodes, path);
+    var node = _findNode(_pinnedNodes, path) || _findNode(_repoFiles, path);
     if (!node) return;
     if (node.expanded) {
       node.expanded = false;
@@ -207,9 +248,11 @@
         var resp = await fetch('/api/fs/list?path=' + encodeURIComponent(path));
         if (resp.ok) {
           var data = await resp.json();
-          node.children = (data.entries || []).map(function(e) {
-            return {path: e.path, label: e.name, is_dir: e.is_dir, expanded: false, children: null};
-          });
+          node.children = (data.entries || [])
+            .filter(function(e) { return !e.name.startsWith('.'); })
+            .map(function(e) {
+              return {path: e.path, label: e.name, is_dir: e.is_dir, expanded: false, children: null};
+            });
         } else {
           node.children = [];
         }
@@ -484,11 +527,16 @@
       '</div>' +
       '</div>';
 
-    // ── Nav ─────────────────────────────────────────────────────────────────
     // ── Nav with [Pinned][Changed] conjunctive filters ────────────────────
+    //
+    // The base view is the repo file tree (_repoFiles). Filters narrow it:
+    //   - Pinned: only show files/dirs in the pinned set
+    //   - Changed: only show files with git-status changes
+    //   - Both: show files that are pinned AND changed
+    //   - Neither: show all non-hidden files in the repo
+
     var navHtml = '<div class="artifact-nav">';
 
-    // Build a set of pinned paths for filter matching
     var pinnedPathSet = {};
     (function collectPinned(nodes) {
       nodes.forEach(function(n) {
@@ -499,82 +547,71 @@
 
     function _isFileChanged(filepath) {
       if (_gitStatuses[filepath]) return true;
-      var basename = filepath.split('/').pop();
-      for (var key in _gitStatuses) {
-        if (key === filepath || key.endsWith('/' + basename)) return true;
+      // git status uses relative paths; try matching the tail
+      var worktree = _config.chatLaunchRepo || '';
+      if (worktree) {
+        var rel = filepath.startsWith(worktree) ? filepath.slice(worktree.length + 1) : filepath;
+        if (_gitStatuses[rel]) return true;
       }
       return false;
     }
 
-    function _passesFilter(filepath) {
-      if (!_filterPinned && !_filterChanged) return true;
-      var passesPinned = !_filterPinned || !!pinnedPathSet[filepath];
-      var passesChanged = !_filterChanged || _isFileChanged(filepath);
-      return passesPinned && passesChanged;
+    function _isDirChanged(dirpath) {
+      var prefix = dirpath.endsWith('/') ? dirpath : dirpath + '/';
+      var worktree = _config.chatLaunchRepo || '';
+      for (var key in _gitStatuses) {
+        var abs = (worktree && !key.startsWith('/')) ? worktree + '/' + key : key;
+        if (abs.startsWith(prefix)) return true;
+      }
+      return false;
     }
 
-    // Pinned section — show when pinned filter is active or no filter is active
-    if (_pinnedNodes.length > 0 && (!_filterChanged || _filterPinned)) {
+    function _renderFileTree(nodes, depth) {
+      var html = '';
+      var indent = (depth * 12) + 'px';
+      nodes.forEach(function(node) {
+        var escapedPath = node.path.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        // Apply filters
+        if (node.is_dir) {
+          // For dirs: if Changed filter is on, skip dirs with no changed descendants
+          if (_filterChanged && !_isDirChanged(node.path)) return;
+          if (_filterPinned && !pinnedPathSet[node.path]) {
+            // Check if any child is pinned
+            var hasPin = false;
+            if (node.children) node.children.forEach(function(c) { if (pinnedPathSet[c.path]) hasPin = true; });
+            if (!hasPin && !_isDirChanged(node.path)) return;
+          }
+          var icon = node.expanded ? '&#9660;' : '&#9654;';
+          html += '<div class="artifact-nav-folder" style="padding-left:calc(10px + ' + indent + ')" onclick="ArtifactPage._toggleFolder(\'' + escapedPath + '\')">' +
+            '<span class="artifact-nav-folder-icon">' + icon + '</span>' +
+            '<span class="artifact-nav-item-label">' + escHtml(node.label) + '</span>' +
+            '</div>';
+          if (node.expanded && node.children && node.children.length > 0) {
+            html += _renderFileTree(node.children, depth + 1);
+          }
+        } else {
+          if (_filterPinned && !pinnedPathSet[node.path]) return;
+          if (_filterChanged && !_isFileChanged(node.path)) return;
+          var isActive = _selectedFile === node.path;
+          var statusHtml = _gitStatusIndicator(node.path);
+          html += '<div class="artifact-nav-item ' + (isActive ? 'active' : '') + '" style="padding-left:calc(16px + ' + indent + ')" onclick="ArtifactPage._loadFile(\'' + escapedPath + '\')">' +
+            statusHtml +
+            '<span class="artifact-nav-item-label">' + escHtml(node.label) + '</span>' +
+            '</div>';
+        }
+      });
+      return html;
+    }
+
+    // Render the file tree
+    if (_repoFiles.length > 0) {
+      navHtml += _renderFileTree(_repoFiles, 0);
+    } else if (_pinnedNodes.length > 0) {
+      // Fallback: show pinned nodes if repo listing unavailable
       navHtml += '<div class="artifact-nav-section">Pinned</div>';
       navHtml += _renderPinnedNodes(_pinnedNodes, 0);
-    }
-
-    // Documentation sections
-    if (_sections.length > 0) {
-      if (_pinnedNodes.length > 0 && (!_filterChanged || _filterPinned)) {
-        navHtml += '<div class="artifact-nav-divider">Documentation</div>';
-      } else {
-        navHtml += '<div class="artifact-nav-section">Documentation</div>';
-      }
-    }
-    _sections.forEach(function(sec) {
-      var visibleItems = sec.items.filter(function(item) {
-        return _passesFilter(item.path);
-      });
-      if (visibleItems.length === 0 && (_filterPinned || _filterChanged)) return;
-      if (_pinnedNodes.length > 0 && (!_filterChanged || _filterPinned)) {
-        navHtml += '<div class="artifact-nav-folder" style="cursor:default;color:var(--text-dim);padding-left:10px">' +
-          '<span class="artifact-nav-item-label">' + escHtml(sec.heading) + '</span></div>';
-      } else {
-        navHtml += '<div class="artifact-nav-section">' + escHtml(sec.heading) + '</div>';
-      }
-      if (visibleItems.length === 0) {
-        navHtml += '<div class="artifact-nav-item" style="font-style:italic;cursor:default">(no items)</div>';
-      }
-      visibleItems.forEach(function(item) {
-        var isActive = _selectedFile === item.path;
-        var statusHtml = _gitStatusIndicator(item.path);
-        navHtml += '<div class="artifact-nav-item ' + (isActive ? 'active' : '') + '">' +
-          statusHtml +
-          '<span class="artifact-nav-item-label" onclick="ArtifactPage._loadFile(\'' + item.path + '\')">' + escHtml(item.name) + '</span>' +
-          '<span class="artifact-nav-close" onclick="ArtifactPage._closeFile(\'' + item.path + '\')" title="Close">&times;</span>' +
-          '</div>';
-      });
-    });
-
-    // When Changed filter is active, also show changed files not in pinned/docs
-    if (_filterChanged) {
-      var shownPaths = {};
-      _sections.forEach(function(sec) {
-        sec.items.forEach(function(item) { shownPaths[item.path] = true; });
-      });
-      Object.keys(pinnedPathSet).forEach(function(p) { shownPaths[p] = true; });
-      var extraChanged = Object.keys(_gitStatuses).filter(function(p) {
-        return !shownPaths[p] && (!_filterPinned || !!pinnedPathSet[p]);
-      });
-      if (extraChanged.length > 0) {
-        navHtml += '<div class="artifact-nav-divider">Changed Files</div>';
-        extraChanged.forEach(function(filepath) {
-          var name = filepath.split('/').pop();
-          var isActive = _selectedFile === filepath;
-          var statusHtml = _gitStatusIndicator(filepath);
-          var escapedPath = filepath.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-          navHtml += '<div class="artifact-nav-item ' + (isActive ? 'active' : '') + '">' +
-            statusHtml +
-            '<span class="artifact-nav-item-label" onclick="ArtifactPage._loadFile(\'' + escapedPath + '\')">' + escHtml(name) + '</span>' +
-            '</div>';
-        });
-      }
+    } else {
+      navHtml += '<div class="artifact-nav-item" style="font-style:italic;cursor:default">(no files)</div>';
     }
 
     navHtml += '</div>';
@@ -781,8 +818,8 @@
       await _fetchCfaState();
     }
 
-    // Fetch git status
-    await _fetchGitStatus();
+    // Fetch repo file listing and git status in parallel
+    await Promise.all([_fetchRepoFiles(), _fetchGitStatus()]);
 
     if (requestedFile) {
       var filename = requestedFile.split('/').pop();
