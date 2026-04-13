@@ -684,10 +684,12 @@ class MessageBusInputProvider:
         bus: MessageBusAdapter,
         conversation_id: str,
         poll_interval: float = 0.1,
+        sender: str = 'orchestrator',
     ):
         self.bus = bus
         self.conversation_id = conversation_id
         self.poll_interval = poll_interval
+        self.sender = sender
         self._waiting = False
         self._current_request: InputRequest | None = None
 
@@ -706,10 +708,10 @@ class MessageBusInputProvider:
         self._current_request = request
         self._waiting = True
         try:
-            # Record the question
+            # Record the question attributed to the project lead (or 'orchestrator' fallback)
             self.bus.send(
                 self.conversation_id,
-                'orchestrator',
+                self.sender,
                 request.bridge_text,
             )
             # Structural signal for the bridge (issue #288)
@@ -751,7 +753,9 @@ def check_message_bus_request(
                 return None
             messages = bus.receive(conversation_id)
             for msg in reversed(messages):
-                if msg.sender == 'orchestrator':
+                # Accept any non-human sender: the gate question may come from the
+                # project lead (e.g. 'comics-lead') or the legacy 'orchestrator' (Issue #408).
+                if msg.sender != 'human':
                     return {'bridge_text': msg.content}
             return None
         finally:

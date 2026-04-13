@@ -248,6 +248,7 @@ class Session:
         self._bus_input_provider = MessageBusInputProvider(
             bus=self._message_bus,
             conversation_id=self._conversation_id,
+            sender=self.config.project_lead or 'orchestrator',
         )
 
         # 4b. Copy pre-written artifacts into the worktree so they are
@@ -809,9 +810,17 @@ class Session:
             ConversationType.JOB, f'{project_slug}:{session_id}',
         )
         message_bus.create_conversation(ConversationType.JOB, f'{project_slug}:{session_id}')
+        # Resolve project lead for gate-prompt attribution (Issue #408).
+        _resume_sender = 'orchestrator'
+        try:
+            from teaparty.config.config_reader import load_project_team as _lpt  # noqa: PLC0415
+            _resume_sender = _lpt(project_dir).lead or 'orchestrator'
+        except (FileNotFoundError, OSError):
+            pass
         bus_input_provider = MessageBusInputProvider(
             bus=message_bus,
             conversation_id=conversation_id,
+            sender=_resume_sender,
         )
 
         # 6. Start state writer + publish SESSION_STARTED with resumed flag

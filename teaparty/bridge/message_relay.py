@@ -170,7 +170,10 @@ class MessageRelay:
                 try:
                     all_msgs = bus.receive(conv.id, since_timestamp=0.0)
                     for msg in reversed(all_msgs):
-                        if msg.sender == 'orchestrator':
+                        # Accept any non-human sender: the gate question may come from
+                        # the project lead (e.g. 'comics-lead') or the legacy 'orchestrator'
+                        # (Issue #408).
+                        if msg.sender != 'human':
                             question = msg.content
                             break
                 except Exception:
