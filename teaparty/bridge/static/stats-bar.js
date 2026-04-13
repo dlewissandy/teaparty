@@ -194,11 +194,6 @@ var StatsBar = (function () {
     bar.title = 'Click for ' + (config.label || 'stats') + ' detail view';
     bar.onclick = function () { window.location.href = _buildClickUrl(config); };
 
-    var lbl = document.createElement('div');
-    lbl.className = 'stats-bar-label';
-    lbl.textContent = config.label || 'Stats';
-    bar.appendChild(lbl);
-
     var ticker = document.createElement('div');
     ticker.className = 'stats-ticker';
     bar.appendChild(ticker);

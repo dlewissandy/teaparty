@@ -294,12 +294,6 @@ body {
   transition: border-color 0.15s; overflow: hidden;
 }
 .stats-bar:hover { border-color: var(--purple); }
-.stats-bar-label {
-  font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
-  color: var(--text-dim); padding: 0 8px; white-space: nowrap;
-  border-right: 1px solid var(--border); display: flex; align-items: center;
-  flex-shrink: 0;
-}
 .stats-ticker {
   flex: 1; display: flex; align-items: stretch; overflow: hidden;
   transition: opacity 0.2s;
