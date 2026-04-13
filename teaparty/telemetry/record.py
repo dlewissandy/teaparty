@@ -236,3 +236,18 @@ def _broadcast(payload: dict) -> None:
                     pass
     except Exception:
         _log.debug('telemetry.broadcast: handler raised', exc_info=True)
+
+
+def delete_scope(scope: str) -> int:
+    """Delete all telemetry events for a scope. Returns the number of rows deleted."""
+    conn = _ensure_conn()
+    if conn is None:
+        return 0
+    with _lock:
+        try:
+            cur = conn.execute('DELETE FROM events WHERE scope = ?', (scope,))
+            conn.commit()
+            return cur.rowcount
+        except Exception:
+            _log.warning('telemetry.delete_scope: failed for %s', scope, exc_info=True)
+            return 0

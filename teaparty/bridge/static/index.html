@@ -68,6 +68,8 @@
   }
   .pc-action:last-child { border-right: none; }
   .pc-action:hover { background: rgba(255,255,255,0.03); color: var(--text); }
+  .pc-action-danger { color: var(--red, #e06c75); }
+  .pc-action-danger:hover { background: rgba(224,108,117,0.08); color: var(--red, #e06c75); }
   .pc-action-icon { font-size: 12px; display: block; margin-bottom: 2px; }
 
   .attention-badge {
@@ -114,7 +116,11 @@ function seedBlade(message) {
   if (_chatBlade) _chatBlade.seed(message);
 }
 
-// Project pause / resume — direct operational controls (issue #403).
+function escHtml(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// Project pause / resume / remove — direct operational controls (issue #403).
 // These POST straight to the bridge; no OM interpretation step.
 function pauseProject(slug) {
   fetch('/api/projects/' + encodeURIComponent(slug) + '/pause', {
@@ -125,6 +131,17 @@ function resumeProject(slug) {
   fetch('/api/projects/' + encodeURIComponent(slug) + '/resume', {
     method: 'POST',
   }).then(function() { fetchAll(); });
+}
+function removeProject(slug, name) {
+  if (!confirm('Remove project "' + name + '"?\n\nRunning jobs will be stopped. The project directory is not deleted.')) return;
+  fetch('/api/projects/' + encodeURIComponent(slug) + '/remove', {
+    method: 'POST',
+  }).then(function(r) {
+    return r.json();
+  }).then(function(data) {
+    if (data.error) { alert('Remove failed: ' + data.error); return; }
+    fetchAll();
+  }).catch(function(e) { alert('Remove failed: ' + e.message); });
 }
 
 // Show a modal dialog for project onboarding.
@@ -368,7 +385,7 @@ function render() {
     projectsHtml += '<button class="pc-action" onclick="createJob(\'' + p.slug + '\')"><span class="pc-action-icon">&#9654;</span>New Job</button>';
     projectsHtml += '<button class="pc-action" onclick="pauseProject(\'' + p.slug + '\')"><span class="pc-action-icon">&#9646;&#9646;</span>Pause All</button>';
     projectsHtml += '<button class="pc-action" onclick="resumeProject(\'' + p.slug + '\')"><span class="pc-action-icon">&#9654;</span>Resume All</button>';
-    projectsHtml += '<button class="pc-action" onclick="seedBlade(\'Please ask the ' + pName + ' lead for a status update.\')"><span class="pc-action-icon">&#9733;</span>Status</button>';
+    projectsHtml += '<button class="pc-action pc-action-danger" onclick="removeProject(\'' + p.slug + '\',\'' + escHtml(pName) + '\')"><span class="pc-action-icon">&#10005;</span>Remove</button>';
     projectsHtml += '</div>';
 
     projectsHtml += '</div>';

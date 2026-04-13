@@ -388,6 +388,8 @@ class TeaPartyBridge:
             '/api/projects/{slug}/pause', self._handle_project_pause)
         app.router.add_post(
             '/api/projects/{slug}/resume', self._handle_project_resume)
+        app.router.add_post(
+            '/api/projects/{slug}/remove', self._handle_project_remove)
 
         # ── WebSocket ─────────────────────────────────────────────────────────
         app.router.add_get('/ws', self._handle_websocket)
@@ -2532,6 +2534,56 @@ class TeaPartyBridge:
                 pass
         return web.json_response(
             {'ok': True, 'resumed': sorted(set(all_resumed))})
+
+    async def _handle_project_remove(self, request: web.Request) -> web.Response:
+        """POST /api/projects/{slug}/remove — shut down all running jobs,
+        unregister the project from the registry, and purge its telemetry.
+        The project directory itself is left untouched.
+        """
+        from teaparty.config.config_reader import (
+            remove_project, load_management_team, discover_projects,
+        )
+        from teaparty.workspace.pause_resume import pause_project_subtree
+        from teaparty.telemetry.record import delete_scope
+
+        slug = request.match_info['slug']
+
+        # Resolve slug → registered name (they differ when the project name
+        # differs from the directory basename).
+        project_name: str | None = None
+        try:
+            team = load_management_team(teaparty_home=self.teaparty_home)
+            for entry in discover_projects(team):
+                if (os.path.basename(entry['path'].rstrip('/')) == slug
+                        or entry['name'] == slug):
+                    project_name = entry['name']
+                    break
+        except Exception:
+            pass
+        if project_name is None:
+            return web.json_response(
+                {'error': f'project not found: {slug}'}, status=404)
+
+        # 1. Cancel all running jobs (best-effort — proceed regardless).
+        sessions_dir = self._sessions_dir_for_project(slug)
+        if sessions_dir is not None:
+            for agent_session in self._project_owner_sessions(slug):
+                try:
+                    await pause_project_subtree(slug, sessions_dir, agent_session)
+                except Exception:
+                    _log.exception('remove: pause failed for %s', slug)
+        self._paused_projects.discard(slug)
+
+        # 2. Unregister from the project registry.
+        try:
+            remove_project(project_name, teaparty_home=self.teaparty_home)
+        except ValueError as exc:
+            return web.json_response({'error': str(exc)}, status=404)
+
+        # 3. Purge telemetry for this scope.
+        delete_scope(slug)
+
+        return web.json_response({'ok': True})
 
     # ── Action handlers ───────────────────────────────────────────────────────
 

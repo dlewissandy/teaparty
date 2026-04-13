@@ -65,6 +65,7 @@ from teaparty.telemetry.events import (
 )
 from teaparty.telemetry.record import (
     record_event,
+    delete_scope,
     set_broadcaster,
     set_teaparty_home,
     configure,
@@ -89,7 +90,7 @@ from teaparty.telemetry.query import (
 from teaparty.telemetry.migration import migrate_metrics_db
 
 __all__ = [
-    'record_event', 'set_broadcaster', 'set_teaparty_home', 'configure',
+    'record_event', 'delete_scope', 'set_broadcaster', 'set_teaparty_home', 'configure',
     'reset_for_tests',
     'Event', 'query_events',
     'total_cost', 'turn_count', 'active_sessions', 'gates_awaiting_input',
