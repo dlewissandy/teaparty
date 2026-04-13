@@ -573,13 +573,22 @@
         var escapedPath = node.path.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
         // Apply filters
         if (node.is_dir) {
-          // For dirs: if Changed filter is on, skip dirs with no changed descendants
-          if (_filterChanged && !_isDirChanged(node.path)) return;
-          if (_filterPinned && !pinnedPathSet[node.path]) {
-            // Check if any child is pinned
-            var hasPin = false;
-            if (node.children) node.children.forEach(function(c) { if (pinnedPathSet[c.path]) hasPin = true; });
-            if (!hasPin && !_isDirChanged(node.path)) return;
+          var dirPrefix = node.path.endsWith('/') ? node.path : node.path + '/';
+          // Apply filters to dirs: skip if no descendants match
+          if (_filterChanged && !_isDirChanged(node.path)) {
+            if (!_filterPinned) return;
+          }
+          if (_filterPinned) {
+            // Show dir if it or any descendant path is pinned
+            var hasPinnedDescendant = !!pinnedPathSet[node.path];
+            if (!hasPinnedDescendant) {
+              for (var pp in pinnedPathSet) {
+                if (pp.startsWith(dirPrefix)) { hasPinnedDescendant = true; break; }
+              }
+            }
+            if (!hasPinnedDescendant) return;
+            // If both filters active, also need changed descendants
+            if (_filterChanged && !_isDirChanged(node.path)) return;
           }
           var icon = node.expanded ? '&#9660;' : '&#9654;';
           html += '<div class="artifact-nav-folder" style="padding-left:calc(10px + ' + indent + ')" onclick="ArtifactPage._toggleFolder(\'' + escapedPath + '\')">' +
