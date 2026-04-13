@@ -298,20 +298,27 @@
   // ── Live refresh ──────────────────────────────────────────────────────���────
 
   function _startLiveRefresh() {
-    // Poll git status every 2 seconds for live refresh.
-    // Future: can be replaced with WebSocket-based filesystem watch events.
     _refreshInterval = setInterval(async function() {
+      var needsRender = false;
+
+      // Poll git status for file tree indicators
       var prevStatuses = JSON.stringify(_gitStatuses);
       await _fetchGitStatus();
-      var newStatuses = JSON.stringify(_gitStatuses);
-      if (prevStatuses !== newStatuses) {
-        // File tree changed — re-render to update indicators
-        _render();
-        // If the currently viewed file was modified, reload it
+      if (prevStatuses !== JSON.stringify(_gitStatuses)) {
+        needsRender = true;
         if (_selectedFile && _gitStatuses[_selectedFile]) {
           _reloadCurrentFile();
         }
       }
+
+      // In job mode, poll CfA state for the workflow bar
+      if (_config.mode === 'job') {
+        var prevPhase = _config.workflowState;
+        await _fetchCfaState();
+        if (_config.workflowState !== prevPhase) needsRender = true;
+      }
+
+      if (needsRender) _render();
     }, 2000);
   }
 
@@ -682,11 +689,44 @@
 
   // ── Init ──────────────────────────────────────────────────────────────────
 
+  // ── CfA state (job mode) ────────────────────────────────────────────────
+
+  function _deriveSessionId() {
+    var convId = _config.chatConversationId || '';
+    if (convId.startsWith('job:')) {
+      var parts = convId.split(':');
+      return parts.length >= 3 ? parts[2] : '';
+    }
+    return '';
+  }
+
+  async function _fetchCfaState() {
+    var sessionId = _deriveSessionId();
+    if (!sessionId) return;
+    try {
+      var resp = await fetch('/api/cfa/' + encodeURIComponent(sessionId));
+      if (resp.ok) {
+        var data = await resp.json();
+        _config.workflowPhase = data.phase || _config.workflowPhase || '';
+        _config.workflowState = data.state || _config.workflowState || '';
+        _config.needsInput = data.needs_input || false;
+        if (data.task) _config.originalRequest = _config.originalRequest || data.task;
+      }
+    } catch(e) {}
+  }
+
+  // ── Init ──────────────────────────────────────────────────────────────────
+
   async function _init() {
     var project = _config.projectSlug || '';
     var requestedFile = _config.requestedFile || null;
 
-    // Fetch git status first
+    // In job mode, fetch live CfA state so the workflow bar is current.
+    if (_config.mode === 'job') {
+      await _fetchCfaState();
+    }
+
+    // Fetch git status
     await _fetchGitStatus();
 
     if (requestedFile) {
