@@ -2562,7 +2562,7 @@ class Orchestrator:
 
         from pathlib import Path
 
-        plan_path = os.path.join(self.infra_dir, 'PLAN.md')
+        plan_path = os.path.join(self.session_worktree, 'PLAN.md')
         if not os.path.isfile(plan_path):
             return
 

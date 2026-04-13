@@ -8,6 +8,7 @@ Tests that:
 5. phase-config.json execution artifact is WORK_SUMMARY.md (not .work-summary.md)
 6. _MERGE_EXCLUDE tracks WORK_SUMMARY.md (not .work-summary.md)
 7. _interpret_output finds execution artifact in session_worktree, not infra_dir
+8. _check_skill_correction reads PLAN.md from session_worktree, not infra_dir
 """
 from __future__ import annotations
 
@@ -448,6 +449,151 @@ class TestInterpretOutputFindsArtifactInWorktree(unittest.TestCase):
         )
         self.assertFalse(result.data.get('artifact_missing'),
                          'artifact_missing must be False when INTENT.md is in session_worktree')
+
+
+# ── SC8: _check_skill_correction reads PLAN.md from session_worktree ─────────
+
+
+class TestCheckSkillCorrectionReadsFromWorktree(unittest.TestCase):
+    """_check_skill_correction must read PLAN.md from session_worktree (issue #407).
+
+    Before this fix, plan_path used self.infra_dir. After the artifact migration,
+    PLAN.md is in session_worktree, so the old path always returned early (file
+    not found), silently breaking skill self-correction (Issue #142).
+    """
+
+    def _make_orchestrator(self, worktree, infra_dir, project_dir):
+        """Build a minimal Orchestrator for _check_skill_correction tests."""
+        from unittest.mock import AsyncMock, MagicMock
+        from teaparty.cfa.engine import Orchestrator
+        from teaparty.messaging.bus import EventBus
+        from teaparty.cfa.phase_config import PhaseConfig, PhaseSpec
+        from teaparty.cfa.statemachine.cfa_state import CfaState
+
+        cfg = MagicMock(spec=PhaseConfig)
+        cfg.stall_timeout = 1800
+        cfg.human_actor_states = frozenset()
+        cfg.phase.return_value = PhaseSpec(
+            name='planning', agent_file='agents/uber-team.json',
+            lead='project-lead', permission_mode='acceptEdits',
+            stream_file='.plan-stream.jsonl', artifact='PLAN.md',
+            approval_state='PLAN_ASSERT', settings_overlay={},
+        )
+
+        orch = Orchestrator(
+            cfa_state=CfaState(state='DRAFT', phase='planning', actor='agent',
+                               history=[], backtrack_count=0),
+            phase_config=cfg,
+            event_bus=MagicMock(spec=EventBus, publish=AsyncMock()),
+            input_provider=AsyncMock(),
+            infra_dir=infra_dir,
+            project_workdir=project_dir,
+            session_worktree=worktree,
+            proxy_model_path='/tmp/proxy.json',
+            project_slug='test',
+            poc_root='/tmp/poc',
+            task='Build the feature',
+            session_id='test-session',
+        )
+        return orch
+
+    def test_plan_in_worktree_is_read_for_correction(self):
+        """PLAN.md in session_worktree triggers skill correction comparison.
+
+        If plan_path still uses infra_dir, the file is not found and the method
+        returns early — _active_skill would never produce a correction candidate
+        regardless of whether the plan was modified.
+        """
+        import types
+        from teaparty.learning.procedural.learning import archive_skill_candidate
+
+        with tempfile.TemporaryDirectory() as worktree, \
+             tempfile.TemporaryDirectory() as infra_dir, \
+             tempfile.TemporaryDirectory() as project_dir:
+
+            # Write PLAN.md to worktree (correct location per #407)
+            plan_content = '# Plan\n\nDo it differently than the original.\n'
+            Path(os.path.join(worktree, 'PLAN.md')).write_text(plan_content)
+            # Confirm infra_dir does NOT have it
+            self.assertFalse(os.path.isfile(os.path.join(infra_dir, 'PLAN.md')))
+
+            orch = self._make_orchestrator(worktree, infra_dir, project_dir)
+            # Simulate a skill match with a different template
+            orch._active_skill = {
+                'name': 'test-skill',
+                'path': '',
+                'template': '# Plan\n\nOriginal template.\n',
+            }
+
+            # Track whether archive_skill_candidate was called
+            called = []
+            original_archive = None
+            try:
+                import teaparty.learning.procedural.learning as _learning_mod
+                original_archive = _learning_mod.archive_skill_candidate
+
+                def _mock_archive(**kwargs):
+                    called.append(kwargs)
+                    return None  # don't actually archive
+
+                _learning_mod.archive_skill_candidate = _mock_archive
+                orch._check_skill_correction()
+            finally:
+                if original_archive is not None:
+                    _learning_mod.archive_skill_candidate = original_archive
+
+            self.assertTrue(
+                called,
+                '_check_skill_correction must detect plan modification and call '
+                'archive_skill_candidate. If this fails, plan_path is still using '
+                'infra_dir — PLAN.md was not found (returns early before archive).',
+            )
+
+    def test_plan_in_infra_dir_only_not_found(self):
+        """PLAN.md in infra_dir only must NOT trigger correction — wrong location.
+
+        This is the load-bearing negative test: with the old code (infra_dir),
+        the file WOULD be found. With the fix (session_worktree), it is not found
+        and the method returns early — no correction is attempted.
+
+        This verifies the fix is structural: we explicitly reject the old path.
+        """
+        with tempfile.TemporaryDirectory() as worktree, \
+             tempfile.TemporaryDirectory() as infra_dir, \
+             tempfile.TemporaryDirectory() as project_dir:
+
+            # Write PLAN.md to infra_dir ONLY (old/wrong location)
+            plan_content = '# Plan\n\nModified version.\n'
+            Path(os.path.join(infra_dir, 'PLAN.md')).write_text(plan_content)
+            self.assertFalse(os.path.isfile(os.path.join(worktree, 'PLAN.md')))
+
+            orch = self._make_orchestrator(worktree, infra_dir, project_dir)
+            orch._active_skill = {
+                'name': 'test-skill',
+                'path': '',
+                'template': '# Plan\n\nOriginal template.\n',
+            }
+
+            called = []
+            try:
+                import teaparty.learning.procedural.learning as _learning_mod
+                original_archive = _learning_mod.archive_skill_candidate
+
+                def _mock_archive(**kwargs):
+                    called.append(kwargs)
+                    return None
+
+                _learning_mod.archive_skill_candidate = _mock_archive
+                orch._check_skill_correction()
+            finally:
+                _learning_mod.archive_skill_candidate = original_archive
+
+            self.assertFalse(
+                called,
+                '_check_skill_correction must NOT find PLAN.md in infra_dir '
+                '(only session_worktree is checked after #407). If this fails, '
+                'plan_path is still using infra_dir.',
+            )
 
 
 if __name__ == '__main__':

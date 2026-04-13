@@ -370,16 +370,12 @@ def _relocate_misplaced_artifact(
     """Move an artifact to target_dir so it exists in exactly one location.
 
     Parses the stream JSONL to find the actual path the agent used in its
-    Write or Edit tool calls.  If the file was written elsewhere (e.g., the
-    agent's cwd / worktree), moves it to target_dir/<artifact_name>.
+    Write or Edit tool calls.  If the file was written elsewhere, moves it
+    to target_dir/<artifact_name>.
 
     Always refreshes the target — after corrections at approval gates, the
-    agent edits the artifact in the worktree but the infra_dir copy was
-    stale.  Issue #157.
-
-    The source file is removed after move — artifacts live only in
-    infra_dir.  Dispatch agents receive context via the task string,
-    not git branch inheritance.  Issue #148.
+    agent re-edits the artifact and the existing copy becomes stale.
+    Issue #157.
 
     Returns True if a file was moved.
     """
@@ -393,14 +389,14 @@ def _relocate_misplaced_artifact(
 
     expected = os.path.join(target_dir, artifact_name)
 
-    # Skip if the source IS the target (agent wrote directly to infra_dir)
+    # Skip if the source IS the target (agent wrote directly to the right place)
     if os.path.abspath(actual_path) == os.path.abspath(expected):
         return False
 
     try:
         shutil.move(actual_path, expected)
         _actor_log.info(
-            'Moved artifact to infra: %s → %s', actual_path, expected,
+            'Moved artifact to worktree: %s → %s', actual_path, expected,
         )
         return True
     except OSError:
