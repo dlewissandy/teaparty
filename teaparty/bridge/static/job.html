@@ -3,11 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>TeaParty — Artifacts</title>
+<title>TeaParty — Job</title>
 <link rel="stylesheet" href="styles.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.9.0/styles/atom-one-dark.min.css">
 <script src="breadcrumb.js"></script>
 <script src="accordion-chat.js"></script>
+<script src="workflow-bar.js"></script>
 <script src="artifact-page.js"></script>
 </head>
 <body>
@@ -16,16 +17,21 @@
 <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.9.0/highlight.min.js"></script>
 <script>
 var params = new URLSearchParams(window.location.search);
-var project = params.get('project') || 'poc';
+var project = params.get('project') || '';
+var conv = params.get('conv') || '';
+var leadName = params.get('lead') || project + '-lead';
 ArtifactPage.mount(document.getElementById('page-root'), {
-  mode: 'browse',
+  mode: 'job',
   projectSlug: project,
-  customTitle: params.get('title') || null,
-  requestedFile: params.get('file') || null,
-  chatConversationId: 'config:artifact:' + project + ':' + (params.get('file') || 'browse'),
-  chatAgentName: 'configuration-lead',
-  chatLaunchRepo: '',
-  chatTitle: 'Config Lead',
+  chatConversationId: conv,
+  chatAgentName: leadName,
+  chatLaunchRepo: params.get('worktree') || '',
+  chatTitle: (leadName.replace(/-/g, ' ')),
+  jobId: params.get('job') || '',
+  originalRequest: params.get('request') || '',
+  workflowPhase: params.get('phase') || '',
+  workflowState: params.get('state') || '',
+  needsInput: params.get('needs_input') === '1',
 });
 </script>
 </body>

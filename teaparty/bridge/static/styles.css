@@ -172,6 +172,24 @@ body {
 .workflow-bar.large .wf-bar { height: 3px; }
 .workflow-bar.large .wf-gate { flex: 0 0 12px; width: 12px; height: 12px; }
 
+/* ── Git-status indicators (issue #402) ──────── */
+.git-status-new { color: var(--green); font-size: 8px; margin-right: 3px; flex-shrink: 0; }
+.git-status-modified { color: var(--yellow); font-size: 8px; margin-right: 3px; flex-shrink: 0; }
+.git-status-deleted { color: var(--red); font-size: 8px; margin-right: 3px; flex-shrink: 0; }
+
+/* ── Job-mode top strip (issue #402) ─────────── */
+.job-strip {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 14px; background: var(--surface2); border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.job-strip-request {
+  font-size: 11px; color: var(--text-dim); font-style: italic;
+  flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.job-strip-filter { display: flex; gap: 4px; }
+.job-strip-filter .artifact-header-btn.active { color: var(--green); border-color: var(--green); }
+
 .empty { padding: 12px 10px; color: var(--text-dim); font-size: 10px; text-align: center; }
 
 /* ── Stats charts ─────────────────────────── */
