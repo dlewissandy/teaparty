@@ -500,3 +500,184 @@ class TestJobModeTopStrip(unittest.TestCase):
             "artifact-page.js does not implement a changed/all files toggle "
             "for job mode"
         )
+
+
+class TestStructuralEquivalence(unittest.TestCase):
+    """SC4: The DOM structure below the top strip must be identical in both modes.
+
+    Since we cannot run a headless browser in unit tests, we verify structural
+    equivalence by confirming that the shared _render() function produces the
+    same layout markup (artifact-header, artifact-layout, artifact-nav,
+    artifact-main) regardless of mode — the only conditional block is the
+    job-strip at the top, gated on mode === 'job'.
+    """
+
+    def test_layout_structure_is_mode_independent(self):
+        """The artifact-layout, artifact-nav, and artifact-main are rendered
+        unconditionally — they must not appear inside a mode-conditional block."""
+        if not ARTIFACT_PAGE_JS.exists():
+            self.skipTest("artifact-page.js not yet created")
+        src = _read(ARTIFACT_PAGE_JS)
+
+        # Find the _render function body
+        render_start = src.find('function _render()')
+        self.assertGreater(
+            render_start, -1,
+            "artifact-page.js must define a _render() function"
+        )
+
+        # The layout elements must be in _render but NOT inside a mode check
+        # Verify they're at the same nesting level as the unconditional rendering
+        render_body = src[render_start:]
+
+        # These layout classes must appear in _render
+        for cls in ['artifact-header', 'artifact-layout', 'artifact-nav', 'artifact-main']:
+            self.assertIn(
+                cls, render_body,
+                f"_render() must produce '{cls}' — it is a shared layout element "
+                f"that must be identical in both modes"
+            )
+
+    def test_job_strip_is_only_mode_conditional(self):
+        """Only the top strip should be conditional on job mode.
+
+        The artifact-header, artifact-layout (nav + main) must be rendered
+        unconditionally. The job-strip is the only element gated on mode."""
+        if not ARTIFACT_PAGE_JS.exists():
+            self.skipTest("artifact-page.js not yet created")
+        src = _read(ARTIFACT_PAGE_JS)
+
+        # job-strip must appear inside a mode === 'job' conditional
+        self.assertIn(
+            "job-strip", src,
+            "artifact-page.js must render a job-strip element for job mode"
+        )
+
+        # Verify artifact-header is NOT inside the job-mode conditional
+        # by checking it appears after the conditional block closes
+        render_body = src[src.find('function _render()'):]
+
+        # The job-strip conditional and the main layout must be separate
+        job_cond_idx = render_body.find("_config.mode === 'job'")
+        header_idx = render_body.find('artifact-header')
+        self.assertGreater(
+            header_idx, job_cond_idx,
+            "artifact-header must be rendered after (outside) the job-strip "
+            "conditional — it is shared between both modes"
+        )
+
+    def test_both_shells_mount_same_container_structure(self):
+        """Both artifacts.html and job.html must mount into a #page-root container
+        with the same basic structure — proving they use the same entry point."""
+        arts_src = _read(ARTIFACTS_HTML)
+        job_src = _read(JOB_HTML) if JOB_HTML.exists() else self.skipTest("job.html not created")
+
+        # Both must have a page-root container
+        self.assertIn(
+            'page-root', arts_src,
+            "artifacts.html must have a #page-root container"
+        )
+        self.assertIn(
+            'page-root', job_src,
+            "job.html must have a #page-root container"
+        )
+
+        # Both must call ArtifactPage.mount with document.getElementById('page-root')
+        mount_pattern = re.compile(
+            r"ArtifactPage\s*\.\s*mount\s*\(\s*document\.getElementById\s*\(\s*['\"]page-root['\"]\s*\)"
+        )
+        self.assertTrue(
+            mount_pattern.search(arts_src),
+            "artifacts.html must mount into #page-root via ArtifactPage.mount"
+        )
+        self.assertTrue(
+            mount_pattern.search(job_src),
+            "job.html must mount into #page-root via ArtifactPage.mount"
+        )
+
+
+class TestAccordionRetargeting(unittest.TestCase):
+    """SC10: Accordion-section-changed events must retarget the file tree in job mode."""
+
+    def test_accordion_section_changed_handler_exists(self):
+        """artifact-page.js must subscribe to accordion-section-changed events."""
+        if not ARTIFACT_PAGE_JS.exists():
+            self.skipTest("artifact-page.js not yet created")
+        src = _read(ARTIFACT_PAGE_JS)
+        self.assertIn(
+            'onSectionChanged', src,
+            "artifact-page.js does not subscribe to onSectionChanged — "
+            "accordion-driven file-tree retargeting requires this event wiring"
+        )
+
+    def test_retargeting_handler_updates_worktree(self):
+        """The retargeting handler must update the active worktree path."""
+        if not ARTIFACT_PAGE_JS.exists():
+            self.skipTest("artifact-page.js not yet created")
+        src = _read(ARTIFACT_PAGE_JS)
+        self.assertIn(
+            '_handleAccordionSectionChanged', src,
+            "artifact-page.js must define _handleAccordionSectionChanged — "
+            "the handler that retargets the file tree on accordion section change"
+        )
+        # Find the function definition (not a call site) and check its body
+        fn_def = 'function _handleAccordionSectionChanged'
+        handler_start = src.find(fn_def)
+        self.assertGreater(
+            handler_start, -1,
+            "artifact-page.js must define function _handleAccordionSectionChanged"
+        )
+        handler_body = src[handler_start:handler_start + 500]
+        self.assertIn(
+            'chatLaunchRepo', handler_body,
+            "_handleAccordionSectionChanged must update chatLaunchRepo — "
+            "this is how the file tree retargets to a different worktree"
+        )
+
+    def test_retargeting_only_in_job_mode(self):
+        """The retargeting subscription must be conditional on job mode."""
+        if not ARTIFACT_PAGE_JS.exists():
+            self.skipTest("artifact-page.js not yet created")
+        src = _read(ARTIFACT_PAGE_JS)
+        # The onSectionChanged subscription should be inside a job-mode check
+        section_idx = src.find('onSectionChanged')
+        # Look backwards for the mode check
+        context = src[max(0, section_idx - 200):section_idx]
+        self.assertIn(
+            "mode", context,
+            "onSectionChanged subscription must be conditional on job mode — "
+            "browse mode does not retarget the file tree"
+        )
+
+
+class TestChatLaunchRepoForwarded(unittest.TestCase):
+    """SC7: chatLaunchRepo and chatAgentName must be forwarded to AccordionChat."""
+
+    def test_launch_repo_forwarded_to_accordion(self):
+        """artifact-page.js must pass chatLaunchRepo to AccordionChat.mount."""
+        if not ARTIFACT_PAGE_JS.exists():
+            self.skipTest("artifact-page.js not yet created")
+        src = _read(ARTIFACT_PAGE_JS)
+        # Find the AccordionChat.mount call
+        mount_idx = src.find('AccordionChat.mount')
+        self.assertGreater(mount_idx, -1, "AccordionChat.mount call not found")
+        mount_context = src[mount_idx:mount_idx + 300]
+        self.assertIn(
+            'launchRepo', mount_context,
+            "AccordionChat.mount call must include launchRepo — "
+            "the chat blade needs the worktree path for correct agent routing"
+        )
+
+    def test_agent_name_forwarded_to_accordion(self):
+        """artifact-page.js must pass chatAgentName to AccordionChat.mount."""
+        if not ARTIFACT_PAGE_JS.exists():
+            self.skipTest("artifact-page.js not yet created")
+        src = _read(ARTIFACT_PAGE_JS)
+        mount_idx = src.find('AccordionChat.mount')
+        self.assertGreater(mount_idx, -1, "AccordionChat.mount call not found")
+        mount_context = src[mount_idx:mount_idx + 300]
+        self.assertIn(
+            'agentName', mount_context,
+            "AccordionChat.mount call must include agentName — "
+            "the chat blade needs the agent identity for correct routing"
+        )

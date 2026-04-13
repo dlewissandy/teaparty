@@ -138,12 +138,26 @@
 
     _bladeEl = document.getElementById('artifact-blade');
 
-    // Mount accordion chat blade via #400 shared implementation
+    // Mount accordion chat blade via #400 shared implementation.
+    // Forward chatLaunchRepo and chatAgentName so the blade can route the
+    // agent to the correct repo once #397 adds launchRepo support.
     if (typeof AccordionChat !== 'undefined' && _bladeEl) {
       _chatInstance = AccordionChat.mount(_bladeEl, {
         convId: _config.chatConversationId || '',
         title: _config.chatTitle || '',
+        launchRepo: _config.chatLaunchRepo || '',
+        agentName: _config.chatAgentName || '',
       });
+
+      // Subscribe to accordion-section-changed events for file-tree retargeting
+      // in job mode. When per-sub-agent worktrees exist at the CfA tier, this
+      // handler retargets the file tree to the selected section's worktree.
+      // Until then, the handler no-ops on non-root sections.
+      if (_config.mode === 'job' && _chatInstance.onSectionChanged) {
+        _chatInstance.onSectionChanged(function(sectionInfo) {
+          _handleAccordionSectionChanged(sectionInfo);
+        });
+      }
     }
 
     _init();
@@ -533,6 +547,19 @@
     contentEl.querySelectorAll('.artifact-content pre code:not(.hljs)').forEach(function(el) {
       hljs.highlightElement(el);
     });
+  }
+
+  // ── Accordion section retargeting (job mode) ───────────────────────────────
+
+  function _handleAccordionSectionChanged(sectionInfo) {
+    // In job mode, retarget the file tree to the selected section's worktree.
+    // Until per-sub-agent worktrees exist at the CfA tier, this no-ops for
+    // non-root sections — the file tree always shows the job worktree.
+    if (!sectionInfo || !sectionInfo.worktree) return;
+    var newWorktree = sectionInfo.worktree;
+    if (newWorktree === _config.chatLaunchRepo) return;
+    _config.chatLaunchRepo = newWorktree;
+    _fetchGitStatus().then(function() { _render(); });
   }
 
   // ── Actions ───────────────────────────────────────────────────────────────

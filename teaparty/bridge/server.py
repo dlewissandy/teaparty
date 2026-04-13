@@ -209,7 +209,7 @@ def parse_git_status(worktree_path: str) -> dict[str, str]:
         # Handle renames: "R  old -> new"
         if ' -> ' in filepath:
             filepath = filepath.split(' -> ')[-1]
-        if xy == '??' or xy == 'A ' or xy == 'A' + 'M':
+        if xy == '??' or xy == 'A ' or xy == 'AM':  # staged-new then modified
             statuses[filepath] = 'new'
         elif xy[1] == 'D' or xy[0] == 'D':
             statuses[filepath] = 'deleted'
