@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="styles.css">
 <script src="accordion-chat.js"></script>
 <script src="workflow-bar.js"></script>
+<script src="stats-bar.js"></script>
 <style>
   .home { padding: 20px; overflow-y: auto; flex: 1; }
   .home-title { font-size: 18px; font-weight: 600; color: var(--green); margin-bottom: 4px; }
@@ -82,7 +83,10 @@
 <body>
 
 <div class="blade-layout">
-<div class="home" id="content" style="flex:1;min-width:0"></div>
+<div style="flex:1;min-width:0;display:flex;flex-direction:column">
+  <div id="stats-bar-slot"></div>
+  <div class="home" id="content" style="flex:1;min-width:0;overflow-y:auto"></div>
+</div>
 <div class="blade" id="blade"></div>
 </div>
 
@@ -221,14 +225,12 @@ function fetchAll() {
       if (p.paused) { pageState.pausedProjects[p.slug] = true; }
     });
     var omConvs = results[1] || [];
-    if (omConvs.length > 0) {
-      pageState.omConvId = omConvs[0].id;
-      if (!_chatBlade) {
-        _chatBlade = AccordionChat.mount(
-          document.getElementById('blade'),
-          { convId: pageState.omConvId, title: 'Management Chat' }
-        );
-      }
+    if (omConvs.length > 0) pageState.omConvId = omConvs[0].id;
+    if (!_chatBlade) {
+      _chatBlade = AccordionChat.mount(
+        document.getElementById('blade'),
+        { convId: pageState.omConvId, title: 'Management Chat' }
+      );
     }
     var configFetches = pageState.projects.map(function(p) {
       return fetch('/api/config/' + encodeURIComponent(p.slug))
@@ -267,11 +269,6 @@ function render() {
   orgHtml += '<a class="org-card" href="config.html">';
   orgHtml += '<span class="oc-icon">&#9881;</span>';
   orgHtml += '<div><div class="oc-label">Management Team</div><div class="oc-meta">Organization catalog</div></div>';
-  orgHtml += '</a>';
-
-  orgHtml += '<a class="org-card" href="stats.html">';
-  orgHtml += '<span class="oc-icon">&#9733;</span>';
-  orgHtml += '<div><div class="oc-label">Statistics</div><div class="oc-meta">Org-wide metrics</div></div>';
   orgHtml += '</a>';
 
   if (totalEsc > 0) {
@@ -385,6 +382,7 @@ function render() {
 function connectWS() {
   var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   var ws = new WebSocket(proto + '//' + location.host + '/ws');
+  window._teapartyWS = ws;
 
   ws.onmessage = function(e) {
     try {
@@ -416,6 +414,7 @@ function connectWS() {
   };
 
   ws.onclose = function() {
+    window._teapartyWS = null;
     setTimeout(connectWS, 3000);
   };
 }
@@ -530,6 +529,10 @@ function onEscalationCleared(sessionId) {
 
 fetchAll();
 connectWS();
+StatsBar.mount(document.getElementById('stats-bar-slot'), {
+  scope: null,
+  label: 'Organization',
+});
 </script>
 </body>
 </html>

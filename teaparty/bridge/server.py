@@ -328,9 +328,10 @@ class TeaPartyBridge:
         # ── Stats endpoint ────────────────────────────────────────────────────
         app.router.add_get('/api/stats', self._handle_stats)
 
-        # ── Telemetry endpoints (Issue #405) ──────────────────────────────────
+        # ── Telemetry endpoints (Issue #405 / #406) ───────────────────────────
         app.router.add_get('/api/telemetry/events', self._handle_telemetry_events)
         app.router.add_get('/api/telemetry/stats/{scope}', self._handle_telemetry_stats)
+        app.router.add_get('/api/telemetry/chart/{chart_type}', self._handle_telemetry_chart)
 
         # ── Config endpoints ──────────────────────────────────────────────────
         app.router.add_get('/api/config', self._handle_config)
@@ -691,25 +692,285 @@ class TeaPartyBridge:
     async def _handle_telemetry_stats(
         self, request: web.Request,
     ) -> web.Response:
-        """Aggregated stats for a scope. Reads every aggregation helper
-        for the given scope and returns a single dict for the stats bar."""
+        """Aggregated stats for a scope.  Used by the stats bar on mount
+        to fetch the baseline snapshot.
+
+        Path param: ``scope`` (use ``all`` for org-wide).
+        Query params: ``agent``, ``session``, ``time_range``
+            (``today`` | ``7d`` | ``30d`` | ``all``; default ``today``).
+        """
+        import time as _t
         from teaparty import telemetry
+        from teaparty.telemetry.query import _today_range, _days_range
+
         scope = request.match_info['scope']
         s = scope if scope != 'all' else None
+        agent   = request.query.get('agent') or None
+        session = request.query.get('session') or None
+
+        tr_param = request.query.get('time_range', 'today')
+        if tr_param == 'today':
+            tr = _today_range()
+        elif tr_param == '7d':
+            tr = _days_range(7)
+        elif tr_param == '30d':
+            tr = _days_range(30)
+        else:
+            tr = None  # all time
+
+        summary = telemetry.stats_summary(
+            scope=s, agent=agent, session=session,
+            time_range=tr,
+        )
         return web.json_response({
-            'scope':          scope,
-            'total_cost':     telemetry.total_cost(scope=s),
-            'turn_count':     telemetry.turn_count(scope=s),
-            'active_sessions':      telemetry.active_sessions(scope=s),
-            'gates_awaiting_input': telemetry.gates_awaiting_input(scope=s),
-            'backtrack_count':      telemetry.backtrack_count(scope=s),
-            'backtrack_cost':       telemetry.backtrack_cost(scope=s),
-            'phase_distribution':   telemetry.phase_distribution(scope=s),
-            'escalation_stats':     telemetry.escalation_stats(scope=s),
-            'proxy_answer_rate':    telemetry.proxy_answer_rate(scope=s),
-            'withdrawal_phase_distribution':
-                telemetry.withdrawal_phase_distribution(scope=s),
+            'scope':                   scope,
+            # Core counts (paged ticker)
+            'total_cost':              summary['cost_today'],
+            'turn_count':              summary['turn_count_today'],
+            'total_tokens':            summary['total_tokens_today'],
+            'processing_ms':           summary['processing_ms_today'],
+            'active_sessions':         summary['active_sessions'],
+            'gates_awaiting_input':    summary['gates_waiting'],
+            'backtrack_count':         summary['backtrack_count_today'],
+            'jobs_started':            summary['jobs_started_today'],
+            'sessions_closed':         summary['sessions_closed_today'],
+            'withdrawals':             summary['withdrawals_today'],
+            'escalations_proxy':       summary['escalations_proxy_today'],
+            'escalations_human':       summary['escalations_human_today'],
+            'tool_retries':            summary['tool_retries_today'],
+            'errors':                  summary['errors_today'],
+            'conversations_started':   summary['conversations_started_today'],
+            'conversations_closed':    summary['conversations_closed_today'],
+            # Friction / infra
+            'commits':                 summary['commits_today'],
+            'stalls':                  summary['stalls_today'],
+            'ratelimits':              summary['ratelimits_today'],
+            'ctx_compacted':           summary['ctx_compacted_today'],
+            'ctx_warnings':            summary['ctx_warnings_today'],
+            'mcp_failures':            summary['mcp_failures_today'],
+            # Human involvement
+            'interjections':           summary['interjections_today'],
+            'corrections':             summary['corrections_today'],
+            'sess_timed_out':          summary['sess_timed_out_today'],
+            'sess_abandoned':          summary['sess_abandoned_today'],
+            # Scalar summaries kept for chart page / legacy consumers
+            'escalation_count':        summary['escalation_count_today'],
+            'proxy_answered_fraction': summary['proxy_answered_fraction'],
+            'gate_pass_rate':          summary['gate_pass_rate'],
+            # Detailed breakdowns for the chart page.
+            'backtrack_cost':      telemetry.backtrack_cost(
+                scope=s, agent=agent, session=session, time_range=tr,
+            ),
+            'phase_distribution':  telemetry.phase_distribution(
+                scope=s, agent=agent, session=session, time_range=tr,
+            ),
+            'escalation_stats':    telemetry.escalation_stats(
+                scope=s, agent=agent, session=session, time_range=tr,
+            ),
+            'proxy_answer_rate':   telemetry.proxy_answer_rate(
+                scope=s, agent=agent, session=session, time_range=tr,
+            ),
+            'withdrawal_phase_distribution': telemetry.withdrawal_phase_distribution(
+                scope=s, agent=agent, session=session, time_range=tr,
+            ),
         })
+
+    async def _handle_telemetry_chart(
+        self, request: web.Request,
+    ) -> web.Response:
+        """Chart data for the stats graph page (Issue #406).
+
+        Path param: ``chart_type`` — one of the eight chart types.
+        Query params: ``scope``, ``agent``, ``session``,
+            ``time_range`` (``today`` | ``7d`` | ``30d`` | ``all``; default ``7d``),
+            ``days`` (integer, overrides time_range days if present).
+        """
+        import time as _t
+        from datetime import datetime, timezone
+        from teaparty import telemetry
+        from teaparty.telemetry import events as E
+        from teaparty.telemetry.query import query_events, _today_range, _days_range
+
+        chart_type = request.match_info['chart_type']
+        scope   = request.query.get('scope') or None
+        agent   = request.query.get('agent') or None
+        session = request.query.get('session') or None
+
+        tr_param = request.query.get('time_range', '7d')
+        if tr_param == 'today':
+            tr = _today_range()
+            days = 1
+        elif tr_param == '30d':
+            tr = _days_range(30)
+            days = 30
+        elif tr_param == 'all':
+            tr = None
+            days = 365
+        else:  # '7d' default
+            tr = _days_range(7)
+            days = 7
+        if request.query.get('days'):
+            try:
+                days = int(request.query['days'])
+                tr = _days_range(days)
+            except (TypeError, ValueError):
+                pass
+
+        # ── Helpers ──────────────────────────────────────────────────────────
+
+        def _daily_buckets(n_days: int) -> list[str]:
+            """Return ISO-date strings for the last n_days days (oldest first)."""
+            now_ts = _t.time()
+            result = []
+            for d in range(n_days - 1, -1, -1):
+                dt = datetime.fromtimestamp(now_ts - d * 86400, tz=timezone.utc)
+                result.append(dt.strftime('%Y-%m-%d'))
+            return result
+
+        def _bucket_key(ts: float) -> str:
+            return datetime.fromtimestamp(ts, tz=timezone.utc).strftime('%Y-%m-%d')
+
+        # ── Chart type dispatch ───────────────────────────────────────────────
+
+        if chart_type == 'cost_over_time':
+            evts = query_events(
+                event_type=E.TURN_COMPLETE, scope=scope, agent=agent, session=session,
+                start_ts=tr[0] if tr else None, end_ts=tr[1] if tr else None,
+            )
+            buckets = _daily_buckets(days)
+            daily: dict[str, float] = {b: 0.0 for b in buckets}
+            for ev in evts:
+                key = _bucket_key(ev.ts)
+                if key in daily:
+                    daily[key] = round(daily[key] + float(ev.data.get('cost_usd', 0.0) or 0.0), 6)
+            return web.json_response({
+                'chart_type': chart_type,
+                'data': [{'date': k, 'cost_usd': v} for k, v in daily.items()],
+            })
+
+        elif chart_type == 'turns_per_day':
+            evts = query_events(
+                event_type=E.TURN_COMPLETE, scope=scope, agent=agent, session=session,
+                start_ts=tr[0] if tr else None, end_ts=tr[1] if tr else None,
+            )
+            buckets = _daily_buckets(days)
+            daily2: dict[str, int] = {b: 0 for b in buckets}
+            for ev in evts:
+                key = _bucket_key(ev.ts)
+                if key in daily2:
+                    daily2[key] += 1
+            return web.json_response({
+                'chart_type': chart_type,
+                'data': [{'date': k, 'count': v} for k, v in daily2.items()],
+            })
+
+        elif chart_type == 'active_sessions_timeline':
+            # Compute historically accurate active session counts at each
+            # 6-hour checkpoint.  At checkpoint t: count sessions whose
+            # session_create.ts <= t and whose first terminal event (if any)
+            # has ts > t.
+            from teaparty.telemetry import events as _tev
+            terminal_types = [
+                _tev.SESSION_COMPLETE, _tev.SESSION_CLOSED,
+                _tev.SESSION_WITHDRAWN, _tev.SESSION_TIMED_OUT,
+                _tev.SESSION_ABANDONED,
+            ]
+            created_events = telemetry.query_events(
+                event_type=_tev.SESSION_CREATE, scope=scope, agent=agent,
+            )
+            terminal_events = telemetry.query_events(
+                event_types=terminal_types, scope=scope, agent=agent,
+            )
+            # Build maps: session_id -> earliest create/close timestamp.
+            created_at: dict[str, float] = {}
+            for e in created_events:
+                if e.session_id and (e.session_id not in created_at
+                                     or e.ts < created_at[e.session_id]):
+                    created_at[e.session_id] = e.ts
+            closed_at: dict[str, float] = {}
+            for e in terminal_events:
+                if e.session_id and (e.session_id not in closed_at
+                                     or e.ts < closed_at[e.session_id]):
+                    closed_at[e.session_id] = e.ts
+
+            now_ts = _t.time()
+            start_ts = tr[0] if tr else (now_ts - days * 86400)
+            end_ts   = tr[1] if tr else now_ts
+            interval = 6 * 3600
+            samples = []
+            t = start_ts
+            while t <= end_ts:
+                count = sum(
+                    1 for sid, c_ts in created_at.items()
+                    if c_ts <= t and (sid not in closed_at or closed_at[sid] > t)
+                )
+                dt_str = datetime.fromtimestamp(t, tz=timezone.utc).strftime('%Y-%m-%d %H:%M')
+                samples.append({'ts': t, 'datetime': dt_str, 'count': count})
+                t += interval
+            return web.json_response({'chart_type': chart_type, 'data': samples})
+
+        elif chart_type == 'phase_distribution':
+            dist = telemetry.phase_distribution(
+                scope=scope, agent=agent, session=session, time_range=tr,
+            )
+            return web.json_response({
+                'chart_type': chart_type,
+                'data': [{'phase': k, 'count': v} for k, v in dist.items()],
+            })
+
+        elif chart_type == 'backtrack_cost':
+            kinds = ['plan_to_intent', 'work_to_plan', 'work_to_intent']
+            data = []
+            for kind in kinds:
+                cost = telemetry.backtrack_cost(
+                    scope=scope, agent=agent, session=session, kind=kind, time_range=tr,
+                )
+                count = telemetry.backtrack_count(
+                    scope=scope, agent=agent, session=session, kind=kind, time_range=tr,
+                )
+                data.append({'kind': kind, 'cost_usd': cost, 'count': count})
+            return web.json_response({'chart_type': chart_type, 'data': data})
+
+        elif chart_type == 'escalation_outcomes':
+            par = telemetry.proxy_answer_rate(
+                scope=scope, agent=agent, session=session, time_range=tr,
+            )
+            return web.json_response({
+                'chart_type': chart_type,
+                'data': {
+                    'by_proxy': par['by_proxy'],
+                    'by_human': par['by_human'],
+                    'total':    par['total'],
+                    'proxy_rate': par['proxy_rate'],
+                },
+            })
+
+        elif chart_type == 'withdrawal_phases':
+            dist = telemetry.withdrawal_phase_distribution(
+                scope=scope, agent=agent, session=session, time_range=tr,
+            )
+            return web.json_response({
+                'chart_type': chart_type,
+                'data': [{'phase': k, 'count': v} for k, v in dist.items()],
+            })
+
+        elif chart_type == 'gate_pass_rate':
+            gpr = telemetry.gate_pass_rate(
+                scope=scope, agent=agent, session=session, time_range=tr,
+            )
+            return web.json_response({
+                'chart_type': chart_type,
+                'data': [
+                    {'gate_type': k, 'passed': v['passed'], 'failed': v['failed'], 'rate': v['rate']}
+                    for k, v in gpr.items()
+                ],
+            })
+
+        else:
+            return web.json_response(
+                {'error': f'unknown chart_type: {chart_type!r}'},
+                status=404,
+            )
 
     # ── Config handlers ───────────────────────────────────────────────────────
 

@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="styles.css">
 <script src="breadcrumb.js"></script>
 <script src="accordion-chat.js"></script>
+<script src="stats-bar.js"></script>
 </head>
 <body>
 
@@ -16,6 +17,7 @@
   <div id="breadcrumb-slot" style="flex:1;min-width:0"></div>
   <button id="edit-toggle" class="edit-toggle-btn" onclick="toggleEditMode()">Edit</button>
 </div>
+<div id="stats-bar-slot"></div>
 <div id="content" class="app-pane active" style="overflow-y:auto;flex:1;min-width:0"></div>
 </div>
 <div class="blade" id="blade"></div>
@@ -183,6 +185,13 @@ function renderConfigPage(spec) {
   document.title = 'TeaParty \u2014 ' + currentLabel;
   document.getElementById('breadcrumb-slot').innerHTML = breadcrumbBar(crumbs);
 
+  // Mount stats bar for the current scope, replacing any prior bar.
+  var statsSlot = document.getElementById('stats-bar-slot');
+  StatsBar.unmount(statsSlot);
+  if (spec.statsBarConfig) {
+    StatsBar.mount(statsSlot, spec.statsBarConfig);
+  }
+
   var html = '<div class="pane-title">' + escAttr(currentLabel) + '</div>';
   if (spec.description) html += '<div class="pane-description">' + escAttr(spec.description) + '</div>';
   if (spec.subtitle) html += '<div class="pane-subtitle">' + spec.subtitle + '</div>';
@@ -272,6 +281,7 @@ async function loadGlobal() {
     subtitle: subtitle,
     bladeConvId: m.lead && m.decider ? 'lead:' + m.lead + ':' + m.decider : '',
     bladeTitle: 'Management Chat',
+    statsBarConfig: { scope: 'management', label: 'Management' },
     cards: [
       { title: 'Workgroups', items: projectItems.concat(wgMgmtItems), opts: { addSeed: 'I would like to create a new workgroup for the management team.', addSeed2: { label: '+ Add Project', seed: 'I would like to add an existing project to the management team.' }, empty: 'No projects or workgroups' } },
       { title: 'Agents', items: agents, opts: { addSeed: 'I would like to create a new agent in the management agent catalog.' } },
@@ -331,6 +341,7 @@ async function loadProject(slug) {
     subtitle: 'Decider: ' + (team.decider || '') + ' &middot; Lead: ' + (team.lead || ''),
     bladeConvId: team.lead && team.decider ? 'lead:' + team.lead + ':' + team.decider : '',
     bladeTitle: (team.name || slug) + ' Team Chat',
+    statsBarConfig: { scope: slug, label: team.name || slug },
     cards: [
       { title: 'Workgroups', items: wgItems, opts: { addSeed: 'I would like to create a new workgroup for the ' + (team.name || slug) + ' project.', empty: 'No workgroups' } },
       { title: 'Agents', items: agents, opts: { addSeed: 'I would like to create a new agent in the ' + (team.name || slug) + ' project agent catalog.', empty: 'No agents' } },
@@ -400,6 +411,11 @@ async function loadWorkgroup(name, projectSlug) {
     subtitle: 'Lead: ' + (wgData.lead || '') + ' &middot; ' + (wgData.agents_count || 0) + ' agents',
     bladeConvId: teamInfo.lead && teamInfo.decider ? 'lead:' + teamInfo.lead + ':' + teamInfo.decider : '',
     bladeTitle: (projectSlug || 'Management') + ' Team Chat',
+    statsBarConfig: {
+      scope: projectSlug || 'management',
+      workgroup_filter: name,
+      label: name,
+    },
     cards: [
       { title: 'Lead', items: leadItems, opts: { empty: 'No lead assigned' } },
       { title: 'Agents', items: memberItems, opts: { addSeed: 'I would like to add an agent to the ' + name + ' workgroup.', empty: 'No agents' } },
@@ -493,6 +509,11 @@ function _buildAgentSpec() {
     description: fm.description || '',
     bladeConvId: teamInfo.lead && teamInfo.decider ? 'lead:' + teamInfo.lead + ':' + teamInfo.decider : '',
     bladeTitle: (projectSlug || 'Management') + ' Team Chat',
+    statsBarConfig: {
+      scope: projectSlug || 'management',
+      agent_filter: name,
+      label: name,
+    },
     cards: [
       { title: 'Artifacts', items: renderPinItems(_agentCtx.pins) },
       { title: 'Settings', items: settingsItems },
@@ -832,6 +853,17 @@ async function openFileBrowser(type, name, projectSlug) {
 
   renderBrowser(initData.path, initData.entries || []);
 }
+
+// ── WebSocket (for stats bar live updates) ────────────────────────────────────
+(function connectWS() {
+  var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  var ws = new WebSocket(proto + '//' + location.host + '/ws');
+  window._teapartyWS = ws;
+  ws.onclose = function() {
+    window._teapartyWS = null;
+    setTimeout(connectWS, 3000);
+  };
+}());
 
 // ── Boot ─────────────────────────────────────────────────────────────────────
 (async function boot() {

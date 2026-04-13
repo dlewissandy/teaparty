@@ -10,12 +10,14 @@
 <script src="accordion-chat.js"></script>
 <script src="workflow-bar.js"></script>
 <script src="artifact-page.js"></script>
+<script src="stats-bar.js"></script>
 </head>
 <body>
 
 <div class="blade-layout">
 <div class="content-wrap">
 <div id="breadcrumb-slot" style="padding:6px 12px"></div>
+<div id="stats-bar-slot"></div>
 <div id="artifact-content" style="display:flex;flex-direction:column;flex:1;min-height:0"></div>
 </div>
 <div class="blade" id="blade"></div>
@@ -28,6 +30,11 @@ var params = new URLSearchParams(window.location.search);
 var project = params.get('project') || '';
 var conv = params.get('conv') || '';
 var leadName = params.get('lead') || project + '-lead';
+if (project) {
+  var _cp = conv.split(':');
+  var _sessionFilter = (_cp[0] === 'job' && _cp.length >= 3) ? _cp.slice(2).join(':') : undefined;
+  StatsBar.mount(document.getElementById('stats-bar-slot'), {scope: project, session_filter: _sessionFilter});
+}
 ArtifactPage.mount({
   contentEl: document.getElementById('artifact-content'),
   breadcrumbEl: document.getElementById('breadcrumb-slot'),
