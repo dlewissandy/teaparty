@@ -286,6 +286,36 @@ body {
 
 .empty { padding: 12px 10px; color: var(--text-dim); font-size: 10px; text-align: center; }
 
+/* ── Stats bar (Issue #406) ───────────────── */
+.stats-bar {
+  display: flex; align-items: center; gap: 0; flex-wrap: wrap;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 5px;
+  padding: 0 8px; margin-bottom: 10px; cursor: pointer;
+  transition: border-color 0.15s;
+}
+.stats-bar:hover { border-color: var(--purple); }
+.stats-bar-label {
+  font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
+  color: var(--text-dim); padding: 6px 10px 6px 0; margin-right: 4px;
+  border-right: 1px solid var(--border); white-space: nowrap;
+}
+.stats-bar-cell {
+  display: flex; flex-direction: column; align-items: center;
+  padding: 5px 10px; border-right: 1px solid var(--border); min-width: 60px;
+}
+.stats-bar-cell:last-child { border-right: none; }
+.stats-bar-cell-value {
+  font-size: 13px; font-weight: 700; line-height: 1.2;
+}
+.stats-bar-cell-value--green  { color: var(--green); }
+.stats-bar-cell-value--yellow { color: var(--yellow); }
+.stats-bar-cell-value--red    { color: var(--red); }
+.stats-bar-cell-value--purple { color: var(--purple); }
+.stats-bar-cell-label {
+  font-size: 7px; text-transform: uppercase; letter-spacing: 0.5px;
+  color: var(--text-dim); margin-top: 1px; white-space: nowrap;
+}
+
 /* ── Stats charts ─────────────────────────── */
 .chart-grid { columns: 2; column-gap: 10px; }
 @media (max-width: 800px) { .chart-grid { columns: 1; } }

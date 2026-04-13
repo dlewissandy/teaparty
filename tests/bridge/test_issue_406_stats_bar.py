@@ -446,6 +446,98 @@ class StatsCSSTests(unittest.TestCase):
         )
 
 
+# ── Structural DOM equivalence (#406 AC8) ─────────────────────────────────────
+
+
+class StructuralDOMEquivalenceTests(unittest.TestCase):
+    """The stats bar on any two pages must produce structurally identical markup
+    modulo the parameterized fields (scope label, cell values). (#406 AC8)
+
+    Because stats-bar.js uses a single _cellDefs(cells) function — not
+    _cellDefs(cells, config) — the DOM structure is guaranteed to be
+    config-independent.  These tests verify that invariant by inspecting the
+    source."""
+
+    def _src(self) -> str:
+        return _read(STATS_BAR_JS)
+
+    def test_cell_defs_has_four_core_cells(self) -> None:
+        """_cellDefs must define exactly 4 core (non-optional) cells."""
+        src = self._src()
+        # Count occurrences of 'optional: false' — one per core cell.
+        core_count = src.count('optional: false')
+        self.assertEqual(
+            core_count, 4,
+            f'stats-bar.js defines {core_count} core cells (optional:false), '
+            'expected exactly 4 (Cost, Turns, Active, Gates Waiting) (#406 AC8)',
+        )
+
+    def test_cell_defs_has_three_optional_cells(self) -> None:
+        """_cellDefs must define exactly 3 optional cells."""
+        src = self._src()
+        optional_count = src.count('optional: true')
+        self.assertEqual(
+            optional_count, 3,
+            f'stats-bar.js defines {optional_count} optional cells, '
+            'expected exactly 3 (Backtracks, Escalations, Proxy Ans %) (#406 AC8)',
+        )
+
+    def test_required_cell_labels_are_fixed(self) -> None:
+        """The core cell labels must be fixed strings, not config-derived."""
+        src = self._src()
+        for label in ("'Cost'", "'Turns'", "'Active'", "'Gates Waiting'"):
+            self.assertIn(
+                label, src,
+                f'stats-bar.js is missing fixed label {label} — '
+                'core cell labels must not vary with scope (#406 AC8)',
+            )
+
+    def test_cell_defs_takes_only_cells_not_config(self) -> None:
+        """_cellDefs(cells) must not take a config parameter.
+
+        If _cellDefs had a config parameter it could produce different DOM
+        structures on different pages, violating structural equivalence."""
+        src = self._src()
+        m = re.search(r'function _cellDefs\(([^)]*)\)', src)
+        self.assertIsNotNone(
+            m, 'stats-bar.js does not define _cellDefs() (#406 AC8)',
+        )
+        params = m.group(1).strip()
+        self.assertNotIn(
+            'config', params,
+            f'_cellDefs({params}) takes a config param — DOM structure would '
+            'vary across scopes, violating structural equivalence (#406 AC8)',
+        )
+
+    def test_build_dom_does_not_branch_on_scope(self) -> None:
+        """_buildDOM must not contain branches on config.scope that would
+        produce different cell counts on different pages."""
+        src = self._src()
+        # Extract just the _buildDOM function body.
+        start = src.find('function _buildDOM(')
+        self.assertGreater(start, -1, '_buildDOM not found in stats-bar.js')
+        # Find the matching closing brace.
+        depth, i = 0, start
+        while i < len(src):
+            if src[i] == '{':
+                depth += 1
+            elif src[i] == '}':
+                depth -= 1
+                if depth == 0:
+                    break
+            i += 1
+        body = src[start:i + 1]
+        # _buildDOM should NOT contain a reference to config.scope or
+        # config.agent_filter inside a conditional that controls cell count.
+        # A simple proxy: assert _cellDefs is called exactly once in _buildDOM.
+        cell_defs_calls = body.count('_cellDefs(')
+        self.assertEqual(
+            cell_defs_calls, 1,
+            f'_buildDOM calls _cellDefs {cell_defs_calls} times — '
+            'expected exactly 1, no per-scope branching (#406 AC8)',
+        )
+
+
 # ── Server endpoint: /api/telemetry/stats/{scope} with new params ─────────────
 
 
@@ -467,7 +559,11 @@ class TelemetryStatsEndpointTests(unittest.TestCase):
         return home
 
     def _run(self, coro):
-        return asyncio.get_event_loop().run_until_complete(coro)
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            loop.close()
 
     def _make_app(self):
         """Build a minimal aiohttp app that routes the telemetry endpoints."""
@@ -602,7 +698,11 @@ class TelemetryChartEndpointTests(unittest.TestCase):
         return home
 
     def _run(self, coro):
-        return asyncio.get_event_loop().run_until_complete(coro)
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            loop.close()
 
     def _make_app(self):
         from aiohttp import web

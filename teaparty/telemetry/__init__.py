@@ -83,6 +83,8 @@ from teaparty.telemetry.query import (
     escalation_stats,
     proxy_answer_rate,
     withdrawal_phase_distribution,
+    gate_pass_rate,
+    stats_summary,
 )
 from teaparty.telemetry.migration import migrate_metrics_db
 
@@ -93,6 +95,7 @@ __all__ = [
     'total_cost', 'turn_count', 'active_sessions', 'gates_awaiting_input',
     'backtrack_count', 'backtrack_cost', 'phase_distribution',
     'escalation_stats', 'proxy_answer_rate', 'withdrawal_phase_distribution',
+    'gate_pass_rate', 'stats_summary',
     'migrate_metrics_db',
     'ALL_EVENT_TYPES',
 ]

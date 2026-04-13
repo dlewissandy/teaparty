@@ -468,6 +468,9 @@ class TestOnlyConfigDirIsMutated(unittest.TestCase):
             os.path.realpath(config_dir),
             os.path.realpath(os.path.join(self._tp, 'management', 'sessions')),
             os.path.realpath(os.path.join(self._tp, 'management', 'metrics.db')),
+            # telemetry.db (and -shm / -wal siblings) are written by the
+            # event-sourced telemetry store introduced in #405.
+            os.path.realpath(os.path.join(self._tp, 'telemetry.db')),
         ]
 
         before = _full_snapshot(self._teaparty_repo)
