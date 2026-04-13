@@ -235,29 +235,35 @@
   }
 
   async function toggleFolder(path) {
-    var node = _findNode(_pinnedNodes, path) || _findNode(_repoFiles, path);
-    if (!node) return;
-    if (node.expanded) {
-      node.expanded = false;
+    // Find the node in all trees — expand/collapse must apply to whichever
+    // tree is being rendered, and both if both contain the path.
+    var nodes = [_findNode(_repoFiles, path), _findNode(_pinnedNodes, path)].filter(Boolean);
+    if (nodes.length === 0) return;
+    var isExpanded = nodes[0].expanded;
+    if (isExpanded) {
+      nodes.forEach(function(n) { n.expanded = false; });
       _render();
       return;
     }
-    node.expanded = true;
-    if (node.children === null) {
-      try {
-        var resp = await fetch('/api/fs/list?path=' + encodeURIComponent(path));
-        if (resp.ok) {
-          var data = await resp.json();
-          node.children = (data.entries || [])
-            .filter(function(e) { return !e.name.startsWith('.'); })
-            .map(function(e) {
-              return {path: e.path, label: e.name, is_dir: e.is_dir, expanded: false, children: null};
-            });
-        } else {
+    for (var i = 0; i < nodes.length; i++) {
+      var node = nodes[i];
+      node.expanded = true;
+      if (node.children === null) {
+        try {
+          var resp = await fetch('/api/fs/list?path=' + encodeURIComponent(path));
+          if (resp.ok) {
+            var data = await resp.json();
+            node.children = (data.entries || [])
+              .filter(function(e) { return !e.name.startsWith('.'); })
+              .map(function(e) {
+                return {path: e.path, label: e.name, is_dir: e.is_dir, expanded: false, children: null};
+              });
+          } else {
+            node.children = [];
+          }
+        } catch(e) {
           node.children = [];
         }
-      } catch(e) {
-        node.children = [];
       }
     }
     _render();
