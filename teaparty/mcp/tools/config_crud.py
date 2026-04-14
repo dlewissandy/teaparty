@@ -62,139 +62,20 @@ from teaparty.mcp.tools.config_helpers import (
 )
 
 
-# ── Project lead scaffolding ──────────────────────────────────────────────────
-
-# Canonical tool set for a project lead agent.md.
-_PROJECT_LEAD_TOOLS = (
-    'Read, Glob, Grep, Bash, '
-    'mcp__teaparty-config__GetAgent, mcp__teaparty-config__GetProject, '
-    'mcp__teaparty-config__GetSkill, mcp__teaparty-config__GetWorkgroup, '
-    'mcp__teaparty-config__ListAgents, mcp__teaparty-config__ListHooks, '
-    'mcp__teaparty-config__ListPins, mcp__teaparty-config__ListProjects, '
-    'mcp__teaparty-config__ListScheduledTasks, mcp__teaparty-config__ListSkills, '
-    'mcp__teaparty-config__ListTeamMembers, mcp__teaparty-config__ListWorkgroups, '
-    'mcp__teaparty-config__PinArtifact, mcp__teaparty-config__ProjectStatus, '
-    'mcp__teaparty-config__Send, mcp__teaparty-config__UnpinArtifact, '
-    'mcp__teaparty-config__WithdrawSession'
-)
-
-# MCP tools that require explicit approval in settings.yaml.
-_PROJECT_LEAD_PERMISSIONS = [
-    'mcp__teaparty-config__GetAgent',
-    'mcp__teaparty-config__GetProject',
-    'mcp__teaparty-config__GetSkill',
-    'mcp__teaparty-config__GetWorkgroup',
-    'mcp__teaparty-config__ListAgents',
-    'mcp__teaparty-config__ListHooks',
-    'mcp__teaparty-config__ListPins',
-    'mcp__teaparty-config__ListProjects',
-    'mcp__teaparty-config__ListScheduledTasks',
-    'mcp__teaparty-config__ListSkills',
-    'mcp__teaparty-config__ListTeamMembers',
-    'mcp__teaparty-config__ListWorkgroups',
-    'mcp__teaparty-config__PinArtifact',
-    'mcp__teaparty-config__ProjectStatus',
-    'mcp__teaparty-config__Send',
-    'mcp__teaparty-config__UnpinArtifact',
-    'mcp__teaparty-config__WithdrawSession',
-]
-
-
-def _scaffold_project_lead(
-    lead_name: str,
-    project_name: str,
-    project_path: str,
-    decider: str,
-    teaparty_home: str,
-) -> None:
-    """Create agent.md and settings.yaml for a project lead in the org management catalog.
-
-    Non-destructive: skips any file that already exists so that manually
-    customized agent definitions are never clobbered.
-    """
-    agents_dir = _mgmt_agents_dir(teaparty_home)
-    agent_dir = os.path.join(agents_dir, lead_name)
-    agent_md_path = os.path.join(agent_dir, 'agent.md')
-    settings_path = os.path.join(agent_dir, 'settings.yaml')
-
-    if not os.path.exists(agent_md_path):
-        fm = {
-            'name': lead_name,
-            'description': (
-                f'{project_name} project lead. Receives work from the Office Manager, '
-                'breaks it down for workgroup leads, and reports back up. '
-                f'Use for any task scoped to the {project_name} project.'
-            ),
-            'tools': _PROJECT_LEAD_TOOLS,
-            'model': 'sonnet',
-            'maxTurns': 30,
-        }
-        body = f"""
-You are the Project Lead for the {project_name} project — the Office Manager's point of contact for all work within this project.
-
-## Your Role
-
-You sit between the Office Manager and the project's workgroup leads. The OM brings you tasks; you decompose them and route them to the right workgroup. You never reach above you to other projects, and you never bypass workgroup leads to dispatch to individual agents.
-
-## Chain of Command
-
-```
-Office Manager
-    └── {project_name} Project Lead (you)
-            └── Workgroup Leads
-```
-
-## What You Do
-
-- **Intake:** Receive tasks from the Office Manager. Understand scope and priority before dispatching.
-- **Decomposition:** Break cross-cutting tasks into workgroup-sized units. Each unit goes to one workgroup lead.
-- **Dispatch:** Route work to the appropriate workgroup lead based on the nature of the task. Read the project's `project.yaml` to see which workgroups are active.
-- **Status synthesis:** Collect status from workgroup leads and report back to the OM with a consolidated view.
-- **Escalation:** Surface blockers to the OM. Do not absorb blockers — surface them early.
-
-## How You Work
-
-- Read `{project_path}/.teaparty/project/project.yaml` to understand the project structure and which workgroups are active.
-- Read project design docs and source under `{project_path}/` for project context.
-- Report back to the OM with the outcome and any blockers once the workgroup lead finishes.
-- **Status updates:** Use `mcp__teaparty-config__ProjectStatus(name="{project_name}")` to generate a summary of recent commits and in-progress jobs. Use this when the OM asks for status or when reporting back.
-"""
-        _write_agent_file(agent_md_path, fm, body)
-
-    if not os.path.exists(settings_path):
-        import yaml as _yaml
-        settings = {'permissions': {'allow': list(_PROJECT_LEAD_PERMISSIONS)}}
-        with open(settings_path, 'w') as f:
-            _yaml.dump(settings, f, default_flow_style=False)
-
-    # Pin agent.md and settings.yaml so every lead has them visible.
-    from teaparty.config.config_reader import write_pins
-    pins_path = os.path.join(agent_dir, 'pins.yaml')
-    if not os.path.exists(pins_path):
-        write_pins(agent_dir, [
-            {'path': 'agent.md', 'label': 'Prompt & Identity'},
-            {'path': 'settings.yaml', 'label': 'Tool & File Permissions'},
-        ])
-
-
 # ── Project tools ─────────────────────────────────────────────────────────────
 
 def add_project_handler(
     name: str,
     path: str,
     description: str = '',
-    lead: str = '',
     decider: str = '',
-    agents: list | None = None,
-    humans: list | None = None,
-    workgroups: list | None = None,
-    skills: list | None = None,
     teaparty_home: str = '',
 ) -> str:
     """Add an existing directory as a TeaParty project.
 
-    Registers it in management/teaparty.yaml and creates
-    .teaparty/project/project.yaml with the provided fields.  Returns JSON result.
+    Thin MCP wrapper around ``config_reader.add_project``, which performs the
+    full onboarding sequence (normalization, scaffolding, lead creation,
+    initial commit, telemetry).
     """
     if not name or not name.strip():
         return _err('AddProject requires a non-empty name')
@@ -202,73 +83,52 @@ def add_project_handler(
         return _err('AddProject requires a non-empty path')
 
     home = _teaparty_home(teaparty_home)
-    from teaparty.config.config_reader import add_project
+    from teaparty.config.config_reader import add_project, normalize_project_name
+    normalized = normalize_project_name(name)
     try:
         add_project(
             name=name,
             path=path,
             teaparty_home=home,
             description=description,
-            lead=lead,
             decider=decider,
-            workgroups=workgroups,
         )
     except ValueError as e:
         return _err(str(e))
-    if lead and lead.strip():
-        _scaffold_project_lead(
-            lead_name=lead.strip(),
-            project_name=name,
-            project_path=path,
-            decider=decider,
-            teaparty_home=home,
-        )
-    _emit_config_event('config_project_added', project=name, path=path)
-    return _ok(f"Project '{name}' added at {path}")
+    return _ok(f"Project '{normalized}' added at {path}")
 
 
 def create_project_handler(
     name: str,
     path: str,
     description: str = '',
-    lead: str = '',
     decider: str = '',
-    agents: list | None = None,
-    humans: list | None = None,
-    workgroups: list | None = None,
-    skills: list | None = None,
     teaparty_home: str = '',
 ) -> str:
-    """Create a new project directory with full scaffolding (git init, .teaparty/, etc.)."""
+    """Create a new project directory with full scaffolding.
+
+    Thin MCP wrapper around ``config_reader.create_project``, which performs
+    the full onboarding sequence.
+    """
     if not name or not name.strip():
         return _err('CreateProject requires a non-empty name')
     if not path or not path.strip():
         return _err('CreateProject requires a non-empty path')
 
     home = _teaparty_home(teaparty_home)
-    from teaparty.config.config_reader import create_project
+    from teaparty.config.config_reader import create_project, normalize_project_name
+    normalized = normalize_project_name(name)
     try:
         create_project(
             name=name,
             path=path,
             teaparty_home=home,
             description=description,
-            lead=lead,
             decider=decider,
-            workgroups=workgroups,
         )
     except ValueError as e:
         return _err(str(e))
-    if lead and lead.strip():
-        _scaffold_project_lead(
-            lead_name=lead.strip(),
-            project_name=name,
-            project_path=path,
-            decider=decider,
-            teaparty_home=home,
-        )
-    _emit_config_event('config_project_added', project=name, path=path, created=True)
-    return _ok(f"Project '{name}' created at {path}")
+    return _ok(f"Project '{normalized}' created at {path}")
 
 
 def remove_project_handler(name: str, teaparty_home: str = '') -> str:

@@ -2474,8 +2474,7 @@ class TeaPartyBridge:
     async def _handle_projects_add(self, request: web.Request) -> web.Response:
         """POST /api/projects/add — register an existing directory as a project.
 
-        Body: {"name": str, "path": str, "description": str, "lead": str,
-               "decider": str, "workgroups": list}
+        Body: {"name": str, "path": str, "description": str, "decider": str}
         Response: updated management team serialization.
         """
         from teaparty.config.config_reader import add_project
@@ -2494,9 +2493,7 @@ class TeaPartyBridge:
                 name, path,
                 teaparty_home=self.teaparty_home,
                 description=body.get('description', ''),
-                lead=body.get('lead', ''),
                 decider=body.get('decider', ''),
-                workgroups=body.get('workgroups') or [],
             )
         except ValueError as exc:
             return web.json_response({'error': str(exc)}, status=409)
@@ -2514,8 +2511,7 @@ class TeaPartyBridge:
     async def _handle_projects_create(self, request: web.Request) -> web.Response:
         """POST /api/projects/create — scaffold a new project directory and register it.
 
-        Body: {"name": str, "path": str, "description": str, "lead": str,
-               "decider": str, "workgroups": list}
+        Body: {"name": str, "path": str, "description": str, "decider": str}
         Response: updated management team serialization.
         """
         from teaparty.config.config_reader import create_project
@@ -2534,9 +2530,7 @@ class TeaPartyBridge:
                 name, path,
                 teaparty_home=self.teaparty_home,
                 description=body.get('description', ''),
-                lead=body.get('lead', ''),
                 decider=body.get('decider', ''),
-                workgroups=body.get('workgroups') or [],
             )
         except ValueError as exc:
             return web.json_response({'error': str(exc)}, status=409)

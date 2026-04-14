@@ -156,7 +156,6 @@ def resolve_pins(
             'is_dir': os.path.isdir(abs_path),
         })
     if stale:
-        # Prune stale entries from pins.yaml so they don't accumulate
         write_pins(scope_dir, [p for p in raw if p not in stale])
     return result
 
@@ -165,19 +164,12 @@ def add_pin(scope_dir: str, path_root: str, abs_path: str, label: str) -> None:
     """Add abs_path to pins.yaml in scope_dir as a relative path.
 
     Idempotent: if the path is already pinned, does nothing.
-
-    Args:
-        scope_dir:  Directory containing (or to contain) pins.yaml.
-        path_root:  Root for computing the relative path to store.
-        abs_path:   Absolute path of the file or directory to pin.
-        label:      Display label for the pin.
     """
     rel = os.path.relpath(abs_path, path_root)
     pins = read_pins(scope_dir)
     for existing in pins:
-        # Normalize trailing slashes: agent-written paths may use 'docs/'
         if existing.get('path', '').rstrip('/') == rel.rstrip('/'):
-            return  # already pinned — idempotent
+            return
     pins.append({'path': rel, 'label': label})
     write_pins(scope_dir, pins)
 
@@ -186,16 +178,9 @@ def remove_pin(scope_dir: str, path_root: str, abs_path: str) -> None:
     """Remove abs_path from pins.yaml in scope_dir.
 
     No-op if the path is not pinned or pins.yaml does not exist.
-
-    Args:
-        scope_dir:  Directory containing pins.yaml.
-        path_root:  Root for computing the relative path to match.
-        abs_path:   Absolute path of the file or directory to unpin.
     """
     rel = os.path.relpath(abs_path, path_root)
     pins = read_pins(scope_dir)
-    # Normalize trailing slashes: agent-written paths may use 'docs/' while
-    # os.path.relpath always returns 'docs'. Match both forms.
     updated = [p for p in pins if p.get('path', '').rstrip('/') != rel.rstrip('/')]
     if len(updated) != len(pins):
         write_pins(scope_dir, updated)
@@ -268,6 +253,7 @@ class ManagementTeam:
     hooks: list[dict[str, str]] = field(default_factory=list)
     budget: dict[str, float] = field(default_factory=dict)
     stats: dict[str, str] = field(default_factory=dict)
+    allowed_project_roots: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -409,6 +395,7 @@ def load_management_team(
         hooks=data.get('hooks', []),
         budget=data.get('budget', {}),
         stats=data.get('stats', {}),
+        allowed_project_roots=data.get('allowed_project_roots') or [],
     )
 
 
@@ -527,9 +514,6 @@ def discover_workgroups(workgroups_dir: str) -> list[str]:
 
     Each workgroup is a {name}.yaml file (ignoring non-yaml files).
     Returns an empty list if the directory does not exist.
-
-    Args:
-        workgroups_dir: Absolute path to a workgroups/ directory.
     """
     if not os.path.isdir(workgroups_dir):
         return []
@@ -965,10 +949,6 @@ def toggle_project_membership(
     For hooks: sets the active flag on the hook entry identified by event name.
     For scheduled_task: sets the enabled flag on the scheduled task entry identified by name.
 
-    When deactivating an item whose membership key doesn't exist yet in the
-    YAML (meaning "all active by default"), the catalog must be provided so
-    the list can be seeded with all items minus the one being deactivated.
-
     Args:
         project_dir: Path to the project root directory.
         kind: 'agent', 'workgroup', 'skill', 'hook', or 'scheduled_task'.
@@ -995,22 +975,17 @@ def toggle_project_membership(
     elif kind == 'scheduled_task':
         data['scheduled'] = _toggle_scheduled_active(data.get('scheduled') or [], name, active)
     elif kind == 'workgroup':
-        # For shared (org) workgroups, also manage the workgroups: refs list so
-        # the project actually references the org workgroup definition.
         home = teaparty_home or default_teaparty_home()
         org_wg_path = os.path.join(management_workgroups_dir(home), f'{name}.yaml')
         if os.path.exists(org_wg_path):
             wg_list = data.get('workgroups') or []
             name_lower = name.lower()
             if active:
-                # Add {ref: name} if no existing ref entry for this name
                 if not any('ref' in e and e['ref'].lower() == name_lower for e in wg_list):
                     wg_list = wg_list + [{'ref': name}]
             else:
-                # Remove the WorkgroupRef entry; leave local WorkgroupEntry items
                 wg_list = [e for e in wg_list if not ('ref' in e and e['ref'].lower() == name_lower)]
             data['workgroups'] = wg_list
-        # Always update members.workgroups
         members = data.setdefault('members', {})
         current = members.get('workgroups') or []
         name_lower = name.lower()
@@ -1160,31 +1135,102 @@ def _ensure_project_dirs(project_dir: str) -> None:
     os.makedirs(os.path.join(tp_proj, 'workgroups'), exist_ok=True)
 
 
-_NO_DESCRIPTION = '⚠ No description — ask the project lead'
+DESCRIPTION_SENTINEL = '⚠ No description — ask the project lead'
+
+_GITIGNORE_TEMPLATE = """\
+# TeaParty — runtime sessions (ephemeral job records)
+.teaparty/jobs/
+
+# TeaParty — SQLite databases (auto-initialize on first use)
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+"""
+
+_GITIGNORE_MARKER = '# TeaParty — runtime sessions'
+
+
+def normalize_project_name(name: str) -> str:
+    """Normalize a project name: lowercase, collapse whitespace, use hyphens.
+
+    ``"My Project"`` → ``"my-project"``; ``"PyBayes "`` → ``"pybayes"``.
+    """
+    return re.sub(r'\s+', '-', name.strip().lower())
+
+
+def _write_project_gitignore(project_dir: str) -> None:
+    """Write ``.gitignore`` from the template, or append if one exists.
+
+    Idempotent: the TeaParty stanza is only added once (detected by marker).
+    """
+    path = os.path.join(project_dir, '.gitignore')
+    if not os.path.exists(path):
+        with open(path, 'w') as f:
+            f.write(_GITIGNORE_TEMPLATE)
+        return
+    with open(path) as f:
+        existing = f.read()
+    if _GITIGNORE_MARKER in existing:
+        return
+    sep = '' if existing.endswith('\n') else '\n'
+    with open(path, 'w') as f:
+        f.write(existing + sep + '\n' + _GITIGNORE_TEMPLATE)
+
+
+def _git_initial_commit(project_dir: str) -> None:
+    """Stage and commit the scaffolded TeaParty files.
+
+    Uses inline user identity so the operation does not require the caller's
+    global git config. Idempotent: nothing is committed if there is nothing
+    staged.
+    """
+    env_args = [
+        '-c', 'user.email=teaparty@localhost',
+        '-c', 'user.name=TeaParty',
+    ]
+    to_stage = ['.gitignore', '.teaparty/project']
+    for rel in to_stage:
+        full = os.path.join(project_dir, rel)
+        if os.path.exists(full):
+            subprocess.run(
+                ['git', 'add', '--', rel],
+                cwd=project_dir, check=True, capture_output=True,
+            )
+    status = subprocess.run(
+        ['git', 'diff', '--cached', '--name-only'],
+        cwd=project_dir, check=True, capture_output=True, text=True,
+    )
+    if not status.stdout.strip():
+        return
+    subprocess.run(
+        ['git', *env_args, 'commit', '-m', 'chore: add TeaParty project configuration'],
+        cwd=project_dir, check=True, capture_output=True,
+    )
 
 
 def _scaffold_project_yaml(
     name: str,
     project_dir: str,
     description: str = '',
-    lead: str = '',
     decider: str = '',
-    workgroups: list | None = None,
     config: str = '.teaparty/project/project.yaml',
 ) -> None:
-    """Create .teaparty/project/project.yaml with frontmatter if it doesn't exist."""
+    """Create .teaparty/project/project.yaml with frontmatter if it doesn't exist.
+
+    ``name`` must already be normalized. The lead is always ``{name}-lead``.
+    """
     tp_dir = project_teaparty_dir(project_dir)
     os.makedirs(tp_dir, exist_ok=True)
     project_yaml_path = os.path.join(tp_dir, 'project.yaml')
     if os.path.exists(project_yaml_path):
         return
-    humans_block = {'decider': decider} if decider else {}
     scaffold = {
         'name': name,
-        'description': description or _NO_DESCRIPTION,
-        'lead': lead,
-        'humans': humans_block,
-        'workgroups': workgroups or [],
+        'description': description or DESCRIPTION_SENTINEL,
+        'lead': f'{name}-lead',
+        'humans': {'decider': decider} if decider else {},
+        'workgroups': ['Configuration'],
         'members': {'workgroups': []},
         'artifact_pins': [],
     }
@@ -1194,40 +1240,176 @@ def _scaffold_project_yaml(
 
 # ── Project management operations ─────────────────────────────────────────────
 
-def add_project(
-    name: str,
-    path: str,
-    teaparty_home: str | None = None,
-    description: str = '',
-    lead: str = '',
-    decider: str = '',
-    workgroups: list | None = None,
-    config: str = '.teaparty/project/project.yaml',
-) -> ManagementTeam:
-    """Add an existing directory as a TeaParty project.
+def _check_allowed_project_roots(path: str, roots: list[str]) -> None:
+    """Raise ValueError if path is not under any of the allowed roots.
 
-    Creates .teaparty/project/project.yaml with the provided frontmatter if
-    missing, and adds a projects: entry to external-projects.yaml.
-
-    Raises ValueError if the path does not exist or a project with this name
-    already exists.
+    If roots is empty, the check is skipped (permissive mode).
     """
-    path = os.path.expanduser(os.path.realpath(path))
+    if not roots:
+        return
+    for root in roots:
+        root = os.path.expanduser(os.path.realpath(root))
+        if path.startswith(root + os.sep) or path == root:
+            return
+    raise ValueError(
+        f'Path {path!r} is not under any allowed project root. '
+        f'Allowed roots: {roots!r}'
+    )
 
-    if not os.path.isdir(path):
-        raise ValueError(f'Path does not exist or is not a directory: {path}')
 
-    # Check for duplicates across both tracked and external project lists
-    team = load_management_team(teaparty_home=teaparty_home)
-    for p in team.projects:
-        if p['name'] == name:
-            raise ValueError(f"Project '{name}' already exists")
+PROJECT_LEAD_TOOLS = [
+    'Read', 'Glob', 'Grep', 'Bash',
+    'mcp__teaparty-config__GetAgent', 'mcp__teaparty-config__GetProject',
+    'mcp__teaparty-config__GetSkill', 'mcp__teaparty-config__GetWorkgroup',
+    'mcp__teaparty-config__ListAgents', 'mcp__teaparty-config__ListHooks',
+    'mcp__teaparty-config__ListPins', 'mcp__teaparty-config__ListProjects',
+    'mcp__teaparty-config__ListScheduledTasks', 'mcp__teaparty-config__ListSkills',
+    'mcp__teaparty-config__ListTeamMembers', 'mcp__teaparty-config__ListWorkgroups',
+    'mcp__teaparty-config__PinArtifact', 'mcp__teaparty-config__ProjectStatus',
+    'mcp__teaparty-config__Send', 'mcp__teaparty-config__UnpinArtifact',
+    'mcp__teaparty-config__WithdrawSession',
+]
 
-    # Ensure required directory structure exists
-    _ensure_project_dirs(path)
+PROJECT_LEAD_PERMISSIONS = list(PROJECT_LEAD_TOOLS)
 
-    # External projects go in external-projects.yaml (gitignored)
-    home = os.path.expanduser(teaparty_home or default_teaparty_home())
+
+def scaffold_project_lead(
+    project_name: str,
+    project_path: str,
+    decider: str,
+    teaparty_home: str,
+) -> None:
+    """Create the management-catalog agent definition for a project lead.
+
+    Writes ``agent.md`` + ``settings.yaml`` + ``pins.yaml`` under
+    ``{teaparty_home}/management/agents/{project_name}-lead/``. Non-destructive:
+    any file that already exists is left untouched so customized leads are
+    never clobbered.
+
+    ``project_name`` must already be normalized.
+    """
+    lead_name = f'{project_name}-lead'
+    agent_dir = os.path.join(teaparty_home, 'management', 'agents', lead_name)
+    os.makedirs(agent_dir, exist_ok=True)
+
+    agent_md = os.path.join(agent_dir, 'agent.md')
+    if not os.path.exists(agent_md):
+        description = (
+            f'{project_name} project lead. Receives work from the Office '
+            f'Manager, breaks it down for workgroup leads, and reports back '
+            f'up. Use for any task scoped to the {project_name} project.'
+        )
+        frontmatter = {
+            'name': lead_name,
+            'description': description,
+            'tools': ', '.join(PROJECT_LEAD_TOOLS),
+            'model': 'sonnet',
+            'maxTurns': 30,
+        }
+        body = (
+            f'# {lead_name}\n\n'
+            f'You are the project lead for **{project_name}** at '
+            f'`{project_path}`. Read `.teaparty/project/project.yaml` to '
+            f'understand the project and its registered workgroups. The '
+            f'decider for this project is **{decider}**.\n\n'
+            f'When work arrives from the Office Manager, decompose it and '
+            f'dispatch to the appropriate workgroup lead via `Send`. Use '
+            f'`ProjectStatus` to report progress back up the chain.\n'
+        )
+        with open(agent_md, 'w') as f:
+            f.write('---\n')
+            yaml.dump(frontmatter, f, default_flow_style=False, sort_keys=False)
+            f.write('---\n')
+            f.write(body)
+
+    settings_yaml = os.path.join(agent_dir, 'settings.yaml')
+    if not os.path.exists(settings_yaml):
+        with open(settings_yaml, 'w') as f:
+            yaml.dump(
+                {'permissions': {'allow': list(PROJECT_LEAD_PERMISSIONS)}},
+                f, default_flow_style=False, sort_keys=False,
+            )
+
+    pins_yaml = os.path.join(agent_dir, 'pins.yaml')
+    if not os.path.exists(pins_yaml):
+        with open(pins_yaml, 'w') as f:
+            yaml.dump([
+                {'path': 'agent.md', 'label': 'Prompt & Identity'},
+                {'path': 'settings.yaml', 'label': 'Tool & File Permissions'},
+            ], f, default_flow_style=False, sort_keys=False)
+
+
+def _emit_project_added_event(project: str, path: str, created: bool) -> None:
+    """Telemetry emission for Step 10 of onboarding.
+
+    Best-effort for any runtime failure (missing tables, I/O errors), but
+    a missing event-type constant is a development-time bug and raises
+    AssertionError — matches the "no silent fallbacks" rule.
+    """
+    try:
+        from teaparty import telemetry
+        from teaparty.telemetry import events as _telem_events
+        et = getattr(_telem_events, 'CONFIG_PROJECT_ADDED', None)
+        if et is None:
+            raise AssertionError(
+                '_emit_project_added_event: no CONFIG_PROJECT_ADDED constant '
+                'in teaparty.telemetry.events'
+            )
+        data = {'project': project, 'path': path}
+        if created:
+            data['created'] = True
+        telemetry.record_event(et, scope=project, data=data)
+    except AssertionError:
+        raise
+    except Exception:
+        pass
+
+
+def _resolve_decider(team: ManagementTeam, decider: str) -> str:
+    """Resolve and validate the decider for a newly onboarded project.
+
+    Rules:
+
+    - Decider must be a human. Agents can never be deciders.
+    - If ``decider`` is empty, default to the management team's own decider
+      (the human who runs this TeaParty instance — i.e., the user who
+      initiated the project creation, in any single-user dashboard or MCP
+      flow).
+    - If ``decider`` is supplied, it must match a human registered on the
+      management team. Matching an agent name (management or otherwise) is
+      rejected with an explicit error.
+    - If no decider can be resolved, raise ValueError. A project without a
+      decider is not valid.
+    """
+    human_names = {h.name for h in team.humans}
+    agent_names = set(team.members_agents)
+
+    if not decider:
+        mgmt_decider = next(
+            (h.name for h in team.humans if h.role == 'decider'), '',
+        )
+        if not mgmt_decider:
+            raise ValueError(
+                'No decider for project: none supplied and the management '
+                "team has no decider configured. Add a human with role "
+                "'decider' to teaparty.yaml or pass decider=... explicitly."
+            )
+        return mgmt_decider
+
+    if decider in agent_names:
+        raise ValueError(
+            f"decider={decider!r} is an agent; agents can never be deciders. "
+            "The decider must be a human registered on the management team."
+        )
+    if decider not in human_names:
+        raise ValueError(
+            f"decider={decider!r} is not a known human on the management "
+            f"team. Known humans: {sorted(human_names) or '[]'}."
+        )
+    return decider
+
+
+def _register_external_project(home: str, name: str, path: str, config: str) -> None:
     ext_path = external_projects_path(home)
     ext: list = []
     if os.path.isfile(ext_path):
@@ -1238,14 +1420,50 @@ def add_project(
     with open(ext_path, 'w') as f:
         yaml.dump(ext, f, default_flow_style=False, sort_keys=False)
 
+
+def add_project(
+    name: str,
+    path: str,
+    teaparty_home: str | None = None,
+    description: str = '',
+    decider: str = '',
+    config: str = '.teaparty/project/project.yaml',
+) -> ManagementTeam:
+    """Add an existing directory as a TeaParty project.
+
+    Performs the full onboarding sequence specified in
+    ``docs/detailed-design/project-onboarding.md``: name normalization,
+    directory scaffolding, ``project.yaml`` with description sentinel and
+    Configuration workgroup, ``.gitignore`` from template, registry entry,
+    and initial commit.
+
+    Raises ValueError if the path does not exist or a project with this name
+    already exists.
+    """
+    name = normalize_project_name(name)
+    path = os.path.expanduser(os.path.realpath(path))
+
+    if not os.path.isdir(path):
+        raise ValueError(f'Path does not exist or is not a directory: {path}')
+
+    team = load_management_team(teaparty_home=teaparty_home)
+    _check_allowed_project_roots(path, team.allowed_project_roots)
+    for p in team.projects:
+        if p['name'] == name:
+            raise ValueError(f"Project '{name}' already exists")
+    decider = _resolve_decider(team, decider)
+
+    _ensure_project_dirs(path)
     _scaffold_project_yaml(
-        name, path,
-        description=description,
-        lead=lead,
-        decider=decider,
-        workgroups=workgroups,
-        config=config,
+        name, path, description=description, decider=decider, config=config,
     )
+    _write_project_gitignore(path)
+
+    home = os.path.expanduser(teaparty_home or default_teaparty_home())
+    _register_external_project(home, name, path, config)
+    scaffold_project_lead(name, path, decider, home)
+    _git_initial_commit(path)
+    _emit_project_added_event(name, path, created=False)
 
     return load_management_team(teaparty_home=teaparty_home)
 
@@ -1255,60 +1473,41 @@ def create_project(
     path: str,
     teaparty_home: str | None = None,
     description: str = '',
-    lead: str = '',
     decider: str = '',
-    workgroups: list | None = None,
     config: str = '.teaparty/project/project.yaml',
 ) -> ManagementTeam:
     """Create a new project directory with full scaffolding.
 
-    Creates the directory, runs git init, creates .teaparty/project/ with
-    subdirectories and project.yaml, and adds a projects: entry to
-    external-projects.yaml.
-
-    Raises ValueError if the directory already exists or a project with
-    this name already exists.
+    Performs the full onboarding sequence specified in
+    ``docs/detailed-design/project-onboarding.md``. Raises ValueError if the
+    directory already exists or a project with this name is registered.
     """
+    name = normalize_project_name(name)
     path = os.path.expanduser(os.path.realpath(path))
 
     if os.path.exists(path):
         raise ValueError(f'Directory already exists: {path}')
 
-    # Check for duplicates across both tracked and external project lists
     team = load_management_team(teaparty_home=teaparty_home)
+    _check_allowed_project_roots(path, team.allowed_project_roots)
     for p in team.projects:
         if p['name'] == name:
             raise ValueError(f"Project '{name}' already exists")
+    decider = _resolve_decider(team, decider)
 
-    # Create directory structure
     os.makedirs(path)
-    subprocess.run(
-        ['git', 'init', path],
-        check=True,
-        capture_output=True,
-    )
+    subprocess.run(['git', 'init', path], check=True, capture_output=True)
     _ensure_project_dirs(path)
-
     _scaffold_project_yaml(
-        name, path,
-        description=description,
-        lead=lead,
-        decider=decider,
-        workgroups=workgroups,
-        config=config,
+        name, path, description=description, decider=decider, config=config,
     )
+    _write_project_gitignore(path)
 
-    # Register in external-projects.yaml
     home = os.path.expanduser(teaparty_home or default_teaparty_home())
-    ext_path = external_projects_path(home)
-    ext: list = []
-    if os.path.isfile(ext_path):
-        with open(ext_path) as f:
-            ext = yaml.safe_load(f) or []
-    ext.append({'name': name, 'path': path, 'config': config})
-    os.makedirs(os.path.dirname(ext_path), exist_ok=True)
-    with open(ext_path, 'w') as f:
-        yaml.dump(ext, f, default_flow_style=False, sort_keys=False)
+    _register_external_project(home, name, path, config)
+    scaffold_project_lead(name, path, decider, home)
+    _git_initial_commit(path)
+    _emit_project_added_event(name, path, created=True)
 
     return load_management_team(teaparty_home=teaparty_home)
 
@@ -1322,11 +1521,8 @@ def remove_project(
     Checks both teaparty.yaml (tracked) and external-projects.yaml (gitignored).
     The project directory itself is left untouched.
 
-    Raises ValueError if no project with this name exists, or if an attempt
-    is made to remove the protected 'teaparty' project.
+    Raises ValueError if no project with this name exists.
     """
-    if name.lower() == 'teaparty':
-        raise ValueError("The 'teaparty' project cannot be removed from the registry")
     home = os.path.expanduser(teaparty_home or default_teaparty_home())
 
     # Try external-projects.yaml first (most common case)

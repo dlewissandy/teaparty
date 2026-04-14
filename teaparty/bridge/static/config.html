@@ -55,6 +55,9 @@ function escAttr(s) {
 
 function sectionCard(title, items, opts) {
   var buttons = '';
+  if (opts && opts.browseHref) {
+    buttons += '<a class="action-btn config-edit-btn" href="' + escAttr(opts.browseHref) + '">Browse &#8594;</a>';
+  }
   if (opts && opts.addSeed) {
     buttons += '<button class="action-btn config-edit-btn" onclick="seedBlade(\'' + escAttr(opts.addSeed) + '\')">+ New</button>';
   }
@@ -108,6 +111,13 @@ function itemCard(opts) {
   return html;
 }
 
+function artifactsBrowseUrl(scopeCtx) {
+  var sc = scopeCtx || {};
+  return 'artifacts.html?scope=' + encodeURIComponent(sc.scope || 'project') +
+    (sc.name ? '&name=' + encodeURIComponent(sc.name) : '') +
+    (sc.project ? '&project=' + encodeURIComponent(sc.project) : '');
+}
+
 function renderPinItems(pins, scopeCtx) {
   // scopeCtx: {scope, name, project} — forwarded as URL params so artifacts.html
   // opens in the correct scope context for pin toggles.
@@ -119,7 +129,7 @@ function renderPinItems(pins, scopeCtx) {
       (sc.name ? '&name=' + encodeURIComponent(sc.name) : '') +
       (sc.project ? '&project=' + encodeURIComponent(sc.project) : '');
     return itemCard({
-      icon: p.is_dir ? '&#9654;' : '&#9679;',
+      icon: '&#128204;',
       iconStyle: 'background:rgba(78,204,163,0.15);color:var(--green)',
       title: p.label, meta: displayPath, active: true,
       href: fileUrl,
@@ -295,7 +305,7 @@ async function loadGlobal() {
       { title: 'Workgroups', items: wgMgmtItems, opts: { addSeed: 'I would like to create a new workgroup for the management team.', empty: 'No workgroups' } },
       { title: 'Agents', items: agents, opts: { addSeed: 'I would like to create a new agent in the management agent catalog.' } },
       { title: 'Participants', items: participantItems(m.humans, 'global') },
-      { title: 'Artifacts', items: renderPinItems(pinsData, {scope: 'system'}), opts: { empty: 'No organizational artifacts' } },
+      { title: 'Artifacts', items: renderPinItems(pinsData, {scope: 'system'}), opts: { browseHref: artifactsBrowseUrl({scope: 'system'}), empty: 'No organizational artifacts' } },
       { title: 'Skills', items: skillItems(m.skills, 'global'), opts: { addSeed: 'I would like to add a new skill to the management catalog.' } },
       { title: 'Hooks', items: hookItems(m.hooks, 'global'), opts: { addSeed: 'I would like to create a new hook for the management team.' } },
       { title: 'Scheduled Tasks', items: cronItems(m.scheduled, 'global'), opts: { addSeed: 'I would like to create a new scheduled task for the management team.' } },
@@ -360,7 +370,7 @@ async function loadProject(slug) {
       { title: 'Workgroups', items: wgItems, opts: { addSeed: 'I would like to create a new workgroup for the ' + (team.name || slug) + ' project.', empty: 'No workgroups' } },
       { title: 'Agents', items: agents, opts: { addSeed: 'I would like to create a new agent in the ' + (team.name || slug) + ' project agent catalog.', empty: 'No agents' } },
       { title: 'Participants', items: participantItems(team.humans, slug) },
-      { title: 'Artifacts', items: renderPinItems(pinsData, {scope: 'project', project: slug}), opts: { addSeed: 'I would like to pin an artifact to the ' + (team.name || slug) + ' project.', empty: 'No artifacts' } },
+      { title: 'Artifacts', items: renderPinItems(pinsData, {scope: 'project', project: slug}), opts: { browseHref: artifactsBrowseUrl({scope: 'project', project: slug}), addSeed: 'I would like to pin an artifact to the ' + (team.name || slug) + ' project.', empty: 'No artifacts' } },
       { title: 'Skills', items: skillItems(team.skills, slug), opts: { addSeed: 'I would like to add a new skill to the ' + (team.name || slug) + ' project catalog.', empty: 'No skills' } },
       { title: 'Hooks', items: hookItems(team.hooks, slug, slug), opts: { addSeed: 'I would like to create a new hook for the ' + (team.name || slug) + ' project.', empty: 'No project-scoped hooks' } },
       { title: 'Scheduled Tasks', items: cronItems(team.scheduled, slug, slug), opts: { addSeed: 'I would like to create a new scheduled task for the ' + (team.name || slug) + ' project.', empty: 'No project-scoped tasks' } },
@@ -435,7 +445,7 @@ async function loadWorkgroup(name, projectSlug) {
       { title: 'Agents', items: memberItems, opts: { addSeed: 'I would like to add an agent to the ' + name + ' workgroup.', empty: 'No agents' } },
       { title: 'Hooks', items: hooks, opts: { addSeed: 'I would like to create a new hook for the ' + name + ' workgroup.', empty: 'No hooks' } },
       { title: 'Humans', items: participantItems(wgData.humans, 'wg:' + name, projectSlug) },
-      { title: 'Artifacts', items: renderPinItems(wgPins, {scope: 'workgroup', name: name, project: projectSlug}), opts: { addSeed: 'I would like to pin an artifact to the ' + name + ' team.', empty: 'No artifacts' } },
+      { title: 'Artifacts', items: renderPinItems(wgPins, {scope: 'workgroup', name: name, project: projectSlug}), opts: { browseHref: artifactsBrowseUrl({scope: 'workgroup', name: name, project: projectSlug}), addSeed: 'I would like to pin an artifact to the ' + name + ' team.', empty: 'No artifacts' } },
     ],
   };
 }
@@ -529,7 +539,7 @@ function _buildAgentSpec() {
       label: name,
     },
     cards: [
-      { title: 'Artifacts', items: renderPinItems(_agentCtx.pins, {scope: 'agent', name: _agentCtx.name, project: _agentCtx.projectSlug}) },
+      { title: 'Artifacts', items: renderPinItems(_agentCtx.pins, {scope: 'agent', name: _agentCtx.name, project: _agentCtx.projectSlug}), opts: { browseHref: artifactsBrowseUrl({scope: 'agent', name: _agentCtx.name, project: _agentCtx.projectSlug}) } },
       { title: 'Settings', items: settingsItems },
       { title: 'Skills', items: agentSkillItems, opts: { empty: 'No skills in catalog' } },
       { title: 'Tools', items: toolItems, opts: { empty: 'No tools available' } },

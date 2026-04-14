@@ -414,41 +414,26 @@ def create_server(agent_tools: set[str] | None = None) -> FastMCP:
         name: str,
         path: str,
         description: str = '',
-        lead: str = '',
         decider: str = '',
-        agents: str = '',
-        humans: str = '',
-        workgroups: str = '',
-        skills: str = '',
         teaparty_home: str = '',
     ) -> str:
         """Register an existing directory as a TeaParty project.
 
-        Creates a projects: entry in management/teaparty.yaml and scaffolds
-        .teaparty/project/project.yaml with the provided fields.
+        Runs the full onboarding sequence: normalizes the name, scaffolds
+        .teaparty/project/project.yaml, writes .gitignore, registers the
+        project, scaffolds ``{name}-lead`` in the management catalog, and
+        makes an initial commit. See docs/detailed-design/project-onboarding.md.
 
         Args:
-            name: Project name (must be unique in teaparty.yaml).
+            name: Project name. Normalized to lowercase with hyphens.
             path: Absolute path to the existing project directory.
-            description: Short description of the project.
-            lead: Agent name that leads this project.
-            decider: Human name with decider role.
-            agents: Comma-separated agent names.
-            humans: YAML list of {name, role} dicts.
-            workgroups: YAML list of workgroup refs or entries.
-            skills: Comma-separated skill names.
+            description: Human-readable description. Defaults to the sentinel.
+            decider: Human decider for this project.
             teaparty_home: Override for .teaparty/ directory path.
         """
-        agents_list = [a.strip() for a in agents.split(',') if a.strip()] if agents else None
-        humans_list = yaml.safe_load(humans) if humans else None
-        workgroups_list = yaml.safe_load(workgroups) if workgroups else None
-        skills_list = [s.strip() for s in skills.split(',') if s.strip()] if skills else None
         return add_project_handler(
             name=name, path=path, description=description,
-            lead=lead, decider=decider,
-            agents=agents_list, humans=humans_list,
-            workgroups=workgroups_list, skills=skills_list,
-            teaparty_home=teaparty_home,
+            decider=decider, teaparty_home=teaparty_home,
         )
 
     @server.tool()
@@ -456,41 +441,24 @@ def create_server(agent_tools: set[str] | None = None) -> FastMCP:
         name: str,
         path: str,
         description: str = '',
-        lead: str = '',
         decider: str = '',
-        agents: str = '',
-        humans: str = '',
-        workgroups: str = '',
-        skills: str = '',
         teaparty_home: str = '',
     ) -> str:
         """Create a new project directory with full scaffolding.
 
-        Runs git init, scaffolds .teaparty/project/project.yaml,
-        and adds a teams: entry to teaparty.yaml.
+        Same onboarding sequence as AddProject, plus directory creation and
+        ``git init``. See docs/detailed-design/project-onboarding.md.
 
         Args:
-            name: Project name (must be unique in teaparty.yaml).
+            name: Project name. Normalized to lowercase with hyphens.
             path: Path for the new project directory (must not exist yet).
-            description: Short description.
-            lead: Agent name for project lead.
-            decider: Human decider name.
-            agents: Comma-separated agent names.
-            humans: YAML list of human entries.
-            workgroups: YAML list of workgroup entries.
-            skills: Comma-separated skill names.
+            description: Human-readable description. Defaults to the sentinel.
+            decider: Human decider for this project.
             teaparty_home: Override for .teaparty/ directory path.
         """
-        agents_list = [a.strip() for a in agents.split(',') if a.strip()] if agents else None
-        humans_list = yaml.safe_load(humans) if humans else None
-        workgroups_list = yaml.safe_load(workgroups) if workgroups else None
-        skills_list = [s.strip() for s in skills.split(',') if s.strip()] if skills else None
         return create_project_handler(
             name=name, path=path, description=description,
-            lead=lead, decider=decider,
-            agents=agents_list, humans=humans_list,
-            workgroups=workgroups_list, skills=skills_list,
-            teaparty_home=teaparty_home,
+            decider=decider, teaparty_home=teaparty_home,
         )
 
     @server.tool()
