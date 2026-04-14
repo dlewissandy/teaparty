@@ -2351,9 +2351,7 @@ class TeaPartyBridge:
                 name, path,
                 teaparty_home=self.teaparty_home,
                 description=body.get('description', ''),
-                lead=body.get('lead', ''),
                 decider=body.get('decider', ''),
-                workgroups=body.get('workgroups') or [],
             )
         except ValueError as exc:
             return web.json_response({'error': str(exc)}, status=409)
@@ -2391,9 +2389,7 @@ class TeaPartyBridge:
                 name, path,
                 teaparty_home=self.teaparty_home,
                 description=body.get('description', ''),
-                lead=body.get('lead', ''),
                 decider=body.get('decider', ''),
-                workgroups=body.get('workgroups') or [],
             )
         except ValueError as exc:
             return web.json_response({'error': str(exc)}, status=409)

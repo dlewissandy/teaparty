@@ -232,7 +232,7 @@ class TestAddProject(unittest.TestCase):
         proj = os.path.join(tmp, 'newproj')
         os.makedirs(proj)
         team = add_project('newproj', proj, teaparty_home=home,
-                           lead='np-lead', decider='alice')
+                           decider='alice')
         names = [p['name'] for p in team.projects]
         self.assertIn('newproj', names)
 
@@ -279,7 +279,7 @@ class TestCreateProject(unittest.TestCase):
         home = _make_teaparty_home(tmp)
         proj = os.path.join(tmp, 'brand-new')
         create_project('brand-new', proj, teaparty_home=home,
-                       lead='bn-lead', decider='alice')
+                       decider='alice')
         self.assertTrue(os.path.isdir(proj))
         self.assertTrue(os.path.isdir(os.path.join(proj, '.git')))
         self.assertTrue(os.path.isdir(os.path.join(proj, '.claude')))

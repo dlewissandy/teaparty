@@ -64,22 +64,98 @@ from teaparty.mcp.tools.config_helpers import (
 
 # ── Project tools ─────────────────────────────────────────────────────────────
 
+_PROJECT_LEAD_TOOLS = [
+    'Read', 'Glob', 'Grep', 'Bash',
+    'mcp__teaparty-config__GetAgent', 'mcp__teaparty-config__GetProject',
+    'mcp__teaparty-config__GetSkill', 'mcp__teaparty-config__GetWorkgroup',
+    'mcp__teaparty-config__ListAgents', 'mcp__teaparty-config__ListHooks',
+    'mcp__teaparty-config__ListPins', 'mcp__teaparty-config__ListProjects',
+    'mcp__teaparty-config__ListScheduledTasks', 'mcp__teaparty-config__ListSkills',
+    'mcp__teaparty-config__ListTeamMembers', 'mcp__teaparty-config__ListWorkgroups',
+    'mcp__teaparty-config__PinArtifact', 'mcp__teaparty-config__ProjectStatus',
+    'mcp__teaparty-config__Send', 'mcp__teaparty-config__UnpinArtifact',
+    'mcp__teaparty-config__WithdrawSession',
+]
+
+_PROJECT_LEAD_PERMISSIONS = list(_PROJECT_LEAD_TOOLS)
+
+
+def _scaffold_project_lead(
+    lead_name: str,
+    project_name: str,
+    project_path: str,
+    decider: str,
+    teaparty_home: str,
+) -> None:
+    """Create the management-catalog agent definition for a project lead.
+
+    Writes ``agent.md`` + ``settings.yaml`` + ``pins.yaml`` under
+    ``{teaparty_home}/management/agents/{lead_name}/``. Non-destructive: any
+    file that already exists is left untouched so customized leads are never
+    clobbered.
+    """
+    agent_dir = os.path.join(teaparty_home, 'management', 'agents', lead_name)
+    os.makedirs(agent_dir, exist_ok=True)
+
+    agent_md = os.path.join(agent_dir, 'agent.md')
+    if not os.path.exists(agent_md):
+        description = (
+            f'{project_name} project lead. Receives work from the Office '
+            f'Manager, breaks it down for workgroup leads, and reports back '
+            f'up. Use for any task scoped to the {project_name} project.'
+        )
+        frontmatter = {
+            'name': lead_name,
+            'description': description,
+            'tools': ', '.join(_PROJECT_LEAD_TOOLS),
+            'model': 'sonnet',
+            'maxTurns': 30,
+        }
+        body = (
+            f'# {lead_name}\n\n'
+            f'You are the project lead for **{project_name}** at '
+            f'`{project_path}`. Read `.teaparty/project/project.yaml` to '
+            f'understand the project and its registered workgroups. The '
+            f'decider for this project is **{decider}**.\n\n'
+            f'When work arrives from the Office Manager, decompose it and '
+            f'dispatch to the appropriate workgroup lead via `Send`. Use '
+            f'`ProjectStatus` to report progress back up the chain.\n'
+        )
+        with open(agent_md, 'w') as f:
+            f.write('---\n')
+            yaml.dump(frontmatter, f, default_flow_style=False, sort_keys=False)
+            f.write('---\n')
+            f.write(body)
+
+    settings_yaml = os.path.join(agent_dir, 'settings.yaml')
+    if not os.path.exists(settings_yaml):
+        with open(settings_yaml, 'w') as f:
+            yaml.dump(
+                {'permissions': {'allow': list(_PROJECT_LEAD_PERMISSIONS)}},
+                f, default_flow_style=False, sort_keys=False,
+            )
+
+    pins_yaml = os.path.join(agent_dir, 'pins.yaml')
+    if not os.path.exists(pins_yaml):
+        with open(pins_yaml, 'w') as f:
+            yaml.dump([
+                {'path': 'agent.md', 'label': 'Prompt & Identity'},
+                {'path': 'settings.yaml', 'label': 'Tool & File Permissions'},
+            ], f, default_flow_style=False, sort_keys=False)
+
+
 def add_project_handler(
     name: str,
     path: str,
     description: str = '',
-    lead: str = '',
     decider: str = '',
-    agents: list | None = None,
-    humans: list | None = None,
-    workgroups: list | None = None,
-    skills: list | None = None,
     teaparty_home: str = '',
 ) -> str:
     """Add an existing directory as a TeaParty project.
 
-    Registers it in management/teaparty.yaml and creates
-    .teaparty/project/project.yaml with the provided fields.  Returns JSON result.
+    Normalizes the name, runs the full onboarding sequence via
+    ``add_project``, and scaffolds the project lead in the management
+    catalog. Returns JSON result.
     """
     if not name or not name.strip():
         return _err('AddProject requires a non-empty name')
@@ -87,33 +163,30 @@ def add_project_handler(
         return _err('AddProject requires a non-empty path')
 
     home = _teaparty_home(teaparty_home)
-    from teaparty.config.config_reader import add_project
+    from teaparty.config.config_reader import add_project, normalize_project_name
+    normalized = normalize_project_name(name)
     try:
         add_project(
             name=name,
             path=path,
             teaparty_home=home,
             description=description,
-            lead=lead,
             decider=decider,
-            workgroups=workgroups,
         )
     except ValueError as e:
         return _err(str(e))
-    _emit_config_event('config_project_added', project=name, path=path)
-    return _ok(f"Project '{name}' added at {path}")
+    _scaffold_project_lead(
+        f'{normalized}-lead', normalized, path, decider, home,
+    )
+    _emit_config_event('config_project_added', project=normalized, path=path)
+    return _ok(f"Project '{normalized}' added at {path}")
 
 
 def create_project_handler(
     name: str,
     path: str,
     description: str = '',
-    lead: str = '',
     decider: str = '',
-    agents: list | None = None,
-    humans: list | None = None,
-    workgroups: list | None = None,
-    skills: list | None = None,
     teaparty_home: str = '',
 ) -> str:
     """Create a new project directory with full scaffolding (git init, .teaparty/, etc.)."""
@@ -123,21 +196,23 @@ def create_project_handler(
         return _err('CreateProject requires a non-empty path')
 
     home = _teaparty_home(teaparty_home)
-    from teaparty.config.config_reader import create_project
+    from teaparty.config.config_reader import create_project, normalize_project_name
+    normalized = normalize_project_name(name)
     try:
         create_project(
             name=name,
             path=path,
             teaparty_home=home,
             description=description,
-            lead=lead,
             decider=decider,
-            workgroups=workgroups,
         )
     except ValueError as e:
         return _err(str(e))
-    _emit_config_event('config_project_added', project=name, path=path, created=True)
-    return _ok(f"Project '{name}' created at {path}")
+    _scaffold_project_lead(
+        f'{normalized}-lead', normalized, path, decider, home,
+    )
+    _emit_config_event('config_project_added', project=normalized, path=path, created=True)
+    return _ok(f"Project '{normalized}' created at {path}")
 
 
 def remove_project_handler(name: str, teaparty_home: str = '') -> str:

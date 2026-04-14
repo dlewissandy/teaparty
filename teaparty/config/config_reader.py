@@ -1066,28 +1066,102 @@ def _ensure_project_dirs(project_dir: str) -> None:
     os.makedirs(os.path.join(tp_proj, 'workgroups'), exist_ok=True)
 
 
+DESCRIPTION_SENTINEL = '⚠ No description — ask the project lead'
+
+_GITIGNORE_TEMPLATE = """\
+# TeaParty — runtime sessions (ephemeral job records)
+.teaparty/jobs/
+
+# TeaParty — SQLite databases (auto-initialize on first use)
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+"""
+
+_GITIGNORE_MARKER = '# TeaParty — runtime sessions'
+
+
+def normalize_project_name(name: str) -> str:
+    """Normalize a project name: lowercase, collapse whitespace, use hyphens.
+
+    ``"My Project"`` → ``"my-project"``; ``"PyBayes "`` → ``"pybayes"``.
+    """
+    return re.sub(r'\s+', '-', name.strip().lower())
+
+
+def _write_project_gitignore(project_dir: str) -> None:
+    """Write ``.gitignore`` from the template, or append if one exists.
+
+    Idempotent: the TeaParty stanza is only added once (detected by marker).
+    """
+    path = os.path.join(project_dir, '.gitignore')
+    if not os.path.exists(path):
+        with open(path, 'w') as f:
+            f.write(_GITIGNORE_TEMPLATE)
+        return
+    with open(path) as f:
+        existing = f.read()
+    if _GITIGNORE_MARKER in existing:
+        return
+    sep = '' if existing.endswith('\n') else '\n'
+    with open(path, 'w') as f:
+        f.write(existing + sep + '\n' + _GITIGNORE_TEMPLATE)
+
+
+def _git_initial_commit(project_dir: str) -> None:
+    """Stage and commit the scaffolded TeaParty files.
+
+    Uses inline user identity so the operation does not require the caller's
+    global git config. Idempotent: nothing is committed if there is nothing
+    staged.
+    """
+    env_args = [
+        '-c', 'user.email=teaparty@localhost',
+        '-c', 'user.name=TeaParty',
+    ]
+    to_stage = ['.gitignore', '.teaparty/project']
+    for rel in to_stage:
+        full = os.path.join(project_dir, rel)
+        if os.path.exists(full):
+            subprocess.run(
+                ['git', 'add', '--', rel],
+                cwd=project_dir, check=True, capture_output=True,
+            )
+    status = subprocess.run(
+        ['git', 'diff', '--cached', '--name-only'],
+        cwd=project_dir, check=True, capture_output=True, text=True,
+    )
+    if not status.stdout.strip():
+        return
+    subprocess.run(
+        ['git', *env_args, 'commit', '-m', 'chore: add TeaParty project configuration'],
+        cwd=project_dir, check=True, capture_output=True,
+    )
+
+
 def _scaffold_project_yaml(
     name: str,
     project_dir: str,
     description: str = '',
-    lead: str = '',
     decider: str = '',
-    workgroups: list | None = None,
     config: str = '.teaparty/project/project.yaml',
 ) -> None:
-    """Create .teaparty/project/project.yaml with frontmatter if it doesn't exist."""
+    """Create .teaparty/project/project.yaml with frontmatter if it doesn't exist.
+
+    ``name`` must already be normalized. The lead is always ``{name}-lead``.
+    """
     tp_dir = project_teaparty_dir(project_dir)
     os.makedirs(tp_dir, exist_ok=True)
     project_yaml_path = os.path.join(tp_dir, 'project.yaml')
     if os.path.exists(project_yaml_path):
         return
-    humans_block = {'decider': decider} if decider else {}
     scaffold = {
         'name': name,
-        'description': description,
-        'lead': lead,
-        'humans': humans_block,
-        'workgroups': workgroups or [],
+        'description': description or DESCRIPTION_SENTINEL,
+        'lead': f'{name}-lead',
+        'humans': {'decider': decider} if decider else {},
+        'workgroups': ['Configuration'],
         'members': {'workgroups': []},
         'artifact_pins': [],
     }
@@ -1114,41 +1188,7 @@ def _check_allowed_project_roots(path: str, roots: list[str]) -> None:
     )
 
 
-def add_project(
-    name: str,
-    path: str,
-    teaparty_home: str | None = None,
-    description: str = '',
-    lead: str = '',
-    decider: str = '',
-    workgroups: list | None = None,
-    config: str = '.teaparty/project/project.yaml',
-) -> ManagementTeam:
-    """Add an existing directory as a TeaParty project.
-
-    Creates .teaparty/project/project.yaml with the provided frontmatter if
-    missing, and adds a projects: entry to external-projects.yaml.
-
-    Raises ValueError if the path does not exist or a project with this name
-    already exists.
-    """
-    path = os.path.expanduser(os.path.realpath(path))
-
-    if not os.path.isdir(path):
-        raise ValueError(f'Path does not exist or is not a directory: {path}')
-
-    # Check for duplicates across both tracked and external project lists
-    team = load_management_team(teaparty_home=teaparty_home)
-    _check_allowed_project_roots(path, team.allowed_project_roots)
-    for p in team.projects:
-        if p['name'] == name:
-            raise ValueError(f"Project '{name}' already exists")
-
-    # Ensure required directory structure exists
-    _ensure_project_dirs(path)
-
-    # External projects go in external-projects.yaml (gitignored)
-    home = os.path.expanduser(teaparty_home or default_teaparty_home())
+def _register_external_project(home: str, name: str, path: str, config: str) -> None:
     ext_path = external_projects_path(home)
     ext: list = []
     if os.path.isfile(ext_path):
@@ -1159,14 +1199,47 @@ def add_project(
     with open(ext_path, 'w') as f:
         yaml.dump(ext, f, default_flow_style=False, sort_keys=False)
 
+
+def add_project(
+    name: str,
+    path: str,
+    teaparty_home: str | None = None,
+    description: str = '',
+    decider: str = '',
+    config: str = '.teaparty/project/project.yaml',
+) -> ManagementTeam:
+    """Add an existing directory as a TeaParty project.
+
+    Performs the full onboarding sequence specified in
+    ``docs/detailed-design/project-onboarding.md``: name normalization,
+    directory scaffolding, ``project.yaml`` with description sentinel and
+    Configuration workgroup, ``.gitignore`` from template, registry entry,
+    and initial commit.
+
+    Raises ValueError if the path does not exist or a project with this name
+    already exists.
+    """
+    name = normalize_project_name(name)
+    path = os.path.expanduser(os.path.realpath(path))
+
+    if not os.path.isdir(path):
+        raise ValueError(f'Path does not exist or is not a directory: {path}')
+
+    team = load_management_team(teaparty_home=teaparty_home)
+    _check_allowed_project_roots(path, team.allowed_project_roots)
+    for p in team.projects:
+        if p['name'] == name:
+            raise ValueError(f"Project '{name}' already exists")
+
+    _ensure_project_dirs(path)
     _scaffold_project_yaml(
-        name, path,
-        description=description,
-        lead=lead,
-        decider=decider,
-        workgroups=workgroups,
-        config=config,
+        name, path, description=description, decider=decider, config=config,
     )
+    _write_project_gitignore(path)
+
+    home = os.path.expanduser(teaparty_home or default_teaparty_home())
+    _register_external_project(home, name, path, config)
+    _git_initial_commit(path)
 
     return load_management_team(teaparty_home=teaparty_home)
 
@@ -1176,61 +1249,38 @@ def create_project(
     path: str,
     teaparty_home: str | None = None,
     description: str = '',
-    lead: str = '',
     decider: str = '',
-    workgroups: list | None = None,
     config: str = '.teaparty/project/project.yaml',
 ) -> ManagementTeam:
     """Create a new project directory with full scaffolding.
 
-    Creates the directory, runs git init, creates .teaparty/project/ with
-    subdirectories and project.yaml, and adds a projects: entry to
-    external-projects.yaml.
-
-    Raises ValueError if the directory already exists or a project with
-    this name already exists.
+    Performs the full onboarding sequence specified in
+    ``docs/detailed-design/project-onboarding.md``. Raises ValueError if the
+    directory already exists or a project with this name is registered.
     """
+    name = normalize_project_name(name)
     path = os.path.expanduser(os.path.realpath(path))
 
     if os.path.exists(path):
         raise ValueError(f'Directory already exists: {path}')
 
-    # Check for duplicates across both tracked and external project lists
     team = load_management_team(teaparty_home=teaparty_home)
     _check_allowed_project_roots(path, team.allowed_project_roots)
     for p in team.projects:
         if p['name'] == name:
             raise ValueError(f"Project '{name}' already exists")
 
-    # Create directory structure
     os.makedirs(path)
-    subprocess.run(
-        ['git', 'init', path],
-        check=True,
-        capture_output=True,
-    )
+    subprocess.run(['git', 'init', path], check=True, capture_output=True)
     _ensure_project_dirs(path)
-
     _scaffold_project_yaml(
-        name, path,
-        description=description,
-        lead=lead,
-        decider=decider,
-        workgroups=workgroups,
-        config=config,
+        name, path, description=description, decider=decider, config=config,
     )
+    _write_project_gitignore(path)
 
-    # Register in external-projects.yaml
     home = os.path.expanduser(teaparty_home or default_teaparty_home())
-    ext_path = external_projects_path(home)
-    ext: list = []
-    if os.path.isfile(ext_path):
-        with open(ext_path) as f:
-            ext = yaml.safe_load(f) or []
-    ext.append({'name': name, 'path': path, 'config': config})
-    os.makedirs(os.path.dirname(ext_path), exist_ok=True)
-    with open(ext_path, 'w') as f:
-        yaml.dump(ext, f, default_flow_style=False, sort_keys=False)
+    _register_external_project(home, name, path, config)
+    _git_initial_commit(path)
 
     return load_management_team(teaparty_home=teaparty_home)
 
