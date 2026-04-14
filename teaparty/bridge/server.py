@@ -2170,12 +2170,24 @@ class TeaPartyBridge:
         except Exception:
             return web.json_response({'error': 'invalid JSON body'}, status=400)
 
-        action = body.get('action', '')
-        abs_path = body.get('path', '')
-        label = body.get('label', '') or os.path.basename(abs_path.rstrip('/\\'))
+        # Body: {"add": {"path": "...", "label": "..."}} or {"remove": {"path": "..."}}
+        if 'add' in body:
+            action = 'add'
+            add_data = body['add']
+            if not isinstance(add_data, dict):
+                return web.json_response({'error': 'add must be an object'}, status=400)
+            abs_path = add_data.get('path', '')
+            label = add_data.get('label', '') or os.path.basename(abs_path.rstrip('/\\'))
+        elif 'remove' in body:
+            action = 'remove'
+            remove_data = body['remove']
+            if not isinstance(remove_data, dict):
+                return web.json_response({'error': 'remove must be an object'}, status=400)
+            abs_path = remove_data.get('path', '')
+            label = ''
+        else:
+            return web.json_response({'error': 'body must have "add" or "remove" key'}, status=400)
 
-        if action not in ('add', 'remove'):
-            return web.json_response({'error': "action must be 'add' or 'remove'"}, status=400)
         if not abs_path:
             return web.json_response({'error': 'path is required'}, status=400)
 

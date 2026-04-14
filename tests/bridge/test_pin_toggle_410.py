@@ -229,7 +229,7 @@ class TestPinsPatchEndpoint(unittest.TestCase):
 
     The existing PATCH /api/artifacts/{project}/pins is a full-replace endpoint
     for project scope only. The new endpoint must support all scopes via query
-    params (?scope=&name=&project=) and accept {action: 'add'|'remove', path:, label:}.
+    params (?scope=&name=&project=) and accept {"add": {path, label}} or {"remove": {path}}.
     """
 
     def test_patch_api_pins_route_registered(self):
@@ -255,6 +255,20 @@ class TestPinsPatchEndpoint(unittest.TestCase):
         self.assertTrue(
             'add_pin' in src and 'remove_pin' in src,
             "server.py handler must call add_pin and remove_pin from config_reader"
+        )
+
+    def test_patch_handler_uses_discriminated_body_format(self):
+        """Handler must parse {add: {path, label}} or {remove: {path}} body format."""
+        src = _read(SERVER_PY)
+        # The handler must discriminate on 'add' and 'remove' keys in the body,
+        # not a generic 'action' field.
+        self.assertTrue(
+            "'add' in body" in src or '"add" in body' in src or "body['add']" in src or 'body["add"]' in src,
+            "Handler does not parse 'add' key from body — must use discriminated union format"
+        )
+        self.assertTrue(
+            "'remove' in body" in src or '"remove" in body' in src or "body['remove']" in src or 'body["remove"]' in src,
+            "Handler does not parse 'remove' key from body — must use discriminated union format"
         )
 
     def test_patch_handler_imports_add_remove_pin(self):
@@ -478,3 +492,27 @@ class TestPinSlotCss(unittest.TestCase):
         rule_body = pin_block.group(1)
         self.assertIn('width', rule_body,
             ".artifact-nav-pin must have an explicit width to prevent layout shift")
+
+    def test_unpinned_slot_has_no_pointer_cursor(self):
+        """The base pin slot (unpinned) must not show a pointer cursor.
+
+        The spec says there is no hover state on unpinned items. The pointer
+        cursor is an affordance; it must only appear on the .pinned variant.
+        """
+        src = _read(STYLES_CSS)
+        # Find the .artifact-nav-pin rule (without .pinned modifier)
+        pin_base = re.search(r'\.artifact-nav-pin\s*\{([^}]*)\}', src, re.DOTALL)
+        self.assertIsNotNone(pin_base, ".artifact-nav-pin rule not found")
+        base_body = pin_base.group(1)
+        self.assertNotIn('pointer', base_body,
+            ".artifact-nav-pin base rule must not have cursor:pointer — "
+            "spec requires no hover affordance on unpinned items"
+        )
+        # .pinned must have pointer
+        pinned_block = re.search(r'\.artifact-nav-pin\.pinned\s*\{([^}]*)\}', src, re.DOTALL)
+        self.assertIsNotNone(pinned_block,
+            ".artifact-nav-pin.pinned rule not found in styles.css")
+        pinned_body = pinned_block.group(1)
+        self.assertIn('pointer', pinned_body,
+            ".artifact-nav-pin.pinned must have cursor:pointer"
+        )

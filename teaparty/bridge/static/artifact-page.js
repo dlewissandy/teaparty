@@ -262,14 +262,13 @@
                  '&project=' + encodeURIComponent(project) +
                  (name ? '&name=' + encodeURIComponent(name) : '');
     try {
+      var patchBody = isPinned
+        ? {remove: {path: path}}
+        : {add: {path: path, label: label}};
       var resp = await fetch('/api/pins' + params, {
         method: 'PATCH',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          action: isPinned ? 'remove' : 'add',
-          path: path,
-          label: label,
-        }),
+        body: JSON.stringify(patchBody),
       });
       if (resp.ok) {
         await fetchPins();
