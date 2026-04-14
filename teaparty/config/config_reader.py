@@ -154,6 +154,43 @@ def resolve_pins(
     return result
 
 
+def add_pin(scope_dir: str, path_root: str, abs_path: str, label: str) -> None:
+    """Add abs_path to pins.yaml in scope_dir as a relative path.
+
+    Idempotent: if the path is already pinned, does nothing.
+
+    Args:
+        scope_dir:  Directory containing (or to contain) pins.yaml.
+        path_root:  Root for computing the relative path to store.
+        abs_path:   Absolute path of the file or directory to pin.
+        label:      Display label for the pin.
+    """
+    rel = os.path.relpath(abs_path, path_root)
+    pins = read_pins(scope_dir)
+    for existing in pins:
+        if existing.get('path') == rel:
+            return  # already pinned — idempotent
+    pins.append({'path': rel, 'label': label})
+    write_pins(scope_dir, pins)
+
+
+def remove_pin(scope_dir: str, path_root: str, abs_path: str) -> None:
+    """Remove abs_path from pins.yaml in scope_dir.
+
+    No-op if the path is not pinned or pins.yaml does not exist.
+
+    Args:
+        scope_dir:  Directory containing pins.yaml.
+        path_root:  Root for computing the relative path to match.
+        abs_path:   Absolute path of the file or directory to unpin.
+    """
+    rel = os.path.relpath(abs_path, path_root)
+    pins = read_pins(scope_dir)
+    updated = [p for p in pins if p.get('path') != rel]
+    if len(updated) != len(pins):
+        write_pins(scope_dir, updated)
+
+
 # ── Data classes ─────────────────────────────────────────────────────────────
 
 @dataclass

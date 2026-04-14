@@ -107,6 +107,7 @@
   var _chatInstance = null;
   var _sections = [];
   var _pinnedNodes = [];
+  var _pinnedPathSet = {};  // {abs_path: true} — rebuilt whenever _pinnedNodes changes
   var _selectedFile = null;
   var _fileContent = null;
   var _loadError = null;
@@ -222,16 +223,59 @@
 
   async function fetchPins() {
     var project = _config.projectSlug || '';
+    var scope = _config.pinScope || 'project';
+    var name = _config.pinName || '';
+    var url = '/api/pins?scope=' + encodeURIComponent(scope) +
+              '&project=' + encodeURIComponent(project) +
+              (name ? '&name=' + encodeURIComponent(name) : '');
     try {
-      var resp = await fetch('/api/artifacts/' + encodeURIComponent(project) + '/pins');
+      var resp = await fetch(url);
       if (!resp.ok) { _pinnedNodes = []; return; }
       var data = await resp.json();
       _pinnedNodes = data.map(function(p) {
         return {path: p.path, label: p.label, is_dir: p.is_dir, expanded: false, children: null};
       });
+      _rebuildPinnedPathSet();
     } catch(e) {
       _pinnedNodes = [];
+      _pinnedPathSet = {};
     }
+  }
+
+  function _rebuildPinnedPathSet() {
+    _pinnedPathSet = {};
+    (function collect(nodes) {
+      nodes.forEach(function(n) {
+        _pinnedPathSet[n.path] = true;
+        if (n.children) collect(n.children);
+      });
+    })(_pinnedNodes);
+  }
+
+  async function _togglePin(path) {
+    var project = _config.projectSlug || '';
+    var scope = _config.pinScope || 'project';
+    var name = _config.pinName || '';
+    var isPinned = !!_pinnedPathSet[path];
+    var label = path.split('/').pop() || path;
+    var params = '?scope=' + encodeURIComponent(scope) +
+                 '&project=' + encodeURIComponent(project) +
+                 (name ? '&name=' + encodeURIComponent(name) : '');
+    try {
+      var resp = await fetch('/api/pins' + params, {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          action: isPinned ? 'remove' : 'add',
+          path: path,
+          label: label,
+        }),
+      });
+      if (resp.ok) {
+        await fetchPins();
+        _render();
+      }
+    } catch(e) {}
   }
 
   async function toggleFolder(path) {
@@ -403,11 +447,14 @@
     var indent = (depth * 12) + 'px';
     nodes.forEach(function(node) {
       var escapedPath = node.path.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+      // Items in the pinned section are always pinned — always show the pin icon
+      var pinSlot = '<span class="artifact-nav-pin" title="Unpin" onclick="event.stopPropagation();ArtifactPage._togglePin(\'' + escapedPath + '\')">&#128204;</span>';
       if (node.is_dir) {
         var icon = node.expanded ? '&#9660;' : '&#9654;';
         html += '<div class="artifact-nav-folder" style="padding-left:calc(10px + ' + indent + ')" onclick="ArtifactPage._toggleFolder(\'' + escapedPath + '\')">' +
           '<span class="artifact-nav-folder-icon">' + icon + '</span>' +
           '<span class="artifact-nav-item-label">' + escHtml(node.label) + '</span>' +
+          pinSlot +
           '</div>';
         if (node.expanded && node.children && node.children.length > 0) {
           html += _renderPinnedNodes(node.children, depth + 1);
@@ -420,6 +467,7 @@
         html += '<div class="artifact-nav-item ' + (isActive ? 'active' : '') + '" style="padding-left:calc(16px + ' + indent + ')" onclick="ArtifactPage._loadFile(\'' + escapedPath + '\')">' +
           statusHtml +
           '<span class="artifact-nav-item-label">' + escHtml(node.label) + '</span>' +
+          pinSlot +
           '</div>';
       }
     });
@@ -549,13 +597,7 @@
 
     var navHtml = '<div class="artifact-nav">';
 
-    var pinnedPathSet = {};
-    (function collectPinned(nodes) {
-      nodes.forEach(function(n) {
-        pinnedPathSet[n.path] = true;
-        if (n.children) collectPinned(n.children);
-      });
-    })(_pinnedNodes);
+    var pinnedPathSet = _pinnedPathSet;
 
     function _isFileChanged(filepath) {
       if (_gitStatuses[filepath]) return true;
@@ -603,9 +645,12 @@
             if (_filterChanged && !_isDirChanged(node.path)) return;
           }
           var icon = node.expanded ? '&#9660;' : '&#9654;';
+          var dirIsPinned = !!pinnedPathSet[node.path];
+          var dirPinSlot = '<span class="artifact-nav-pin' + (dirIsPinned ? ' pinned' : '') + '" title="' + (dirIsPinned ? 'Unpin' : 'Pin') + '" onclick="event.stopPropagation();ArtifactPage._togglePin(\'' + escapedPath + '\')">' + (dirIsPinned ? '&#128204;' : '') + '</span>';
           html += '<div class="artifact-nav-folder" style="padding-left:calc(10px + ' + indent + ')" onclick="ArtifactPage._toggleFolder(\'' + escapedPath + '\')">' +
             '<span class="artifact-nav-folder-icon">' + icon + '</span>' +
             '<span class="artifact-nav-item-label">' + escHtml(node.label) + '</span>' +
+            dirPinSlot +
             '</div>';
           if (node.expanded && node.children && node.children.length > 0) {
             html += _renderFileTree(node.children, depth + 1);
@@ -615,9 +660,12 @@
           if (_filterChanged && !_isFileChanged(node.path)) return;
           var isActive = _selectedFile === node.path;
           var statusHtml = _gitStatusIndicator(node.path);
+          var fileIsPinned = !!pinnedPathSet[node.path];
+          var filePinSlot = '<span class="artifact-nav-pin' + (fileIsPinned ? ' pinned' : '') + '" title="' + (fileIsPinned ? 'Unpin' : 'Pin') + '" onclick="event.stopPropagation();ArtifactPage._togglePin(\'' + escapedPath + '\')">' + (fileIsPinned ? '&#128204;' : '') + '</span>';
           html += '<div class="artifact-nav-item ' + (isActive ? 'active' : '') + '" style="padding-left:calc(16px + ' + indent + ')" onclick="ArtifactPage._loadFile(\'' + escapedPath + '\')">' +
             statusHtml +
             '<span class="artifact-nav-item-label">' + escHtml(node.label) + '</span>' +
+            filePinSlot +
             '</div>';
         }
       });
@@ -954,6 +1002,7 @@
     _loadFile: loadFile,
     _closeFile: _closeFile,
     _toggleFolder: toggleFolder,
+    _togglePin: _togglePin,
     _refresh: _refresh,
     _copyFileContent: _copyFileContent,
     _toggleFilter: _toggleFilter,
