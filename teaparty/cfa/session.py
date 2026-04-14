@@ -179,6 +179,7 @@ class Session:
         skip_learning_retrieval: bool = False,
         humans: list | None = None,
         human_presence: HumanPresence | None = None,
+        llm_caller: Any = None,
     ):
         self.task = task
         self.poc_root = poc_root
@@ -205,6 +206,7 @@ class Session:
         self.skip_learning_retrieval = skip_learning_retrieval
         self._role_enforcer = RoleEnforcer.from_humans(humans) if humans else None
         self.human_presence = human_presence
+        self._llm_caller = llm_caller
 
         # Resolved during run
         self.project_slug = ''
@@ -373,7 +375,10 @@ class Session:
         # communication (Issue #200).  Falls back to the original input_provider
         # if the bus provider is unavailable (e.g., no-human mode).
         proxy_model_path = os.path.join(self.poc_root, '.teaparty', 'management', 'agents', 'proxy-review', '.proxy-confidence.json')
-        effective_input = self._bus_input_provider or self.input_provider
+        # An explicitly-set input_provider (e.g. in tests) takes precedence over
+        # the message-bus provider.  In production the input_provider is None and
+        # the bus provider handles all gate interactions.
+        effective_input = self.input_provider or self._bus_input_provider
 
         # Create intervention queue for human INTERVENE delivery (Issue #246).
         self._intervention_queue = InterventionQueue(
@@ -409,6 +414,7 @@ class Session:
             cost_tracker=self._resolve_cost_tracker(project_dir),
             intervention_queue=self._intervention_queue,
             llm_backend=os.environ.get('TEAPARTY_LLM_BACKEND', 'claude'),
+            llm_caller=self._llm_caller,
         )
 
         result = await orchestrator.run()

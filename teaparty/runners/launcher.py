@@ -685,6 +685,16 @@ async def _default_claude_caller(**kwargs) -> ClaudeResult:
     return await runner.run()
 
 
+async def _default_ollama_caller(**kwargs) -> ClaudeResult:
+    """llm_caller: runs OllamaRunner on the given parameters."""
+    from teaparty.runners.ollama import OllamaRunner
+    _sanitize_caller_kwargs(kwargs)
+    kwargs.pop('agent_name', None)
+    message = kwargs.pop('message')
+    runner = OllamaRunner(message, **kwargs)
+    return await runner.run()
+
+
 def _sanitize_caller_kwargs(kwargs: dict) -> dict:
     """Strip chat-tier-only kwargs that scripted/legacy callers don't accept.
 

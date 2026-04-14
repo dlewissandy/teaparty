@@ -240,6 +240,7 @@ class Orchestrator:
         gate_queue: GateQueue | None = None,
         cost_tracker: CostTracker | None = None,
         llm_backend: str = 'claude',
+        llm_caller: Any = None,
     ):
         self.cfa = cfa_state
         self.config = phase_config
@@ -304,6 +305,7 @@ class Orchestrator:
             stall_timeout=phase_config.stall_timeout,
             llm_backend=llm_backend,
             on_stream_event=_on_stream_event,
+            llm_caller=llm_caller,
         )
         self._approval_gate = ApprovalGate(
             proxy_model_path=proxy_model_path,
@@ -1177,6 +1179,7 @@ class Orchestrator:
                     _log.info('Suppressing backtrack to intent (suppress_backtracks=True)')
                 else:
                     self.skip_intent = False
+                    self.execute_only = False  # must re-plan after backtracking to intent
                     continue
             if result.backtrack_to == 'planning':
                 self._record_dead_end('execution', 'backtracked to planning', result.backtrack_feedback)
@@ -1185,6 +1188,7 @@ class Orchestrator:
                     _log.info('Suppressing backtrack to planning (suppress_backtracks=True)')
                 else:
                     self.skip_intent = True
+                    self.execute_only = False  # must re-plan; no valid plan after backtrack
                     continue
             if result.infrastructure_failure:
                 if result.failure_reason == 'api_overloaded':

@@ -102,10 +102,12 @@ class AgentRunner:
     """Invokes Claude CLI as a subprocess, streams output."""
 
     def __init__(self, stall_timeout: int = 1800, llm_backend: str = 'claude',
-                 on_stream_event: Callable[[dict], None] | None = None):
+                 on_stream_event: Callable[[dict], None] | None = None,
+                 llm_caller: Callable | None = None):
         self.stall_timeout = stall_timeout
         self.llm_backend = llm_backend
         self.on_stream_event = on_stream_event
+        self._llm_caller = llm_caller  # explicit injection; overrides llm_backend when set
 
     async def run(self, ctx: ActorContext) -> ActorResult:
         """Run a Claude agent turn and interpret the result."""
@@ -174,7 +176,13 @@ class AgentRunner:
                 'handler': jail_hook,
             })
 
-        from teaparty.runners.launcher import launch
+        from teaparty.runners.launcher import launch, _default_ollama_caller
+        _caller: Callable | None = self._llm_caller
+        if _caller is None and self.llm_backend == 'ollama':
+            _caller = _default_ollama_caller
+        launch_kwargs: dict = {}
+        if _caller is not None:
+            launch_kwargs['llm_caller'] = _caller
         result = await launch(
             agent_name=ctx.phase_spec.lead,
             message=prompt,
@@ -200,6 +208,7 @@ class AgentRunner:
             stream_file=os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file),
             env_vars=ctx.env_vars,
             permission_mode_override=ctx.phase_spec.permission_mode,
+            **launch_kwargs,
         )
 
         if result.stall_killed:
@@ -259,8 +268,6 @@ class AgentRunner:
                 'state': ctx.state,
                 'action': actor_result.action,
                 'artifact_path': actor_result.data.get('artifact_path', ''),
-                'artifact_missing': actor_result.data.get('artifact_missing', False),
-                'artifact_expected': actor_result.data.get('artifact_expected', ''),
             },
             session_id=ctx.session_id,
         ))
@@ -285,18 +292,29 @@ class AgentRunner:
                 action = self._resolve_action(ctx.state, 'assert')
                 return ActorResult(action=action, data=data)
 
-            # Artifact was expected but not produced — escalate to approval gate.
-            # Auto-approve here would bypass the gate entirely; instead, assert
-            # into the approval state so the human proxy can decide whether to
-            # correct (ask the agent to retry), withdraw, or approve anyway.
-            data['artifact_missing'] = True
-            data['artifact_expected'] = ctx.phase_spec.artifact
-            action = self._resolve_action(ctx.state, 'assert')
+            # Artifact not produced — pick the safest loop-back action.
+            # The ASSERT gate must never be entered without the artifact.
+            action = self._no_artifact_action_for_state(ctx.state)
             return ActorResult(action=action, data=data)
 
         # No artifact configured — agent produced output, advance normally
         action = self._resolve_action(ctx.state, 'auto-approve')
         return ActorResult(action=action, data=data)
+
+    @staticmethod
+    def _no_artifact_action_for_state(state: str) -> str:
+        """Return the action to take when the expected artifact was not produced.
+
+        Prefers 'question' (loops through human input before the agent retries),
+        then 'escalate', then 'backtrack' — whichever is valid from the current
+        state.  Never returns 'assert', which requires the artifact to exist.
+        """
+        edges = TRANSITIONS.get(state, [])
+        valid = {a for a, _, _ in edges}
+        for candidate in ('question', 'escalate', 'backtrack'):
+            if candidate in valid:
+                return candidate
+        return edges[0][0] if edges else 'question'
 
     @staticmethod
     def _resolve_action(state: str, tentative: str) -> str:
@@ -572,25 +590,9 @@ class ApprovalGate:
         to the actual human (if not).  The approval gate does not know or
         care which source produced the text.
         """
-        artifact_path = ctx.data.get('artifact_path', '') or ctx.data.get('artifact_expected', '')
-        artifact_missing = ctx.data.get('artifact_missing', False)
+        artifact_path = ctx.data.get('artifact_path', '')
         project_slug = ctx.env_vars.get('POC_PROJECT', 'default')
         team = ctx.env_vars.get('POC_TEAM', '')
-
-        # Socratic querying: at INTENT_ASSERT with no artifact yet, the agent is
-        # still gathering information through conversation.  Skip the proxy gate
-        # entirely — just wait for the human's next message and feed it back as a
-        # correction so the agent can iterate with more context.  The state machine's
-        # INTENT_ASSERT → correct → INTENT_RESPONSE → INTENT_RUN loop provides the
-        # iteration automatically.
-        if artifact_missing and ctx.state == 'INTENT_ASSERT':
-            request = InputRequest(
-                type='input',
-                state=ctx.state,
-                bridge_text='',  # agent's questions are already visible in the conversation
-            )
-            human_reply = await self.input_provider(request)
-            return ActorResult(action='correct', feedback=human_reply.strip())
 
         # Telemetry: gate_opened (Issue #405)
         try:
@@ -617,7 +619,6 @@ class ApprovalGate:
                 ctx=ctx,
                 question=gate_question,
                 artifact_path=artifact_path,
-                artifact_missing=artifact_missing,
                 project_slug=project_slug,
                 team=team,
                 dialog_history=dialog_history,
@@ -756,7 +757,6 @@ class ApprovalGate:
         self, ctx: ActorContext, question: str, artifact_path: str,
         project_slug: str, team: str, dialog_history: str,
         bridge_override: str = '',
-        artifact_missing: bool = False,
     ) -> tuple[str, bool]:
         """Ask the human through the proxy.  Returns (response_text, from_proxy).
 
@@ -784,14 +784,13 @@ class ApprovalGate:
                 self.gate_queue.dequeue()
             return await self._ask_human_through_proxy_inner(
                 ctx, question, artifact_path, project_slug, team,
-                dialog_history, bridge_override, artifact_missing,
+                dialog_history, bridge_override,
             )
 
     async def _ask_human_through_proxy_inner(
         self, ctx: ActorContext, question: str, artifact_path: str,
         project_slug: str, team: str, dialog_history: str,
         bridge_override: str = '',
-        artifact_missing: bool = False,
     ) -> tuple[str, bool]:
         """Inner implementation of _ask_human_through_proxy (runs under _gate_lock)."""
         from teaparty.proxy.agent import (
@@ -822,7 +821,6 @@ class ApprovalGate:
             # Human is present — ask them directly, record observation
             bridge_text = bridge_override or self._generate_bridge(
                 artifact_path, ctx.state, ctx.task,
-                artifact_missing=artifact_missing,
                 session_worktree=ctx.session_worktree, infra_dir=ctx.infra_dir,
             )
             await ctx.event_bus.publish(Event(
@@ -885,7 +883,6 @@ class ApprovalGate:
         # question), show that instead of the generic gate question.
         bridge_text = bridge_override or self._generate_bridge(
             artifact_path, ctx.state, ctx.task,
-            artifact_missing=artifact_missing,
             session_worktree=ctx.session_worktree, infra_dir=ctx.infra_dir,
         )
         await ctx.event_bus.publish(Event(
@@ -1113,7 +1110,6 @@ class ApprovalGate:
 
     def _generate_bridge(
         self, artifact_path: str, state: str, task: str,
-        artifact_missing: bool = False,
         session_worktree: str = '', infra_dir: str = '',
     ) -> str:
         """Generate alignment validation bridge for review.
@@ -1121,19 +1117,6 @@ class ApprovalGate:
         Reads upstream context files (INTENT.md, PLAN.md) so the reviewer
         can compare the artifact under review against its source of truth.
         """
-        if artifact_missing:
-            expected_note = (
-                f' (expected path: {artifact_path})'
-                if artifact_path
-                else ''
-            )
-            return (
-                f'The agent did not produce the expected artifact at {state}{expected_note}. '
-                'You can:\n'
-                '  correct — ask the agent to produce the artifact\n'
-                '  withdraw — abandon this session\n'
-                '  approve — advance without the artifact (not recommended)'
-            )
         if not artifact_path or not os.path.exists(artifact_path):
             return f'Ready for review at {state}.'
 
