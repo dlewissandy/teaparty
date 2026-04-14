@@ -14,6 +14,8 @@ import unittest
 import yaml
 
 from teaparty.config.config_reader import (
+    add_pin,
+    remove_pin,
     Human,
     ManagementTeam,
     MergedCatalog,
@@ -44,6 +46,7 @@ from teaparty.config.config_reader import (
     remove_project,
     resolve_budget,
     resolve_norms,
+    resolve_pins,
     resolve_workgroups,
     write_pins,
 )
@@ -390,6 +393,50 @@ class TestPins(unittest.TestCase):
         self.assertEqual(len(loaded), 1)
         self.assertEqual(loaded[0]['path'], '/foo/bar.md')
         self.assertEqual(loaded[0]['label'], 'Design doc')
+
+    def test_resolve_pins_prunes_stale_entries(self):
+        """resolve_pins removes pins for paths that no longer exist on disk."""
+        tmp = _make_tmp(self)
+        root = os.path.join(tmp, 'project')
+        os.makedirs(root)
+        real_file = os.path.join(root, 'exists.md')
+        with open(real_file, 'w') as f:
+            f.write('content')
+        write_pins(tmp, [
+            {'path': 'exists.md', 'label': 'Live'},
+            {'path': 'gone.md', 'label': 'Deleted'},
+        ])
+        result = resolve_pins(tmp, root)
+        self.assertEqual(len(result), 1, "Stale pin for gone.md must be pruned")
+        self.assertEqual(result[0]['label'], 'Live')
+        # Verify pins.yaml was updated too
+        remaining = read_pins(tmp)
+        self.assertEqual(len(remaining), 1)
+        self.assertEqual(remaining[0]['path'], 'exists.md')
+
+    def test_remove_pin_normalizes_trailing_slash(self):
+        """remove_pin must match stored 'docs/' against computed 'docs' (no slash)."""
+        tmp = _make_tmp(self)
+        root = os.path.join(tmp, 'project')
+        docs_dir = os.path.join(root, 'docs')
+        os.makedirs(docs_dir)
+        # Store with trailing slash (as agent-written pins do)
+        write_pins(tmp, [{'path': 'docs/', 'label': 'Docs'}])
+        remove_pin(tmp, root, docs_dir)
+        self.assertEqual(read_pins(tmp), [],
+            "remove_pin must remove a pin stored as 'docs/' when given abs path to 'docs'")
+
+    def test_add_pin_idempotent_with_trailing_slash(self):
+        """add_pin must not duplicate a pin stored as 'docs/' when adding 'docs' (no slash)."""
+        tmp = _make_tmp(self)
+        root = os.path.join(tmp, 'project')
+        docs_dir = os.path.join(root, 'docs')
+        os.makedirs(docs_dir)
+        # Pre-existing pin with trailing slash
+        write_pins(tmp, [{'path': 'docs/', 'label': 'Docs'}])
+        add_pin(tmp, root, docs_dir, 'Docs')
+        self.assertEqual(len(read_pins(tmp)), 1,
+            "add_pin must not create a duplicate when pin already stored as 'docs/'")
 
 
 class TestDiscovery(unittest.TestCase):

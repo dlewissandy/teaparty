@@ -141,16 +141,23 @@ def resolve_pins(
     """
     raw = read_pins(scope_dir)
     result = []
+    stale: list[dict] = []
     for pin in raw:
         rel = pin.get('path', '')
         label = pin.get('label') or os.path.basename(rel.rstrip('/\\')) or rel
         abs_path = os.path.normpath(os.path.join(path_root, rel))
+        if not os.path.exists(abs_path):
+            stale.append(pin)
+            continue
         result.append({
             'path': abs_path,
             'rel_path': rel,
             'label': label,
             'is_dir': os.path.isdir(abs_path),
         })
+    if stale:
+        # Prune stale entries from pins.yaml so they don't accumulate
+        write_pins(scope_dir, [p for p in raw if p not in stale])
     return result
 
 
@@ -168,7 +175,8 @@ def add_pin(scope_dir: str, path_root: str, abs_path: str, label: str) -> None:
     rel = os.path.relpath(abs_path, path_root)
     pins = read_pins(scope_dir)
     for existing in pins:
-        if existing.get('path') == rel:
+        # Normalize trailing slashes: agent-written paths may use 'docs/'
+        if existing.get('path', '').rstrip('/') == rel.rstrip('/'):
             return  # already pinned — idempotent
     pins.append({'path': rel, 'label': label})
     write_pins(scope_dir, pins)
@@ -186,7 +194,9 @@ def remove_pin(scope_dir: str, path_root: str, abs_path: str) -> None:
     """
     rel = os.path.relpath(abs_path, path_root)
     pins = read_pins(scope_dir)
-    updated = [p for p in pins if p.get('path') != rel]
+    # Normalize trailing slashes: agent-written paths may use 'docs/' while
+    # os.path.relpath always returns 'docs'. Match both forms.
+    updated = [p for p in pins if p.get('path', '').rstrip('/') != rel.rstrip('/')]
     if len(updated) != len(pins):
         write_pins(scope_dir, updated)
 
