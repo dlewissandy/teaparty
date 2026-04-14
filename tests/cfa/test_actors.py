@@ -94,7 +94,11 @@ def _run(coro):
 # ── AgentRunner._interpret_output ─────────────────────────────────────────────
 
 class TestInterpretOutputMissingArtifact(unittest.TestCase):
-    """Missing artifact must route to the approval gate, not auto-approve."""
+    """When expected artifact is absent, _interpret_output must never use 'assert'.
+
+    The ASSERT gate invariant: it is only entered when the artifact exists.
+    Missing artifact → loop back through human input so the agent can retry.
+    """
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
@@ -108,44 +112,25 @@ class TestInterpretOutputMissingArtifact(unittest.TestCase):
         spec = _make_phase_spec(artifact=artifact)
         return _make_ctx(state=state, session_worktree=self.tmpdir, infra_dir=self.tmpdir, phase_spec=spec)
 
-    def test_missing_artifact_uses_assert_not_auto_approve(self):
-        """When INTENT.md is expected but absent, action must be 'assert', not 'auto-approve'."""
+    def test_missing_artifact_never_asserts(self):
+        """Absent artifact must not route 'assert' — gate invariant requires artifact present."""
         ctx = self._make_ctx_in_tmpdir()
-        result_obj = _make_claude_result()
+        result = self.runner._interpret_output(ctx, _make_claude_result())
+        self.assertNotEqual(result.action, 'assert',
+                            "Missing artifact must never route to the ASSERT gate")
 
-        result = self.runner._interpret_output(ctx, result_obj)
-
-        # 'assert' routes to INTENT_ASSERT (the approval gate state)
-        # 'auto-approve' would skip the gate and go straight to INTENT
-        self.assertEqual(result.action, 'assert',
-                         "Missing artifact must trigger 'assert', not 'auto-approve'")
-
-    def test_missing_artifact_sets_artifact_missing_flag(self):
-        """data['artifact_missing'] must be True when the artifact is absent."""
-        ctx = self._make_ctx_in_tmpdir()
-        result_obj = _make_claude_result()
-
-        result = self.runner._interpret_output(ctx, result_obj)
-
-        self.assertTrue(result.data.get('artifact_missing'),
-                        "data['artifact_missing'] must be True")
-
-    def test_missing_artifact_records_expected_filename(self):
-        """data['artifact_expected'] must name the artifact that was not found."""
-        ctx = self._make_ctx_in_tmpdir(artifact='PLAN.md')
-        result_obj = _make_claude_result()
-
-        result = self.runner._interpret_output(ctx, result_obj)
-
-        self.assertEqual(result.data.get('artifact_expected'), 'PLAN.md')
+    def test_missing_artifact_routes_question_from_proposal(self):
+        """From PROPOSAL, missing artifact uses 'question' to loop back through human."""
+        ctx = self._make_ctx_in_tmpdir(state='PROPOSAL')
+        result = self.runner._interpret_output(ctx, _make_claude_result())
+        self.assertEqual(result.action, 'question')
+        self.assertNotIn('artifact_missing', result.data)
+        self.assertNotIn('artifact_expected', result.data)
 
     def test_missing_artifact_no_artifact_path_in_data(self):
         """artifact_path must not be set when the file does not exist."""
         ctx = self._make_ctx_in_tmpdir()
-        result_obj = _make_claude_result()
-
-        result = self.runner._interpret_output(ctx, result_obj)
-
+        result = self.runner._interpret_output(ctx, _make_claude_result())
         self.assertNotIn('artifact_path', result.data)
 
     def test_present_artifact_uses_assert_with_path(self):
@@ -171,123 +156,10 @@ class TestInterpretOutputMissingArtifact(unittest.TestCase):
         self.assertNotIn('artifact_missing', result.data)
 
 
-class TestInterpretOutputMissingArtifactPlanAssert(unittest.TestCase):
-    """Verify the bug is fixed for PLAN_ASSERT state (planning phase)."""
+# ── ApprovalGate._generate_bridge ────────────────────────────────────────────
 
-    def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-        self.runner = AgentRunner()
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
-
-    def test_plan_assert_missing_artifact_does_not_auto_approve(self):
-        """In DRAFT state with missing PLAN.md, must not auto-approve."""
-        spec = PhaseSpec(
-            name='planning',
-            agent_file='agents/uber-team.json',
-            lead='project-lead',
-            permission_mode='plan',
-            stream_file='.plan-stream.jsonl',
-            artifact='PLAN.md',
-            approval_state='PLAN_ASSERT',
-            settings_overlay={},
-        )
-        ctx = _make_ctx(state='DRAFT', session_worktree=self.tmpdir, infra_dir=self.tmpdir, phase_spec=spec)
-
-        result = self.runner._interpret_output(ctx, _make_claude_result())
-
-        self.assertNotEqual(result.action, 'auto-approve',
-                            "Missing PLAN.md must not auto-approve from DRAFT")
-        self.assertTrue(result.data.get('artifact_missing'))
-
-
-# ── ApprovalGate — missing artifact always escalates ─────────────────────────
-
-class TestApprovalGateMissingArtifact(unittest.TestCase):
-    """ApprovalGate must always escalate to the human when artifact_missing=True."""
-
-    def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-        self._input_calls: list[Any] = []
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
-
-    def _make_gate(self, human_response: str = 'correct') -> ApprovalGate:
-        async def _input_provider(req):
-            self._input_calls.append(req)
-            return human_response
-
-        return ApprovalGate(
-            proxy_model_path=os.path.join(self.tmpdir, '.proxy.json'),
-            input_provider=_input_provider,
-            poc_root=self.tmpdir,
-        )
-
-    def _make_approval_ctx(self, state: str = 'INTENT_ASSERT') -> ActorContext:
-        ctx = _make_ctx(state=state, session_worktree=self.tmpdir, infra_dir=self.tmpdir)
-        ctx.data = {
-            'artifact_missing': True,
-            'artifact_expected': 'INTENT.md',
-        }
-        return ctx
-
-    def test_missing_artifact_always_escalates_to_human(self):
-        """When artifact is missing the proxy escalates and human is asked."""
-        gate = self._make_gate(human_response='correct')
-        ctx = self._make_approval_ctx('INTENT_ASSERT')
-
-        # Proxy returns low confidence (escalate path) — human must be asked.
-        with patch('teaparty.proxy.agent.consult_proxy',
-                   new=AsyncMock(return_value=ProxyResult(text='', confidence=0.0, from_agent=False))), \
-             patch.object(gate, '_classify_review', return_value=('correct', 'Please produce INTENT.md')):
-            _run(gate.run(ctx))
-
-        # Human input was requested
-        self.assertEqual(len(self._input_calls), 1)
-
-    def test_missing_artifact_still_goes_through_proxy(self):
-        """Missing artifact is handled by the proxy agent, not a special case."""
-        gate = self._make_gate(human_response='correct')
-        ctx = self._make_approval_ctx('INTENT_ASSERT')
-
-        # Proxy is consulted even when artifact is missing — the agent will
-        # see the missing file and respond appropriately.
-        with patch('teaparty.proxy.agent.consult_proxy',
-                   new=AsyncMock(return_value=ProxyResult(text='', confidence=0.0, from_agent=False))) as mock_cp, \
-             patch.object(gate, '_classify_review', return_value=('correct', '')):
-            _run(gate.run(ctx))
-
-        mock_cp.assert_called_once()
-
-    def test_present_artifact_still_consults_proxy(self):
-        """Normal flow (artifact present) still consults proxy model."""
-        gate = self._make_gate(human_response='approve')
-        ctx = _make_ctx(state='INTENT_ASSERT', session_worktree=self.tmpdir, infra_dir=self.tmpdir)
-
-        # Write the artifact
-        artifact_path = os.path.join(self.tmpdir, 'INTENT.md')
-        Path(artifact_path).write_text('# Intent\nBuild something')
-        ctx.data = {'artifact_path': artifact_path}
-
-        # Proxy returns high confidence — agent text is used directly.
-        mock_consult = AsyncMock(return_value=ProxyResult(text='Approved.', confidence=0.95, from_agent=True))
-        with patch('teaparty.proxy.agent.consult_proxy', new=mock_consult), \
-             patch.object(gate, '_classify_review', return_value=('approve', '')), \
-             patch.object(gate, '_proxy_record'):
-            result = _run(gate.run(ctx))
-
-        mock_consult.assert_called_once()
-        self.assertEqual(result.action, 'approve')
-
-
-# ── ApprovalGate._generate_bridge — missing artifact message ─────────────────
-
-class TestGenerateBridgeMissingArtifact(unittest.TestCase):
-    """_generate_bridge must return a useful message when artifact_missing=True."""
+class TestGenerateBridge(unittest.TestCase):
+    """_generate_bridge must return appropriate text for the review context."""
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
@@ -303,13 +175,6 @@ class TestGenerateBridgeMissingArtifact(unittest.TestCase):
             poc_root=self.tmpdir,
         )
 
-    def test_missing_artifact_returns_descriptive_message(self):
-        gate = self._make_gate()
-        text = gate._generate_bridge('', 'INTENT_ASSERT', 'some task', artifact_missing=True)
-        self.assertIn('artifact', text.lower())
-        # Must not be the generic fallback
-        self.assertNotEqual(text, 'Ready for review at INTENT_ASSERT.')
-
     def test_present_artifact_uses_canonical_gate_question(self):
         """_generate_bridge with a known assert state returns the canonical question."""
         gate = self._make_gate()
@@ -321,7 +186,7 @@ class TestGenerateBridgeMissingArtifact(unittest.TestCase):
         self.assertEqual(text, 'Do you recognize this as your idea, completely and accurately articulated?')
 
     def test_no_artifact_path_returns_generic_fallback(self):
-        """When artifact_missing is not set and no path given, generic message returned."""
+        """When no artifact path is given, a generic fallback message is returned."""
         gate = self._make_gate()
         text = gate._generate_bridge('', 'INTENT_ASSERT', 'task')
         self.assertEqual(text, 'Ready for review at INTENT_ASSERT.')
@@ -398,20 +263,19 @@ class TestInterpretOutputPlanningPhaseRouting(unittest.TestCase):
         self.assertIn('artifact_path', result.data)
         self.assertNotIn('artifact_missing', result.data)
 
-    def test_planning_missing_artifact_goes_to_assert_not_auto_approve(self):
-        """When PLAN.md is absent, must assert (not auto-approve), so human can review."""
+    def test_planning_missing_artifact_never_asserts(self):
+        """When PLAN.md is absent, must not assert (gate requires artifact) and not auto-approve."""
         spec = self._make_planning_spec()
-        infra_dir = tempfile.mkdtemp()
-        ctx = _make_ctx(state='DRAFT', session_worktree=self.tmpdir, infra_dir=infra_dir, phase_spec=spec)
-        # PLAN.md deliberately not written in infra_dir
+        ctx = _make_ctx(state='DRAFT', session_worktree=self.tmpdir, infra_dir=self.tmpdir, phase_spec=spec)
+        # PLAN.md deliberately not written
 
         result = self.runner._interpret_output(ctx, _make_claude_result())
 
         self.assertNotEqual(result.action, 'auto-approve',
                             "Missing PLAN.md must never auto-approve — that bypasses PLAN_ASSERT")
-        self.assertEqual(result.action, 'assert')
-        self.assertTrue(result.data.get('artifact_missing'))
-        self.assertEqual(result.data.get('artifact_expected'), 'PLAN.md')
+        self.assertNotEqual(result.action, 'assert',
+                            "Missing PLAN.md must never assert — gate invariant requires artifact")
+        self.assertNotIn('artifact_missing', result.data)
 
     def test_intent_phase_present_artifact_still_goes_to_assert(self):
         """Intent phase is unaffected — present INTENT.md still routes to assert."""
@@ -975,9 +839,8 @@ class TestInterpretOutputExecutionArtifact(unittest.TestCase):
         self.assertEqual(result.action, 'assert')
         self.assertIn('WORK_SUMMARY.md', result.data.get('artifact_path', ''))
 
-    def test_work_summary_missing_still_routes_to_assert(self):
-        """If WORK_SUMMARY.md is expected but missing, still route to assert
-        with artifact_missing=True so the gate can handle it."""
+    def test_work_summary_missing_never_asserts(self):
+        """If WORK_SUMMARY.md is expected but missing, must not assert — gate requires artifact."""
         spec = self._make_execution_spec()
         ctx = _make_ctx(
             state='WORK_IN_PROGRESS',
@@ -987,8 +850,9 @@ class TestInterpretOutputExecutionArtifact(unittest.TestCase):
 
         result = self.runner._interpret_output(ctx, _make_claude_result())
 
-        self.assertEqual(result.action, 'assert')
-        self.assertTrue(result.data.get('artifact_missing'))
+        self.assertNotEqual(result.action, 'assert',
+                            "Missing artifact must never assert — gate invariant requires artifact")
+        self.assertNotIn('artifact_missing', result.data)
 
 
 class TestRelocateMisplacedArtifact(unittest.TestCase):

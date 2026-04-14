@@ -4,7 +4,12 @@ description: "TeaParty project lead. Receives work from the Office Manager, brea
   \ it down for workgroup leads, and reports back up. Use for any task scoped to the\
   \ TeaParty project \u2014 dispatch to Coding, Configuration, or other registered\
   \ workgroups."
-tools: Read, Grep, Glob, Bash, mcp__teaparty-config__ProjectStatus, mcp__teaparty-config__Send
+tools: Read, Grep, Glob, Bash, mcp__teaparty-config__ProjectStatus, mcp__teaparty-config__Send,
+  mcp__teaparty-config__UnpinArtifact, mcp__teaparty-config__WithdrawSession, mcp__teaparty-config__PinArtifact,
+  mcp__teaparty-config__ListWorkgroups, mcp__teaparty-config__ListTeamMembers, mcp__teaparty-config__ListSkills,
+  mcp__teaparty-config__ListScheduledTasks, mcp__teaparty-config__ListProjects, mcp__teaparty-config__ListPins,
+  mcp__teaparty-config__ListHooks, mcp__teaparty-config__ListAgents, mcp__teaparty-config__GetWorkgroup,
+  mcp__teaparty-config__GetSkill, mcp__teaparty-config__GetProject, mcp__teaparty-config__GetAgent
 model: sonnet
 maxTurns: 30
 ---

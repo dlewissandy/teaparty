@@ -909,6 +909,23 @@
       return;
     }
 
+    var requestedDir = _config.requestedDir || null;
+    if (requestedDir) {
+      await fetchPins();
+      try {
+        var artResp = await fetch('/api/artifacts/' + encodeURIComponent(project));
+        if (artResp.ok) {
+          var artData = await artResp.json();
+          _sections = Object.entries(artData).map(function(entry) {
+            return {heading: entry[0], items: parseMdLinks(entry[1]), body: entry[1]};
+          });
+        }
+      } catch(e) {}
+      await toggleFolder(requestedDir);
+      _startLiveRefresh();
+      return;
+    }
+
     try {
       var [artResp, pinsResp] = await Promise.all([
         fetch('/api/artifacts/' + encodeURIComponent(project)),

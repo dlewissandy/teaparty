@@ -39,6 +39,7 @@ from teaparty.config.config_reader import (
     discover_projects,
     discover_agents,
     discover_skills,
+    discover_workgroups,
     discover_hooks,
     merge_catalog,
     load_management_workgroups,
@@ -1060,6 +1061,7 @@ class TeaPartyBridge:
 
         members_workgroups_lower = {m.lower() for m in team.members_workgroups}
         workgroups = []
+        seen_workgroup_names_lower: set[str] = set()
         for entry in team.workgroups:
             source = 'shared' if isinstance(entry, WorkgroupRef) else 'local'
             try:
@@ -1089,8 +1091,24 @@ class TeaPartyBridge:
                             active=workgroup_active,
                         )
                     )
+                    seen_workgroup_names_lower.add(w.name.lower())
             except FileNotFoundError:
                 _log.warning('Workgroup not found, skipping: %s', entry)
+
+        # Append management catalog workgroups not yet referenced by this project,
+        # so the UI can show the full catalog with toggles (same pattern as agents/skills).
+        org_wg_dir = management_workgroups_dir(self.teaparty_home)
+        for wg_name in discover_workgroups(org_wg_dir):
+            if wg_name.lower() in seen_workgroup_names_lower:
+                continue
+            org_wg_path = os.path.join(org_wg_dir, f'{wg_name}.yaml')
+            try:
+                org_wg = load_workgroup(org_wg_path)
+                workgroups.append(
+                    self._serialize_workgroup(org_wg, source='shared', active=False)
+                )
+            except Exception:
+                _log.warning('Could not load org workgroup: %s', wg_name)
 
         return web.json_response({
             'project': slug,
@@ -1156,7 +1174,10 @@ class TeaPartyBridge:
                 + discover_skills(management_skills_dir(self.teaparty_home))
             )
         try:
-            toggle_project_membership(project_dir, kind, name, active, catalog=catalog)
+            toggle_project_membership(
+                project_dir, kind, name, active, catalog=catalog,
+                teaparty_home=self.teaparty_home,
+            )
         except (FileNotFoundError, ValueError) as exc:
             return web.json_response({'error': str(exc)}, status=404)
         return web.json_response({'ok': True})
@@ -1804,6 +1825,7 @@ class TeaPartyBridge:
         conversation_type: ConversationType,
         cwd: str,
         teaparty_home: str = '',
+        org_home: str = '',
         scope: str = 'management',
         agent_role: str = '',
         dispatches: bool = False,
@@ -1845,6 +1867,7 @@ class TeaPartyBridge:
                         (lambda s=project_slug: s in self._paused_projects)
                         if project_slug else None
                     ),
+                    org_home=org_home or None,
                 )
             session = self._agent_sessions[session_key]
             try:
@@ -1986,6 +2009,7 @@ class TeaPartyBridge:
             qualifier=key,
             conversation_type=ConversationType.PROJECT_LEAD,
             teaparty_home=project_tp,
+            org_home=self.teaparty_home if project_path else '',
             scope='project',
             cwd=cwd,
             project_slug=self._slug_for_lead(lead_name),
@@ -2949,6 +2973,28 @@ class TeaPartyBridge:
             self._buses[agent_name] = bus
         return bus
 
+    def _get_lead_bus(self, lead_name: str) -> SqliteMessageBus:
+        """Return the bus for a project lead, using the lead's project-specific teaparty_home.
+
+        Project leads for external projects (e.g. pybayes) run with a different
+        teaparty_home than the bridge server itself.  Using ``_get_agent_bus``
+        for them would open the wrong database — the one under the bridge's own
+        ``self.teaparty_home`` — while the AgentSession writes to and reads from
+        the project's ``.teaparty/``.  This method resolves the correct home so
+        messages posted by the bridge land in the same file the agent monitors.
+        """
+        bus = self._agent_buses.get(lead_name)
+        if bus is None:
+            from teaparty.config.roster import resolve_lead_project_path
+            project_path = resolve_lead_project_path(lead_name, self.teaparty_home)
+            home = os.path.join(project_path, '.teaparty') if project_path else self.teaparty_home
+            path = agent_bus_path(home, lead_name)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            bus = SqliteMessageBus(path)
+            self._agent_buses[lead_name] = bus
+            self._buses[lead_name] = bus
+        return bus
+
     def _bus_for_conversation(self, conv_id: str) -> SqliteMessageBus | None:
         """Find the bus that owns a conversation.
 
@@ -2959,7 +3005,7 @@ class TeaPartyBridge:
         if conv_id.startswith('lead:'):
             parts = conv_id.split(':', 2)
             if len(parts) >= 2:
-                return self._get_agent_bus(parts[1])
+                return self._get_lead_bus(parts[1])
 
         # Job conversations live in per-session databases.
         # Open the bus on demand so the human can post to any session.

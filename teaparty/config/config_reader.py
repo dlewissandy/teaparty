@@ -221,7 +221,6 @@ class ManagementTeam:
     hooks: list[dict[str, str]] = field(default_factory=list)
     budget: dict[str, float] = field(default_factory=dict)
     stats: dict[str, str] = field(default_factory=dict)
-    allowed_project_roots: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -363,7 +362,6 @@ def load_management_team(
         hooks=data.get('hooks', []),
         budget=data.get('budget', {}),
         stats=data.get('stats', {}),
-        allowed_project_roots=data.get('allowed_project_roots') or [],
     )
 
 
@@ -474,6 +472,24 @@ def discover_skills(skills_dir: str) -> list[str]:
     for entry in sorted(os.scandir(skills_dir), key=lambda e: e.name):
         if entry.is_dir() and os.path.exists(os.path.join(entry.path, 'SKILL.md')):
             names.append(entry.name)
+    return names
+
+
+def discover_workgroups(workgroups_dir: str) -> list[str]:
+    """Scan a workgroups/ directory and return workgroup names.
+
+    Each workgroup is a {name}.yaml file (ignoring non-yaml files).
+    Returns an empty list if the directory does not exist.
+
+    Args:
+        workgroups_dir: Absolute path to a workgroups/ directory.
+    """
+    if not os.path.isdir(workgroups_dir):
+        return []
+    names = []
+    for entry in sorted(os.scandir(workgroups_dir), key=lambda e: e.name):
+        if entry.is_file() and entry.name.endswith('.yaml'):
+            names.append(entry.name[:-5])
     return names
 
 
@@ -892,10 +908,13 @@ def toggle_project_membership(
     name: str,
     active: bool,
     catalog: list[str] | None = None,
+    teaparty_home: str | None = None,
 ) -> None:
     """Add/remove an item from a project team's active list in project.yaml.
 
-    For agents and skills: adds/removes the name from the list.
+    For agents and skills: adds/removes the name from members list.
+    For shared workgroups: also adds/removes the WorkgroupRef entry from the
+        workgroups list so the project actually references the org workgroup.
     For hooks: sets the active flag on the hook entry identified by event name.
     For scheduled_task: sets the enabled flag on the scheduled task entry identified by name.
 
@@ -905,11 +924,13 @@ def toggle_project_membership(
 
     Args:
         project_dir: Path to the project root directory.
-        kind: 'agent', 'skill', 'hook', or 'scheduled_task'.
+        kind: 'agent', 'workgroup', 'skill', 'hook', or 'scheduled_task'.
         name: Name/event of the item to toggle.
         active: True to activate, False to deactivate.
         catalog: Full list of available names for this kind, used to seed
             the membership list on first deactivation.
+        teaparty_home: Path to the .teaparty/ directory, used to locate
+            the management workgroups catalog for shared workgroup toggling.
     """
     if kind not in _MEMBERSHIP_KEYS:
         raise ValueError(f'Invalid membership kind: {kind!r}')
@@ -926,6 +947,32 @@ def toggle_project_membership(
         data['hooks'] = _toggle_hook_active(data.get('hooks') or [], name, active)
     elif kind == 'scheduled_task':
         data['scheduled'] = _toggle_scheduled_active(data.get('scheduled') or [], name, active)
+    elif kind == 'workgroup':
+        # For shared (org) workgroups, also manage the workgroups: refs list so
+        # the project actually references the org workgroup definition.
+        home = teaparty_home or default_teaparty_home()
+        org_wg_path = os.path.join(management_workgroups_dir(home), f'{name}.yaml')
+        if os.path.exists(org_wg_path):
+            wg_list = data.get('workgroups') or []
+            name_lower = name.lower()
+            if active:
+                # Add {ref: name} if no existing ref entry for this name
+                if not any('ref' in e and e['ref'].lower() == name_lower for e in wg_list):
+                    wg_list = wg_list + [{'ref': name}]
+            else:
+                # Remove the WorkgroupRef entry; leave local WorkgroupEntry items
+                wg_list = [e for e in wg_list if not ('ref' in e and e['ref'].lower() == name_lower)]
+            data['workgroups'] = wg_list
+        # Always update members.workgroups
+        members = data.setdefault('members', {})
+        current = members.get('workgroups') or []
+        name_lower = name.lower()
+        if active:
+            if not any(m.lower() == name_lower for m in current):
+                current = current + [name]
+        else:
+            current = [m for m in current if m.lower() != name_lower]
+        members['workgroups'] = current
     else:
         key = _MEMBERSHIP_KEYS[kind]
         members = data.setdefault('members', {})
@@ -1066,6 +1113,9 @@ def _ensure_project_dirs(project_dir: str) -> None:
     os.makedirs(os.path.join(tp_proj, 'workgroups'), exist_ok=True)
 
 
+_NO_DESCRIPTION = '⚠ No description — ask the project lead'
+
+
 def _scaffold_project_yaml(
     name: str,
     project_dir: str,
@@ -1084,7 +1134,7 @@ def _scaffold_project_yaml(
     humans_block = {'decider': decider} if decider else {}
     scaffold = {
         'name': name,
-        'description': description,
+        'description': description or _NO_DESCRIPTION,
         'lead': lead,
         'humans': humans_block,
         'workgroups': workgroups or [],
@@ -1096,23 +1146,6 @@ def _scaffold_project_yaml(
 
 
 # ── Project management operations ─────────────────────────────────────────────
-
-def _check_allowed_project_roots(path: str, roots: list[str]) -> None:
-    """Raise ValueError if path is not under any of the allowed roots.
-
-    If roots is empty, the check is skipped (permissive mode).
-    """
-    if not roots:
-        return
-    for root in roots:
-        root = os.path.expanduser(os.path.realpath(root))
-        if path.startswith(root + os.sep) or path == root:
-            return
-    raise ValueError(
-        f'Path {path!r} is not under any allowed project root. '
-        f'Allowed roots: {roots!r}'
-    )
-
 
 def add_project(
     name: str,
@@ -1139,7 +1172,6 @@ def add_project(
 
     # Check for duplicates across both tracked and external project lists
     team = load_management_team(teaparty_home=teaparty_home)
-    _check_allowed_project_roots(path, team.allowed_project_roots)
     for p in team.projects:
         if p['name'] == name:
             raise ValueError(f"Project '{name}' already exists")
@@ -1197,7 +1229,6 @@ def create_project(
 
     # Check for duplicates across both tracked and external project lists
     team = load_management_team(teaparty_home=teaparty_home)
-    _check_allowed_project_roots(path, team.allowed_project_roots)
     for p in team.projects:
         if p['name'] == name:
             raise ValueError(f"Project '{name}' already exists")
@@ -1244,8 +1275,11 @@ def remove_project(
     Checks both teaparty.yaml (tracked) and external-projects.yaml (gitignored).
     The project directory itself is left untouched.
 
-    Raises ValueError if no project with this name exists.
+    Raises ValueError if no project with this name exists, or if an attempt
+    is made to remove the protected 'teaparty' project.
     """
+    if name.lower() == 'teaparty':
+        raise ValueError("The 'teaparty' project cannot be removed from the registry")
     home = os.path.expanduser(teaparty_home or default_teaparty_home())
 
     # Try external-projects.yaml first (most common case)

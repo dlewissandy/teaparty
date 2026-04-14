@@ -73,6 +73,7 @@ class AgentSession:
         llm_caller: Callable | None = None,
         project_slug: str = '',
         paused_check: Callable[[], bool] | None = None,
+        org_home: str | None = None,
     ):
         self.teaparty_home = os.path.expanduser(teaparty_home)
         self.agent_name = agent_name
@@ -86,6 +87,9 @@ class AgentSession:
         self._on_dispatch = on_dispatch
         self._llm_caller = llm_caller  # None → use launcher default
         self.project_slug = project_slug
+        # org_home: org-level .teaparty/ used as agent-definition fallback when
+        # teaparty_home is a project-specific directory (e.g. external projects).
+        self._org_home = os.path.expanduser(org_home) if org_home else None
         self._telemetry_scope = project_slug or scope
         self._paused_check = paused_check
 
@@ -1240,6 +1244,7 @@ class AgentSession:
             scope=self.scope,
             telemetry_scope=self._telemetry_scope,
             teaparty_home=self.teaparty_home,
+            org_home=self._org_home,
             tier='chat',
             launch_cwd=launch_cwd,
             config_dir=config_dir,

@@ -125,11 +125,7 @@ class CLIEventPrinter:
         elif category == 'artifact_detection':
             action = data.get('action', '')
             artifact = data.get('artifact_path', '')
-            missing = data.get('artifact_missing', False)
-            if missing:
-                print(f'  [artifact] MISSING — expected {data.get("artifact_expected", "?")}',
-                      file=sys.stderr)
-            elif artifact:
+            if artifact:
                 print(f'  [artifact] found: {artifact} → {action}', file=sys.stderr)
             else:
                 print(f'  [artifact] none configured → {action}', file=sys.stderr)

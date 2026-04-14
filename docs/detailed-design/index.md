@@ -21,8 +21,9 @@ These documents do not describe the engagement orchestration layer (org lead neg
 - [CfA State Machine](cfa-state-machine.md) -- State representation, transition table, INTERVENE/WITHDRAW events
 - [Approval Gate](approval-gate.md) -- Proxy decision model, confidence computation, design choices
 - [Learning System](learning-system.md) -- Memory hierarchy, extraction pipeline, design choices
+- [Team Configuration](team-configuration.md) -- `.teaparty/` config tree, catalog merging, MCP CRUD tools
+- [Project Onboarding](project-onboarding.md) -- Step-by-step: directory, git, `.claude/`, `.teaparty/`, lead scaffolding
 - Messaging *(forthcoming)* -- Bus-mediated Send/Reply, conversation lifecycle, streaming
-- Team Configuration *(forthcoming)* -- `.teaparty/` config tree, catalog merging, config reader
 - Context Budget *(forthcoming)* -- Token budget allocation, context injection, partial implementation status
 - Dashboard *(forthcoming)* -- HTML dashboard reference: chat blade, config screens, filters, navigation
 

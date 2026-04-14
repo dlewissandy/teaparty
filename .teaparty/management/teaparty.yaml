@@ -14,8 +14,7 @@ members:
   - pybayes
   - Jainai
   - comics
-  workgroups:
-  - Configuration
+  workgroups: []
 workgroups:
 - name: Configuration
   config: workgroups/configuration.yaml

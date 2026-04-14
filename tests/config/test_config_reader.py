@@ -30,12 +30,14 @@ from teaparty.config.config_reader import (
     discover_agents,
     discover_hooks,
     discover_skills,
+    discover_workgroups,
     external_projects_path,
     format_norms,
     load_management_team,
     load_project_team,
     load_workgroup,
     management_dir,
+    management_workgroups_dir,
     merge_catalog,
     project_agents_dir,
     project_config_path,
@@ -45,6 +47,7 @@ from teaparty.config.config_reader import (
     resolve_budget,
     resolve_norms,
     resolve_workgroups,
+    toggle_project_membership,
     write_pins,
 )
 
@@ -322,6 +325,20 @@ class TestRemoveProject(unittest.TestCase):
         with self.assertRaises(ValueError):
             remove_project('nope', teaparty_home=home)
 
+    def test_teaparty_project_protected(self):
+        tmp = _make_tmp(self)
+        home = _make_teaparty_home(tmp)
+        with self.assertRaises(ValueError):
+            remove_project('teaparty', teaparty_home=home)
+
+    def test_teaparty_project_protected_case_insensitive(self):
+        tmp = _make_tmp(self)
+        home = _make_teaparty_home(tmp)
+        for name in ('TeaParty', 'TEAPARTY', 'Teaparty'):
+            with self.subTest(name=name):
+                with self.assertRaises(ValueError):
+                    remove_project(name, teaparty_home=home)
+
 
 # ── Layer 4: Resolution ─────────────���────────────────────────────────────────
 
@@ -420,6 +437,113 @@ class TestDiscovery(unittest.TestCase):
         os.makedirs(os.path.join(agents_dir, 'empty-dir'))
         agents = discover_agents(agents_dir)
         self.assertEqual(agents, [])
+
+    def test_discover_workgroups(self):
+        tmp = _make_tmp(self)
+        wg_dir = os.path.join(tmp, 'workgroups')
+        os.makedirs(wg_dir)
+        for name in ['coding', 'research']:
+            with open(os.path.join(wg_dir, f'{name}.yaml'), 'w') as f:
+                yaml.dump({'name': name.capitalize()}, f)
+        # Non-yaml file should be ignored
+        with open(os.path.join(wg_dir, 'NORMS-coding.md'), 'w') as f:
+            f.write('norms')
+        result = discover_workgroups(wg_dir)
+        self.assertIn('coding', result)
+        self.assertIn('research', result)
+        self.assertNotIn('NORMS-coding', result)
+
+    def test_discover_workgroups_missing_dir(self):
+        result = discover_workgroups('/nonexistent/path')
+        self.assertEqual(result, [])
+
+
+class TestToggleProjectWorkgroup(unittest.TestCase):
+    """toggle_project_membership for shared workgroups must manage both
+    the workgroups: refs list and members.workgroups."""
+
+    def _make_home_with_wg(self, tmp: str, wg_name: str) -> str:
+        """Create a teaparty home with one management catalog workgroup."""
+        home = _make_teaparty_home(tmp)
+        wg_dir = management_workgroups_dir(home)
+        os.makedirs(wg_dir, exist_ok=True)
+        with open(os.path.join(wg_dir, f'{wg_name}.yaml'), 'w') as f:
+            yaml.dump({'name': wg_name}, f)
+        return home
+
+    def _read_project_yaml(self, proj: str) -> dict:
+        path = project_config_path(proj)
+        with open(path) as f:
+            return yaml.safe_load(f) or {}
+
+    def test_activate_shared_adds_ref_and_member(self):
+        tmp = _make_tmp(self)
+        home = self._make_home_with_wg(tmp, 'coding')
+        proj = _make_project(tmp, 'myproject')
+
+        toggle_project_membership(proj, 'workgroup', 'coding', True, teaparty_home=home)
+
+        data = self._read_project_yaml(proj)
+        refs = data.get('workgroups') or []
+        self.assertTrue(any(e.get('ref') == 'coding' for e in refs),
+                        'WorkgroupRef should be added to workgroups:')
+        members = (data.get('members') or {}).get('workgroups') or []
+        self.assertIn('coding', members)
+
+    def test_deactivate_shared_removes_ref_and_member(self):
+        tmp = _make_tmp(self)
+        home = self._make_home_with_wg(tmp, 'coding')
+        proj = _make_project(tmp, 'myproject')
+
+        # Activate first, then deactivate
+        toggle_project_membership(proj, 'workgroup', 'coding', True, teaparty_home=home)
+        toggle_project_membership(proj, 'workgroup', 'coding', False, teaparty_home=home)
+
+        data = self._read_project_yaml(proj)
+        refs = data.get('workgroups') or []
+        self.assertFalse(any(e.get('ref') == 'coding' for e in refs),
+                         'WorkgroupRef should be removed from workgroups:')
+        members = (data.get('members') or {}).get('workgroups') or []
+        self.assertNotIn('coding', members)
+
+    def test_activate_idempotent(self):
+        tmp = _make_tmp(self)
+        home = self._make_home_with_wg(tmp, 'coding')
+        proj = _make_project(tmp, 'myproject')
+
+        toggle_project_membership(proj, 'workgroup', 'coding', True, teaparty_home=home)
+        toggle_project_membership(proj, 'workgroup', 'coding', True, teaparty_home=home)
+
+        data = self._read_project_yaml(proj)
+        refs = [e for e in (data.get('workgroups') or []) if e.get('ref') == 'coding']
+        self.assertEqual(len(refs), 1, 'WorkgroupRef must not be duplicated')
+        members = (data.get('members') or {}).get('workgroups') or []
+        self.assertEqual(members.count('coding'), 1, 'members entry must not be duplicated')
+
+    def test_local_workgroup_ref_not_touched(self):
+        """Toggling a local workgroup (not in org catalog) only manages members."""
+        tmp = _make_tmp(self)
+        home = _make_teaparty_home(tmp)
+        proj = _make_project(tmp, 'myproject')
+
+        # Seed a local WorkgroupEntry (no yaml in management catalog)
+        yaml_path = project_config_path(proj)
+        with open(yaml_path) as f:
+            data = yaml.safe_load(f) or {}
+        data['workgroups'] = [{'name': 'LocalWG', 'config': 'workgroups/local.yaml'}]
+        data.setdefault('members', {})['workgroups'] = []
+        with open(yaml_path, 'w') as f:
+            yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+
+        toggle_project_membership(proj, 'workgroup', 'LocalWG', True, teaparty_home=home)
+
+        data = self._read_project_yaml(proj)
+        refs = data.get('workgroups') or []
+        # The local entry must remain, no ref added
+        self.assertEqual(len(refs), 1)
+        self.assertIn('name', refs[0])
+        members = (data.get('members') or {}).get('workgroups') or []
+        self.assertIn('LocalWG', members)
 
 
 if __name__ == '__main__':

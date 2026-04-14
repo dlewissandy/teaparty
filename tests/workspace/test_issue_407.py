@@ -386,9 +386,9 @@ class TestInterpretOutputFindsArtifactInWorktree(unittest.TestCase):
             f'WORK_SUMMARY.md in session_worktree must trigger assert (got {result.action!r}). '
             'If this fails, _interpret_output is still looking in infra_dir.',
         )
-        self.assertFalse(
-            result.data.get('artifact_missing'),
-            'artifact_missing must be False when WORK_SUMMARY.md is in session_worktree',
+        self.assertNotIn(
+            'artifact_missing', result.data,
+            'artifact_missing must not appear in result.data when artifact is found',
         )
         self.assertIn(
             'WORK_SUMMARY.md', result.data.get('artifact_path', ''),
@@ -408,9 +408,9 @@ class TestInterpretOutputFindsArtifactInWorktree(unittest.TestCase):
         runner = AgentRunner()
         result = runner._interpret_output(ctx, ClaudeResult(exit_code=0, session_id='s1'))
 
-        self.assertTrue(
-            result.data.get('artifact_missing'),
-            'artifact_missing must be True when WORK_SUMMARY.md is in infra_dir (wrong location) '
+        self.assertNotEqual(
+            result.action, 'assert',
+            'action must NOT be assert when WORK_SUMMARY.md is in infra_dir (wrong location) '
             'but not in session_worktree. If this fails, _interpret_output is still checking infra_dir.',
         )
 
