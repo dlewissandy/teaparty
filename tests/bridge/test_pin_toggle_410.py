@@ -340,10 +340,12 @@ class TestArtifactPagePinToggle(unittest.TestCase):
             "file rows in _renderFileTree have no pin slot")
 
     def test_pin_slot_in_render_pinned_nodes(self):
-        """_renderPinnedNodes must emit an artifact-nav-pin.pinned slot for each row.
+        """_renderPinnedNodes must check _pinnedPathSet to decide pin icon per node.
 
-        Items in the pinned section are definitionally pinned — the slot must always
-        carry the .pinned class (which sets cursor:pointer and hover opacity).
+        When a pinned dir is expanded, its children include non-pinned items.
+        Rendering all children with artifact-nav-pin.pinned was wrong — it showed
+        pushpin icons on items the user never pinned.  The fix uses isPinned to
+        conditionally apply .pinned so only items in _pinnedPathSet get the icon.
         """
         src = _read(ARTIFACT_JS)
         pn_match = re.search(r'function _renderPinnedNodes\b(.+?)(?=\n  function |\n  var |\Z)',
@@ -351,9 +353,12 @@ class TestArtifactPagePinToggle(unittest.TestCase):
         self.assertIsNotNone(pn_match,
             "_renderPinnedNodes not found in artifact-page.js")
         pn_body = pn_match.group(0)
-        self.assertIn('artifact-nav-pin pinned', pn_body,
-            "artifact-nav-pin.pinned not emitted by _renderPinnedNodes — "
-            "pinned-section rows will not show pointer cursor or hover state")
+        self.assertIn('_pinnedPathSet[node.path]', pn_body,
+            "_renderPinnedNodes must check _pinnedPathSet[node.path] to determine "
+            "whether each node is pinned — hardcoding .pinned for all rows is wrong")
+        self.assertIn('isPinned', pn_body,
+            "_renderPinnedNodes must use an isPinned variable to conditionally apply "
+            "the .pinned class and pushpin icon")
 
     def test_init_and_refresh_call_scope_aware_fetch_pins(self):
         """_init() and _refresh() must call fetchPins() for scope-aware pin loading.
@@ -391,6 +396,67 @@ class TestArtifactPagePinToggle(unittest.TestCase):
             "_togglePin must call fetchPins() to update _pinnedNodes and count header")
         self.assertIn('_render()', body,
             "_togglePin must call _render() so count header re-renders after pin change")
+
+    def test_folder_row_onclick_guards_against_pin_slot_click(self):
+        """Folder row onclick must not fire _toggleFolder when click originates from pin slot.
+
+        Without this guard, clicking the pin span inside a folder div bubbles to the
+        parent onclick even after event.stopPropagation() in the child — causing
+        _toggleFolder to fire alongside _togglePin. The guard checks event.target
+        so that _toggleFolder only runs when the click is NOT on the pin slot.
+        """
+        src = _read(ARTIFACT_JS)
+        # Both _renderPinnedNodes and _renderFileTree must guard folder onclick
+        folder_onclicks = re.findall(
+            r"onclick=\"if\(!event\.target\.classList\.contains\(\\'artifact-nav-pin\\'\)\)ArtifactPage\._toggleFolder",
+            src,
+        )
+        self.assertGreaterEqual(len(folder_onclicks), 2,
+            "Folder row onclick must guard against artifact-nav-pin clicks in "
+            "both _renderPinnedNodes and _renderFileTree — found "
+            f"{len(folder_onclicks)} guarded call(s), expected at least 2")
+
+    def test_auto_expand_for_filters_always_expands_pinned_ancestors(self):
+        """_autoExpandForFilters must expand ancestors of pinned files unconditionally.
+
+        Previously it returned early when _filterPinned was false, so the minimum
+        tree for pinned items was never built on initial load — the user had to toggle
+        the Pinned filter twice to trigger expansion.  The fix removes the early-exit
+        guard and always includes pinned file paths in the expansion targets.
+        """
+        src = _read(ARTIFACT_JS)
+        fn_match = re.search(
+            r'async function _autoExpandForFilters\b(.+?)(?=\n  async function |\n  function |\n  var |\Z)',
+            src, re.DOTALL)
+        self.assertIsNotNone(fn_match, "_autoExpandForFilters not found in artifact-page.js")
+        body = fn_match.group(0)
+        # Must NOT short-circuit on filter state
+        self.assertNotIn('if (!_filterPinned && !_filterChanged) return', body,
+            "_autoExpandForFilters must not skip expansion when filters are off — "
+            "pinned minimum tree should always be built")
+        # Must walk _pinnedNodes unconditionally (not inside an if (_filterPinned) block)
+        self.assertIn('_pinnedNodes', body,
+            "_autoExpandForFilters must walk _pinnedNodes to collect pinned file paths")
+
+    def test_auto_expand_builds_minimum_tree_for_pinned_only_view(self):
+        """_autoExpandForFilters must expand pinned dirs that contain other pinned items
+        when _repoFiles is empty (management scope with no worktree).
+
+        Without this, the pinned-only view shows a flat list even when some pinned
+        items are children of other pinned dirs — the tree structure is invisible.
+        """
+        src = _read(ARTIFACT_JS)
+        fn_match = re.search(
+            r'async function _autoExpandForFilters\b(.+?)(?=\n  async function |\n  function |\n  var |\Z)',
+            src, re.DOTALL)
+        self.assertIsNotNone(fn_match, "_autoExpandForFilters not found in artifact-page.js")
+        body = fn_match.group(0)
+        self.assertIn('_repoFiles.length === 0', body,
+            "_autoExpandForFilters must handle the no-repo case (management scope) "
+            "by expanding pinned dirs whose children are also pinned")
+        self.assertIn('startsWith(dirPrefix)', body,
+            "_autoExpandForFilters must detect pinned items that are children of "
+            "other pinned dirs via startsWith(dirPrefix)")
 
 
 # ── artifacts.html: scope URL params ─────────────────────────────────────────
