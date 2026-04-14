@@ -56,7 +56,7 @@ function escAttr(s) {
 function sectionCard(title, items, opts) {
   var buttons = '';
   if (opts && opts.browseHref) {
-    buttons += '<a class="action-btn" href="' + escAttr(opts.browseHref) + '">Browse &#8594;</a>';
+    buttons += '<a class="action-btn" href="' + escAttr(opts.browseHref) + '">&#8230;</a>';
   }
   if (opts && opts.addSeed) {
     buttons += '<button class="action-btn config-edit-btn" onclick="seedBlade(\'' + escAttr(opts.addSeed) + '\')">+ New</button>';
