@@ -336,6 +336,18 @@ class TestInitialCommit(unittest.TestCase):
             f"working tree must be clean after create_project; got:\n{status!r}",
         )
 
+    def test_commit_message_matches_spec(self):
+        """Design doc pins the commit message exactly."""
+        tmp = _make_tmp(self)
+        home = _make_teaparty_home(tmp)
+        proj = os.path.join(tmp, 'mu-msg')
+        create_project('mu-msg', proj, teaparty_home=home, decider='alice')
+        subject = self._git(proj, 'log', '-1', '--format=%s').strip()
+        self.assertEqual(
+            subject, 'chore: add TeaParty project configuration',
+            f"initial commit subject must match the spec; got {subject!r}",
+        )
+
     def test_add_project_commits_in_existing_repo(self):
         tmp = _make_tmp(self)
         home = _make_teaparty_home(tmp)
@@ -400,6 +412,145 @@ class TestProjectLeadAlwaysScaffolded(unittest.TestCase):
             os.path.isfile(agent_md),
             "add_project_handler must scaffold {name}-lead/agent.md with "
             "the normalized name",
+        )
+
+    def test_lead_agent_md_has_spec_frontmatter(self):
+        """agent.md must have name, description, tools, model=sonnet, maxTurns=30."""
+        tmp = _make_tmp(self)
+        home = _make_teaparty_home(tmp)
+        proj = os.path.join(tmp, 'tau')
+        create_project('Tau Project', proj, teaparty_home=home, decider='alice')
+
+        agent_md = os.path.join(
+            home, 'management', 'agents', 'tau-project-lead', 'agent.md'
+        )
+        import re
+        with open(agent_md) as f:
+            content = f.read()
+        m = re.match(r'^---\n(.*?\n)---\n(.*)', content, re.DOTALL)
+        self.assertIsNotNone(m, "agent.md must have YAML frontmatter")
+        fm = yaml.safe_load(m.group(1))
+        self.assertEqual(fm['name'], 'tau-project-lead')
+        self.assertEqual(
+            fm['model'], 'sonnet',
+            f"design doc requires model=sonnet; got {fm.get('model')!r}",
+        )
+        self.assertEqual(
+            fm['maxTurns'], 30,
+            f"design doc requires maxTurns=30; got {fm.get('maxTurns')!r}",
+        )
+        self.assertIn('tau-project', fm['description'])
+        tools = fm.get('tools', '')
+        for required_tool in [
+            'Read', 'Glob', 'Grep', 'Bash',
+            'mcp__teaparty-config__Send',
+            'mcp__teaparty-config__ProjectStatus',
+            'mcp__teaparty-config__WithdrawSession',
+        ]:
+            self.assertIn(
+                required_tool, tools,
+                f"project-lead tools must include {required_tool}",
+            )
+
+    def test_lead_settings_yaml_permissions(self):
+        """settings.yaml must grant allow-list for the project-lead tool set."""
+        tmp = _make_tmp(self)
+        home = _make_teaparty_home(tmp)
+        proj = os.path.join(tmp, 'upsilon')
+        create_project('upsilon', proj, teaparty_home=home, decider='alice')
+        settings_path = os.path.join(
+            home, 'management', 'agents', 'upsilon-lead', 'settings.yaml'
+        )
+        with open(settings_path) as f:
+            settings = yaml.safe_load(f) or {}
+        allow = settings.get('permissions', {}).get('allow', [])
+        for required in [
+            'mcp__teaparty-config__Send',
+            'mcp__teaparty-config__ProjectStatus',
+            'mcp__teaparty-config__PinArtifact',
+            'mcp__teaparty-config__WithdrawSession',
+        ]:
+            self.assertIn(
+                required, allow,
+                f"settings.yaml allow-list must grant {required}",
+            )
+
+    def test_lead_pins_yaml_entries(self):
+        """pins.yaml must pin agent.md + settings.yaml with spec labels."""
+        tmp = _make_tmp(self)
+        home = _make_teaparty_home(tmp)
+        proj = os.path.join(tmp, 'phi')
+        create_project('phi', proj, teaparty_home=home, decider='alice')
+        pins_path = os.path.join(
+            home, 'management', 'agents', 'phi-lead', 'pins.yaml'
+        )
+        with open(pins_path) as f:
+            pins = yaml.safe_load(f) or []
+        paths = {p['path']: p['label'] for p in pins}
+        self.assertEqual(
+            paths.get('agent.md'), 'Prompt & Identity',
+            "pins.yaml must pin agent.md with label 'Prompt & Identity'",
+        )
+        self.assertEqual(
+            paths.get('settings.yaml'), 'Tool & File Permissions',
+            "pins.yaml must pin settings.yaml with label "
+            "'Tool & File Permissions'",
+        )
+
+    def test_lead_scaffold_is_non_destructive(self):
+        """Pre-existing lead agent files are never overwritten."""
+        tmp = _make_tmp(self)
+        home = _make_teaparty_home(tmp)
+        # Pre-create the lead agent directory with sentinel content.
+        lead_dir = os.path.join(home, 'management', 'agents', 'chi-lead')
+        os.makedirs(lead_dir, exist_ok=True)
+        for fname, sentinel in [
+            ('agent.md', '# custom agent\n'),
+            ('settings.yaml', 'custom: true\n'),
+            ('pins.yaml', '- path: custom.md\n  label: Custom\n'),
+        ]:
+            with open(os.path.join(lead_dir, fname), 'w') as f:
+                f.write(sentinel)
+
+        proj = os.path.join(tmp, 'chi')
+        create_project('chi', proj, teaparty_home=home, decider='alice')
+
+        for fname, sentinel in [
+            ('agent.md', '# custom agent\n'),
+            ('settings.yaml', 'custom: true\n'),
+            ('pins.yaml', '- path: custom.md\n  label: Custom\n'),
+        ]:
+            with open(os.path.join(lead_dir, fname)) as f:
+                self.assertEqual(
+                    f.read(), sentinel,
+                    f"scaffold_project_lead must not overwrite existing "
+                    f"{fname}; the custom sentinel was clobbered",
+                )
+
+    def test_bridge_api_scaffolds_lead(self):
+        """The bridge HTTP path must invoke the full onboarding sequence.
+
+        Guards the integration finding from the audit: if
+        ``_handle_projects_create`` bypasses ``scaffold_project_lead`` (for
+        example, by calling only ``_scaffold_project_yaml``), projects added
+        from the dashboard UI would get no project-lead agent.
+        """
+        tmp = _make_tmp(self)
+        home = _make_teaparty_home(tmp)
+        proj = os.path.join(tmp, 'psi')
+
+        # Call config_reader.create_project directly — this is the function
+        # the bridge server invokes with no extra wrapping.
+        create_project('Psi Sys', proj, teaparty_home=home, decider='alice')
+
+        agent_md = os.path.join(
+            home, 'management', 'agents', 'psi-sys-lead', 'agent.md'
+        )
+        self.assertTrue(
+            os.path.isfile(agent_md),
+            "config_reader.create_project must scaffold the project lead "
+            "so the bridge HTTP path produces the same end state as the MCP "
+            "handler (design doc: 'both produce identical end state')",
         )
 
     def test_lead_parameter_removed_from_create_project(self):

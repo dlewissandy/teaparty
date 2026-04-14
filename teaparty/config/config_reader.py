@@ -1188,6 +1188,104 @@ def _check_allowed_project_roots(path: str, roots: list[str]) -> None:
     )
 
 
+PROJECT_LEAD_TOOLS = [
+    'Read', 'Glob', 'Grep', 'Bash',
+    'mcp__teaparty-config__GetAgent', 'mcp__teaparty-config__GetProject',
+    'mcp__teaparty-config__GetSkill', 'mcp__teaparty-config__GetWorkgroup',
+    'mcp__teaparty-config__ListAgents', 'mcp__teaparty-config__ListHooks',
+    'mcp__teaparty-config__ListPins', 'mcp__teaparty-config__ListProjects',
+    'mcp__teaparty-config__ListScheduledTasks', 'mcp__teaparty-config__ListSkills',
+    'mcp__teaparty-config__ListTeamMembers', 'mcp__teaparty-config__ListWorkgroups',
+    'mcp__teaparty-config__PinArtifact', 'mcp__teaparty-config__ProjectStatus',
+    'mcp__teaparty-config__Send', 'mcp__teaparty-config__UnpinArtifact',
+    'mcp__teaparty-config__WithdrawSession',
+]
+
+PROJECT_LEAD_PERMISSIONS = list(PROJECT_LEAD_TOOLS)
+
+
+def scaffold_project_lead(
+    project_name: str,
+    project_path: str,
+    decider: str,
+    teaparty_home: str,
+) -> None:
+    """Create the management-catalog agent definition for a project lead.
+
+    Writes ``agent.md`` + ``settings.yaml`` + ``pins.yaml`` under
+    ``{teaparty_home}/management/agents/{project_name}-lead/``. Non-destructive:
+    any file that already exists is left untouched so customized leads are
+    never clobbered.
+
+    ``project_name`` must already be normalized.
+    """
+    lead_name = f'{project_name}-lead'
+    agent_dir = os.path.join(teaparty_home, 'management', 'agents', lead_name)
+    os.makedirs(agent_dir, exist_ok=True)
+
+    agent_md = os.path.join(agent_dir, 'agent.md')
+    if not os.path.exists(agent_md):
+        description = (
+            f'{project_name} project lead. Receives work from the Office '
+            f'Manager, breaks it down for workgroup leads, and reports back '
+            f'up. Use for any task scoped to the {project_name} project.'
+        )
+        frontmatter = {
+            'name': lead_name,
+            'description': description,
+            'tools': ', '.join(PROJECT_LEAD_TOOLS),
+            'model': 'sonnet',
+            'maxTurns': 30,
+        }
+        body = (
+            f'# {lead_name}\n\n'
+            f'You are the project lead for **{project_name}** at '
+            f'`{project_path}`. Read `.teaparty/project/project.yaml` to '
+            f'understand the project and its registered workgroups. The '
+            f'decider for this project is **{decider}**.\n\n'
+            f'When work arrives from the Office Manager, decompose it and '
+            f'dispatch to the appropriate workgroup lead via `Send`. Use '
+            f'`ProjectStatus` to report progress back up the chain.\n'
+        )
+        with open(agent_md, 'w') as f:
+            f.write('---\n')
+            yaml.dump(frontmatter, f, default_flow_style=False, sort_keys=False)
+            f.write('---\n')
+            f.write(body)
+
+    settings_yaml = os.path.join(agent_dir, 'settings.yaml')
+    if not os.path.exists(settings_yaml):
+        with open(settings_yaml, 'w') as f:
+            yaml.dump(
+                {'permissions': {'allow': list(PROJECT_LEAD_PERMISSIONS)}},
+                f, default_flow_style=False, sort_keys=False,
+            )
+
+    pins_yaml = os.path.join(agent_dir, 'pins.yaml')
+    if not os.path.exists(pins_yaml):
+        with open(pins_yaml, 'w') as f:
+            yaml.dump([
+                {'path': 'agent.md', 'label': 'Prompt & Identity'},
+                {'path': 'settings.yaml', 'label': 'Tool & File Permissions'},
+            ], f, default_flow_style=False, sort_keys=False)
+
+
+def _emit_project_added_event(project: str, path: str, created: bool) -> None:
+    """Best-effort telemetry emission for Step 10 of onboarding."""
+    try:
+        from teaparty import telemetry
+        from teaparty.telemetry import events as _telem_events
+        et = getattr(_telem_events, 'CONFIG_PROJECT_ADDED', None)
+        if et is None:
+            return
+        data = {'project': project, 'path': path}
+        if created:
+            data['created'] = True
+        telemetry.record_event(et, scope=project, data=data)
+    except Exception:
+        pass
+
+
 def _register_external_project(home: str, name: str, path: str, config: str) -> None:
     ext_path = external_projects_path(home)
     ext: list = []
@@ -1239,7 +1337,9 @@ def add_project(
 
     home = os.path.expanduser(teaparty_home or default_teaparty_home())
     _register_external_project(home, name, path, config)
+    scaffold_project_lead(name, path, decider, home)
     _git_initial_commit(path)
+    _emit_project_added_event(name, path, created=False)
 
     return load_management_team(teaparty_home=teaparty_home)
 
@@ -1280,7 +1380,9 @@ def create_project(
 
     home = os.path.expanduser(teaparty_home or default_teaparty_home())
     _register_external_project(home, name, path, config)
+    scaffold_project_lead(name, path, decider, home)
     _git_initial_commit(path)
+    _emit_project_added_event(name, path, created=True)
 
     return load_management_team(teaparty_home=teaparty_home)
 
