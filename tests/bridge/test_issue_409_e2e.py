@@ -179,6 +179,55 @@ class TestBridgeCreateProjectE2E(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(fm['model'], 'sonnet')
         self.assertEqual(fm['maxTurns'], 30)
 
+    async def test_browser_minimal_payload_triggers_create_fallback(self):
+        """Replay the exact payload the dashboard modal sends.
+
+        ``index.html::showProjectModal`` POSTs ``{name, path}`` with no
+        description or decider to /api/projects/add first, and on the
+        ``'does not exist'`` error falls back to /api/projects/create.
+        This test drives that full flow on a fresh path and then checks:
+
+        - The second POST succeeds.
+        - The returned management_team lists the normalized slug (so
+          ``fetchAll()`` on the client will re-render it).
+        - project.yaml uses the description sentinel because the frontend
+          didn't send one.
+        - The lead agent is scaffolded even though ``decider`` is empty.
+        """
+        proj_path = os.path.join(self.tmp, 'delta')
+        payload = {'name': 'Delta', 'path': proj_path}
+
+        # Step 1: frontend tries /add first
+        resp_add = await self.client.post('/api/projects/add', json=payload)
+        self.assertEqual(resp_add.status, 409)
+        data_add = await resp_add.json()
+        self.assertIn(
+            'does not exist', data_add['error'],
+            "the frontend fallback logic pattern-matches on 'does not "
+            "exist'; the error string must still contain that phrase",
+        )
+
+        # Step 2: frontend falls back to /create
+        resp_create = await self.client.post('/api/projects/create', json=payload)
+        self.assertEqual(resp_create.status, 200, await resp_create.text())
+        data_create = await resp_create.json()
+        self.assertTrue(data_create['ok'])
+        self.assertIn(
+            'delta', data_create['management_team']['projects'],
+            "the bridge response must include the normalized slug so the "
+            "dashboard fetchAll() re-render shows the new project",
+        )
+
+        # Sentinel applied because frontend sent no description
+        with open(os.path.join(proj_path, '.teaparty', 'project', 'project.yaml')) as f:
+            pdata = yaml.safe_load(f)
+        self.assertEqual(pdata['description'], SENTINEL)
+
+        # Lead agent scaffolded even with empty decider
+        self.assertTrue(os.path.isfile(os.path.join(
+            self.home, 'management', 'agents', 'delta-lead', 'agent.md',
+        )))
+
     async def test_duplicate_name_via_http_normalized(self):
         """A second POST with a differently-cased name hits the same slug."""
         proj1 = os.path.join(self.tmp, 'alpha')
