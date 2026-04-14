@@ -170,7 +170,15 @@ class TestDescriptionSentinel(unittest.TestCase):
 
 
 class TestWorkgroupsIncludesConfiguration(unittest.TestCase):
-    """Criterion 4: project.yaml workgroups must include 'Configuration'."""
+    """Criterion 4: project.yaml workgroups must reference 'Configuration'.
+
+    The entry must be a ``{ref: Configuration}`` dict (a WorkgroupRef) — the
+    canonical shape ``_parse_workgroup_entries`` expects. A bare string
+    ``['Configuration']`` crashes the bridge response serializer when it
+    reloads the freshly-created project.
+    """
+
+    EXPECTED = {'ref': 'Configuration'}
 
     def test_add_project_includes_configuration(self):
         tmp = _make_tmp(self)
@@ -180,8 +188,8 @@ class TestWorkgroupsIncludesConfiguration(unittest.TestCase):
         add_project('delta', proj, teaparty_home=home, decider='alice')
         data = _read_project_yaml(proj)
         self.assertIn(
-            'Configuration', data.get('workgroups', []),
-            f"project.yaml.workgroups must include 'Configuration'; "
+            self.EXPECTED, data.get('workgroups', []),
+            f"project.yaml.workgroups must include {{ref: Configuration}}; "
             f"got {data.get('workgroups')!r}",
         )
 
@@ -191,7 +199,31 @@ class TestWorkgroupsIncludesConfiguration(unittest.TestCase):
         proj = os.path.join(tmp, 'epsilon')
         create_project('epsilon', proj, teaparty_home=home, decider='alice')
         data = _read_project_yaml(proj)
-        self.assertIn('Configuration', data.get('workgroups', []))
+        self.assertIn(self.EXPECTED, data.get('workgroups', []))
+
+    def test_scaffolded_project_round_trips_through_loader(self):
+        """A freshly-scaffolded project must load via load_project_team.
+
+        Regression guard for the bridge-side crash where _parse_workgroup_entries
+        tried to index a string. The response serializer reloads the project
+        immediately after creation, so a scaffold that produces an unparseable
+        workgroups field makes the HTTP POST return a 500.
+        """
+        from teaparty.config.config_reader import load_project_team
+        tmp = _make_tmp(self)
+        home = _make_teaparty_home(tmp)
+        proj = os.path.join(tmp, 'roundtrip')
+        create_project('roundtrip', proj, teaparty_home=home, decider='alice')
+        pt = load_project_team(proj)
+        refs = [
+            w.ref for w in pt.workgroups
+            if hasattr(w, 'ref')
+        ]
+        self.assertIn(
+            'Configuration', refs,
+            f"loaded ProjectTeam.workgroups must contain a WorkgroupRef "
+            f"for Configuration; got {pt.workgroups!r}",
+        )
 
 
 class TestGitignoreFromTemplate(unittest.TestCase):

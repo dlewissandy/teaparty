@@ -307,12 +307,14 @@ def _parse_scheduled(raw: list[dict] | None) -> list[ScheduledTask]:
     ]
 
 
-def _parse_workgroup_entries(raw: list[dict] | None) -> list[WorkgroupRef | WorkgroupEntry]:
+def _parse_workgroup_entries(raw: list | None) -> list[WorkgroupRef | WorkgroupEntry]:
     if not raw:
         return []
     result: list[WorkgroupRef | WorkgroupEntry] = []
     for entry in raw:
-        if 'ref' in entry:
+        if isinstance(entry, str):
+            result.append(WorkgroupRef(ref=entry, status='active'))
+        elif 'ref' in entry:
             result.append(WorkgroupRef(ref=entry['ref'], status=entry.get('status', 'active')))
         else:
             result.append(WorkgroupEntry(
@@ -1230,7 +1232,7 @@ def _scaffold_project_yaml(
         'description': description or DESCRIPTION_SENTINEL,
         'lead': f'{name}-lead',
         'humans': {'decider': decider} if decider else {},
-        'workgroups': ['Configuration'],
+        'workgroups': [{'ref': 'Configuration'}],
         'members': {'workgroups': []},
         'artifact_pins': [],
     }

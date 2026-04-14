@@ -68,7 +68,28 @@ class _MiniBridge:
     _handle_projects_create: Any = None
 
     def _serialize_management_team(self, team, discovered_skills=None):
-        return {'projects': [p['name'] for p in team.projects]}
+        """Mirror the real serializer's load_project_team call.
+
+        This is the step that crashed in production when the scaffold wrote
+        an unparseable ``workgroups`` field: the HTTP handler creates the
+        project successfully, then the serializer reloads it to build the
+        response, and ``_parse_workgroup_entries`` blows up on a bare string.
+        Exercising load_project_team here catches that regression mode.
+        """
+        from teaparty.config.config_reader import load_project_team
+        projects = []
+        for p in team.projects:
+            entry = {'name': p['name']}
+            try:
+                pt = load_project_team(p['path'])
+                entry['workgroups'] = [
+                    {'ref': w.ref} if hasattr(w, 'ref') else {'name': w.name}
+                    for w in pt.workgroups
+                ]
+            except Exception as exc:
+                entry['load_error'] = repr(exc)
+            projects.append(entry)
+        return {'projects': projects}
 
 
 async def _build_app(home: str) -> tuple[web.Application, _MiniBridge]:
@@ -114,10 +135,24 @@ class TestBridgeCreateProjectE2E(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(resp.status, 200, await resp.text())
         body = await resp.json()
         self.assertTrue(body.get('ok'), body)
+        projects = body['management_team']['projects']
+        names = [p['name'] for p in projects]
         self.assertIn(
-            'my-project',
-            body['management_team']['projects'],
+            'my-project', names,
             "bridge response must report the normalized project name",
+        )
+        # The serializer reloaded the project via load_project_team; any
+        # load error means the scaffold produced unparseable YAML.
+        entry = next(p for p in projects if p['name'] == 'my-project')
+        self.assertNotIn(
+            'load_error', entry,
+            f"freshly-created project must reload cleanly; got "
+            f"{entry.get('load_error')}",
+        )
+        self.assertIn(
+            {'ref': 'Configuration'}, entry['workgroups'],
+            "reloaded project.yaml must expose Configuration as a "
+            "WorkgroupRef — {ref: Configuration} — not a bare string",
         )
 
         # 1. project.yaml normalized name + lead + sentinel + Configuration
@@ -127,7 +162,7 @@ class TestBridgeCreateProjectE2E(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(data['name'], 'my-project')
         self.assertEqual(data['lead'], 'my-project-lead')
         self.assertEqual(data['description'], SENTINEL)
-        self.assertIn('Configuration', data['workgroups'])
+        self.assertIn({'ref': 'Configuration'}, data['workgroups'])
 
         # 2. .gitignore written
         with open(os.path.join(proj_path, '.gitignore')) as f:
@@ -212,8 +247,9 @@ class TestBridgeCreateProjectE2E(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(resp_create.status, 200, await resp_create.text())
         data_create = await resp_create.json()
         self.assertTrue(data_create['ok'])
+        names = [p['name'] for p in data_create['management_team']['projects']]
         self.assertIn(
-            'delta', data_create['management_team']['projects'],
+            'delta', names,
             "the bridge response must include the normalized slug so the "
             "dashboard fetchAll() re-render shows the new project",
         )
@@ -310,7 +346,7 @@ class TestBridgeAddProjectE2E(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(resp.status, 200, await resp.text())
         body = await resp.json()
-        self.assertIn('pybayes', body['management_team']['projects'])
+        self.assertIn('pybayes', [p['name'] for p in body['management_team']['projects']])
 
         # .gitignore preserved + stanza appended
         with open(os.path.join(proj_path, '.gitignore')) as f:
@@ -324,7 +360,7 @@ class TestBridgeAddProjectE2E(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(data['name'], 'pybayes')
         self.assertEqual(data['lead'], 'pybayes-lead')
         self.assertEqual(data['description'], 'Bayesian library')
-        self.assertIn('Configuration', data['workgroups'])
+        self.assertIn({'ref': 'Configuration'}, data['workgroups'])
 
         # Lead agent scaffolded
         self.assertTrue(os.path.isfile(os.path.join(
@@ -373,7 +409,7 @@ class TestMcpHandlerEndToEnd(unittest.TestCase):
             data = yaml.safe_load(f)
         self.assertEqual(data['name'], 'gamma-project')
         self.assertEqual(data['lead'], 'gamma-project-lead')
-        self.assertIn('Configuration', data['workgroups'])
+        self.assertIn({'ref': 'Configuration'}, data['workgroups'])
 
         self.assertTrue(os.path.isfile(
             os.path.join(home, 'management', 'agents',
