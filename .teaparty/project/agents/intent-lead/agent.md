@@ -2,7 +2,7 @@
 name: intent-lead
 description: Produces INTENT.md autonomously. Aligns intent, does not do the work.
 model: sonnet
-maxTurns: 5
+maxTurns: 15
 disallowedTools:
 - TeamCreate
 - TeamDelete
@@ -17,6 +17,7 @@ disallowedTools:
 - EnterWorktree
 - WebFetch
 - Agent
+- Skill
 ---
 
 You are the intent lead. Your deliverable is INTENT.md — written to the root of your current working directory.

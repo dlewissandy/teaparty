@@ -28,11 +28,16 @@ class StatePoller:
     """Polls StateReader every second and broadcasts state-change events.
 
     Args:
-        state_reader: Provides .reload() -> list[ProjectState].
-        broadcast:    Async callable that sends an event dict to all WebSocket clients.
-        bus_factory:  Optional callable(infra_dir: str) -> SqliteMessageBus.
-                      When provided, opens one connection per active session and
-                      closes it when the session reaches a terminal state.
+        state_reader:  Provides .reload() -> list[ProjectState].
+        broadcast:     Async callable that sends an event dict to all WebSocket clients.
+        bus_factory:   Optional callable(infra_dir: str) -> SqliteMessageBus.
+                       When provided, opens one connection per active session and
+                       closes it when the session reaches a terminal state.
+        bus_teardown:  Optional callable(bus) -> None called just before the bus
+                       connection is closed (after session termination).  Callers
+                       that maintain their own registry of the same bus object
+                       (e.g. MessageRelay via server._buses) can use this to evict
+                       the entry before the underlying connection goes away.
         poll_interval: Seconds between polls (default 1.0).
     """
 
@@ -41,11 +46,13 @@ class StatePoller:
         state_reader,
         broadcast: Callable[[dict], Awaitable[None]],
         bus_factory: Callable[[str], object] | None = None,
+        bus_teardown: Callable[[object], None] | None = None,
         poll_interval: float = 1.0,
     ) -> None:
         self._state_reader = state_reader
         self._broadcast = broadcast
         self._bus_factory = bus_factory
+        self._bus_teardown = bus_teardown
         self._poll_interval = poll_interval
 
         # Per-session snapshot keyed by session_id
@@ -120,5 +127,7 @@ class StatePoller:
                 'terminal_state': session.cfa_state,
             })
             if sid in self._buses:
-                self._buses[sid].close()
-                del self._buses[sid]
+                bus = self._buses.pop(sid)
+                if self._bus_teardown:
+                    self._bus_teardown(bus)
+                bus.close()

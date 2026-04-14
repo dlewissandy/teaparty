@@ -368,6 +368,12 @@ def compose_launch_config(
         model = fm.get('model')
         if model:
             entry['model'] = model
+        max_turns = fm.get('maxTurns')
+        if max_turns:
+            entry['maxTurns'] = max_turns
+        disallowed = fm.get('disallowedTools')
+        if disallowed:
+            entry['disallowedTools'] = disallowed
         payload = {agent_name: entry}
         agents_json = json.dumps(payload)
         agents_file = os.path.join(config_dir, 'agent.json')

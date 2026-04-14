@@ -137,7 +137,7 @@ class MessageRelay:
                 try:
                     messages, new_cursor = bus.receive_since_cursor(cid, cursor)
                 except Exception:
-                    _log.exception('Error reading cursor for %s', cid)
+                    _log.debug('Error reading cursor for %s; bus may be closed', cid)
                     continue
                 if not messages:
                     continue
@@ -163,7 +163,10 @@ class MessageRelay:
             try:
                 waiting = bus.conversations_awaiting_input()
             except Exception:
-                _log.exception('Error reading awaiting_input for %s', session_id)
+                # Closed or otherwise dead connection — evict so we don't
+                # spam the log on every poll cycle.
+                _log.debug('Bus for %s is unavailable; evicting from registry', session_id)
+                self._buses.pop(session_id, None)
                 continue
             for conv in waiting:
                 question = ''

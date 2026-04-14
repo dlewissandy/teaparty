@@ -566,7 +566,18 @@ class TeaPartyBridge:
             self._buses[os.path.basename(infra_dir)] = bus
             return bus
 
-        poller = StatePoller(self._state_reader, broadcast, bus_factory=bus_factory)
+        def bus_teardown(bus: SqliteMessageBus) -> None:
+            # Remove the closed bus from the MessageRelay registry by object
+            # identity — the StatePoller and server._buses use different keys,
+            # so we can't match by key alone.
+            for key in [k for k, v in list(self._buses.items()) if v is bus]:
+                self._buses.pop(key, None)
+
+        poller = StatePoller(
+            self._state_reader, broadcast,
+            bus_factory=bus_factory,
+            bus_teardown=bus_teardown,
+        )
         relay = MessageRelay(self._buses, broadcast)
         self._message_relay = relay
 
@@ -3055,6 +3066,10 @@ class TeaPartyBridge:
                     await relay.unsubscribe(ws, bus_cid)
                 elif kind == 'ping':
                     await ws.send_json({'type': 'pong'})
+        except asyncio.CancelledError:
+            # Server is shutting down — return cleanly so aiohttp can
+            # complete its _handler_waiter bookkeeping without InvalidStateError.
+            pass
         finally:
             if relay is not None:
                 relay.unregister_connection(ws)

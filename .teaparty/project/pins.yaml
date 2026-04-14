@@ -1,4 +1,4 @@
 - path: docs/
   label: docs
-- path: triage/
-  label: triage
+- path: docs/contributing.md
+  label: contributing.md

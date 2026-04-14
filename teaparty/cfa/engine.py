@@ -2301,6 +2301,17 @@ class Orchestrator:
             # Intent phase, or artifacts not yet written
             base_task = self.task or self.project_slug
 
+        # Prepend CFA role framing for the intent phase so the agent knows
+        # its deliverable is INTENT.md, not the work itself.
+        if phase_name == 'intent':
+            base_task = (
+                '--- CfA: Intent Alignment Phase ---\n'
+                'Your deliverable is INTENT.md. Do not do the work described below.\n'
+                'Capture what the human wants, success criteria, constraints, and open questions.\n'
+                '--- end ---\n\n'
+                + base_task
+            )
+
         # Inject phase-specific constraints (Issue #141)
         if phase_name == 'intent':
             constraints = self._resolve_intent_constraints()
