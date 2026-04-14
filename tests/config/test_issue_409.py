@@ -582,5 +582,101 @@ class TestProjectLeadAlwaysScaffolded(unittest.TestCase):
             )
 
 
+class TestDeciderResolution(unittest.TestCase):
+    """The decider must be a human; empty defaults to the management decider."""
+
+    def _home_with_humans(self, tmp: str, humans: dict, members_agents=None) -> str:
+        home = os.path.join(tmp, '.teaparty')
+        mgmt = os.path.join(home, 'management')
+        os.makedirs(mgmt, exist_ok=True)
+        with open(os.path.join(mgmt, 'teaparty.yaml'), 'w') as f:
+            yaml.dump({
+                'name': 'Management Team',
+                'lead': 'office-manager',
+                'humans': humans,
+                'projects': [],
+                'members': {
+                    'agents': members_agents or ['office-manager'],
+                    'skills': [],
+                    'workgroups': [],
+                },
+            }, f, sort_keys=False)
+        return home
+
+    def test_empty_decider_defaults_to_management_decider(self):
+        """The dashboard modal sends no decider; the management decider takes over."""
+        tmp = _make_tmp(self)
+        home = self._home_with_humans(tmp, {'decider': 'darrell'})
+        proj = os.path.join(tmp, 'no-dec')
+        create_project('no-dec', proj, teaparty_home=home)
+        data = _read_project_yaml(proj)
+        self.assertEqual(
+            data['humans']['decider'], 'darrell',
+            "when no decider is supplied, the project must inherit the "
+            "management team's decider (the human running this instance)",
+        )
+
+    def test_empty_decider_raises_when_no_management_decider(self):
+        """A project without any resolvable decider must be rejected."""
+        tmp = _make_tmp(self)
+        home = self._home_with_humans(tmp, {})
+        proj = os.path.join(tmp, 'orphan')
+        with self.assertRaises(ValueError) as ctx:
+            create_project('orphan', proj, teaparty_home=home)
+        self.assertIn('decider', str(ctx.exception).lower())
+
+    def test_agent_name_rejected_as_decider(self):
+        """Agents can never be deciders — even the management lead."""
+        tmp = _make_tmp(self)
+        home = self._home_with_humans(
+            tmp, {'decider': 'darrell'},
+            members_agents=['office-manager', 'project-specialist'],
+        )
+        proj = os.path.join(tmp, 'bad-dec')
+        with self.assertRaises(ValueError) as ctx:
+            create_project(
+                'bad-dec', proj, teaparty_home=home,
+                decider='office-manager',
+            )
+        msg = str(ctx.exception)
+        self.assertIn('office-manager', msg)
+        self.assertIn('agent', msg.lower())
+
+    def test_unknown_human_rejected_as_decider(self):
+        """Deciders must be registered humans; typos or guesses are rejected."""
+        tmp = _make_tmp(self)
+        home = self._home_with_humans(tmp, {'decider': 'darrell'})
+        proj = os.path.join(tmp, 'unknown-dec')
+        with self.assertRaises(ValueError) as ctx:
+            create_project(
+                'unknown-dec', proj, teaparty_home=home,
+                decider='stranger',
+            )
+        self.assertIn('stranger', str(ctx.exception))
+
+    def test_known_advisor_accepted_as_decider(self):
+        """Any registered human may be named the project decider."""
+        tmp = _make_tmp(self)
+        home = self._home_with_humans(
+            tmp,
+            {'decider': 'darrell', 'advisors': ['alice']},
+        )
+        proj = os.path.join(tmp, 'advised')
+        create_project(
+            'advised', proj, teaparty_home=home, decider='alice',
+        )
+        data = _read_project_yaml(proj)
+        self.assertEqual(data['humans']['decider'], 'alice')
+
+    def test_add_project_also_resolves_decider(self):
+        tmp = _make_tmp(self)
+        home = self._home_with_humans(tmp, {'decider': 'darrell'})
+        proj = os.path.join(tmp, 'add-dec')
+        os.makedirs(proj)
+        add_project('add-dec', proj, teaparty_home=home)
+        data = _read_project_yaml(proj)
+        self.assertEqual(data['humans']['decider'], 'darrell')
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -223,10 +223,25 @@ class TestBridgeCreateProjectE2E(unittest.IsolatedAsyncioTestCase):
             pdata = yaml.safe_load(f)
         self.assertEqual(pdata['description'], SENTINEL)
 
-        # Lead agent scaffolded even with empty decider
-        self.assertTrue(os.path.isfile(os.path.join(
+        # No decider was sent; the project must inherit the management
+        # team's decider — the human who runs this instance and therefore
+        # actually initiated the project creation.
+        self.assertEqual(
+            pdata['humans']['decider'], 'alice',
+            "dashboard flow with no decider must default to the management "
+            "team's decider; agents can never be deciders",
+        )
+
+        # Lead agent scaffolded; body names the resolved decider
+        lead_md = os.path.join(
             self.home, 'management', 'agents', 'delta-lead', 'agent.md',
-        )))
+        )
+        self.assertTrue(os.path.isfile(lead_md))
+        with open(lead_md) as f:
+            self.assertIn(
+                '**alice**', f.read(),
+                "the lead agent prompt must name the resolved human decider",
+            )
 
     async def test_duplicate_name_via_http_normalized(self):
         """A second POST with a differently-cased name hits the same slug."""

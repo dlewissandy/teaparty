@@ -1296,6 +1296,50 @@ def _emit_project_added_event(project: str, path: str, created: bool) -> None:
         pass
 
 
+def _resolve_decider(team: ManagementTeam, decider: str) -> str:
+    """Resolve and validate the decider for a newly onboarded project.
+
+    Rules:
+
+    - Decider must be a human. Agents can never be deciders.
+    - If ``decider`` is empty, default to the management team's own decider
+      (the human who runs this TeaParty instance — i.e., the user who
+      initiated the project creation, in any single-user dashboard or MCP
+      flow).
+    - If ``decider`` is supplied, it must match a human registered on the
+      management team. Matching an agent name (management or otherwise) is
+      rejected with an explicit error.
+    - If no decider can be resolved, raise ValueError. A project without a
+      decider is not valid.
+    """
+    human_names = {h.name for h in team.humans}
+    agent_names = set(team.members_agents)
+
+    if not decider:
+        mgmt_decider = next(
+            (h.name for h in team.humans if h.role == 'decider'), '',
+        )
+        if not mgmt_decider:
+            raise ValueError(
+                'No decider for project: none supplied and the management '
+                "team has no decider configured. Add a human with role "
+                "'decider' to teaparty.yaml or pass decider=... explicitly."
+            )
+        return mgmt_decider
+
+    if decider in agent_names:
+        raise ValueError(
+            f"decider={decider!r} is an agent; agents can never be deciders. "
+            "The decider must be a human registered on the management team."
+        )
+    if decider not in human_names:
+        raise ValueError(
+            f"decider={decider!r} is not a known human on the management "
+            f"team. Known humans: {sorted(human_names) or '[]'}."
+        )
+    return decider
+
+
 def _register_external_project(home: str, name: str, path: str, config: str) -> None:
     ext_path = external_projects_path(home)
     ext: list = []
@@ -1338,6 +1382,7 @@ def add_project(
     for p in team.projects:
         if p['name'] == name:
             raise ValueError(f"Project '{name}' already exists")
+    decider = _resolve_decider(team, decider)
 
     _ensure_project_dirs(path)
     _scaffold_project_yaml(
@@ -1379,6 +1424,7 @@ def create_project(
     for p in team.projects:
         if p['name'] == name:
             raise ValueError(f"Project '{name}' already exists")
+    decider = _resolve_decider(team, decider)
 
     os.makedirs(path)
     subprocess.run(['git', 'init', path], check=True, capture_output=True)

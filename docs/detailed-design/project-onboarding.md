@@ -59,8 +59,28 @@ checking and the initial `os.makedirs` + `git init` step.
 |---|---|---|
 | `name` | Yes | Unique project name. Normalized before use (see below). Also determines the lead agent name: `{name}-lead`. |
 | `path` | Yes | Absolute path to the project directory. |
-| `decider` | Yes | Human decider for this project (typically the org decider). |
+| `decider` | No | Human decider for this project. See rules below. |
 | `description` | No | Human-readable project description. Defaults to the sentinel value (see below). |
+
+### Decider resolution
+
+The decider is the human who initiated the project creation. TeaParty
+enforces two invariants on this value:
+
+1. **The decider must be a human.** Agents can never be deciders. A
+   supplied `decider` that matches an agent name in the management catalog
+   is rejected with an explicit error. A supplied name that does not match
+   any human registered on the management team is also rejected.
+2. **Empty defaults to the management team's own decider.** The dashboard
+   modal and the MCP `CreateProject` / `AddProject` tools do not require
+   callers to pass a decider; when omitted, the project inherits the
+   decider from `{teaparty_home}/management/teaparty.yaml`. That human is,
+   by construction, the user running this TeaParty instance — the only
+   party who could have initiated the creation.
+
+If no decider can be resolved (none supplied and the management team has
+no decider configured), onboarding fails with a hard error. A project
+without a decider is not valid.
 
 ### Name normalization
 
