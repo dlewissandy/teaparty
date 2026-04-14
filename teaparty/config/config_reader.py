@@ -1527,6 +1527,15 @@ def remove_project(
     """
     home = os.path.expanduser(teaparty_home or default_teaparty_home())
 
+    def _remove_from_members(data: dict[str, Any]) -> dict[str, Any]:
+        members = data.get('members') or {}
+        member_projects = members.get('projects') or []
+        updated = [n for n in member_projects if n != name]
+        if len(updated) < len(member_projects):
+            members['projects'] = updated
+            data['members'] = members
+        return data
+
     # Try external-projects.yaml first (most common case)
     ext_path = external_projects_path(home)
     if os.path.isfile(ext_path):
@@ -1536,6 +1545,8 @@ def remove_project(
         if len(filtered) < len(ext):
             with open(ext_path, 'w') as f:
                 yaml.dump(filtered, f, default_flow_style=False, sort_keys=False)
+            data = _load_management_yaml(teaparty_home)
+            _save_management_yaml(_remove_from_members(data), teaparty_home)
             return load_management_team(teaparty_home=teaparty_home)
 
     # Fall back to teaparty.yaml (tracked projects)
@@ -1545,7 +1556,7 @@ def remove_project(
     if len(filtered) == len(projects):
         raise ValueError(f"Project '{name}' not found")
     data['projects'] = filtered
-    _save_management_yaml(data, teaparty_home)
+    _save_management_yaml(_remove_from_members(data), teaparty_home)
 
     return load_management_team(teaparty_home=teaparty_home)
 

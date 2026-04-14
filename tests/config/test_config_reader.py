@@ -342,6 +342,30 @@ class TestRemoveProject(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     remove_project(name, teaparty_home=home)
 
+    def test_removes_from_members_projects(self):
+        """remove_project must also remove the name from members.projects.
+
+        The home screen deletes a project via /api/projects/{slug}/remove, which
+        calls remove_project().  If members.projects is not updated, the project
+        continues to appear on the management team page after deletion.
+        """
+        tmp = _make_tmp(self)
+        home = _make_teaparty_home(tmp)
+        proj = os.path.join(tmp, 'gone')
+        os.makedirs(proj)
+        add_project('gone', proj, teaparty_home=home)
+        # Manually add to members.projects (as the MCP onboarding tool would)
+        mgmt_path = os.path.join(home, 'management', 'teaparty.yaml')
+        with open(mgmt_path) as f:
+            data = yaml.safe_load(f)
+        data.setdefault('members', {}).setdefault('projects', [])
+        data['members']['projects'].append('gone')
+        with open(mgmt_path, 'w') as f:
+            yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+        team = remove_project('gone', teaparty_home=home)
+        self.assertNotIn('gone', team.members_projects,
+            "remove_project must purge the name from members.projects")
+
 
 # ── Layer 4: Resolution ─────────────���────────────────────────────────────────
 
