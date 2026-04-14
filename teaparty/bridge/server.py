@@ -362,6 +362,7 @@ class TeaPartyBridge:
 
         # ── Artifact endpoints ────────────────────────────────────────────────
         app.router.add_get('/api/pins', self._handle_pins)
+        app.router.add_patch('/api/pins', self._handle_pins_patch)
         app.router.add_get('/api/artifacts/{project}', self._handle_artifacts)
         app.router.add_get('/api/artifacts/{project}/pins', self._handle_artifact_pins)
         app.router.add_patch('/api/artifacts/{project}/pins', self._handle_artifact_pins_patch)
@@ -2166,6 +2167,124 @@ class TeaPartyBridge:
             return web.json_response({'error': f'unknown scope: {scope}'}, status=400)
 
         return web.json_response(resolve_pins(scope_dir, path_root))
+
+    async def _handle_pins_patch(self, request: web.Request) -> web.Response:
+        """PATCH /api/pins — add or remove a single pin for any scope.
+
+        Query params mirror GET /api/pins: scope=, name=, project=
+        Body: {action: 'add'|'remove', path: <abs_path>, label: <str>}
+        """
+        from teaparty.config.config_reader import (
+            add_pin,
+            remove_pin,
+            management_dir,
+            management_agents_dir,
+            project_agents_dir,
+            project_workgroups_dir,
+            management_workgroups_dir,
+            project_sessions_dir,
+        )
+
+        scope = request.rel_url.query.get('scope', '')
+        name = request.rel_url.query.get('name', '')
+        project_slug = request.rel_url.query.get('project', '')
+
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({'error': 'invalid JSON body'}, status=400)
+
+        # Body: {"add": {"path": "...", "label": "..."}} or {"remove": {"path": "..."}}
+        if 'add' in body:
+            action = 'add'
+            add_data = body['add']
+            if not isinstance(add_data, dict):
+                return web.json_response({'error': 'add must be an object'}, status=400)
+            abs_path = add_data.get('path', '')
+            label = add_data.get('label', '') or os.path.basename(abs_path.rstrip('/\\'))
+        elif 'remove' in body:
+            action = 'remove'
+            remove_data = body['remove']
+            if not isinstance(remove_data, dict):
+                return web.json_response({'error': 'remove must be an object'}, status=400)
+            abs_path = remove_data.get('path', '')
+            label = ''
+        else:
+            return web.json_response({'error': 'body must have "add" or "remove" key'}, status=400)
+
+        if not abs_path:
+            return web.json_response({'error': 'path is required'}, status=400)
+
+        # Resolve scope_dir and path_root using the same logic as _handle_pins
+        if scope == 'system':
+            scope_dir = management_dir(self.teaparty_home)
+            path_root = os.path.dirname(self.teaparty_home)
+
+        elif scope == 'project':
+            proj_path = self._lookup_project_path(project_slug)
+            if proj_path is None:
+                return web.json_response({'error': f'project not found: {project_slug}'}, status=404)
+            scope_dir = os.path.join(proj_path, '.teaparty', 'project')
+            path_root = proj_path
+
+        elif scope == 'agent':
+            if not name:
+                return web.json_response({'error': 'agent scope requires name'}, status=400)
+            scope_dir = None
+            path_root = None
+            if project_slug:
+                proj_path = self._lookup_project_path(project_slug)
+                if proj_path:
+                    candidate = os.path.join(project_agents_dir(proj_path), name)
+                    if os.path.isdir(candidate):
+                        scope_dir = candidate
+                        path_root = candidate
+            if scope_dir is None:
+                candidate = os.path.join(management_agents_dir(self.teaparty_home), name)
+                if os.path.isdir(candidate):
+                    scope_dir = candidate
+                    path_root = candidate
+            if scope_dir is None:
+                return web.json_response({'error': f'agent not found: {name}'}, status=404)
+
+        elif scope == 'workgroup':
+            if not name:
+                return web.json_response({'error': 'workgroup scope requires name'}, status=400)
+            scope_dir = None
+            path_root = None
+            if project_slug:
+                proj_path = self._lookup_project_path(project_slug)
+                if proj_path:
+                    candidate = os.path.join(project_workgroups_dir(proj_path), name)
+                    if os.path.isdir(candidate):
+                        scope_dir = candidate
+                        path_root = candidate
+            if scope_dir is None:
+                candidate = os.path.join(management_workgroups_dir(self.teaparty_home), name)
+                if os.path.isdir(candidate):
+                    scope_dir = candidate
+                    path_root = candidate
+            if scope_dir is None:
+                return web.json_response({'error': f'workgroup not found: {name}'}, status=404)
+
+        elif scope == 'job':
+            if not name or not project_slug:
+                return web.json_response({'error': 'job scope requires name and project'}, status=400)
+            proj_path = self._lookup_project_path(project_slug)
+            if proj_path is None:
+                return web.json_response({'error': f'project not found: {project_slug}'}, status=404)
+            scope_dir = os.path.join(project_sessions_dir(proj_path), name)
+            path_root = scope_dir
+
+        else:
+            return web.json_response({'error': f'unknown scope: {scope}'}, status=400)
+
+        if action == 'add':
+            add_pin(scope_dir, path_root, abs_path, label)
+        else:
+            remove_pin(scope_dir, path_root, abs_path)
+
+        return web.json_response({'ok': True})
 
     async def _handle_artifact_pins(self, request: web.Request) -> web.Response:
         """GET /api/artifacts/{project}/pins — return pins with absolute paths and is_dir.

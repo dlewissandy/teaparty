@@ -141,17 +141,64 @@ def resolve_pins(
     """
     raw = read_pins(scope_dir)
     result = []
+    stale: list[dict] = []
     for pin in raw:
         rel = pin.get('path', '')
         label = pin.get('label') or os.path.basename(rel.rstrip('/\\')) or rel
         abs_path = os.path.normpath(os.path.join(path_root, rel))
+        if not os.path.exists(abs_path):
+            stale.append(pin)
+            continue
         result.append({
             'path': abs_path,
             'rel_path': rel,
             'label': label,
             'is_dir': os.path.isdir(abs_path),
         })
+    if stale:
+        # Prune stale entries from pins.yaml so they don't accumulate
+        write_pins(scope_dir, [p for p in raw if p not in stale])
     return result
+
+
+def add_pin(scope_dir: str, path_root: str, abs_path: str, label: str) -> None:
+    """Add abs_path to pins.yaml in scope_dir as a relative path.
+
+    Idempotent: if the path is already pinned, does nothing.
+
+    Args:
+        scope_dir:  Directory containing (or to contain) pins.yaml.
+        path_root:  Root for computing the relative path to store.
+        abs_path:   Absolute path of the file or directory to pin.
+        label:      Display label for the pin.
+    """
+    rel = os.path.relpath(abs_path, path_root)
+    pins = read_pins(scope_dir)
+    for existing in pins:
+        # Normalize trailing slashes: agent-written paths may use 'docs/'
+        if existing.get('path', '').rstrip('/') == rel.rstrip('/'):
+            return  # already pinned — idempotent
+    pins.append({'path': rel, 'label': label})
+    write_pins(scope_dir, pins)
+
+
+def remove_pin(scope_dir: str, path_root: str, abs_path: str) -> None:
+    """Remove abs_path from pins.yaml in scope_dir.
+
+    No-op if the path is not pinned or pins.yaml does not exist.
+
+    Args:
+        scope_dir:  Directory containing pins.yaml.
+        path_root:  Root for computing the relative path to match.
+        abs_path:   Absolute path of the file or directory to unpin.
+    """
+    rel = os.path.relpath(abs_path, path_root)
+    pins = read_pins(scope_dir)
+    # Normalize trailing slashes: agent-written paths may use 'docs/' while
+    # os.path.relpath always returns 'docs'. Match both forms.
+    updated = [p for p in pins if p.get('path', '').rstrip('/') != rel.rstrip('/')]
+    if len(updated) != len(pins):
+        write_pins(scope_dir, updated)
 
 
 # ── Data classes ─────────────────────────────────────────────────────────────

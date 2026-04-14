@@ -34,6 +34,8 @@ ArtifactPage.mount({
   bladeEl: document.getElementById('blade'),
   mode: 'browse',
   projectSlug: project,
+  pinScope: params.get('scope') || 'project',
+  pinName: params.get('name') || '',
   customTitle: params.get('title') || null,
   requestedFile: params.get('file') || null,
   requestedDir: params.get('dir') || null,

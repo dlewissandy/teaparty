@@ -107,6 +107,7 @@
   var _chatInstance = null;
   var _sections = [];
   var _pinnedNodes = [];
+  var _pinnedPathSet = {};  // {abs_path: true} — rebuilt whenever _pinnedNodes changes
   var _selectedFile = null;
   var _fileContent = null;
   var _loadError = null;
@@ -222,15 +223,62 @@
 
   async function fetchPins() {
     var project = _config.projectSlug || '';
+    var scope = _config.pinScope || 'project';
+    var name = _config.pinName || '';
+    var url = '/api/pins?scope=' + encodeURIComponent(scope) +
+              '&project=' + encodeURIComponent(project) +
+              (name ? '&name=' + encodeURIComponent(name) : '');
     try {
-      var resp = await fetch('/api/artifacts/' + encodeURIComponent(project) + '/pins');
+      var resp = await fetch(url);
       if (!resp.ok) { _pinnedNodes = []; return; }
       var data = await resp.json();
       _pinnedNodes = data.map(function(p) {
         return {path: p.path, label: p.label, is_dir: p.is_dir, expanded: false, children: null};
       });
+      _rebuildPinnedPathSet();
     } catch(e) {
       _pinnedNodes = [];
+      _pinnedPathSet = {};
+    }
+  }
+
+  function _rebuildPinnedPathSet() {
+    _pinnedPathSet = {};
+    (function collect(nodes) {
+      nodes.forEach(function(n) {
+        _pinnedPathSet[n.path] = true;
+        if (n.children) collect(n.children);
+      });
+    })(_pinnedNodes);
+  }
+
+  async function _togglePin(path) {
+    var project = _config.projectSlug || '';
+    var scope = _config.pinScope || 'project';
+    var name = _config.pinName || '';
+    var isPinned = !!_pinnedPathSet[path];
+    var label = path.split('/').pop() || path;
+    var params = '?scope=' + encodeURIComponent(scope) +
+                 '&project=' + encodeURIComponent(project) +
+                 (name ? '&name=' + encodeURIComponent(name) : '');
+    try {
+      var patchBody = isPinned
+        ? {remove: {path: path}}
+        : {add: {path: path, label: label}};
+      var resp = await fetch('/api/pins' + params, {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(patchBody),
+      });
+      if (resp.ok) {
+        await fetchPins();
+        _render();
+      } else {
+        var errText = await resp.text().catch(function() { return ''; });
+        console.error('[pin-toggle] PATCH /api/pins returned', resp.status, errText);
+      }
+    } catch(e) {
+      console.error('[pin-toggle] fetch error:', e);
     }
   }
 
@@ -403,11 +451,14 @@
     var indent = (depth * 12) + 'px';
     nodes.forEach(function(node) {
       var escapedPath = node.path.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+      var isPinned = !!_pinnedPathSet[node.path];
+      var pinSlot = '<span class="artifact-nav-pin' + (isPinned ? ' pinned' : '') + '" title="' + (isPinned ? 'Unpin' : 'Pin') + '" onclick="event.stopPropagation();ArtifactPage._togglePin(\'' + escapedPath + '\')">' + (isPinned ? '&#128204;' : '') + '</span>';
       if (node.is_dir) {
         var icon = node.expanded ? '&#9660;' : '&#9654;';
-        html += '<div class="artifact-nav-folder" style="padding-left:calc(10px + ' + indent + ')" onclick="ArtifactPage._toggleFolder(\'' + escapedPath + '\')">' +
+        html += '<div class="artifact-nav-folder" style="padding-left:calc(10px + ' + indent + ')" onclick="if(!event.target.classList.contains(\'artifact-nav-pin\'))ArtifactPage._toggleFolder(\'' + escapedPath + '\')">' +
           '<span class="artifact-nav-folder-icon">' + icon + '</span>' +
           '<span class="artifact-nav-item-label">' + escHtml(node.label) + '</span>' +
+          pinSlot +
           '</div>';
         if (node.expanded && node.children && node.children.length > 0) {
           html += _renderPinnedNodes(node.children, depth + 1);
@@ -417,9 +468,10 @@
       } else {
         var isActive = _selectedFile === node.path;
         var statusHtml = _gitStatusIndicator(node.path);
-        html += '<div class="artifact-nav-item ' + (isActive ? 'active' : '') + '" style="padding-left:calc(16px + ' + indent + ')" onclick="ArtifactPage._loadFile(\'' + escapedPath + '\')">' +
+        html += '<div class="artifact-nav-item ' + (isActive ? 'active' : '') + '" style="padding-left:calc(16px + ' + indent + ')" onclick="if(!event.target.classList.contains(\'artifact-nav-pin\'))ArtifactPage._loadFile(\'' + escapedPath + '\')">' +
           statusHtml +
           '<span class="artifact-nav-item-label">' + escHtml(node.label) + '</span>' +
+          pinSlot +
           '</div>';
       }
     });
@@ -482,6 +534,56 @@
     return html;
   }
 
+  // Build breadcrumb trail based on scope context.
+  // Browse mode: [Home, <scope chain>, Artifacts]
+  // Job mode:    [Home, <project>, Job]
+  function _buildCrumbs(project, displayName) {
+    var scope = _config.pinScope || 'project';
+    var name = _config.pinName || '';
+    var crumbs = [{ label: 'Home', href: 'index.html' }];
+
+    if (_config.mode === 'job') {
+      if (project) crumbs.push({ label: displayName, href: 'index.html?project=' + encodeURIComponent(project) });
+      crumbs.push({ label: 'Job' });
+      return crumbs;
+    }
+
+    // Browse mode — chain matches config.html's scopeCrumbs() hierarchy,
+    // with href links so they work outside the config SPA.
+    var projLabel = displayName + ' Team';
+    var projHref = project ? 'config.html?project=' + encodeURIComponent(project) : null;
+
+    switch (scope) {
+      case 'system':
+        crumbs.push({ label: 'Management Team', href: 'config.html' });
+        break;
+      case 'project':
+        crumbs.push({ label: 'Management Team', href: 'config.html' });
+        if (project) crumbs.push({ label: projLabel, href: projHref });
+        break;
+      case 'agent':
+        crumbs.push({ label: 'Management Team', href: 'config.html' });
+        if (project) crumbs.push({ label: projLabel, href: projHref });
+        if (name) crumbs.push({ label: name, href: 'config.html?agent=' + encodeURIComponent(name) + (project ? '&project=' + encodeURIComponent(project) : '') });
+        break;
+      case 'workgroup':
+        crumbs.push({ label: 'Management Team', href: 'config.html' });
+        if (project) crumbs.push({ label: projLabel, href: projHref });
+        if (name) crumbs.push({ label: name, href: 'config.html?workgroup=' + encodeURIComponent(name) + (project ? '&project=' + encodeURIComponent(project) : '') });
+        break;
+      case 'job':
+        if (project) crumbs.push({ label: displayName, href: 'index.html?project=' + encodeURIComponent(project) });
+        if (name) crumbs.push({ label: name });
+        break;
+      default:
+        if (project) crumbs.push({ label: projLabel, href: projHref });
+        break;
+    }
+
+    crumbs.push({ label: 'Artifacts' });
+    return crumbs;
+  }
+
   function _render() {
     var contentEl = _container;
     if (!contentEl) return;
@@ -493,14 +595,7 @@
     // Breadcrumb
     var bcSlot = _breadcrumbEl;
     if (bcSlot && typeof breadcrumbBar === 'function') {
-      var crumbs = [{ label: 'Home', href: 'index.html' }];
-      if (_config.mode === 'job') {
-        crumbs.push({ label: displayName, href: 'index.html?project=' + encodeURIComponent(project) });
-        crumbs.push({ label: 'Job' });
-      } else {
-        crumbs.push({ label: displayName + ' Artifacts' });
-      }
-      bcSlot.innerHTML = breadcrumbBar(crumbs);
+      bcSlot.innerHTML = breadcrumbBar(_buildCrumbs(project, displayName));
     }
 
     // ── Job-mode top strip ──────────────────────────────────────────────────
@@ -549,13 +644,7 @@
 
     var navHtml = '<div class="artifact-nav">';
 
-    var pinnedPathSet = {};
-    (function collectPinned(nodes) {
-      nodes.forEach(function(n) {
-        pinnedPathSet[n.path] = true;
-        if (n.children) collectPinned(n.children);
-      });
-    })(_pinnedNodes);
+    var pinnedPathSet = _pinnedPathSet;
 
     function _isFileChanged(filepath) {
       if (_gitStatuses[filepath]) return true;
@@ -603,9 +692,12 @@
             if (_filterChanged && !_isDirChanged(node.path)) return;
           }
           var icon = node.expanded ? '&#9660;' : '&#9654;';
-          html += '<div class="artifact-nav-folder" style="padding-left:calc(10px + ' + indent + ')" onclick="ArtifactPage._toggleFolder(\'' + escapedPath + '\')">' +
+          var dirIsPinned = !!pinnedPathSet[node.path];
+          var dirPinSlot = '<span class="artifact-nav-pin' + (dirIsPinned ? ' pinned' : '') + '" title="' + (dirIsPinned ? 'Unpin' : 'Pin') + '" onclick="event.stopPropagation();ArtifactPage._togglePin(\'' + escapedPath + '\')">' + (dirIsPinned ? '&#128204;' : '') + '</span>';
+          html += '<div class="artifact-nav-folder" style="padding-left:calc(10px + ' + indent + ')" onclick="if(!event.target.classList.contains(\'artifact-nav-pin\'))ArtifactPage._toggleFolder(\'' + escapedPath + '\')">' +
             '<span class="artifact-nav-folder-icon">' + icon + '</span>' +
             '<span class="artifact-nav-item-label">' + escHtml(node.label) + '</span>' +
+            dirPinSlot +
             '</div>';
           if (node.expanded && node.children && node.children.length > 0) {
             html += _renderFileTree(node.children, depth + 1);
@@ -615,9 +707,12 @@
           if (_filterChanged && !_isFileChanged(node.path)) return;
           var isActive = _selectedFile === node.path;
           var statusHtml = _gitStatusIndicator(node.path);
-          html += '<div class="artifact-nav-item ' + (isActive ? 'active' : '') + '" style="padding-left:calc(16px + ' + indent + ')" onclick="ArtifactPage._loadFile(\'' + escapedPath + '\')">' +
+          var fileIsPinned = !!pinnedPathSet[node.path];
+          var filePinSlot = '<span class="artifact-nav-pin' + (fileIsPinned ? ' pinned' : '') + '" title="' + (fileIsPinned ? 'Unpin' : 'Pin') + '" onclick="event.stopPropagation();ArtifactPage._togglePin(\'' + escapedPath + '\')">' + (fileIsPinned ? '&#128204;' : '') + '</span>';
+          html += '<div class="artifact-nav-item ' + (isActive ? 'active' : '') + '" style="padding-left:calc(16px + ' + indent + ')" onclick="if(!event.target.classList.contains(\'artifact-nav-pin\'))ArtifactPage._loadFile(\'' + escapedPath + '\')">' +
             statusHtml +
             '<span class="artifact-nav-item-label">' + escHtml(node.label) + '</span>' +
+            filePinSlot +
             '</div>';
         }
       });
@@ -787,6 +882,34 @@
     for (var i = 0; i < targets.length; i++) {
       await _expandAncestors(targets[i], _repoFiles);
     }
+    // For pinned-only view (no repo tree), expand pinned dirs that contain other pinned items
+    if (_filterPinned && _repoFiles.length === 0) {
+      for (var j = 0; j < _pinnedNodes.length; j++) {
+        var node = _pinnedNodes[j];
+        if (!node.is_dir) continue;
+        var dirPrefix = node.path.endsWith('/') ? node.path : node.path + '/';
+        var hasChild = _pinnedNodes.some(function(n) { return n.path.startsWith(dirPrefix); });
+        if (!hasChild) continue;
+        node.expanded = true;
+        if (node.children === null) {
+          try {
+            var resp = await fetch('/api/fs/list?path=' + encodeURIComponent(node.path));
+            if (resp.ok) {
+              var data = await resp.json();
+              node.children = (data.entries || [])
+                .filter(function(e) { return !e.name.startsWith('.'); })
+                .map(function(e) {
+                  return {path: e.path, label: e.name, is_dir: e.is_dir, expanded: false, children: null};
+                });
+            } else {
+              node.children = [];
+            }
+          } catch(e) {
+            node.children = [];
+          }
+        }
+      }
+    }
   }
 
   async function _expandAncestors(filepath, nodes) {
@@ -828,17 +951,11 @@
     }
     _loadError = null;
     try {
-      var [artResp, pinsResp, _gitResp] = await Promise.all([
+      var [artResp, _gitResp] = await Promise.all([
         fetch('/api/artifacts/' + encodeURIComponent(project)),
-        fetch('/api/artifacts/' + encodeURIComponent(project) + '/pins'),
         _fetchGitStatus(),
       ]);
-      if (pinsResp.ok) {
-        var pinsData = await pinsResp.json();
-        _pinnedNodes = pinsData.map(function(p) {
-          return {path: p.path, label: p.label, is_dir: p.is_dir, expanded: false, children: null};
-        });
-      }
+      await fetchPins();
       if (!artResp.ok) {
         _loadError = artResp.status === 404
           ? 'No documentation found for project: ' + project
@@ -927,16 +1044,10 @@
     }
 
     try {
-      var [artResp, pinsResp] = await Promise.all([
+      var [artResp] = await Promise.all([
         fetch('/api/artifacts/' + encodeURIComponent(project)),
-        fetch('/api/artifacts/' + encodeURIComponent(project) + '/pins'),
       ]);
-      if (pinsResp.ok) {
-        var pinsData = await pinsResp.json();
-        _pinnedNodes = pinsData.map(function(p) {
-          return {path: p.path, label: p.label, is_dir: p.is_dir, expanded: false, children: null};
-        });
-      }
+      await fetchPins();
       if (!artResp.ok) {
         _loadError = artResp.status === 404
           ? 'No documentation found for project: ' + project
@@ -971,6 +1082,7 @@
     _loadFile: loadFile,
     _closeFile: _closeFile,
     _toggleFolder: toggleFolder,
+    _togglePin: _togglePin,
     _refresh: _refresh,
     _copyFileContent: _copyFileContent,
     _toggleFilter: _toggleFilter,
