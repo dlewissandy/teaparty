@@ -2331,8 +2331,7 @@ class TeaPartyBridge:
     async def _handle_projects_add(self, request: web.Request) -> web.Response:
         """POST /api/projects/add — register an existing directory as a project.
 
-        Body: {"name": str, "path": str, "description": str, "lead": str,
-               "decider": str, "workgroups": list}
+        Body: {"name": str, "path": str, "description": str, "decider": str}
         Response: updated management team serialization.
         """
         from teaparty.config.config_reader import add_project
@@ -2369,8 +2368,7 @@ class TeaPartyBridge:
     async def _handle_projects_create(self, request: web.Request) -> web.Response:
         """POST /api/projects/create — scaffold a new project directory and register it.
 
-        Body: {"name": str, "path": str, "description": str, "lead": str,
-               "decider": str, "workgroups": list}
+        Body: {"name": str, "path": str, "description": str, "decider": str}
         Response: updated management team serialization.
         """
         from teaparty.config.config_reader import create_project
