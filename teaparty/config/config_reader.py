@@ -1271,17 +1271,27 @@ def scaffold_project_lead(
 
 
 def _emit_project_added_event(project: str, path: str, created: bool) -> None:
-    """Best-effort telemetry emission for Step 10 of onboarding."""
+    """Telemetry emission for Step 10 of onboarding.
+
+    Best-effort for any runtime failure (missing tables, I/O errors), but
+    a missing event-type constant is a development-time bug and raises
+    AssertionError — matches the "no silent fallbacks" rule.
+    """
     try:
         from teaparty import telemetry
         from teaparty.telemetry import events as _telem_events
         et = getattr(_telem_events, 'CONFIG_PROJECT_ADDED', None)
         if et is None:
-            return
+            raise AssertionError(
+                '_emit_project_added_event: no CONFIG_PROJECT_ADDED constant '
+                'in teaparty.telemetry.events'
+            )
         data = {'project': project, 'path': path}
         if created:
             data['created'] = True
         telemetry.record_event(et, scope=project, data=data)
+    except AssertionError:
+        raise
     except Exception:
         pass
 
