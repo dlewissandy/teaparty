@@ -447,7 +447,7 @@
     nodes.forEach(function(node) {
       var escapedPath = node.path.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
       // Items in the pinned section are always pinned — always show the pin icon
-      var pinSlot = '<span class="artifact-nav-pin" title="Unpin" onclick="event.stopPropagation();ArtifactPage._togglePin(\'' + escapedPath + '\')">&#128204;</span>';
+      var pinSlot = '<span class="artifact-nav-pin pinned" title="Unpin" onclick="event.stopPropagation();ArtifactPage._togglePin(\'' + escapedPath + '\')">&#128204;</span>';
       if (node.is_dir) {
         var icon = node.expanded ? '&#9660;' : '&#9654;';
         html += '<div class="artifact-nav-folder" style="padding-left:calc(10px + ' + indent + ')" onclick="ArtifactPage._toggleFolder(\'' + escapedPath + '\')">' +
@@ -875,17 +875,11 @@
     }
     _loadError = null;
     try {
-      var [artResp, pinsResp, _gitResp] = await Promise.all([
+      var [artResp, _gitResp] = await Promise.all([
         fetch('/api/artifacts/' + encodeURIComponent(project)),
-        fetch('/api/artifacts/' + encodeURIComponent(project) + '/pins'),
         _fetchGitStatus(),
       ]);
-      if (pinsResp.ok) {
-        var pinsData = await pinsResp.json();
-        _pinnedNodes = pinsData.map(function(p) {
-          return {path: p.path, label: p.label, is_dir: p.is_dir, expanded: false, children: null};
-        });
-      }
+      await fetchPins();
       if (!artResp.ok) {
         _loadError = artResp.status === 404
           ? 'No documentation found for project: ' + project
@@ -957,16 +951,10 @@
     }
 
     try {
-      var [artResp, pinsResp] = await Promise.all([
+      var [artResp] = await Promise.all([
         fetch('/api/artifacts/' + encodeURIComponent(project)),
-        fetch('/api/artifacts/' + encodeURIComponent(project) + '/pins'),
       ]);
-      if (pinsResp.ok) {
-        var pinsData = await pinsResp.json();
-        _pinnedNodes = pinsData.map(function(p) {
-          return {path: p.path, label: p.label, is_dir: p.is_dir, expanded: false, children: null};
-        });
-      }
+      await fetchPins();
       if (!artResp.ok) {
         _loadError = artResp.status === 404
           ? 'No documentation found for project: ' + project

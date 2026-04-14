@@ -326,29 +326,71 @@ class TestArtifactPagePinToggle(unittest.TestCase):
         )
 
     def test_pin_slot_in_render_file_tree(self):
-        """_renderFileTree must emit an artifact-nav-pin slot for each file/dir row."""
+        """_renderFileTree must emit an artifact-nav-pin slot for each file/dir row.
+
+        The slot variables (dirPinSlot, filePinSlot) are unique to _renderFileTree;
+        asserting on them is unambiguous even though the function is nested inside _render().
+        """
         src = _read(ARTIFACT_JS)
-        # Find the _renderFileTree function body and check for pin slot
-        ft_match = re.search(r'function _renderFileTree\b(.+?)(?=\n  function |\n  var |\Z)',
-                              src, re.DOTALL)
-        self.assertIsNotNone(ft_match,
-            "_renderFileTree not found in artifact-page.js")
-        ft_body = ft_match.group(0)
-        self.assertIn('artifact-nav-pin', ft_body,
-            "artifact-nav-pin slot not emitted by _renderFileTree — "
-            "file tree rows will have no pin toggle")
+        self.assertIn('dirPinSlot', src,
+            "dirPinSlot not found in artifact-page.js — "
+            "directory rows in _renderFileTree have no pin slot")
+        self.assertIn('filePinSlot', src,
+            "filePinSlot not found in artifact-page.js — "
+            "file rows in _renderFileTree have no pin slot")
 
     def test_pin_slot_in_render_pinned_nodes(self):
-        """_renderPinnedNodes must emit an artifact-nav-pin slot for each row."""
+        """_renderPinnedNodes must emit an artifact-nav-pin.pinned slot for each row.
+
+        Items in the pinned section are definitionally pinned — the slot must always
+        carry the .pinned class (which sets cursor:pointer and hover opacity).
+        """
         src = _read(ARTIFACT_JS)
         pn_match = re.search(r'function _renderPinnedNodes\b(.+?)(?=\n  function |\n  var |\Z)',
                               src, re.DOTALL)
         self.assertIsNotNone(pn_match,
             "_renderPinnedNodes not found in artifact-page.js")
         pn_body = pn_match.group(0)
-        self.assertIn('artifact-nav-pin', pn_body,
-            "artifact-nav-pin slot not emitted by _renderPinnedNodes — "
-            "pinned-section rows will have no pin toggle")
+        self.assertIn('artifact-nav-pin pinned', pn_body,
+            "artifact-nav-pin.pinned not emitted by _renderPinnedNodes — "
+            "pinned-section rows will not show pointer cursor or hover state")
+
+    def test_init_and_refresh_call_scope_aware_fetch_pins(self):
+        """_init() and _refresh() must call fetchPins() for scope-aware pin loading.
+
+        The legacy /api/artifacts/{project}/pins endpoint is project-scope only.
+        Using it directly in _init/_refresh breaks scopes other than project (criterion 5)
+        and leaves _pinnedPathSet empty on load (breaking criterion 1 in the file tree).
+        """
+        src = _read(ARTIFACT_JS)
+        # Confirm the legacy endpoint does NOT appear in _init or _refresh body
+        # (it may appear in _handle_artifact_pins in server.py, but not here)
+        legacy_url = "'/api/artifacts/' + encodeURIComponent(project) + '/pins'"
+        # Count occurrences — at most 0 from _init/_refresh (they were replaced with fetchPins())
+        occurrences = src.count(legacy_url)
+        self.assertEqual(occurrences, 0,
+            f"Legacy /api/artifacts/{{project}}/pins URL still present {occurrences} time(s) in "
+            "artifact-page.js — _init/_refresh must use fetchPins() for scope-aware loading"
+        )
+
+    def test_toggle_pin_calls_fetch_pins_then_render(self):
+        """_togglePin must call fetchPins() then _render() so the count header updates.
+
+        Criterion 8: the pinned count button ('Pinned (N)') derives from
+        _pinnedNodes.length, which is only updated by fetchPins(). Dropping
+        either call from _togglePin would leave the header stale after toggle.
+        """
+        src = _read(ARTIFACT_JS)
+        # Find _togglePin function body
+        toggle_match = re.search(r'async function _togglePin\b(.+?)(?=\n  async function |\n  function |\n  var |\Z)',
+                                  src, re.DOTALL)
+        self.assertIsNotNone(toggle_match,
+            "_togglePin not found in artifact-page.js")
+        body = toggle_match.group(0)
+        self.assertIn('fetchPins()', body,
+            "_togglePin must call fetchPins() to update _pinnedNodes and count header")
+        self.assertIn('_render()', body,
+            "_togglePin must call _render() so count header re-renders after pin change")
 
 
 # ── artifacts.html: scope URL params ─────────────────────────────────────────
@@ -439,13 +481,13 @@ class TestConfigHtmlScopeForwarding(unittest.TestCase):
         )
 
     def test_project_call_site_passes_scope(self):
-        """The project-level renderPinItems call must pass scope='project' in the same call."""
+        """The project-level renderPinItems call must pass scope:'project' in the same call."""
         src = _read(CONFIG_HTML)
-        # Look for renderPinItems(...'project'...) on the same line or call
+        # Match the scope key with a value of 'project' within a renderPinItems call
         self.assertTrue(
-            re.search(r"renderPinItems\([^)]*'project'", src) or
-            re.search(r'renderPinItems\([^)]*"project"', src),
-            "Project-level renderPinItems call does not pass 'project' scope — "
+            re.search(r"renderPinItems\([^)]*scope\s*:\s*'project'", src) or
+            re.search(r'renderPinItems\([^)]*scope\s*:\s*"project"', src),
+            "Project-level renderPinItems call does not pass scope:'project' — "
             "links to artifacts.html will open without scope context"
         )
 
