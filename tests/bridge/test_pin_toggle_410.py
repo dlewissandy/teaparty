@@ -416,27 +416,23 @@ class TestArtifactPagePinToggle(unittest.TestCase):
             "both _renderPinnedNodes and _renderFileTree — found "
             f"{len(folder_onclicks)} guarded call(s), expected at least 2")
 
-    def test_auto_expand_for_filters_always_expands_pinned_ancestors(self):
-        """_autoExpandForFilters must expand ancestors of pinned files unconditionally.
+    def test_auto_expand_default_filter_state(self):
+        """mount() must set _filterPinned=true by default (non-job) and _filterChanged=true
+        in job mode so _autoExpandForFilters builds the correct minimum tree on initial load.
 
-        Previously it returned early when _filterPinned was false, so the minimum
-        tree for pinned items was never built on initial load — the user had to toggle
-        the Pinned filter twice to trigger expansion.  The fix removes the early-exit
-        guard and always includes pinned file paths in the expansion targets.
+        The initial filtered state is:
+          - job mode  → _filterChanged = true  (show changed files)
+          - otherwise → _filterPinned  = true  (show pinned items)
         """
         src = _read(ARTIFACT_JS)
-        fn_match = re.search(
-            r'async function _autoExpandForFilters\b(.+?)(?=\n  async function |\n  function |\n  var |\Z)',
-            src, re.DOTALL)
-        self.assertIsNotNone(fn_match, "_autoExpandForFilters not found in artifact-page.js")
-        body = fn_match.group(0)
-        # Must NOT short-circuit on filter state
-        self.assertNotIn('if (!_filterPinned && !_filterChanged) return', body,
-            "_autoExpandForFilters must not skip expansion when filters are off — "
-            "pinned minimum tree should always be built")
-        # Must walk _pinnedNodes unconditionally (not inside an if (_filterPinned) block)
-        self.assertIn('_pinnedNodes', body,
-            "_autoExpandForFilters must walk _pinnedNodes to collect pinned file paths")
+        mount_match = re.search(r'function mount\b(.+?)(?=\n  function |\n  async function |\n  var |\Z)',
+                                 src, re.DOTALL)
+        self.assertIsNotNone(mount_match, "mount() not found in artifact-page.js")
+        body = mount_match.group(0)
+        self.assertIn("_filterPinned = _config.mode !== 'job'", body,
+            "mount() must default _filterPinned to true for non-job mode")
+        self.assertIn("_filterChanged = _config.mode === 'job'", body,
+            "mount() must default _filterChanged to true for job mode")
 
     def test_auto_expand_builds_minimum_tree_for_pinned_only_view(self):
         """_autoExpandForFilters must expand pinned dirs that contain other pinned items

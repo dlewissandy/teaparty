@@ -859,8 +859,9 @@
   }
 
   async function _autoExpandForFilters() {
+    if (!_filterPinned && !_filterChanged) return;
     var worktree = _config.chatLaunchRepo || '';
-    // Collect absolute paths of files to reveal
+    // Collect absolute paths of files that pass the active filter
     var targets = [];
     if (_filterChanged) {
       for (var rel in _gitStatuses) {
@@ -868,19 +869,21 @@
         targets.push(abs);
       }
     }
-    // Always expand ancestors of pinned files to show the minimum tree, regardless of filter state
-    (function walk(nodes) {
-      nodes.forEach(function(n) {
-        if (!n.is_dir) targets.push(n.path);
-        if (n.children) walk(n.children);
-      });
-    })(_pinnedNodes);
+    if (_filterPinned) {
+      // Include pinned file paths (not dirs — dirs are expanded to show contents)
+      (function walk(nodes) {
+        nodes.forEach(function(n) {
+          if (!n.is_dir) targets.push(n.path);
+          if (n.children) walk(n.children);
+        });
+      })(_pinnedNodes);
+    }
     // For each target, expand every ancestor directory in _repoFiles
     for (var i = 0; i < targets.length; i++) {
       await _expandAncestors(targets[i], _repoFiles);
     }
     // For pinned-only view (no repo tree), expand pinned dirs that contain other pinned items
-    if (_repoFiles.length === 0) {
+    if (_filterPinned && _repoFiles.length === 0) {
       for (var j = 0; j < _pinnedNodes.length; j++) {
         var node = _pinnedNodes[j];
         if (!node.is_dir) continue;
