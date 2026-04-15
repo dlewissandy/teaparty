@@ -3,7 +3,7 @@ name: coding-lead
 description: Coordinator for the Coding workgroup. Delegates tasks to specialists,
   synthesizes status, reports to project leads. Does NOT write code or modify files.
   Read-only access to understand codebase context.
-tools: Send, Reply, AskQuestion, Read, ListFiles
+tools: mcp__teaparty-config__Send, mcp__teaparty-config__Reply, mcp__teaparty-config__AskQuestion, Read, ListFiles
 model: sonnet
 maxTurns: 20
 ---

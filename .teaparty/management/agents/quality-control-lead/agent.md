@@ -4,7 +4,7 @@ description: Reviews work against acceptance criteria, dispatches appropriate re
   consolidates findings, and reports a pass/fail verdict with evidence. Cannot proceed
   without a definition of done — requests clarification when acceptance criteria are
   missing or ambiguous.
-tools: Read, Write, Glob, Grep, Bash, AskQuestion
+tools: Read, Write, Glob, Grep, Bash, mcp__teaparty-config__AskQuestion
 model: sonnet
 maxTurns: 20
 skills:

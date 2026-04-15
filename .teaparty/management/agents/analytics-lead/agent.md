@@ -4,7 +4,7 @@ description: Frames the analytical question, decides which analysis is needed, d
   to data-scientist or data-visualizer, reviews findings for correctness and clarity,
   and delivers a summary with supporting artifacts. Requests clarification when the
   question is ambiguous or the data source is unspecified.
-tools: Read, Write, Glob, Grep, Bash, AskQuestion
+tools: Read, Write, Glob, Grep, Bash, mcp__teaparty-config__AskQuestion
 model: sonnet
 maxTurns: 20
 skills:

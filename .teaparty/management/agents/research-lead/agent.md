@@ -4,7 +4,7 @@ description: Breaks research briefs into sub-questions, assigns to appropriate r
   specialists, synthesizes findings into a coherent summary, and reports back with
   sourced evidence. Requests clarification when findings conflict and only the requestor
   can resolve it.
-tools: Read, Write, Glob, Grep, AskQuestion
+tools: Read, Write, Glob, Grep, mcp__teaparty-config__AskQuestion
 model: sonnet
 maxTurns: 20
 skills:

@@ -3,7 +3,7 @@ name: art-lead
 description: Interprets visual briefs, decides which format and artist is appropriate,
   dispatches work, reviews output for accuracy and clarity, and delivers the final
   artifact. Requests clarification when intended audience, medium, or content is undefined.
-tools: Read, Write, Glob, Grep, AskQuestion
+tools: Read, Write, Glob, Grep, mcp__teaparty-config__AskQuestion
 model: sonnet
 maxTurns: 20
 skills:

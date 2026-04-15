@@ -4,7 +4,7 @@ description: Frames the planning problem, dispatches analysis to appropriate spe
   synthesizes outputs into a coherent plan or roadmap, and delivers it with clear
   recommendations. Requests clarification when constraints, priorities, or success
   criteria are undefined.
-tools: Read, Write, Glob, Grep, AskQuestion
+tools: Read, Write, Glob, Grep, mcp__teaparty-config__AskQuestion
 model: sonnet
 maxTurns: 20
 skills:

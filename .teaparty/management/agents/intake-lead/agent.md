@@ -4,7 +4,7 @@ description: Facilitates requirements gathering, dispatches clarification work t
   specialists, synthesizes findings into a requirements artifact, and delivers it
   for approval. Escalates early and often rather than assuming — requesting clarification
   is the core of this role.
-tools: Read, Write, Glob, Grep, AskQuestion
+tools: Read, Write, Glob, Grep, mcp__teaparty-config__AskQuestion
 model: sonnet
 maxTurns: 20
 skills:

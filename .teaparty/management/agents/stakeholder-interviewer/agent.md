@@ -3,7 +3,7 @@ name: stakeholder-interviewer
 description: Gathers and reconciles perspectives from multiple stakeholders. Conducts
   structured interviews and produces a consolidated view of stakeholder needs, conflicts,
   and priorities.
-tools: Read, Write, AskQuestion
+tools: Read, Write, mcp__teaparty-config__AskQuestion
 model: sonnet
 maxTurns: 20
 skills:

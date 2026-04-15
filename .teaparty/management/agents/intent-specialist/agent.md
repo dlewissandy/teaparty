@@ -3,7 +3,7 @@ name: intent-specialist
 description: Interrogates the stated request to surface what the human actually wants —
   unstated assumptions, conflicting goals, and hidden constraints. Produces a structured
   summary of intent.
-tools: Read, Write, AskQuestion
+tools: Read, Write, mcp__teaparty-config__AskQuestion
 model: sonnet
 maxTurns: 15
 skills:

@@ -4,7 +4,7 @@ description: Reads a draft, determines which editorial passes are needed, dispat
   to appropriate reviewers, consolidates feedback and revisions into a single coherent
   artifact, and delivers the result. Requests clarification when a style guide or
   target audience is undefined.
-tools: Read, Write, Edit, Glob, Grep, AskQuestion
+tools: Read, Write, Edit, Glob, Grep, mcp__teaparty-config__AskQuestion
 model: sonnet
 maxTurns: 20
 skills:

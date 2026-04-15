@@ -3,7 +3,7 @@ name: specification-writer
 description: Produces formal specifications, technical requirements documents, and
   structured definitions where every statement must be implementable. Requests clarification
   rather than assuming — a wrong spec is more expensive than a delayed one.
-tools: Read, Write, Edit, Glob, Grep, AskQuestion
+tools: Read, Write, Edit, Glob, Grep, mcp__teaparty-config__AskQuestion
 model: sonnet
 maxTurns: 15
 skills:

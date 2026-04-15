@@ -82,7 +82,7 @@ _TEAM_SPEC: dict[str, dict] = {
 # Required tools per agent per design doc.
 _AGENT_TOOLS: dict[str, set[str]] = {
     # Research
-    'research-lead':        {'Read', 'Write', 'Glob', 'Grep', 'AskQuestion'},
+    'research-lead':        {'Read', 'Write', 'Glob', 'Grep', 'mcp__teaparty-config__AskQuestion'},
     'web-researcher':       {'Read', 'Write', 'Glob', 'WebSearch', 'WebFetch'},
     'literature-researcher':{'Read', 'Write', 'Glob', 'WebSearch', 'WebFetch',
                              'mcp__teaparty-config__arxiv_search',
@@ -95,20 +95,20 @@ _AGENT_TOOLS: dict[str, set[str]] = {
                              'mcp__teaparty-config__youtube_transcript'},
     'image-analyst':        {'Read', 'Write', 'WebFetch'},
     # Writing
-    'writing-lead':         {'Read', 'Write', 'Edit', 'Glob', 'Grep', 'AskQuestion'},
+    'writing-lead':         {'Read', 'Write', 'Edit', 'Glob', 'Grep', 'mcp__teaparty-config__AskQuestion'},
     'markdown-writer':      {'Read', 'Write', 'Edit', 'Glob', 'Grep'},
     'latex-writer':         {'Read', 'Write', 'Edit', 'Bash'},
     'blog-writer':          {'Read', 'Write', 'Edit'},
     'pdf-writer':           {'Read', 'Write', 'Bash'},
-    'specification-writer': {'Read', 'Write', 'Edit', 'Glob', 'Grep', 'AskQuestion'},
+    'specification-writer': {'Read', 'Write', 'Edit', 'Glob', 'Grep', 'mcp__teaparty-config__AskQuestion'},
     # Editorial
-    'editorial-lead':       {'Read', 'Write', 'Edit', 'Glob', 'Grep', 'AskQuestion'},
+    'editorial-lead':       {'Read', 'Write', 'Edit', 'Glob', 'Grep', 'mcp__teaparty-config__AskQuestion'},
     'copy-editor':          {'Read', 'Write', 'Edit'},
     'fact-checker':         {'Read', 'Write', 'WebSearch', 'WebFetch'},
     'style-reviewer':       {'Read', 'Write', 'Edit', 'Glob', 'Grep'},
     'voice-editor':         {'Read', 'Write', 'Edit'},
     # Quality-control
-    'quality-control-lead': {'Read', 'Write', 'Glob', 'Grep', 'Bash', 'AskQuestion'},
+    'quality-control-lead': {'Read', 'Write', 'Glob', 'Grep', 'Bash', 'mcp__teaparty-config__AskQuestion'},
     'qa-reviewer':          {'Read', 'Write', 'Glob', 'Grep'},
     'test-reviewer':        {'Read', 'Glob', 'Grep', 'Bash'},
     'regression-tester':    {'Bash', 'Read', 'Glob', 'Grep'},
@@ -116,7 +116,7 @@ _AGENT_TOOLS: dict[str, set[str]] = {
     'performance-analyst':  {'Bash', 'Read', 'Write', 'Glob', 'Grep'},
     'ai-smell':             {'Read', 'Write'},
     # Art
-    'art-lead':             {'Read', 'Write', 'Glob', 'Grep', 'AskQuestion'},
+    'art-lead':             {'Read', 'Write', 'Glob', 'Grep', 'mcp__teaparty-config__AskQuestion'},
     'svg-artist':           {'Write', 'Read'},
     'graphviz-artist':      {'Write', 'Read', 'Bash'},
     'tikz-artist':          {'Write', 'Read', 'Bash'},
@@ -125,20 +125,20 @@ _AGENT_TOOLS: dict[str, set[str]] = {
                              'mcp__teaparty-config__image_gen_flux',
                              'mcp__teaparty-config__image_gen_stability'},
     # Analytics
-    'analytics-lead':       {'Read', 'Write', 'Glob', 'Grep', 'Bash', 'AskQuestion'},
+    'analytics-lead':       {'Read', 'Write', 'Glob', 'Grep', 'Bash', 'mcp__teaparty-config__AskQuestion'},
     'data-scientist':       {'Bash', 'Read', 'Write', 'Glob'},
     'data-visualizer':      {'Bash', 'Write', 'Read'},
     # Planning
-    'planning-lead':        {'Read', 'Write', 'Glob', 'Grep', 'AskQuestion'},
+    'planning-lead':        {'Read', 'Write', 'Glob', 'Grep', 'mcp__teaparty-config__AskQuestion'},
     'strategist':           {'Read', 'Write', 'WebSearch', 'WebFetch'},
     'risk-analyst':         {'Read', 'Write', 'Glob', 'Grep'},
     'milestone-planner':    {'Read', 'Write'},
     'dependency-mapper':    {'Read', 'Write', 'Glob', 'Grep'},
     # Intake
-    'intake-lead':          {'Read', 'Write', 'Glob', 'Grep', 'AskQuestion'},
-    'intent-specialist':    {'Read', 'Write', 'AskQuestion'},
+    'intake-lead':          {'Read', 'Write', 'Glob', 'Grep', 'mcp__teaparty-config__AskQuestion'},
+    'intent-specialist':    {'Read', 'Write', 'mcp__teaparty-config__AskQuestion'},
     'scope-analyst':        {'Read', 'Write', 'Glob', 'Grep'},
-    'stakeholder-interviewer': {'Read', 'Write', 'AskQuestion'},
+    'stakeholder-interviewer': {'Read', 'Write', 'mcp__teaparty-config__AskQuestion'},
 }
 
 # No agents currently have missing external tools — all previously-missing
@@ -148,7 +148,8 @@ _MISSING_TOOL_AGENTS: set[str] = set()
 # Tool allowlists for pre-existing leads — AC7 reconciliation baseline.
 # These reflect the tools after reconciliation with design docs for those teams.
 _EXISTING_AGENT_TOOLS: dict[str, set[str]] = {
-    'coding-lead': {'Send', 'Reply', 'AskQuestion', 'Read', 'ListFiles'},
+    'coding-lead': {'mcp__teaparty-config__Send', 'mcp__teaparty-config__Reply',
+                    'mcp__teaparty-config__AskQuestion', 'Read', 'ListFiles'},
     'configuration-lead': {'Read', 'Glob', 'Grep', 'Bash', 'mcp__teaparty-config__Send'},
 }
 
@@ -285,8 +286,8 @@ class TestBuiltinAgentToolAllowlists(unittest.TestCase):
             with self.subTest(lead=lead):
                 actual = _agent_tools(lead)
                 self.assertIn(
-                    'AskQuestion', actual,
-                    f'{lead}: AskQuestion missing from tools {sorted(actual)}'
+                    'mcp__teaparty-config__AskQuestion', actual,
+                    f'{lead}: mcp__teaparty-config__AskQuestion missing from tools {sorted(actual)}'
                 )
 
 

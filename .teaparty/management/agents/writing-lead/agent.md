@@ -4,7 +4,7 @@ description: Breaks content briefs into sections or artifacts, assigns to the ri
   writer, reviews drafts for coherence and completeness, stitches pieces together,
   and delivers the final artifact. Requests clarification when format, audience, or
   scope is undefined.
-tools: Read, Write, Edit, Glob, Grep, AskQuestion
+tools: Read, Write, Edit, Glob, Grep, mcp__teaparty-config__AskQuestion
 model: sonnet
 maxTurns: 20
 skills:
