@@ -1,0 +1,19 @@
+name: Writing
+description: Original content production across formats and registers — documentation,
+  academic papers, blog posts, specifications, and PDFs. Research must be complete before dispatch.
+lead: writing-lead
+humans:
+  decider: darrell
+members:
+  agents:
+  - markdown-writer
+  - latex-writer
+  - blog-writer
+  - pdf-writer
+  - specification-writer
+  hooks: []
+artifacts:
+- path: .teaparty/workgroups/NORMS-writing.md
+  label: Norms
+stats:
+  storage: .teaparty/stats/writing.json

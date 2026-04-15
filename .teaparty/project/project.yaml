@@ -4,10 +4,8 @@ lead: teaparty-lead
 humans:
   decider: darrell
 workgroups:
-- name: Coding
-  config: workgroups/coding.yaml
-- name: Configuration
-  config: workgroups/configuration.yaml
+- ref: coding
+- ref: configuration
 members:
   workgroups:
   - Coding

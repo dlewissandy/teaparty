@@ -178,7 +178,7 @@ class TestWorkgroupsIncludesConfiguration(unittest.TestCase):
     reloads the freshly-created project.
     """
 
-    EXPECTED = {'ref': 'Configuration'}
+    EXPECTED = {'ref': 'configuration'}
 
     def test_add_project_includes_configuration(self):
         tmp = _make_tmp(self)
@@ -220,9 +220,9 @@ class TestWorkgroupsIncludesConfiguration(unittest.TestCase):
             if hasattr(w, 'ref')
         ]
         self.assertIn(
-            'Configuration', refs,
+            'configuration', refs,
             f"loaded ProjectTeam.workgroups must contain a WorkgroupRef "
-            f"for Configuration; got {pt.workgroups!r}",
+            f"for configuration; got {pt.workgroups!r}",
         )
 
 

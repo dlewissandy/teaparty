@@ -1232,7 +1232,7 @@ def _scaffold_project_yaml(
         'description': description or DESCRIPTION_SENTINEL,
         'lead': f'{name}-lead',
         'humans': {'decider': decider} if decider else {},
-        'workgroups': [{'ref': 'Configuration'}],
+        'workgroups': [{'ref': 'configuration'}],
         'members': {'workgroups': []},
         'artifact_pins': [],
     }

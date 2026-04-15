@@ -68,6 +68,22 @@ from teaparty.mcp.tools.config_crud import (
 
 from teaparty.mcp.tools.config_helpers import _parse_agent_file
 
+from teaparty.mcp.tools.research import (
+    youtube_transcript_handler,
+    arxiv_search_handler,
+    semantic_scholar_search_handler,
+    pubmed_search_handler,
+)
+from teaparty.mcp.tools.patent import (
+    patent_search_uspto_handler,
+    patent_search_epo_handler,
+)
+from teaparty.mcp.tools.image_gen import (
+    image_gen_openai_handler,
+    image_gen_flux_handler,
+    image_gen_stability_handler,
+)
+
 
 MCP_SERVER_NAME = 'teaparty-config'
 
@@ -861,6 +877,142 @@ def create_server(agent_tools: set[str] | None = None) -> FastMCP:
         """
         return unpin_artifact_handler(
             project=project, path=path, teaparty_home=teaparty_home,
+        )
+
+    # ── Research tools ────────────────────────────────────────────────────────
+
+    @server.tool()
+    async def youtube_transcript(url: str, include_timestamps: bool = False) -> str:
+        """Retrieve the transcript for a YouTube video.
+
+        Args:
+            url: YouTube URL (youtube.com/watch?v=..., youtu.be/...) or bare video ID.
+            include_timestamps: If True, prefix each line with [MM:SS] timestamps.
+        """
+        return await youtube_transcript_handler(url=url, include_timestamps=include_timestamps)
+
+    @server.tool()
+    async def arxiv_search(query: str, max_results: int = 10) -> str:
+        """Search arXiv for academic papers.
+
+        Supports arXiv query syntax (e.g. "ti:transformer AND cat:cs.LG"). No API key required.
+
+        Args:
+            query: Search query string.
+            max_results: Maximum number of results (1–50).
+        """
+        return await arxiv_search_handler(query=query, max_results=max_results)
+
+    @server.tool()
+    async def semantic_scholar_search(query: str, max_results: int = 10) -> str:
+        """Search Semantic Scholar for academic papers with citation counts.
+
+        Optional S2_API_KEY environment variable raises rate limits.
+
+        Args:
+            query: Search query string.
+            max_results: Maximum number of results (1–100).
+        """
+        return await semantic_scholar_search_handler(query=query, max_results=max_results)
+
+    @server.tool()
+    async def pubmed_search(query: str, max_results: int = 10) -> str:
+        """Search PubMed for biomedical literature.
+
+        Supports MeSH terms and PubMed field tags. Optional NCBI_API_KEY raises rate limits.
+
+        Args:
+            query: PubMed search query.
+            max_results: Maximum number of results (1–100).
+        """
+        return await pubmed_search_handler(query=query, max_results=max_results)
+
+    # ── Patent tools ──────────────────────────────────────────────────────────
+
+    @server.tool()
+    async def patent_search_uspto(query: str, max_results: int = 10) -> str:
+        """Search US patents via the USPTO PatentsView API. No API key required.
+
+        Args:
+            query: Keyword query to search in patent titles and abstracts.
+            max_results: Maximum number of results (1–25).
+        """
+        return await patent_search_uspto_handler(query=query, max_results=max_results)
+
+    @server.tool()
+    async def patent_search_epo(query: str, max_results: int = 10) -> str:
+        """Search European patents via EPO Open Patent Services.
+
+        Requires EPO_OPS_KEY and EPO_OPS_SECRET environment variables.
+
+        Args:
+            query: CQL query string (e.g. 'ti="machine learning" AND pa="Google"').
+            max_results: Maximum number of results (1–25).
+        """
+        return await patent_search_epo_handler(query=query, max_results=max_results)
+
+    # ── Image generation tools ────────────────────────────────────────────────
+
+    @server.tool()
+    async def image_gen_openai(
+        prompt: str,
+        model: str = 'gpt-image-1',
+        size: str = '1024x1024',
+        output_path: str = '',
+    ) -> str:
+        """Generate an image using OpenAI's image generation API.
+
+        Requires the OPENAI_API_KEY environment variable.
+
+        Args:
+            prompt: Text description of the image to generate.
+            model: 'gpt-image-1' (default) or 'dall-e-3'.
+            size: Image dimensions — '1024x1024', '1024x1536', '1536x1024' (gpt-image-1)
+                  or '1024x1024', '1792x1024', '1024x1792' (dall-e-3).
+            output_path: File path for the output PNG. Defaults to a timestamped file in cwd.
+        """
+        return await image_gen_openai_handler(
+            prompt=prompt, model=model, size=size, output_path=output_path,
+        )
+
+    @server.tool()
+    async def image_gen_flux(
+        prompt: str,
+        width: int = 1024,
+        height: int = 1024,
+        output_path: str = '',
+    ) -> str:
+        """Generate an image using Black Forest Labs' Flux API.
+
+        Requires the BFL_API_KEY environment variable.
+
+        Args:
+            prompt: Text description of the image to generate.
+            width: Image width in pixels (default 1024).
+            height: Image height in pixels (default 1024).
+            output_path: File path for the output PNG. Defaults to a timestamped file in cwd.
+        """
+        return await image_gen_flux_handler(
+            prompt=prompt, width=width, height=height, output_path=output_path,
+        )
+
+    @server.tool()
+    async def image_gen_stability(
+        prompt: str,
+        aspect_ratio: str = '1:1',
+        output_path: str = '',
+    ) -> str:
+        """Generate an image using Stability AI's Stable Image Core API.
+
+        Requires the STABILITY_API_KEY environment variable.
+
+        Args:
+            prompt: Text description of the image to generate.
+            aspect_ratio: '1:1', '16:9', '9:16', '4:3', '3:4', or '21:9'.
+            output_path: File path for the output PNG. Defaults to a timestamped file in cwd.
+        """
+        return await image_gen_stability_handler(
+            prompt=prompt, aspect_ratio=aspect_ratio, output_path=output_path,
         )
 
     # Filter to agent's allowed tools when specified.

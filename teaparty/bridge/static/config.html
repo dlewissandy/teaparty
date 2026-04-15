@@ -331,9 +331,9 @@ async function loadProject(slug) {
   var workgroups = projectData.workgroups || [];
 
   var wgItems = workgroups.map(function(w) {
-    var meta = (w.lead || '') + (w.agents_count != null ? ' · ' + w.agents_count + ' agents' : '');
+    var meta = [w.description || '', (w.lead || '') + (w.agents_count != null ? ' · ' + w.agents_count + ' agents' : '')].filter(Boolean).join(' · ');
     if (w.name.toLowerCase() === 'configuration') {
-      return itemCard({ icon: '&#9881;', iconClass: 'icon-config', title: w.name, meta: 'config · ' + (w.lead || ''), source: w.source, onClick: "configNav('workgroup','" + w.name + "','" + slug + "')" });
+      return itemCard({ icon: '&#9881;', iconClass: 'icon-config', title: w.name, meta: [w.description || '', 'config · ' + (w.lead || '')].filter(Boolean).join(' · '), source: w.source, onClick: "configNav('workgroup','" + w.name + "','" + slug + "')" });
     }
     // Catalog-only workgroups (active===false, source==='shared') have not yet been added to the
     // project — show with a toggle to add them, but no navigation (no onClick) since the project

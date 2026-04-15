@@ -16,7 +16,25 @@ members:
   - comics
   workgroups: []
 workgroups:
+- name: Analytics
+  config: workgroups/analytics.yaml
+- name: Art
+  config: workgroups/art.yaml
+- name: Coding
+  config: workgroups/coding.yaml
 - name: Configuration
   config: workgroups/configuration.yaml
+- name: Editorial
+  config: workgroups/editorial.yaml
+- name: Intake
+  config: workgroups/intake.yaml
+- name: Planning
+  config: workgroups/planning.yaml
+- name: Quality Control
+  config: workgroups/quality-control.yaml
+- name: Research
+  config: workgroups/research.yaml
+- name: Writing
+  config: workgroups/writing.yaml
 stats:
   storage: .teaparty/stats/management.json
