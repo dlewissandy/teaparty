@@ -8,7 +8,7 @@ Dispatch here when the task requires a visual artifact — a diagram, illustrati
 
 The art-lead interprets the visual brief, decides which format and artist is appropriate for the content, dispatches work, reviews output for accuracy and clarity, and delivers the final artifact. It requests clarification when the intended audience, medium, or content is undefined, and declares completion when the artifact communicates its content accurately in the chosen format.
 
-**Tools:** Read, Write, Glob, Grep, AskQuestion
+**Tools:** Read, Write, Glob, Grep, mcp__teaparty-config__AskQuestion
 **Skills:** digest
 
 ---
@@ -44,6 +44,5 @@ Dispatch when the output requires precise technical or mathematical figures — 
 
 Dispatch when the output is a raster image that requires generative AI — photorealistic scenes, stylized illustrations, or any visual that cannot be expressed as structured markup. Specify subject, style, and dimensions in the brief.
 
-**Tools:** Write
+**Tools:** Write, mcp__teaparty-config__image_gen_openai, mcp__teaparty-config__image_gen_flux, mcp__teaparty-config__image_gen_stability
 **Skills:** digest
-**Missing tools:** image-gen-openai (gpt-image-1 or dall-e-3), image-gen-flux, or image-gen-stability (see [missing-tools.md](missing-tools.md))

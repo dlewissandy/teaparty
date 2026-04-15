@@ -8,7 +8,7 @@ Dispatch here when the task is to produce original written content from scratch.
 
 The writing-lead breaks the content brief into distinct artifacts or sections, assigns each to the appropriate writer, reviews drafts for coherence and completeness, stitches the pieces together, and delivers the final artifact. It requests clarification when the brief lacks format, audience, or scope definition, and declares completion when the artifact is whole, coherent, and matches the brief.
 
-**Tools:** Read, Write, Edit, Glob, Grep, AskQuestion
+**Tools:** Read, Write, Edit, Glob, Grep, mcp__teaparty-config__AskQuestion
 **Skills:** digest
 
 ---
@@ -53,5 +53,5 @@ Dispatch when the output must be a PDF and the author does not need LaTeX — re
 
 Dispatch when the output is a formal specification, technical requirements document, or structured definition where every statement must be implementable. Works from intent or design artifacts; produces documents that execution teams can act on directly. Requests clarification when intent is ambiguous rather than assuming — a wrong spec is more expensive than a delayed one.
 
-**Tools:** Read, Write, Edit, Glob, Grep, AskQuestion
+**Tools:** Read, Write, Edit, Glob, Grep, mcp__teaparty-config__AskQuestion
 **Skills:** digest

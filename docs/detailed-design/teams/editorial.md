@@ -8,7 +8,7 @@ Dispatch here when written content exists and needs to improve before it is fina
 
 The editorial-lead reads the draft, determines which passes are needed, dispatches to the appropriate reviewers, consolidates feedback and revisions into a single coherent artifact, and delivers the result. It requests clarification when a style guide is missing or the target audience is undefined, and declares completion when the draft meets quality standards across all editorial dimensions.
 
-**Tools:** Read, Write, Edit, Glob, Grep, AskQuestion
+**Tools:** Read, Write, Edit, Glob, Grep, mcp__teaparty-config__AskQuestion
 **Skills:** digest
 
 ---

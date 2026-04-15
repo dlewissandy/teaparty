@@ -8,7 +8,7 @@ Dispatch here when requirements are unclear and work cannot begin responsibly wi
 
 The intake-lead facilitates the requirements gathering process, dispatches clarification work to specialists, synthesizes findings into a requirements artifact, and delivers it to the requestor for approval. Requesting clarification is the core of this role — the lead escalates early and often rather than assuming. It declares completion when the requirements artifact is approved and execution teams have what they need to begin.
 
-**Tools:** Read, Write, Glob, Grep, AskQuestion
+**Tools:** Read, Write, Glob, Grep, mcp__teaparty-config__AskQuestion
 **Skills:** digest
 
 ---
@@ -17,7 +17,7 @@ The intake-lead facilitates the requirements gathering process, dispatches clari
 
 Dispatch when the stated request needs to be interrogated — what does the human actually want, not just what they said? Surfaces unstated assumptions, conflicting goals, and hidden constraints. Produces a structured summary of intent that the scope-analyst or planning team can act on.
 
-**Tools:** Read, Write, AskQuestion
+**Tools:** Read, Write, mcp__teaparty-config__AskQuestion
 **Skills:** digest
 
 ---
@@ -35,5 +35,5 @@ Dispatch when the task is to define what is in and out of scope. Works from an i
 
 Dispatch when multiple parties have a stake in the outcome and their perspectives need to be gathered and reconciled. Conducts structured interviews and produces a consolidated view of stakeholder needs, conflicts, and priorities. Not for defining scope or interrogating a single stated request.
 
-**Tools:** Read, Write, AskQuestion
+**Tools:** Read, Write, mcp__teaparty-config__AskQuestion
 **Skills:** digest

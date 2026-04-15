@@ -8,7 +8,7 @@ Dispatch here when completed work needs to be verified against its requirements 
 
 The quality-control-lead reviews the work product against its acceptance criteria, dispatches appropriate reviewers, consolidates findings, and reports a pass/fail verdict with evidence. It requests clarification when acceptance criteria are missing or ambiguous — QC cannot run without a definition of done. It declares completion when all checks have been run and the verdict is clear, not only when everything passes.
 
-**Tools:** Read, Write, Glob, Grep, Bash, AskQuestion
+**Tools:** Read, Write, Glob, Grep, Bash, mcp__teaparty-config__AskQuestion
 **Skills:** digest
 
 ---

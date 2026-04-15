@@ -8,7 +8,7 @@ Dispatch here when the task requires finding information that does not already e
 
 The research-lead breaks the brief into sub-questions, assigns each to the appropriate specialist, and synthesizes the findings into a coherent summary before reporting back. It decides when scope is too ambiguous to proceed without clarification — particularly when findings conflict in ways only the requestor can resolve — and declares completion when the brief is answered with sourced evidence.
 
-**Tools:** Read, Write, Glob, Grep, AskQuestion
+**Tools:** Read, Write, Glob, Grep, mcp__teaparty-config__AskQuestion
 **Skills:** digest
 
 ---
@@ -26,9 +26,8 @@ Dispatch when the question can be answered by searching the open web — news, d
 
 Dispatch when the question requires peer-reviewed sources, preprints, or indexed academic publications. Covers arXiv, Semantic Scholar, PubMed, IEEE, ACM, and similar databases. Not for open web sources, patents, or video.
 
-**Tools:** Read, Write, Glob, WebSearch, WebFetch
+**Tools:** Read, Write, Glob, WebSearch, WebFetch, mcp__teaparty-config__arxiv_search, mcp__teaparty-config__semantic_scholar_search, mcp__teaparty-config__pubmed_search
 **Skills:** digest
-**Missing tools:** arxiv-search, semantic-scholar-search, pubmed-search (see [missing-tools.md](missing-tools.md))
 
 ---
 
@@ -36,9 +35,8 @@ Dispatch when the question requires peer-reviewed sources, preprints, or indexed
 
 Dispatch when the task requires searching for prior art, existing patents, or patent landscape analysis. Covers USPTO, EPO, WIPO, and Google Patents. Not for academic literature or general web research.
 
-**Tools:** Read, Write, Glob, WebSearch, WebFetch
+**Tools:** Read, Write, Glob, WebSearch, WebFetch, mcp__teaparty-config__patent_search_uspto, mcp__teaparty-config__patent_search_epo
 **Skills:** digest
-**Missing tools:** patent-search-uspto, patent-search-epo (see [missing-tools.md](missing-tools.md))
 
 ---
 
@@ -46,9 +44,8 @@ Dispatch when the task requires searching for prior art, existing patents, or pa
 
 Dispatch when the source material is video — conference talks, lectures, tutorials, or YouTube content. Retrieves transcripts, summarizes, and extracts key points from video sources. Not for static web pages or academic papers.
 
-**Tools:** Read, Write, Glob, WebSearch, WebFetch
+**Tools:** Read, Write, Glob, WebSearch, WebFetch, mcp__teaparty-config__youtube_transcript
 **Skills:** digest
-**Missing tools:** youtube-transcript (see [missing-tools.md](missing-tools.md))
 
 ---
 
