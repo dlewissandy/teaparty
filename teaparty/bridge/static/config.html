@@ -297,7 +297,7 @@ async function loadGlobal() {
     ],
     description: m.description || 'Cross-project coordination, human interaction, organizational strategy, and configuration management.',
     subtitle: subtitle,
-    bladeConvId: m.lead && m.decider ? 'lead:' + m.lead + ':' + m.decider : '',
+    bladeConvId: m.decider ? 'om:' + m.decider : '',
     bladeTitle: 'Management Chat',
     statsBarConfig: { scope: 'management', label: 'Management' },
     cards: [
