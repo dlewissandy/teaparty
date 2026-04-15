@@ -46,7 +46,6 @@ Dispatch when user stories or requirements need to be validated against the impl
 
 **Tools:** Read, Write, Bash
 **Skills:** digest
-**Missing tools:** playwright (see [missing-tools.md](missing-tools.md))
 
 ---
 

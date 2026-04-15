@@ -10,23 +10,6 @@ and what API or infrastructure it requires.
 
 ---
 
-## Browser automation
-
-Agents affected: `acceptance-tester`
-
-Testing user-facing web interfaces requires a browser. Bash + curl covers API-level checks
-but cannot simulate user interaction. Playwright is the standard tool and has an official MCP
-server.
-
-| Tool | Mechanism | Key required |
-|------|-----------|--------------|
-| `playwright` (MCP) | Microsoft Playwright MCP server | None |
-
-Enables `acceptance-tester` to navigate pages, click, fill forms, and assert on rendered
-output — the full behavioral acceptance loop.
-
----
-
 ## Environment dependencies
 
 Not missing MCP tools — binaries that must be present in the agent execution environment.

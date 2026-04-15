@@ -381,11 +381,33 @@ class TestDigestSkillOnAllAgents(unittest.TestCase):
 
 
 class TestMissingToolAnnotations(unittest.TestCase):
-    """AC6 — agents with missing external tools reference missing-tools.md."""
+    """AC6 — agents with missing external tools reference missing-tools.md.
+
+    All originally-missing tools have been implemented (arxiv_search,
+    semantic_scholar_search, pubmed_search, youtube_transcript,
+    patent_search_uspto, patent_search_epo, image_gen_openai,
+    image_gen_flux, image_gen_stability) or removed from scope
+    (acceptance-tester playwright — non-browser validation via Bash is
+    sufficient for behavioral acceptance testing at this time).
+
+    The set is empty by design. This test locks that state: if a future
+    commit adds a new agent that needs an external tool not yet implemented,
+    it must add the agent to _MISSING_TOOL_AGENTS and annotate its agent.md.
+    """
+
+    def test_missing_tool_agents_set_is_empty_by_design(self):
+        """No agents currently have missing tools — all previously-missing
+        tools are implemented or removed from scope."""
+        self.assertEqual(
+            _MISSING_TOOL_AGENTS,
+            set(),
+            'Expected no agents with missing tools. If a new agent needs an '
+            'unimplemented tool, add it to _MISSING_TOOL_AGENTS and annotate '
+            'its agent.md with a reference to missing-tools.md.',
+        )
 
     def test_agents_with_missing_tools_carry_annotation(self):
-        """png-artist, video-researcher, literature-researcher, patent-researcher,
-        acceptance-tester each reference missing-tools.md in their agent.md body."""
+        """Any agent in _MISSING_TOOL_AGENTS must reference missing-tools.md."""
         for agent in _MISSING_TOOL_AGENTS:
             with self.subTest(agent=agent):
                 body = _agent_body(agent)
