@@ -55,7 +55,7 @@ projects:
     path: .
     config: .teaparty/project.yaml
   - name: pybayes
-    path: /Users/darrell/git/pybayes
+    path: /Users/primus/git/pybayes
     config: .teaparty/project.yaml
 
 # Membership — the Office Manager dispatches to these
@@ -94,7 +94,7 @@ Every workgroup declares its human participants using three roles:
 
 ```yaml
 humans:
-  decider: darrell
+  decider: primus
   advisors:
     - alice
   inform:

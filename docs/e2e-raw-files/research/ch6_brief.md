@@ -502,4 +502,4 @@ Someone, in 1290, wanted to draw a joke about a knight and a snail. They expecte
 
 ---
 
-*Research compiled by the research team lead. All sections checked for completeness of prose descriptions; all image-based examples include descriptions sufficient for writing without direct image access. Counterexample mechanism explicitly documented in §4. Output verified at:* `/Users/darrell/git/teaparty/projects/humor-book/.worktrees/session-171017--i-would-like-a-book-on-the-uni/research/ch6_brief.md`
+*Research compiled by the research team lead. All sections checked for completeness of prose descriptions; all image-based examples include descriptions sufficient for writing without direct image access. Counterexample mechanism explicitly documented in §4. Output verified at:* `/Users/primus/git/teaparty/projects/humor-book/.worktrees/session-171017--i-would-like-a-book-on-the-uni/research/ch6_brief.md`

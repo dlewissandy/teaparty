@@ -394,7 +394,7 @@ function renderParticipantLayout() {
     '" onclick="selectNewConv()" style="color:var(--green);font-size:9px">+ New</div>';
   pageState.participantConvs.forEach(function(c) {
     var date = c.created_at ? new Date(c.created_at * 1000).toLocaleDateString() : '';
-    // Derive a label from the conv ID: use the part after the prefix (e.g., 'om:darrell' → 'darrell')
+    // Derive a label from the conv ID: use the part after the prefix (e.g., 'om:primus' → 'primus')
     var idParts = c.id.split(':');
     var label = idParts.length > 1 ? idParts.slice(1).join(':') : c.id;
     navHtml += '<div class="chat-nav-item ' + (selectedItem === c.id ? 'active' : '') +

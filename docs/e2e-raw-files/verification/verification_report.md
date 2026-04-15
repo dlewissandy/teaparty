@@ -3,13 +3,13 @@
 
 **Date:** March 15, 2026
 **Auditor:** Verification Pass (automated, post-editorial)
-**Source of success criteria:** INTENT.md (located at `/Users/darrell/git/teaparty/projects/humor-book/INTENT.md`)
+**Source of success criteria:** INTENT.md (located at `/Users/primus/git/teaparty/projects/humor-book/INTENT.md`)
 
 ---
 
 ## PRELIMINARY NOTE ON INTENT.md
 
-INTENT.md does not exist at the worktree root. It is located at the main project root (`/Users/darrell/git/teaparty/projects/humor-book/INTENT.md`). The criteria audited below are drawn from that file. The editorial report (`editorial/editorial_report.md`) was also read in full; where it makes relevant prior findings, they are noted.
+INTENT.md does not exist at the worktree root. It is located at the main project root (`/Users/primus/git/teaparty/projects/humor-book/INTENT.md`). The criteria audited below are drawn from that file. The editorial report (`editorial/editorial_report.md`) was also read in full; where it makes relevant prior findings, they are noted.
 
 ---
 
@@ -314,6 +314,6 @@ Once issues 1–3 are resolved, this manuscript is ready to deliver.
 ---
 
 *Verification report prepared March 15, 2026.*
-*All drafts read from: `/Users/darrell/git/teaparty/projects/humor-book/.worktrees/session-171017--i-would-like-a-book-on-the-uni/drafts/`*
-*INTENT.md read from: `/Users/darrell/git/teaparty/projects/humor-book/INTENT.md`*
-*editorial_report.md read from: `/Users/darrell/git/teaparty/projects/humor-book/.worktrees/session-171017--i-would-like-a-book-on-the-uni/editorial/editorial_report.md`*
+*All drafts read from: `/Users/primus/git/teaparty/projects/humor-book/.worktrees/session-171017--i-would-like-a-book-on-the-uni/drafts/`*
+*INTENT.md read from: `/Users/primus/git/teaparty/projects/humor-book/INTENT.md`*
+*editorial_report.md read from: `/Users/primus/git/teaparty/projects/humor-book/.worktrees/session-171017--i-would-like-a-book-on-the-uni/editorial/editorial_report.md`*

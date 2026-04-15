@@ -179,7 +179,7 @@ function renderWorkflow(phaseIdx, large) {
 
 // Page state: updated by fetchAll() and WebSocket events.
 // escalationConvMap: session_id → conversation_id from input_requested events.
-var pageState = { projects: [], configs: {}, omConvId: 'om:darrell', escalationConvMap: {} };
+var pageState = { projects: [], configs: {}, omConvId: 'om:primus', escalationConvMap: {} };
 
 function fetchAll() {
   Promise.all([
@@ -322,7 +322,7 @@ function render() {
 
     // Action buttons — Manager links to most recent session conversation
     var managerSession = activeSessions[0] || (p.sessions || [])[0];
-    var managerConv = managerSession ? 'session:' + managerSession.session_id : 'om:darrell';
+    var managerConv = managerSession ? 'session:' + managerSession.session_id : 'om:primus';
     projectsHtml += '<div class="pc-actions">';
     projectsHtml += '<button class="pc-action" onclick="openPage(\'config.html?project=' + p.slug + '\')"><span class="pc-action-icon">&#9881;</span>Config</button>';
     projectsHtml += '<button class="pc-action" onclick="openPage(\'artifacts.html?project=' + p.slug + '\')"><span class="pc-action-icon">&#128196;</span>Artifacts</button>';

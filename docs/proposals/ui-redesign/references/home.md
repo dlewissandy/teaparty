@@ -73,4 +73,4 @@ Task escalations during a work phase: the work bar is yellow, the escalation dot
 | Click "Config" button | Opens project config (`config.html?project=ID`) |
 | Click "Artifacts" button | Opens project artifacts (`artifacts.html?project=ID`) |
 | Click "Manager" button | Opens manager chat (`chat.html?conv=session:poc-20260325-143000`) |
-| Click "+ New Project" | Opens office manager chat (`chat.html?conv=om:darrell`) |
+| Click "+ New Project" | Opens office manager chat (`chat.html?conv=om:primus`) |

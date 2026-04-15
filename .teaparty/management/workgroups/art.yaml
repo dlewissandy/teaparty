@@ -3,7 +3,7 @@ description: Visual artifact production — diagrams, illustrations, vector grap
   and generative images. Specify the format or let the lead choose.
 lead: art-lead
 humans:
-  decider: darrell
+  decider: primus
 members:
   agents:
   - svg-artist

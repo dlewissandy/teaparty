@@ -40,7 +40,7 @@ The `humans:` block declares who participates and in what capacity:
 
 ```yaml
 humans:
-  decider: darrell
+  decider: primus
   advisors:
     - alice
   inform:
@@ -130,7 +130,7 @@ projects:
     path: .
     config: .teaparty/project.yaml
   - name: pybayes
-    path: /Users/darrell/git/pybayes
+    path: /Users/primus/git/pybayes
     config: .teaparty/project.yaml
 
 # Membership — the Office Manager can dispatch to these project leads
@@ -158,7 +158,7 @@ members:
   hooks:
     - pre-commit
 humans:
-  decider: darrell
+  decider: primus
   advisors:
     - alice
   inform:
@@ -195,13 +195,13 @@ members:
     - pybayes
   # agents: []  # optional — empty by default
 humans:
-  decider: darrell
+  decider: primus
 projects:
   - name: TeaParty
     path: .
     config: .teaparty/project.yaml
   - name: pybayes
-    path: /Users/darrell/git/pybayes
+    path: /Users/primus/git/pybayes
     config: .teaparty/project.yaml
 workgroups:
   - name: Configuration
@@ -220,7 +220,7 @@ members:
   workgroups:
     - Coding
 humans:
-  decider: darrell
+  decider: primus
 workgroups:
   - name: Coding
     config: .teaparty/workgroups/coding.yaml

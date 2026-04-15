@@ -587,7 +587,7 @@ function buildParticipantNavHtml() {
   pageState.participantConvs.forEach(function(c) {
     var date = c.created_at ? new Date(c.created_at * 1000).toLocaleDateString() : '';
     // Use Claude's auto-generated conversation slug if available, otherwise fall
-    // back to the qualifier portion of the ID (e.g. 'om:darrell' → 'darrell').
+    // back to the qualifier portion of the ID (e.g. 'om:primus' → 'primus').
     var idParts = c.id.split(':');
     var label = c.title || (idParts.length > 1 ? idParts.slice(1).join(':') : c.id);
     navHtml += '<div class="chat-nav-item ' + (selectedItem === c.id ? 'active' : '') +

@@ -3,7 +3,7 @@ description: Data analysis and visualization — statistical summaries, models, 
   charts. Does not collect or move data; analyzes what it receives.
 lead: analytics-lead
 humans:
-  decider: darrell
+  decider: primus
 members:
   agents:
   - data-scientist

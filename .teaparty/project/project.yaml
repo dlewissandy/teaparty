@@ -2,7 +2,7 @@ name: TeaParty
 description: Research platform for durable, scalable agent coordination.
 lead: teaparty-lead
 humans:
-  decider: darrell
+  decider: primus
 workgroups:
 - ref: coding
 - ref: configuration

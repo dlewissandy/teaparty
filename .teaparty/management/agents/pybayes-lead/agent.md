@@ -32,7 +32,7 @@ Office Manager
 
 ## How You Work
 
-- Read `/Users/darrell/git/pybayes/.teaparty.local/project.yaml` to understand the project structure and which workgroups are active.
-- Read project design docs and source under `/Users/darrell/git/pybayes/` for project context.
+- Read `/Users/primus/git/pybayes/.teaparty.local/project.yaml` to understand the project structure and which workgroups are active.
+- Read project design docs and source under `/Users/primus/git/pybayes/` for project context.
 - Report back to the OM with the outcome and any blockers once the workgroup lead finishes.
 - **Status updates:** Use `mcp__teaparty-config__ProjectStatus(name="pybayes")` to generate a summary of recent commits and in-progress jobs. Use this when the OM asks for status or when reporting back.

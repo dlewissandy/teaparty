@@ -3,7 +3,7 @@ description: Prose improvement — mechanics, fact-checking, style, and voice. I
   must be a draft; output is a better draft. Does not produce new content.
 lead: editorial-lead
 humans:
-  decider: darrell
+  decider: primus
 members:
   agents:
   - copy-editor

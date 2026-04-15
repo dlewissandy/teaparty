@@ -1920,7 +1920,7 @@ class TeaPartyBridge:
     async def _invoke_pm(self, qualifier: str) -> None:
         """Invoke the project manager agent for the given conversation qualifier.
 
-        qualifier is '{project_slug}:{user_id}' e.g. 'jainai:darrell'.
+        qualifier is '{project_slug}:{user_id}' e.g. 'jainai:primus'.
         Runs as a fire-and-forget asyncio task. Concurrent invocations for the
         same qualifier queue via an asyncio.Lock.
         """

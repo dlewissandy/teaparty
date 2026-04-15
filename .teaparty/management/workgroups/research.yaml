@@ -3,7 +3,7 @@ description: Web, academic literature, patent, and video research. Retrieves and
   summarizes source material; does not produce original content or perform deep analysis.
 lead: research-lead
 humans:
-  decider: darrell
+  decider: primus
 members:
   agents:
   - web-researcher

@@ -3,7 +3,7 @@ description: Original content production across formats and registers — docume
   academic papers, blog posts, specifications, and PDFs. Research must be complete before dispatch.
 lead: writing-lead
 humans:
-  decider: darrell
+  decider: primus
 members:
   agents:
   - markdown-writer

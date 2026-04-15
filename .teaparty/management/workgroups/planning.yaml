@@ -3,7 +3,7 @@ description: Strategy, risk assessment, and roadmap design. Decides how work sho
   be done, not who does it. Dispatch before execution when scope or approach is uncertain.
 lead: planning-lead
 humans:
-  decider: darrell
+  decider: primus
 members:
   agents:
   - strategist

@@ -8,7 +8,7 @@
 //   ArtifactPage.mount(container, {
 //     mode: 'browse' | 'job',
 //     projectSlug: 'comics',
-//     chatConversationId: 'lead:comics-lead:darrell',
+//     chatConversationId: 'lead:comics-lead:primus',
 //     chatAgentName:      'comics-lead',
 //     chatLaunchRepo:     '/path/to/repo',
 //     chatTitle:          'Comics Lead Chat',
@@ -122,7 +122,7 @@
   // ── Mount / Unmount ────────────────────────────────────────────────────────
 
   function _resolveChatConfig(config) {
-    // If a `conv` param is supplied (e.g. 'lead:comics-lead:darrell' or 'om'),
+    // If a `conv` param is supplied (e.g. 'lead:comics-lead:primus' or 'om'),
     // derive chatConversationId, chatAgentName, and chatTitle from it, overriding defaults.
     var conv = config.conv || '';
     if (!conv) return config;

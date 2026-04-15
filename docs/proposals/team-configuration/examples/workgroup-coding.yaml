@@ -6,7 +6,7 @@ name: Coding
 description: Implementation, testing, and code review. Handles all coding tasks including bug fixes, new features, refactoring, and test coverage.
 lead: coding-lead
 humans:
-  decider: darrell
+  decider: primus
 members:
   agents:
     - architect

@@ -33,7 +33,7 @@ const mockData = {
         { name: "Operations", lead: "Ops Lead", agents: 2, description: "Duis aute irure dolor in reprehenderit in voluptate velit esse cillum." },
       ],
       humans: [
-        { name: "Darrell", role: "decider", self: true },
+        { name: "Primus", role: "decider", self: true },
         { name: "Alice", role: "advisor" },
         { name: "Bob", role: "informed" },
       ],
@@ -42,7 +42,7 @@ const mockData = {
       poc: {
         name: "POC",
         description: "Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt.",
-        decider: "Darrell",
+        decider: "Primus",
         lead: "POC Project Lead",
         agents: [
           { name: "POC Project Lead", role: "Team Lead", model: "claude-opus-4", status: "active", source: "generated" },
@@ -70,7 +70,7 @@ const mockData = {
       jokebook: {
         name: "Joke-book",
         description: "Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium.",
-        decider: "Darrell",
+        decider: "Primus",
         lead: "Joke-book Project Lead",
         agents: [
           { name: "Joke-book Project Lead", role: "Team Lead", model: "claude-opus-4", status: "idle", source: "generated" },
@@ -136,7 +136,7 @@ const mockData = {
           },
         ],
         humans: [
-          { name: "Darrell", role: "decider" },
+          { name: "Primus", role: "decider" },
           { name: "Alice", role: "advisor" },
         ],
       },
@@ -168,7 +168,7 @@ const mockData = {
           },
         ],
         humans: [
-          { name: "Darrell", role: "decider" },
+          { name: "Primus", role: "decider" },
         ],
       },
     },
@@ -299,7 +299,7 @@ const mockData = {
   //   "participant" type: navigator shows all conversations with that participant across scopes
   conversations: {
     // ── Participant chats (navigator = conversation history) ──
-    "om:darrell": {
+    "om:primus": {
       type: "participant",
       participant: "Office Manager",
       sessions: [
@@ -338,7 +338,7 @@ const mockData = {
         ]},
       ],
     },
-    "proxy:darrell": {
+    "proxy:primus": {
       type: "participant",
       participant: "Proxy",
       sessions: [

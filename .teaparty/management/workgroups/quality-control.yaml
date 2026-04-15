@@ -3,7 +3,7 @@ description: Verification of completed work against requirements — functional 
   test coverage, regression, performance, and AI detection. Dispatch after implementation.
 lead: quality-control-lead
 humans:
-  decider: darrell
+  decider: primus
 members:
   agents:
   - qa-reviewer

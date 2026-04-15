@@ -360,7 +360,7 @@ to the Configuration Lead, which delegates to the appropriate specialist.
 ## Resulting file tree
 
 After a successful `CreateProject` or `AddProject` for a project named
-`my-project` with `decider="darrell"`:
+`my-project` with `decider="primus"`:
 
 ```
 {teaparty_home}/

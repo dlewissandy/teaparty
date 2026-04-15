@@ -6,7 +6,7 @@ name: Management Team
 description: Cross-project coordination, human interaction, organizational strategy, and configuration management.
 lead: office-manager                            # → .teaparty/management/agents/office-manager/agent.md
 humans:
-  decider: darrell                              # human whose approval matters at gates
+  decider: primus                              # human whose approval matters at gates
   advisors:
     - alice                                     # can interject; advice not directive
 

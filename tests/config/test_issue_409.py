@@ -641,12 +641,12 @@ class TestDeciderResolution(unittest.TestCase):
     def test_empty_decider_defaults_to_management_decider(self):
         """The dashboard modal sends no decider; the management decider takes over."""
         tmp = _make_tmp(self)
-        home = self._home_with_humans(tmp, {'decider': 'darrell'})
+        home = self._home_with_humans(tmp, {'decider': 'primus'})
         proj = os.path.join(tmp, 'no-dec')
         create_project('no-dec', proj, teaparty_home=home)
         data = _read_project_yaml(proj)
         self.assertEqual(
-            data['humans']['decider'], 'darrell',
+            data['humans']['decider'], 'primus',
             "when no decider is supplied, the project must inherit the "
             "management team's decider (the human running this instance)",
         )
@@ -664,7 +664,7 @@ class TestDeciderResolution(unittest.TestCase):
         """Agents can never be deciders — even the management lead."""
         tmp = _make_tmp(self)
         home = self._home_with_humans(
-            tmp, {'decider': 'darrell'},
+            tmp, {'decider': 'primus'},
             members_agents=['office-manager', 'project-specialist'],
         )
         proj = os.path.join(tmp, 'bad-dec')
@@ -680,7 +680,7 @@ class TestDeciderResolution(unittest.TestCase):
     def test_unknown_human_rejected_as_decider(self):
         """Deciders must be registered humans; typos or guesses are rejected."""
         tmp = _make_tmp(self)
-        home = self._home_with_humans(tmp, {'decider': 'darrell'})
+        home = self._home_with_humans(tmp, {'decider': 'primus'})
         proj = os.path.join(tmp, 'unknown-dec')
         with self.assertRaises(ValueError) as ctx:
             create_project(
@@ -694,7 +694,7 @@ class TestDeciderResolution(unittest.TestCase):
         tmp = _make_tmp(self)
         home = self._home_with_humans(
             tmp,
-            {'decider': 'darrell', 'advisors': ['alice']},
+            {'decider': 'primus', 'advisors': ['alice']},
         )
         proj = os.path.join(tmp, 'advised')
         create_project(
@@ -705,12 +705,12 @@ class TestDeciderResolution(unittest.TestCase):
 
     def test_add_project_also_resolves_decider(self):
         tmp = _make_tmp(self)
-        home = self._home_with_humans(tmp, {'decider': 'darrell'})
+        home = self._home_with_humans(tmp, {'decider': 'primus'})
         proj = os.path.join(tmp, 'add-dec')
         os.makedirs(proj)
         add_project('add-dec', proj, teaparty_home=home)
         data = _read_project_yaml(proj)
-        self.assertEqual(data['humans']['decider'], 'darrell')
+        self.assertEqual(data['humans']['decider'], 'primus')
 
 
 if __name__ == '__main__':

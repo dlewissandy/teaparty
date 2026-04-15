@@ -3,7 +3,7 @@ description: "Creates and modifies Claude Code configuration artifacts \u2014 ag
   \ skills, hooks, MCP servers, and scheduled tasks."
 lead: configuration-lead
 humans:
-  decider: darrell
+  decider: primus
 members:
   agents:
   - project-specialist

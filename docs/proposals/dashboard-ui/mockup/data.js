@@ -60,10 +60,10 @@ const data = {
     },
     projects: [
       { id: "poc", name: "POC", status: "active", jobs: 3, escalations: 2, lead: "POC Project Lead",
-        decider: "Darrell",
+        decider: "Primus",
         description: "Backend API service — REST endpoints, database layer, authentication, and deployment infrastructure." },
       { id: "jokebook", name: "Joke-book", status: "idle", jobs: 0, escalations: 0, lead: "Joke-book Project Lead",
-        decider: "Darrell",
+        decider: "Primus",
         description: "Joke generation and curation pipeline with rating, tagging, and export capabilities." },
     ],
     workgroups: [
@@ -73,7 +73,7 @@ const data = {
         description: "Deployment, monitoring, and infrastructure management across all projects." },
     ],
     humans: [
-      { name: "Darrell", role: "decider", self: true },
+      { name: "Primus", role: "decider", self: true },
       { name: "Alice", role: "advisor", self: false },
       { name: "Bob", role: "informed", self: false },
     ],
@@ -107,7 +107,7 @@ const data = {
   poc: {
     name: "POC Project",
     description: "Backend API service — REST endpoints, database layer, authentication, and deployment infrastructure.",
-    decider: "Darrell",
+    decider: "Primus",
     lead: "POC Project Lead",
     path: "projects/POC/",
     stats: {

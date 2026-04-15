@@ -109,7 +109,7 @@ The user's command center. Shows all organizations at a glance with live activit
 | [HOME]   |  Home Agent                                           |
 | --------- |  --------------------------------------------------- |
 |           |                                                       |
-| ORGS      |  [bot]  Welcome back, Darrell. Here's what's         |
+| ORGS      |  [bot]  Welcome back, Primus. Here's what's         |
 | --------- |         happening across your organizations:          |
 |           |                                                       |
 |  Acme Corp|         Acme Corp                                     |
@@ -126,7 +126,7 @@ The user's command center. Shows all organizations at a glance with live activit
 |           |  [bot]  What would you like to focus on?              |
 | MEMBERS   |                                                       |
 | --------- |  --------------------------------------------------- |
-|  Darrell  |                                                       |
+|  Primus  |                                                       |
 |  [home]   |  +--------------------------------------------------+|
 |           |  | Type a message to your home agent...        [Send] ||
 |           |  +--------------------------------------------------+|
@@ -190,7 +190,7 @@ Drill into an organization. See its workgroups, engagements, partnerships, and m
 |               |  +--------------------------------------------------+
 | MEMBERS       |                                                   |
 | --------- |                                                       |
-|  Darrell [owner]|                                                 |
+|  Primus [owner]|                                                 |
 |  org-lead [agent]|                                                |
 +----------+-------------------------------------------------------+
 ```
@@ -281,7 +281,7 @@ Where work actually happens. This is the screen users spend 80% of their time on
 |           |  +--------------------------------------+|| import   |
 |           |                                          || React    |
 |           |  +--------------------------------------+|| from ... |
-|           |  | [you] Darrell              10:31 AM  ||          |
+|           |  | [you] Primus              10:31 AM  ||          |
 |           |  |                                      || export   |
 |           |  | Looks good. Also check the refresh   || function |
 |           |  | token path -- same bug might exist   || Login()  |
@@ -347,7 +347,7 @@ Cross-org collaboration. Two org leads negotiate and track work.
 |           |  +--------------------------------------------------+|
 |           |                                                       |
 | DISPATCHED|  +--------------------------------------------------+|
-| WORK      |  | [you] Darrell                        Just now     ||
+| WORK      |  | [you] Primus                        Just now     ||
 | --------- |  |                                                   ||
 |  Design   |  | @org-lead Yes, reprioritize checkout. And let's   ||
 |   Mobile UI  | add Apple Pay to the scope.                       ||
@@ -403,7 +403,7 @@ When multiple agents collaborate in a job conversation.
 |           |  +--------------------------------------+||          |
 |           |                                          ||          |
 |           |  +--------------------------------------+||          |
-|           |  | [you] Darrell               2:20 PM  ||          |
+|           |  | [you] Primus               2:20 PM  ||          |
 |           |  |                                      ||          |
 |           |  | Love the direction. Make sure we     ||          |
 |           |  | keep the quick-stats row -- users    ||          |
@@ -624,7 +624,7 @@ Agent message:
 
 User message:
 +---------------------------------------------+--+
-|  Darrell                        10:31 AM     |  |
+|  Primus                        10:31 AM     |  |
 |                                              |AV|
 |  Message content here.                       |  |
 +---------------------------------------------+--+
@@ -1079,7 +1079,7 @@ Mobile (< 760px):
   <!-- Members Section -->
   <text x="12" y="230" fill="#5e6f80" font-size="10" font-weight="600">MEMBERS</text>
   <rect x="8" y="238" width="224" height="28" fill="white" rx="4" stroke="#d7e0ea"/>
-  <text x="16" y="256" fill="#1f2d3a" font-size="11">Darrell Lewis</text>
+  <text x="16" y="256" fill="#1f2d3a" font-size="11">Primus</text>
 
   <!-- Chat Panel -->
   <rect x="244" y="48" width="656" height="452" fill="white"/>
@@ -1096,7 +1096,7 @@ Mobile (< 760px):
   <text x="440" y="112" fill="#5e6f80" font-size="10">Just now</text>
 
   <rect x="292" y="120" width="560" height="80" fill="#fdf8f0" rx="6"/>
-  <text x="304" y="138" fill="#1f2d3a" font-size="11">Welcome back, Darrell. Here's what's happening:</text>
+  <text x="304" y="138" fill="#1f2d3a" font-size="11">Welcome back, Primus. Here's what's happening:</text>
   <text x="304" y="156" fill="#1f2d3a" font-size="11" font-weight="600">Acme Corp</text>
   <text x="304" y="170" fill="#5e6f80" font-size="10">3 active jobs - 2 need your input</text>
   <text x="304" y="186" fill="#1f2d3a" font-size="11" font-weight="600">Widget Co</text>
@@ -1210,7 +1210,7 @@ Mobile (< 760px):
   <!-- User message -->
   <rect x="700" y="248" width="20" height="20" fill="#2d66d6" rx="10"/>
   <text x="704" y="262" fill="white" font-size="7" font-weight="700">DL</text>
-  <text x="268" y="260" fill="#1f2d3a" font-size="10" font-weight="600">Darrell</text>
+  <text x="268" y="260" fill="#1f2d3a" font-size="10" font-weight="600">Primus</text>
   <text x="480" y="260" fill="#5e6f80" font-size="9">10:31 AM</text>
 
   <rect x="240" y="268" width="504" height="48" fill="#f0f4ff" rx="6"/>

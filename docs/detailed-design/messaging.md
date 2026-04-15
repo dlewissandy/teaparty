@@ -55,7 +55,7 @@ The `ConversationType` enum defines ten conversation scopes:
 | `PROJECT_LEAD` | `lead:` | Indefinite | One per project lead |
 
 Conversation IDs are namespaced: `make_conversation_id(type, qualifier)` produces
-e.g. `om:darrell` or `session:20260327-143000`.
+e.g. `om:primus` or `session:20260327-143000`.
 
 ### Conversation state
 

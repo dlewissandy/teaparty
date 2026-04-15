@@ -3,7 +3,7 @@
 ## Context
 Producing a research brief for Chapter 1 of a popular non-fiction humor book. The chapter argues laughter is pre-cultural — a biological endowment, not a learned behavior. Research must surface vivid, citable anecdotes across 5 topics, structured with: who was involved, what specifically happened, why it matters to insiders, why it lands for general readers.
 
-Output file target: `/Users/darrell/git/teaparty/projects/humor-book/.worktrees/research-9ad7be2d--produce-a-research-brief-/ch1_born_laughing_brief.md`
+Output file target: `/Users/primus/git/teaparty/projects/humor-book/.worktrees/research-9ad7be2d--produce-a-research-brief-/ch1_born_laughing_brief.md`
 
 ---
 

@@ -329,8 +329,8 @@ class TestSessionIdDerivation(unittest.TestCase):
         """Session ID for project leads must start with the lead's agent name.
 
         Matches AgentSession._session_key():
-          deriveSessionId('lead:teaparty-lead:darrell') must be
-          'teaparty-lead-teaparty-lead-darrell'
+          deriveSessionId('lead:teaparty-lead:primus') must be
+          'teaparty-lead-teaparty-lead-primus'
         """
         src = self._read_accordion_js()
         # For lead: convIds, the session key is built from the lead name and qualifier.
@@ -638,7 +638,7 @@ class TestNestedDispatchNonHomePage(unittest.TestCase):
     def test_dispatch_tree_fetch_uses_derived_session_id_for_lead_configs(self):
         """The dispatch tree fetch must work for lead: convIds, not just om:.
 
-        deriveSessionId('lead:comics-lead:darrell') must return a non-null session ID
+        deriveSessionId('lead:comics-lead:primus') must return a non-null session ID
         so that _updateAccordion fetches the right tree for project-lead pages.
         """
         src = self._read_accordion_js()
@@ -674,8 +674,8 @@ class TestSeedPostTargetRouting(unittest.TestCase):
     """accordion-chat.js seed() must POST to the configured convId, not a hardcoded agent.
 
     AC5: Page-to-agent routing. The POST target URL is constructed from _config.convId.
-    A project-lead config (lead:comics-lead:darrell) must POST to
-    /api/conversations/lead:comics-lead:darrell, not to any om: URL.
+    A project-lead config (lead:comics-lead:primus) must POST to
+    /api/conversations/lead:comics-lead:primus, not to any om: URL.
 
     Verified by tracing the seed() function's fetch call in the source: the URL is
     built as '/api/conversations/' + encodeURIComponent(_config.convId), and _config.convId
@@ -697,8 +697,8 @@ class TestSeedPostTargetRouting(unittest.TestCase):
     def test_seed_builds_url_from_config_conv_id(self):
         """seed() must build the POST URL from _config.convId, not a hardcoded value.
 
-        For lead:comics-lead:darrell, seed() must POST to
-        /api/conversations/lead:comics-lead:darrell (after URL encoding).
+        For lead:comics-lead:primus, seed() must POST to
+        /api/conversations/lead:comics-lead:primus (after URL encoding).
         The URL construction is: '/api/conversations/' + encodeURIComponent(_config.convId)
         """
         src = self._read_accordion_js()
@@ -708,8 +708,8 @@ class TestSeedPostTargetRouting(unittest.TestCase):
             '_config.convId', body,
             "seed() does not use _config.convId in its POST URL — "
             "all chats will POST to the same URL regardless of config. "
-            "For lead:comics-lead:darrell, the POST must go to "
-            "/api/conversations/lead:comics-lead:darrell."
+            "For lead:comics-lead:primus, the POST must go to "
+            "/api/conversations/lead:comics-lead:primus."
         )
 
     def test_seed_posts_to_conversations_api(self):
@@ -744,7 +744,7 @@ class TestSeedPostTargetRouting(unittest.TestCase):
         """seed() must encodeURIComponent the convId in the POST URL.
 
         lead: convIds contain ':' which must be percent-encoded in URLs.
-        Without encoding, lead:comics-lead:darrell would produce an invalid URL.
+        Without encoding, lead:comics-lead:primus would produce an invalid URL.
         """
         src = self._read_accordion_js()
         body = self._extract_seed_function(src)
@@ -804,12 +804,12 @@ class TestDispatchTreeProjectScopeRouting(unittest.TestCase):
     def test_management_session_found_in_management_dir(self):
         """OM sessions in management/sessions are found by TeaPartyBridge._find_sessions_dir."""
         mgmt_sessions = os.path.join(self._tmpdir, 'management', 'sessions')
-        self._make_session(mgmt_sessions, 'office-manager-darrell', 'office-manager')
+        self._make_session(mgmt_sessions, 'office-manager-primus', 'office-manager')
         project_sessions = os.path.join(self._tmpdir, 'project', 'sessions')
         os.makedirs(project_sessions, exist_ok=True)
 
         with patch.object(self._server, '_all_sessions_dirs', return_value=[mgmt_sessions, project_sessions]):
-            result = self._server._find_sessions_dir('office-manager-darrell')
+            result = self._server._find_sessions_dir('office-manager-primus')
 
         self.assertEqual(
             result, mgmt_sessions,
@@ -828,7 +828,7 @@ class TestDispatchTreeProjectScopeRouting(unittest.TestCase):
         os.makedirs(mgmt_sessions, exist_ok=True)  # present but empty
 
         project_sessions = os.path.join(self._tmpdir, 'project', 'sessions')
-        session_id = 'comics-lead-comics-lead-darrell'
+        session_id = 'comics-lead-comics-lead-primus'
         self._make_session(project_sessions, session_id, 'comics-lead')
 
         with patch.object(self._server, '_all_sessions_dirs', return_value=[mgmt_sessions, project_sessions]):

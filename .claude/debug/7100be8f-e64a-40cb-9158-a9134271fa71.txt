@@ -26,7 +26,7 @@
 2026-02-18T02:35:35.162Z [DEBUG] Applied original permissions to temp file
 2026-02-18T02:35:35.162Z [DEBUG] Renaming .claude/.claude.json.tmp.48047.1771382135161 to .claude/.claude.json
 2026-02-18T02:35:35.162Z [DEBUG] File .claude/.claude.json written atomically
-2026-02-18T02:35:35.163Z [DEBUG] Applying permission update: Adding 42 allow rule(s) to destination 'localSettings': ["Bash(python -m pytest tests/ --tb=short -q)","Bash(uv run pytest:*)","Bash(uv run python -m pytest:*)","Bash(uv sync:*)","Bash(uv run python:*)","Bash(uv add:*)","Bash(uv run:*)","Bash(sqlite3:*)","Bash(python -m pytest:*)","Bash(uv pip install:*)","Bash(git stash:*)","Bash(git stash pop:*)","Bash(PYTHONPATH=. uv run pytest:*)","Bash(PYTHONPATH=. uv run python:*)","Bash(grep:*)","WebSearch","WebFetch(domain:www.anthropic.com)","WebFetch(domain:claude.com)","WebFetch(domain:pypi.org)","Bash(WG_ID=\"d779d2ac-8740-46e9-bfb7-e350b274ced0\":*)","Bash(python3:*)","Bash(git add:*)","Bash(git commit:*)","Bash(git push:*)","Bash(uv pip list:*)","Bash(wc:*)","Bash(chmod:*)","Bash(xargs:*)","Bash(claude:*)","Bash(CLAUDECODE= /Users/Darrell/.local/bin/claude --help)","Bash(python:*)","Bash(CLAUDECODE= claude --help)","Bash(CLAUDECODE= claude -p --help)","Bash(lsof:*)","Bash(PYTHONPATH=. python3:*)","Bash(ps:*)","Bash(ls:*)","Bash(git status:*)","WebFetch(domain:docs.anthropic.com)","Bash(find:*)","Bash(PYTHONPATH=. python:*)","Bash(CLAUDECODE= CLAUDE_CODE_ENTRYPOINT= claude:*)"]
+2026-02-18T02:35:35.163Z [DEBUG] Applying permission update: Adding 42 allow rule(s) to destination 'localSettings': ["Bash(python -m pytest tests/ --tb=short -q)","Bash(uv run pytest:*)","Bash(uv run python -m pytest:*)","Bash(uv sync:*)","Bash(uv run python:*)","Bash(uv add:*)","Bash(uv run:*)","Bash(sqlite3:*)","Bash(python -m pytest:*)","Bash(uv pip install:*)","Bash(git stash:*)","Bash(git stash pop:*)","Bash(PYTHONPATH=. uv run pytest:*)","Bash(PYTHONPATH=. uv run python:*)","Bash(grep:*)","WebSearch","WebFetch(domain:www.anthropic.com)","WebFetch(domain:claude.com)","WebFetch(domain:pypi.org)","Bash(WG_ID=\"d779d2ac-8740-46e9-bfb7-e350b274ced0\":*)","Bash(python3:*)","Bash(git add:*)","Bash(git commit:*)","Bash(git push:*)","Bash(uv pip list:*)","Bash(wc:*)","Bash(chmod:*)","Bash(xargs:*)","Bash(claude:*)","Bash(CLAUDECODE= /Users/Primus/.local/bin/claude --help)","Bash(python:*)","Bash(CLAUDECODE= claude --help)","Bash(CLAUDECODE= claude -p --help)","Bash(lsof:*)","Bash(PYTHONPATH=. python3:*)","Bash(ps:*)","Bash(ls:*)","Bash(git status:*)","WebFetch(domain:docs.anthropic.com)","Bash(find:*)","Bash(PYTHONPATH=. python:*)","Bash(CLAUDECODE= CLAUDE_CODE_ENTRYPOINT= claude:*)"]
 2026-02-18T02:35:35.163Z [DEBUG] [STARTUP] Loading MCP configs...
 2026-02-18T02:35:35.165Z [DEBUG] [ToolSearch:optimistic] mode=tst-auto, ENABLE_TOOL_SEARCH=undefined, result=true
 2026-02-18T02:35:35.165Z [DEBUG] [STARTUP] Running setup()...
@@ -48,18 +48,18 @@
 2026-02-18T02:35:35.173Z [DEBUG] Git remote URL: https://github.com/dlewissandy/teaparty.git
 2026-02-18T02:35:35.173Z [DEBUG] Parsed repository: dlewissandy/teaparty from https://github.com/dlewissandy/teaparty.git
 2026-02-18T02:35:35.173Z [DEBUG] Parsed repository: dlewissandy/teaparty from URL: https://github.com/dlewissandy/teaparty.git
-2026-02-18T02:35:35.173Z [DEBUG] Acquired mtime-based lock on running version: /Users/darrell/.local/share/claude/versions/2.1.45
-2026-02-18T02:35:35.187Z [DEBUG] Skipping duplicate file '/Users/darrell/git/teaparty/.claude/agents/code-reviewer.md' from projectSettings (same inode already loaded from userSettings)
-2026-02-18T02:35:35.187Z [DEBUG] Skipping duplicate file '/Users/darrell/git/teaparty/.claude/agents/test-engineer.md' from projectSettings (same inode already loaded from userSettings)
-2026-02-18T02:35:35.187Z [DEBUG] Skipping duplicate file '/Users/darrell/git/teaparty/.claude/agents/architect.md' from projectSettings (same inode already loaded from userSettings)
-2026-02-18T02:35:35.187Z [DEBUG] Skipping duplicate file '/Users/darrell/git/teaparty/.claude/agents/social-architect.md' from projectSettings (same inode already loaded from userSettings)
-2026-02-18T02:35:35.187Z [DEBUG] Skipping duplicate file '/Users/darrell/git/teaparty/.claude/agents/cognitive-architect.md' from projectSettings (same inode already loaded from userSettings)
-2026-02-18T02:35:35.187Z [DEBUG] Skipping duplicate file '/Users/darrell/git/teaparty/.claude/agents/doc-writer.md' from projectSettings (same inode already loaded from userSettings)
-2026-02-18T02:35:35.187Z [DEBUG] Skipping duplicate file '/Users/darrell/git/teaparty/.claude/agents/ux-designer.md' from projectSettings (same inode already loaded from userSettings)
-2026-02-18T02:35:35.187Z [DEBUG] Skipping duplicate file '/Users/darrell/git/teaparty/.claude/agents/researcher.md' from projectSettings (same inode already loaded from userSettings)
-2026-02-18T02:35:35.187Z [DEBUG] Skipping duplicate file '/Users/darrell/git/teaparty/.claude/agents/graphic-artist.md' from projectSettings (same inode already loaded from userSettings)
-2026-02-18T02:35:35.187Z [DEBUG] Skipping duplicate file '/Users/darrell/git/teaparty/.claude/agents/frontend-engineer.md' from projectSettings (same inode already loaded from userSettings)
-2026-02-18T02:35:35.187Z [DEBUG] Skipping duplicate file '/Users/darrell/git/teaparty/.claude/agents/backend-engineer.md' from projectSettings (same inode already loaded from userSettings)
+2026-02-18T02:35:35.173Z [DEBUG] Acquired mtime-based lock on running version: /Users/primus/.local/share/claude/versions/2.1.45
+2026-02-18T02:35:35.187Z [DEBUG] Skipping duplicate file '/Users/primus/git/teaparty/.claude/agents/code-reviewer.md' from projectSettings (same inode already loaded from userSettings)
+2026-02-18T02:35:35.187Z [DEBUG] Skipping duplicate file '/Users/primus/git/teaparty/.claude/agents/test-engineer.md' from projectSettings (same inode already loaded from userSettings)
+2026-02-18T02:35:35.187Z [DEBUG] Skipping duplicate file '/Users/primus/git/teaparty/.claude/agents/architect.md' from projectSettings (same inode already loaded from userSettings)
+2026-02-18T02:35:35.187Z [DEBUG] Skipping duplicate file '/Users/primus/git/teaparty/.claude/agents/social-architect.md' from projectSettings (same inode already loaded from userSettings)
+2026-02-18T02:35:35.187Z [DEBUG] Skipping duplicate file '/Users/primus/git/teaparty/.claude/agents/cognitive-architect.md' from projectSettings (same inode already loaded from userSettings)
+2026-02-18T02:35:35.187Z [DEBUG] Skipping duplicate file '/Users/primus/git/teaparty/.claude/agents/doc-writer.md' from projectSettings (same inode already loaded from userSettings)
+2026-02-18T02:35:35.187Z [DEBUG] Skipping duplicate file '/Users/primus/git/teaparty/.claude/agents/ux-designer.md' from projectSettings (same inode already loaded from userSettings)
+2026-02-18T02:35:35.187Z [DEBUG] Skipping duplicate file '/Users/primus/git/teaparty/.claude/agents/researcher.md' from projectSettings (same inode already loaded from userSettings)
+2026-02-18T02:35:35.187Z [DEBUG] Skipping duplicate file '/Users/primus/git/teaparty/.claude/agents/graphic-artist.md' from projectSettings (same inode already loaded from userSettings)
+2026-02-18T02:35:35.187Z [DEBUG] Skipping duplicate file '/Users/primus/git/teaparty/.claude/agents/frontend-engineer.md' from projectSettings (same inode already loaded from userSettings)
+2026-02-18T02:35:35.187Z [DEBUG] Skipping duplicate file '/Users/primus/git/teaparty/.claude/agents/backend-engineer.md' from projectSettings (same inode already loaded from userSettings)
 2026-02-18T02:35:35.187Z [DEBUG] Deduplicated 11 files in agents (same inode via symlinks or hard links)
 2026-02-18T02:35:35.189Z [DEBUG] Total plugin agents loaded: 0
 2026-02-18T02:35:35.190Z [DEBUG] Writing to temp file: .claude/.claude.json.tmp.48047.1771382135190
@@ -82,7 +82,7 @@
 2026-02-18T02:35:35.198Z [DEBUG] installed_plugins.json doesn't exist, returning empty V2 object
 2026-02-18T02:35:35.198Z [DEBUG] Initialized versioned plugins system with 0 plugins
 2026-02-18T02:35:35.199Z [DEBUG] Fast mode unavailable: Fast mode is not available in the Agent SDK
-2026-02-18T02:35:35.201Z [DEBUG] Watching for changes in setting files /Users/darrell/git/teaparty/.claude/settings.json, /Users/darrell/git/teaparty/.claude/settings.local.json...
+2026-02-18T02:35:35.201Z [DEBUG] Watching for changes in setting files /Users/primus/git/teaparty/.claude/settings.json, /Users/primus/git/teaparty/.claude/settings.local.json...
 2026-02-18T02:35:35.210Z [DEBUG] [Perfetto] initializePerfettoTracing called, env value: undefined
 2026-02-18T02:35:35.210Z [DEBUG] [3P telemetry] isTelemetryEnabled=false (CLAUDE_CODE_ENABLE_TELEMETRY=undefined)
 2026-02-18T02:35:35.212Z [DEBUG] Getting matching hook commands for SessionStart with query: startup

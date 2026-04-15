@@ -35,7 +35,7 @@ For job-scoped work. The sidebar lists **tasks** within the job.
 - "Review" button (green, only shown at gates — INTENT_ASSERT, PLAN_ASSERT, WORK_ASSERT)
 - "Withdraw" button (red, always shown)
 
-### Participant Chat (`chat.html?conv=om:darrell`)
+### Participant Chat (`chat.html?conv=om:primus`)
 
 For 1:1 conversations with a specific participant. The sidebar lists **conversation history** with that participant.
 

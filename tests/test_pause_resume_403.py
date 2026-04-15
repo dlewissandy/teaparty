@@ -1558,7 +1558,7 @@ class TestImplicitResumeHandlerRouting(unittest.IsolatedAsyncioTestCase):
         self.assertIn('alpha', bridge._paused_projects)
 
     async def test_lead_conv_id_triggers_project_wide_resume(self):
-        """POST to conv_id='lead:alpha-lead:darrell' resumes ALL jobs
+        """POST to conv_id='lead:alpha-lead:primus' resumes ALL jobs
         and clears the project-paused flag."""
         self._persist_child('job-1', 'alpha', 'j1')
         self._persist_child('job-2', 'alpha', 'j2')
@@ -1570,8 +1570,8 @@ class TestImplicitResumeHandlerRouting(unittest.IsolatedAsyncioTestCase):
 
         from aiohttp.test_utils import make_mocked_request
         req = make_mocked_request(
-            'POST', '/api/conversations/lead:alpha-lead:darrell',
-            match_info={'id': 'lead:alpha-lead:darrell'},
+            'POST', '/api/conversations/lead:alpha-lead:primus',
+            match_info={'id': 'lead:alpha-lead:primus'},
             headers={'Content-Type': 'application/json'},
         )
         async def fake_json():

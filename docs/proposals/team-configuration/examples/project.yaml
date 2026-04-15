@@ -7,7 +7,7 @@ name: My Backend
 description: Backend API service — REST endpoints, database layer, authentication, and deployment infrastructure.
 lead: project-lead                              # → .teaparty/project/agents/project-lead/agent.md
 humans:
-  decider: darrell                              # human whose approval matters at gates
+  decider: primus                              # human whose approval matters at gates
   advisors:
     - alice                                     # can interject in chats; input is advice, not directive
   inform:

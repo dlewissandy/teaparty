@@ -3,7 +3,7 @@ description: Requirements gathering and intent alignment. Clarifies what is want
   and produces an artifact planning and execution teams can act on. Upstream of planning.
 lead: intake-lead
 humans:
-  decider: darrell
+  decider: primus
 members:
   agents:
   - intent-specialist

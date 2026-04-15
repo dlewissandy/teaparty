@@ -3,7 +3,7 @@ description: Cross-project coordination, human interaction, organizational strat
   and configuration management.
 lead: office-manager
 humans:
-  decider: darrell
+  decider: primus
 projects:
 - name: TeaParty
   path: .

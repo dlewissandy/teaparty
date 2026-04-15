@@ -6,14 +6,14 @@
 name: My Project                    # human-readable display name
 description: One-line description   # what this project does
 lead: project-lead                  # agent name → .claude/agents/project-lead.md
-decider: darrell                    # human whose approval matters at gates
+decider: primus                    # human whose approval matters at gates
 
 agents:                             # agents on this project team
   - project-lead                    # team lead (implicit, also listed explicitly)
   - qa-reviewer                     # any specialist agents
 
 humans:
-  - name: darrell
+  - name: primus
     role: decider                   # final call at gates
   - name: alice
     role: advisor                   # can interject; advice not directive

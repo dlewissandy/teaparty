@@ -43,8 +43,8 @@ class TestConversationId(unittest.TestCase):
         self.assertEqual(cid, 'pm:proj:alice')
 
     def test_proxy_format(self):
-        cid = make_conversation_id(ConversationType.PROXY, 'darrell')
-        self.assertEqual(cid, 'proxy:darrell')
+        cid = make_conversation_id(ConversationType.PROXY, 'primus')
+        self.assertEqual(cid, 'proxy:primus')
 
     def test_config_lead_format(self):
         cid = make_conversation_id(ConversationType.CONFIG_LEAD, 'global')
@@ -182,10 +182,10 @@ class TestConversationLifecycle(unittest.TestCase):
 
     def test_find_conversation(self):
         bus = _make_bus(self)
-        bus.create_conversation(ConversationType.PROXY, 'darrell')
-        found = bus.find_conversation(ConversationType.PROXY, 'darrell')
+        bus.create_conversation(ConversationType.PROXY, 'primus')
+        found = bus.find_conversation(ConversationType.PROXY, 'primus')
         self.assertIsNotNone(found)
-        self.assertEqual(found.id, 'proxy:darrell')
+        self.assertEqual(found.id, 'proxy:primus')
 
 
 # ── Layer 4: Awaiting input ──────────────────────────────────────────────────

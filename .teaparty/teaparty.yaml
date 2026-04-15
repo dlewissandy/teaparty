@@ -3,22 +3,22 @@ description: Cross-project coordination, human interaction, organizational strat
   and configuration management.
 lead: office-manager
 humans:
-  decider: darrell
+  decider: primus
 projects:
 - name: TeaParty
   path: .
   config: .teaparty/project.yaml
 - name: pybayes
-  path: /Users/darrell/git/pybayes
+  path: /Users/primus/git/pybayes
   config: .teaparty/project.yaml
 - name: Jainai
-  path: /Users/darrell/git/jainai
+  path: /Users/primus/git/jainai
   config: .teaparty/project.yaml
 - name: comics
-  path: /Users/darrell/git/comics
+  path: /Users/primus/git/comics
   config: .teaparty/project.yaml
 - name: joke-book
-  path: /Users/darrell/joke-book
+  path: /Users/primus/joke-book
   config: .teaparty/project/project.yaml
 members:
   projects:
