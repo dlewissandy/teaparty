@@ -349,6 +349,26 @@ class TestSessionIdDerivation(unittest.TestCase):
             "the session ID for project leads will not be prefixed with the agent name"
         )
 
+    def test_config_prefix_handled_in_derivation(self):
+        """Session ID derivation must handle the 'config:' prefix.
+
+        config: conversations route to the configuration-lead agent.
+        deriveSessionId('config:artifact:teaparty:hooks/on_commit.yaml')
+        must return 'configuration-lead' so the accordion can load the
+        dispatch tree for the configuration lead.
+        """
+        src = self._read_accordion_js()
+        self.assertIn(
+            "'config:'", src,
+            "accordion-chat.js deriveSessionId does not handle the 'config:' prefix — "
+            "the accordion will bail out for hook artifact views, showing no chat UI"
+        )
+        self.assertIn(
+            "'configuration-lead'", src,
+            "accordion-chat.js deriveSessionId does not return 'configuration-lead' for "
+            "'config:' conversations — the dispatch tree will be fetched with the wrong session ID"
+        )
+
 
 class TestDomStructureInModule(unittest.TestCase):
     """The blade DOM structure must be defined in accordion-chat.js, not inline HTML.

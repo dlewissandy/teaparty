@@ -48,6 +48,9 @@
       var safeKey = key.replace(/[:/\s]/g, '-');
       return leadName + '-' + safeKey;
     }
+    if (convId.startsWith('config:')) {
+      return 'configuration-lead';
+    }
     return null;
   }
 

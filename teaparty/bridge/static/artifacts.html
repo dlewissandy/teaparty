@@ -15,9 +15,7 @@
 <div class="blade-layout">
 <div class="content-wrap">
 <div id="breadcrumb-slot" style="padding:6px 12px"></div>
-<!-- Stats bar explicitly excluded from artifacts page (#406).
-     The artifact browser's focus is file-level, not session/project-level.
-     A stats strip here would be visual noise with no actionable context. -->
+<!-- Stats bar excluded (#406) — file-level browser, not session-level. -->
 <div id="artifact-content" style="display:flex;flex-direction:column;flex:1;min-height:0"></div>
 </div>
 <div class="blade" id="blade"></div>
@@ -40,9 +38,11 @@ ArtifactPage.mount({
   requestedFile: params.get('file') || null,
   requestedDir: params.get('dir') || null,
   conv: params.get('conv') || '',
+  hookEvent: params.get('hook_event') || '',
+  hookMatcher: params.get('hook_matcher') || '',
+  hookType: params.get('hook_type') || '',
   chatConversationId: 'config:artifact:' + project + ':' + (params.get('file') || 'browse'),
-  chatAgentName: 'configuration-lead',
-  chatLaunchRepo: '',
+  chatAgentName: 'configuration-lead', chatLaunchRepo: '',
   chatTitle: 'Config Lead',
 });
 </script>

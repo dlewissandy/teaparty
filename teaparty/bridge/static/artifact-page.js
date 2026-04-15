@@ -134,6 +134,9 @@
     } else if (parts[0] === 'lead' && parts[1]) {
       agentName = parts[1];
       title = parts[1];
+    } else if (parts[0] === 'config') {
+      agentName = 'configuration-lead';
+      title = 'Config Lead';
     } else {
       return config;
     }
@@ -1026,6 +1029,34 @@
     } catch(e) {}
   }
 
+  // ── Hook context seeding ──────────────────────────────────────────────────
+
+  async function _seedHookContext() {
+    // Seed the config lead chat with hook context on first visit to this hook file.
+    // The conversation ID is unique per (project, file), so each hook has its own thread.
+    if (!_config.hookEvent || !_chatInstance || !_chatInstance.seed) return;
+    var convId = _config.chatConversationId;
+    if (!convId) return;
+    // Only seed if the conversation has no prior messages.
+    try {
+      var resp = await fetch('/api/conversations/' + encodeURIComponent(convId));
+      if (resp.ok) {
+        var data = await resp.json();
+        var msgs = Array.isArray(data) ? data : (data.messages || []);
+        if (msgs.length > 0) return;
+      }
+    } catch(e) {}
+    var lines = [
+      'I\'m reviewing hook file `' + (_config.requestedFile || '') + '`'
+        + ' in project `' + (_config.projectSlug || 'org') + '`.',
+    ];
+    if (_config.hookEvent) lines.push('Event: `' + _config.hookEvent + '`.');
+    if (_config.hookMatcher) lines.push('Matcher: `' + _config.hookMatcher + '`.');
+    if (_config.hookType) lines.push('Type: `' + _config.hookType + '`.');
+    lines.push('Can you help me understand and configure this hook?');
+    _chatInstance.seed(lines.join(' '));
+  }
+
   // ── Chat routing ──────────────────────────────────────────────────────────
 
   async function _inferChatFromScope() {
@@ -1079,7 +1110,8 @@
     // In browse mode, infer the correct chat partner from the project config when
     // no explicit conv was provided. Project/workgroup/agent scopes all route to
     // the project team lead; system scope routes to the office manager.
-    if (_config.mode === 'browse' && !_config.conv) {
+    // Hook views skip inference — the chat is always with the configuration lead.
+    if (_config.mode === 'browse' && !_config.conv && !_config.hookEvent) {
       await _inferChatFromScope();
     }
 
@@ -1097,6 +1129,7 @@
       await fetchPins();
       await loadFile(requestedFile);
       _startLiveRefresh();
+      await _seedHookContext();
       return;
     }
 
