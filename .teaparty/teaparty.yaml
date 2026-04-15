@@ -8,18 +8,6 @@ projects:
 - name: TeaParty
   path: .
   config: .teaparty/project.yaml
-- name: pybayes
-  path: /Users/primus/git/pybayes
-  config: .teaparty/project.yaml
-- name: Jainai
-  path: /Users/primus/git/jainai
-  config: .teaparty/project.yaml
-- name: comics
-  path: /Users/primus/git/comics
-  config: .teaparty/project.yaml
-- name: joke-book
-  path: /Users/primus/joke-book
-  config: .teaparty/project/project.yaml
 members:
   projects:
   - TeaParty

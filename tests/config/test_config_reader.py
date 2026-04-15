@@ -366,6 +366,36 @@ class TestRemoveProject(unittest.TestCase):
         self.assertNotIn('gone', team.members_projects,
             "remove_project must purge the name from members.projects")
 
+    def test_removes_management_lead_agent(self):
+        """remove_project must delete the management-level {name}-lead agent dir
+        if one exists (left over from older onboarding or manual scaffolding).
+        """
+        tmp = _make_tmp(self)
+        home = _make_teaparty_home(tmp)
+        proj = os.path.join(tmp, 'oldproject')
+        os.makedirs(proj)
+        add_project('oldproject', proj, teaparty_home=home)
+        # Simulate an orphaned management-level lead (older code placed it here)
+        lead_dir = os.path.join(home, 'management', 'agents', 'oldproject-lead')
+        os.makedirs(lead_dir)
+        open(os.path.join(lead_dir, 'agent.md'), 'w').close()
+        remove_project('oldproject', teaparty_home=home)
+        self.assertFalse(
+            os.path.isdir(lead_dir),
+            "remove_project must delete management-level lead agent dir",
+        )
+
+    def test_no_error_when_lead_agent_absent(self):
+        """remove_project must succeed when no management-level lead dir exists."""
+        tmp = _make_tmp(self)
+        home = _make_teaparty_home(tmp)
+        proj = os.path.join(tmp, 'nolead')
+        os.makedirs(proj)
+        add_project('nolead', proj, teaparty_home=home)
+        # No management-level lead created — remove_project should not raise
+        team = remove_project('nolead', teaparty_home=home)
+        self.assertNotIn('nolead', [p['name'] for p in team.projects])
+
 
 # ── Layer 4: Resolution ─────────────���────────────────────────────────────────
 

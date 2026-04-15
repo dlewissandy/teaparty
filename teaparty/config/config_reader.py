@@ -1521,10 +1521,13 @@ def remove_project(
     """Remove a project from the project registry.
 
     Checks both teaparty.yaml (tracked) and external-projects.yaml (gitignored).
+    Also deletes the management-level ``{name}-lead`` agent directory if one
+    exists (created by older onboarding code or manually scaffolded there).
     The project directory itself is left untouched.
 
     Raises ValueError if no project with this name exists.
     """
+    import shutil
     home = os.path.expanduser(teaparty_home or default_teaparty_home())
 
     def _remove_from_members(data: dict[str, Any]) -> dict[str, Any]:
@@ -1535,6 +1538,11 @@ def remove_project(
             members['projects'] = updated
             data['members'] = members
         return data
+
+    def _remove_lead_agent(normalized: str) -> None:
+        lead_dir = os.path.join(home, 'management', 'agents', f'{normalized}-lead')
+        if os.path.isdir(lead_dir):
+            shutil.rmtree(lead_dir)
 
     # Try external-projects.yaml first (most common case)
     ext_path = external_projects_path(home)
@@ -1547,6 +1555,7 @@ def remove_project(
                 yaml.dump(filtered, f, default_flow_style=False, sort_keys=False)
             data = _load_management_yaml(teaparty_home)
             _save_management_yaml(_remove_from_members(data), teaparty_home)
+            _remove_lead_agent(normalize_project_name(name))
             return load_management_team(teaparty_home=teaparty_home)
 
     # Fall back to teaparty.yaml (tracked projects)
@@ -1557,6 +1566,7 @@ def remove_project(
         raise ValueError(f"Project '{name}' not found")
     data['projects'] = filtered
     _save_management_yaml(_remove_from_members(data), teaparty_home)
+    _remove_lead_agent(normalize_project_name(name))
 
     return load_management_team(teaparty_home=teaparty_home)
 
