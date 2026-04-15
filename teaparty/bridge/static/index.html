@@ -258,8 +258,7 @@ function fetchAll() {
     pageState.projects.forEach(function(p) {
       if (p.paused) { pageState.pausedProjects[p.slug] = true; }
     });
-    var omConvs = results[1] || [];
-    if (omConvs.length > 0) pageState.omConvId = omConvs[0].id;
+    // omConvId is always 'om' — the OM is a singleton with no qualifier.
     if (!_chatBlade) {
       _chatBlade = AccordionChat.mount(
         document.getElementById('blade'),
