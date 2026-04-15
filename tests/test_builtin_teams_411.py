@@ -23,6 +23,8 @@ from teaparty.config.config_reader import (
     discover_agents,
     discover_skills,
     discover_workgroups,
+    load_management_team,
+    load_management_workgroups,
     load_workgroup,
     management_agents_dir,
     management_skills_dir,
@@ -432,6 +434,30 @@ class TestOptInMechanismResolution(unittest.TestCase):
                         f'{team}/{agent}: not resolvable from management agents dir '
                         f'{_AGENTS_DIR}; would require additional manual configuration'
                     )
+
+    def test_all_new_workgroups_registered_in_management_team(self):
+        """All 8 new workgroups are registered in management/teaparty.yaml.
+
+        load_management_workgroups reads from team.workgroups — the explicit
+        registry in teaparty.yaml. A workgroup YAML that exists on disk but
+        is not registered there is invisible to the dashboard and to projects
+        trying to opt in via the management catalog.
+        """
+        team = load_management_team(teaparty_home=_TEAPARTY_HOME)
+        # Match by config filename (e.g. "workgroups/quality-control.yaml" → "quality-control"),
+        # not display name, since display names may use spaces ("Quality Control").
+        registered_keys = {
+            os.path.splitext(os.path.basename(wg.config))[0].lower()
+            for wg in team.workgroups
+        }
+        for team_name in _TEAM_SPEC:
+            with self.subTest(team=team_name):
+                self.assertIn(
+                    team_name.lower(), registered_keys,
+                    f'{team_name} workgroup YAML exists but is not registered in '
+                    f'management/teaparty.yaml workgroups list; '
+                    f'registered: {sorted(registered_keys)}'
+                )
 
     def test_digest_skill_resolves_from_management_skills_dir(self):
         """The digest skill required by every agent resolves from the management
