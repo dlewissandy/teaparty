@@ -121,8 +121,31 @@
 
   // ── Mount / Unmount ────────────────────────────────────────────────────────
 
+  function _resolveChatConfig(config) {
+    // If a `conv` param is supplied (e.g. 'lead:comics-lead:darrell' or 'om:darrell'),
+    // derive chatConversationId, chatAgentName, and chatTitle from it, overriding defaults.
+    var conv = config.conv || '';
+    if (!conv) return config;
+    var parts = conv.split(':');
+    var agentName, title;
+    if (parts[0] === 'om') {
+      agentName = 'office-manager';
+      title = 'Office Manager';
+    } else if (parts[0] === 'lead' && parts[1]) {
+      agentName = parts[1];
+      title = parts[1];
+    } else {
+      return config;
+    }
+    return Object.assign({}, config, {
+      chatConversationId: conv,
+      chatAgentName: agentName,
+      chatTitle: title,
+    });
+  }
+
   function mount(config) {
-    _config = config || {};
+    _config = _resolveChatConfig(config || {});
     _container = _config.contentEl || null;
     _bladeEl = _config.bladeEl || null;
     _breadcrumbEl = _config.breadcrumbEl || null;
@@ -1003,11 +1026,71 @@
     } catch(e) {}
   }
 
+  // ── Chat routing ──────────────────────────────────────────────────────────
+
+  async function _inferChatFromScope() {
+    // Derive the correct chat partner from the scope/project URL params.
+    // project/workgroup/agent scopes → project team lead
+    // system scope → office manager
+    var scope = _config.pinScope || '';
+    var project = _config.projectSlug || '';
+    var convId, agentName, title;
+
+    if ((scope === 'project' || scope === 'workgroup' || scope === 'agent') && project) {
+      try {
+        var projResp = await fetch('/api/config/' + encodeURIComponent(project));
+        if (projResp.ok) {
+          var projData = await projResp.json();
+          var team = (projData.team || {});
+          if (team.lead && team.decider) {
+            convId = 'lead:' + team.lead + ':' + team.decider;
+            agentName = team.lead;
+            title = team.lead;
+          }
+        }
+      } catch(e) {}
+    } else if (scope === 'system') {
+      try {
+        var mgmtResp = await fetch('/api/config');
+        if (mgmtResp.ok) {
+          var mgmtData = await mgmtResp.json();
+          var mgmt = mgmtData.management_team || {};
+          if (mgmt.decider) {
+            convId = 'om:' + mgmt.decider;
+            agentName = 'office-manager';
+            title = 'Office Manager';
+          }
+        }
+      } catch(e) {}
+    }
+
+    if (convId) {
+      _config.chatConversationId = convId;
+      _config.chatAgentName = agentName;
+      _config.chatTitle = title;
+      if (_chatInstance && _chatInstance.configure) {
+        _chatInstance.configure({
+          convId: convId,
+          title: title,
+          agentName: agentName,
+          launchRepo: _config.chatLaunchRepo || '',
+        });
+      }
+    }
+  }
+
   // ── Init ──────────────────────────────────────────────────────────────────
 
   async function _init() {
     var project = _config.projectSlug || '';
     var requestedFile = _config.requestedFile || null;
+
+    // In browse mode, infer the correct chat partner from the project config when
+    // no explicit conv was provided. Project/workgroup/agent scopes all route to
+    // the project team lead; system scope routes to the office manager.
+    if (_config.mode === 'browse' && !_config.conv) {
+      await _inferChatFromScope();
+    }
 
     // In job mode, fetch live CfA state so the workflow bar is current.
     if (_config.mode === 'job') {

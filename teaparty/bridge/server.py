@@ -2375,6 +2375,8 @@ class TeaPartyBridge:
         if not path:
             return web.json_response({'error': 'path parameter required'}, status=400)
         path = os.path.expanduser(path)
+        if os.path.isdir(path):
+            return web.json_response({'error': f'path is a directory: {path}'}, status=400)
         ext = os.path.splitext(path)[1].lower()
         binary_ct = self._BINARY_CONTENT_TYPES.get(ext)
         try:
