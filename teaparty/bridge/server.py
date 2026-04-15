@@ -29,6 +29,7 @@ from aiohttp import web
 
 from teaparty.cfa.gates.intervention_listener import make_intervention_request
 from teaparty.messaging.conversations import ConversationType, SqliteMessageBus, agent_bus_path
+from teaparty.proxy.hooks import proxy_bus_path
 from teaparty.teams.session import AgentSession, read_session_title
 from teaparty.bridge.state.reader import StateReader
 from teaparty.bridge.state.heartbeat import _heartbeat_three_state
@@ -3093,7 +3094,10 @@ class TeaPartyBridge:
         """
         bus = self._agent_buses.get(agent_name)
         if bus is None:
-            path = agent_bus_path(self.teaparty_home, agent_name)
+            if agent_name == 'proxy':
+                path = proxy_bus_path(self.teaparty_home)
+            else:
+                path = agent_bus_path(self.teaparty_home, agent_name)
             os.makedirs(os.path.dirname(path), exist_ok=True)
             bus = SqliteMessageBus(path)
             self._agent_buses[agent_name] = bus

@@ -16,6 +16,7 @@ import random
 import sys
 
 from teaparty import find_poc_root
+from teaparty.proxy.hooks import proxy_home
 from teaparty.cfa.engine import Orchestrator
 from teaparty.messaging.bus import EventBus, EventType, InputRequest
 from teaparty.workspace.merge import git_output, squash_merge
@@ -362,7 +363,7 @@ async def dispatch(
         project_workdir=worktree_path,
         session_worktree=worktree_path,
         proxy_model_path=os.path.join(
-            os.path.dirname(infra_dir) if infra_dir else dispatch_infra,
+            proxy_home(os.path.join(poc_root, '.teaparty')),
             f'.proxy-confidence-{team}.json',
         ),
         project_slug=project_slug,

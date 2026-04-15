@@ -43,8 +43,9 @@ class TestAgentDefinitionsExist(unittest.TestCase):
             'intent-lead', 'research-liaison',
             # uber team
             'project-lead', 'qa-reviewer',
-            # management team
-            'office-manager', 'project-liaison', 'config-workgroup-liaison',
+            # management team (project-liaison and config-workgroup-liaison operate at project scope;
+            # office-manager is management-only — defined in management/agents/, not project/agents/)
+            'project-liaison', 'config-workgroup-liaison',
         }
         agents_dir = self._agents_dir()
         for agent_name in sorted(expected_agents):

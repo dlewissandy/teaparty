@@ -29,6 +29,7 @@ from teaparty.messaging.conversations import (
     agent_bus_path,
     make_conversation_id,
 )
+from teaparty.proxy.hooks import proxy_bus_path
 from teaparty.teams.stream import (
     NON_CONVERSATIONAL_SENDERS,
     _extract_slug,
@@ -97,8 +98,11 @@ class AgentSession:
         self.claude_session_id: str | None = None
         self.conversation_title: str | None = None
 
-        # Message bus
-        bus_path = agent_bus_path(self.teaparty_home, agent_name)
+        # Message bus — proxy uses its own consolidated runtime directory
+        if agent_name == 'proxy':
+            bus_path = proxy_bus_path(self.teaparty_home)
+        else:
+            bus_path = agent_bus_path(self.teaparty_home, agent_name)
         os.makedirs(os.path.dirname(bus_path), exist_ok=True)
         self._bus = SqliteMessageBus(bus_path)
 

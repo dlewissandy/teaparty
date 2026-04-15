@@ -185,10 +185,12 @@ def _record_withdrawal_memory_chunk(session: SessionState, phase: str) -> None:
         )
 
         # infra_dir = {project_root}/.teaparty/jobs/job-{id}--{slug}/
-        # project_root is 3 levels up from job_dir
+        # project_root is 3 levels up from job_dir; teaparty_home is .teaparty/ inside it
         from teaparty.workspace.job_store import project_root_from_job_dir
-        project_dir = project_root_from_job_dir(session.infra_dir)
-        db_path = os.path.join(project_dir, '.proxy-memory.db')
+        from teaparty.proxy.hooks import proxy_memory_path
+        project_root = project_root_from_job_dir(session.infra_dir)
+        teaparty_home = os.path.join(project_root, '.teaparty')
+        db_path = proxy_memory_path(teaparty_home)
         if not os.path.isfile(db_path):
             return
 

@@ -22,9 +22,24 @@ _log = logging.getLogger('teaparty.proxy.hooks')
 CORRECTION_ACTIVATION_BOOST = 5
 
 
+def proxy_home(teaparty_home: str) -> str:
+    """Return the canonical proxy runtime directory.
+
+    All proxy runtime state lives here: memory DB, confidence models,
+    message bus, learnings.  The agent definition stays in
+    management/agents/proxy/agent.md (config, not runtime).
+    """
+    return os.path.join(teaparty_home, 'proxy')
+
+
 def proxy_memory_path(teaparty_home: str) -> str:
     """Return the canonical path to the proxy memory database."""
-    return os.path.join(teaparty_home, 'management', 'agents', 'proxy', '.proxy-memory.db')
+    return os.path.join(proxy_home(teaparty_home), '.proxy-memory.db')
+
+
+def proxy_bus_path(teaparty_home: str) -> str:
+    """Return the canonical path to the proxy message bus database."""
+    return os.path.join(proxy_home(teaparty_home), 'proxy-messages.db')
 
 
 def proxy_post_invoke(response_text: str, session: AgentSession) -> None:
