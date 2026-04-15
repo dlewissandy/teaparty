@@ -84,9 +84,15 @@ _AGENT_TOOLS: dict[str, set[str]] = {
     # Research
     'research-lead':        {'Read', 'Write', 'Glob', 'Grep', 'AskQuestion'},
     'web-researcher':       {'Read', 'Write', 'Glob', 'WebSearch', 'WebFetch'},
-    'literature-researcher':{'Read', 'Write', 'Glob', 'WebSearch', 'WebFetch'},
-    'patent-researcher':    {'Read', 'Write', 'Glob', 'WebSearch', 'WebFetch'},
-    'video-researcher':     {'Read', 'Write', 'Glob', 'WebSearch', 'WebFetch'},
+    'literature-researcher':{'Read', 'Write', 'Glob', 'WebSearch', 'WebFetch',
+                             'mcp__teaparty-config__arxiv_search',
+                             'mcp__teaparty-config__semantic_scholar_search',
+                             'mcp__teaparty-config__pubmed_search'},
+    'patent-researcher':    {'Read', 'Write', 'Glob', 'WebSearch', 'WebFetch',
+                             'mcp__teaparty-config__patent_search_uspto',
+                             'mcp__teaparty-config__patent_search_epo'},
+    'video-researcher':     {'Read', 'Write', 'Glob', 'WebSearch', 'WebFetch',
+                             'mcp__teaparty-config__youtube_transcript'},
     'image-analyst':        {'Read', 'Write', 'WebFetch'},
     # Writing
     'writing-lead':         {'Read', 'Write', 'Edit', 'Glob', 'Grep', 'AskQuestion'},
@@ -114,7 +120,10 @@ _AGENT_TOOLS: dict[str, set[str]] = {
     'svg-artist':           {'Write', 'Read'},
     'graphviz-artist':      {'Write', 'Read', 'Bash'},
     'tikz-artist':          {'Write', 'Read', 'Bash'},
-    'png-artist':           {'Write'},
+    'png-artist':           {'Write',
+                             'mcp__teaparty-config__image_gen_openai',
+                             'mcp__teaparty-config__image_gen_flux',
+                             'mcp__teaparty-config__image_gen_stability'},
     # Analytics
     'analytics-lead':       {'Read', 'Write', 'Glob', 'Grep', 'Bash', 'AskQuestion'},
     'data-scientist':       {'Bash', 'Read', 'Write', 'Glob'},
@@ -132,11 +141,13 @@ _AGENT_TOOLS: dict[str, set[str]] = {
     'stakeholder-interviewer': {'Read', 'Write', 'AskQuestion'},
 }
 
-# Agents that require missing external tools — their agent.md body must
+# Agents that still require missing external tools — their agent.md body must
 # reference missing-tools.md so the gap is not silently hidden.
+# png-artist, video-researcher, literature-researcher, patent-researcher now have
+# their tools implemented in the teaparty MCP server.
+# acceptance-tester still needs the playwright MCP server (external, not ours).
 _MISSING_TOOL_AGENTS = {
-    'png-artist', 'video-researcher', 'literature-researcher',
-    'patent-researcher', 'acceptance-tester',
+    'acceptance-tester',
 }
 
 # Tool allowlists for pre-existing leads — AC7 reconciliation baseline.
