@@ -272,7 +272,7 @@ def _init_git_repo(path: str) -> None:
 
 
 def _run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
+    return asyncio.run(coro)
 
 
 def _make_human_presence() -> HumanPresence:

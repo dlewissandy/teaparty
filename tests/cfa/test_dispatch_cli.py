@@ -95,6 +95,10 @@ class TestDispatchUsesMakeChildState(unittest.TestCase):
                    new=AsyncMock()), \
              patch('teaparty.cfa.dispatch.squash_merge',
                    new=AsyncMock()), \
+             patch('teaparty.cfa.dispatch.load_management_team',
+                   side_effect=FileNotFoundError), \
+             patch('teaparty.cfa.dispatch.load_project_team',
+                   side_effect=FileNotFoundError), \
              patch('teaparty.cfa.dispatch.Orchestrator') as mock_orch_cls:
 
             mock_config = MagicMock()
@@ -202,6 +206,10 @@ class TestDispatchParentStateFallback(unittest.TestCase):
                    new=AsyncMock()), \
              patch('teaparty.cfa.dispatch.squash_merge',
                    new=AsyncMock()), \
+             patch('teaparty.cfa.dispatch.load_management_team',
+                   side_effect=FileNotFoundError), \
+             patch('teaparty.cfa.dispatch.load_project_team',
+                   side_effect=FileNotFoundError), \
              patch('teaparty.cfa.dispatch.Orchestrator') as mock_orch_cls:
 
             mock_config = MagicMock()
@@ -302,7 +310,9 @@ class TestDispatchParentStateFallback(unittest.TestCase):
 
     def test_missing_infra_dir_returns_failed_status(self):
         """dispatch() returns failed status immediately when POC_SESSION_DIR is not set."""
-        with patch.dict(os.environ, {}, clear=False):
+        with patch('teaparty.cfa.dispatch.load_management_team', side_effect=FileNotFoundError), \
+             patch('teaparty.cfa.dispatch.load_project_team', side_effect=FileNotFoundError), \
+             patch.dict(os.environ, {}, clear=False):
             os.environ.pop('POC_SESSION_DIR', None)
             result = _run(dispatch('coding', 'do something'))
 
@@ -343,6 +353,10 @@ class TestDispatchReturnShape(unittest.TestCase):
                    new=AsyncMock()), \
              patch('teaparty.cfa.dispatch.squash_merge',
                    new=AsyncMock()), \
+             patch('teaparty.cfa.dispatch.load_management_team',
+                   side_effect=FileNotFoundError), \
+             patch('teaparty.cfa.dispatch.load_project_team',
+                   side_effect=FileNotFoundError), \
              patch('teaparty.cfa.dispatch.Orchestrator') as mock_orch_cls:
 
             mock_config = MagicMock()

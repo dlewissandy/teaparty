@@ -603,7 +603,7 @@
         break;
     }
 
-    crumbs.push({ label: 'Artifacts' });
+    crumbs.push({ label: displayName + ' Artifacts' });
     return crumbs;
   }
 
