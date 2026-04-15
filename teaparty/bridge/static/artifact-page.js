@@ -793,10 +793,10 @@
     _fileContent = null;
     _loadError = null;
 
-    // Update chat blade context
+    // Update chat blade context — keep the project lead conversation
     if (_chatInstance && _chatInstance.configure) {
       _chatInstance.configure({
-        convId: 'config:artifact:' + (_config.projectSlug || 'org') + ':' + path,
+        convId: _config.chatConversationId || '',
         title: _config.chatTitle || '',
       });
     }
