@@ -39,6 +39,7 @@ ArtifactPage.mount({
   customTitle: params.get('title') || null,
   requestedFile: params.get('file') || null,
   requestedDir: params.get('dir') || null,
+  conv: params.get('conv') || '',
   chatConversationId: 'config:artifact:' + project + ':' + (params.get('file') || 'browse'),
   chatAgentName: 'configuration-lead',
   chatLaunchRepo: '',
