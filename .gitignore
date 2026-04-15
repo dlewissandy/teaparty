@@ -61,6 +61,9 @@ teaparty.db-wal
 # TeaParty — proxy interaction logs (human conversation data)
 **/.proxy-interactions.jsonl
 
+# TeaParty — proxy task learnings (personal behavioral data, not config)
+**/proxy-tasks/
+
 # TeaParty — job runtime data (session state, intent streams, heartbeats)
 .teaparty/jobs/
 
