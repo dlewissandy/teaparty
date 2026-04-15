@@ -1,7 +1,0 @@
-name: configuration
-lead: configuration-lead
-members:
-  agents:
-  - skill-architect
-  - agent-designer
-  - systems-engineer

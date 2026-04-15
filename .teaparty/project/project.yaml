@@ -5,8 +5,7 @@ humans:
   decider: darrell
 workgroups:
 - ref: coding
-- name: Configuration
-  config: workgroups/configuration.yaml
+- ref: configuration
 members:
   workgroups:
   - Coding
