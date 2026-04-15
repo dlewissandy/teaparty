@@ -72,7 +72,7 @@ Both events are recorded as memory chunks. Interventions are particularly strong
 
 - [chat-experience](../chat-experience/proposal.md) -- INTERVENE and WITHDRAW are triggered from the chat UI
 - [dashboard-ui](../dashboard-ui/proposal.md) -- WITHDRAW button on job and task dashboards
-- [proxy-review](../proxy-review/proposal.md) -- intervention chunks feed the proxy's learning system
+- [proxy-review](../proxy/proposal.md) -- intervention chunks feed the proxy's learning system
 - [CfA state machine](../../conceptual-design/cfa-state-machine.md) -- the base protocol this extends
 
 ---

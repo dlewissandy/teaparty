@@ -8,7 +8,7 @@ Conversation types (see docs/proposals/chat-experience/references/conversation-i
   - office_manager: one per system, persistent
   - job: one per project+job, lives with the job
   - task: one per project+job+task, lives with the task
-  - proxy_review: one per decider, indefinite persistence
+  - proxy: one per decider, indefinite persistence
   - liaison: session-scoped, requester+target
   - project_session: one per active session (legacy, from issue #200)
   - subteam: one per dispatch (legacy, from issue #200)
@@ -44,7 +44,7 @@ def agent_bus_path(teaparty_home: str, agent_name: str) -> str:
     Every agent has a persistent bus at this path.  The bridge and orchestrator
     both use this function to locate the same database.  Agent name is the
     kebab-case directory name under management/agents/ (e.g. 'office-manager',
-    'teaparty-lead', 'proxy-review').
+    'teaparty-lead', 'proxy').
     """
     return os.path.join(
         teaparty_home, 'management', 'agents', agent_name,
@@ -59,7 +59,7 @@ class ConversationType(Enum):
     SUBTEAM = 'subteam'                  # One per dispatch, proxy participates
     JOB = 'job'                          # One per project+job, lives with the job
     TASK = 'task'                        # One per project+job+task, lives with the task
-    PROXY_REVIEW = 'proxy_review'        # One per decider, indefinite persistence
+    PROXY = 'proxy'                       # One per decider, indefinite persistence
     LIAISON = 'liaison'                  # Session-scoped, requester+target
     CONFIG_LEAD = 'config_lead'          # One per entity-scope, persistent config lead chat
     PROJECT_LEAD = 'project_lead'        # One per project lead, persistent
@@ -97,7 +97,7 @@ _PREFIXES = {
     ConversationType.SUBTEAM: 'team',
     ConversationType.JOB: 'job',
     ConversationType.TASK: 'task',
-    ConversationType.PROXY_REVIEW: 'proxy',
+    ConversationType.PROXY: 'proxy',
     ConversationType.LIAISON: 'liaison',
     ConversationType.CONFIG_LEAD: 'config',
     ConversationType.PROJECT_LEAD: 'lead',

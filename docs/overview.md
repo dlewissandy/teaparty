@@ -231,7 +231,7 @@ Jobs are project-scoped. A pybayes job lives in the pybayes repo, not in the Tea
 - [Chat Experience](proposals/chat-experience/proposal.md) -- Four human interaction patterns
 - [Job Worktrees](proposals/job-worktrees/proposal.md) -- Hierarchical, project-scoped worktree layout
 - [CfA Extensions](proposals/cfa-extensions/proposal.md) -- INTERVENE and WITHDRAW events
-- [Proxy Review](proposals/proxy-review/proposal.md) -- Direct proxy calibration channel
+- [Proxy Review](proposals/proxy/proposal.md) -- Direct proxy calibration channel
 - [Context Budget](proposals/context-budget/proposal.md) -- Stream-based context management
 - [Dashboard UI](proposals/dashboard-ui/proposal.md) -- Hierarchical dashboard with drill-down navigation
 

@@ -22,6 +22,6 @@ All proposals in this milestone are designed for single-machine, single-user ope
 | [Team Configuration](team-configuration/proposal.md) | File-based configuration tree mirroring the team hierarchy |
 | [Configuration Team](configuration-team/proposal.md) | Workgroup for creating and modifying Claude Code artifacts |
 | [Context Budget](context-budget/proposal.md) | Stream-based context extraction and compaction management |
-| [Proxy Review](proxy-review/proposal.md) | Direct channel to inspect and calibrate the proxy's model, plus liaison mode for async team communication |
+| [Proxy Review](proxy/proposal.md) | Direct channel to inspect and calibrate the proxy's model, plus liaison mode for async team communication |
 | [Agent Dispatch](agent-dispatch/proposal.md) | Single-agent invocations, bus-mediated agent-to-agent messaging, worktree skill isolation, routing rules replacing liaison agents |
 | [Job Worktrees](job-worktrees/proposal.md) | Hierarchical, project-scoped worktree layout — jobs contain tasks, each with their own git worktree |

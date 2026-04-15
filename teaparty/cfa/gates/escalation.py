@@ -229,7 +229,7 @@ class EscalationListener:
                 _telem_events.PROXY_CONSIDERED,
                 scope=self.project_slug or 'management',
                 session_id=self.session_id,
-                data={'proxy_name': 'proxy-review', 'wait_ms': 0},
+                data={'proxy_name': 'proxy', 'wait_ms': 0},
             )
         except Exception:
             pass
@@ -245,7 +245,7 @@ class EscalationListener:
                     scope=self.project_slug or 'management',
                     session_id=self.session_id,
                     data={
-                        'proxy_name': 'proxy-review',
+                        'proxy_name': 'proxy',
                         'response_len': len(prediction),
                     },
                 )
@@ -261,7 +261,7 @@ class EscalationListener:
                 scope=self.project_slug or 'management',
                 session_id=self.session_id,
                 data={
-                    'proxy_name': 'proxy-review',
+                    'proxy_name': 'proxy',
                     'reason_for_escalation': 'not_confident',
                 },
             )

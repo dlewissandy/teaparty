@@ -16,7 +16,7 @@ def agent_name_from_conv_id(conv_id: str) -> str:
     Conversation IDs have a predictable structure:
         om:{qualifier}       → office-manager
         pm:{qualifier}       → project-manager
-        proxy:{qualifier}    → proxy-review
+        proxy:{qualifier}    → proxy
         config:{qualifier}   → configuration-lead
         lead:{name}:{rest}   → {name}
     """
@@ -28,7 +28,7 @@ def agent_name_from_conv_id(conv_id: str) -> str:
     if prefix == 'pm':
         return 'project-manager'
     if prefix == 'proxy':
-        return 'proxy-review'
+        return 'proxy'
     if prefix == 'config':
         return 'configuration-lead'
     if prefix == 'lead':

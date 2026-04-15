@@ -137,7 +137,7 @@ Single line referencing agent-dispatch.md. The conversation model changed signif
 | Overview says | Current reality | Ticket |
 |---|---|---|
 | Humans DM the "organization lead" | Humans chat with OM in chat blade | #371, #392 |
-| Cannot DM workgroup leads directly | Can interact via proxy; proxy review sessions | proxy-review proposal |
+| Cannot DM workgroup leads directly | Can interact via proxy; proxy review sessions | proxy proposal |
 | Cannot assign work directly | Can launch jobs directly to project lead | #394 design |
 
 **Action:** Update to reflect chat blade interaction, proxy review, and direct job launch.
@@ -292,8 +292,8 @@ The proxy's internal architecture (ACT-R memory, two-pass prediction, confidence
 
 | Aspect | What it says | Current reality | Ticket |
 |---|---|---|---|
-| Proxy invoked at CfA gates | Proxy is a standalone agent with its own session | proxy-review proposal, #394 |
-| Proxy review = inspect + correct + reinforce | Proxy review is a conversation via chat blade | #371, proxy-review proposal |
+| Proxy invoked at CfA gates | Proxy is a standalone agent with its own session | proxy proposal, #394 |
+| Proxy review = inspect + correct + reinforce | Proxy review is a conversation via chat blade | #371, proxy proposal |
 | Proxy memory shared with OM | Confirmed unchanged | office-manager proposal |
 
 **Action:** Update the interaction model to describe proxy as a chat-blade participant, invoked via the unified launcher. The memory and prediction internals can remain as-is.

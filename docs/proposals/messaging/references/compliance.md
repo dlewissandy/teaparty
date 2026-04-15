@@ -34,7 +34,7 @@ This is not a design constraint — the architecture doesn't change. It is a dep
 
 Any feature that requires invoking `claude -p` on another user's machine — using their account credentials — is prohibited under current licensing terms. This rules out:
 
-- **Liaison mode** ([proxy-review](../../proxy-review/proposal.md)) — querying another human's proxy, which runs under their `claude -p` session on their machine
+- **Liaison mode** ([proxy-review](../../proxy/proposal.md)) — querying another human's proxy, which runs under their `claude -p` session on their machine
 - **Cross-machine message bus** — routing messages to agents running under different users' accounts
 - **Federated proxy queries** — reading another user's `.proxy-memory.db` via their agent
 

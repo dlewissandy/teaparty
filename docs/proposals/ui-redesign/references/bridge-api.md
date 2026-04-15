@@ -80,7 +80,7 @@ Config resolution follows existing precedence: org < workgroup < project. Norms 
 | GET | `/api/conversations/{id}` | `{messages, cursor}` atomic snapshot (issue #398) | `bus.receive_since_cursor(id, '')` |
 | POST | `/api/conversations/{id}` | Send human message (interjection or response) | `bus.send(id, 'human', content)` |
 
-Conversation types: `office_manager`, `project_session`, `subteam`, `job`, `task`, `proxy_review`, `liaison`.
+Conversation types: `office_manager`, `project_session`, `subteam`, `job`, `task`, `proxy`, `liaison`.
 
 `active_conversations` takes a `ConversationType` enum member, not a string. The `?type=` query parameter is a string; the bridge must convert it before calling the bus: `ConversationType[type.upper()]`. A raw string will not match any enum member and the call returns an empty list with no error — a silent failure that makes every conversation list appear empty. `receive` uses `since_timestamp` as the keyword argument name (not `since`); passing it by keyword with the wrong name raises `TypeError`.
 
@@ -91,21 +91,21 @@ The bridge maintains three distinct database connections:
 | Type | Database path | Scope |
 |------|--------------|-------|
 | `office_manager` | `{teaparty_home}/management/agents/office-manager/om-messages.db` | Persistent — survives sessions, one per installation |
-| `proxy_review` | `{teaparty_home}/management/agents/proxy-review/proxy-messages.db` | Persistent — survives sessions, one per installation |
+| `proxy` | `{teaparty_home}/management/agents/proxy/proxy-messages.db` | Persistent — survives sessions, one per installation |
 | All other types | `{infra_dir}/messages.db` | Session-scoped — one per active session |
 
-`?type=office_manager` queries the persistent OM database. `?type=proxy_review` queries the persistent proxy database. All other `?type=` values aggregate across active session databases. Querying a persistent-type against a session bus always returns an empty list.
+`?type=office_manager` queries the persistent OM database. `?type=proxy` queries the persistent proxy database. All other `?type=` values aggregate across active session databases. Querying a persistent-type against a session bus always returns an empty list.
 
 Conversation IDs encode their routing target via prefix:
 - `om:{human}` — office manager (routes to OM database)
-- `proxy:{decider}` — proxy review (routes to proxy database)
+- `proxy:{decider}` — proxy (routes to proxy database)
 - `session:{timestamp}` — project session
 - `job:{project}:{job_id}` — job conversation
 - `task:{project}:{job_id}:{task_id}` — task conversation (three-part qualifier)
 - `team:{slug}` — subteam
 - `liaison:{requester}:{target}` — liaison
 
-`GET /api/conversations/{id}` and `POST /api/conversations/{id}` use the prefix to route to the correct database without a type lookup. The canonical database paths are provided by `om_bus_path(teaparty_home)` in `orchestrator.office_manager` and `proxy_bus_path(teaparty_home)` in `orchestrator.proxy_review`.
+`GET /api/conversations/{id}` and `POST /api/conversations/{id}` use the prefix to route to the correct database without a type lookup. The canonical database paths are provided by `om_bus_path(teaparty_home)` in `orchestrator.office_manager` and `proxy_bus_path(teaparty_home)` in `orchestrator.proxy`.
 
 ### Artifacts
 

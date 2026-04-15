@@ -521,7 +521,7 @@ def list_team_members_handler(teaparty_home: str = '') -> str:
 
     # Proxy agents
     for human in team.humans:
-        proxy_name = 'proxy-review'
+        proxy_name = 'proxy'
         members.append({
             'name': proxy_name,
             'role': 'proxy',

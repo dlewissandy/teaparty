@@ -586,7 +586,7 @@ class TeaPartyBridge:
 
         # Open persistent agent buses and register them for MessageRelay polling.
         # Agent-name keys are stable and will never collide with a session_id.
-        for agent_name in ('office-manager', 'project-manager', 'proxy-review', 'configuration-lead'):
+        for agent_name in ('office-manager', 'project-manager', 'proxy', 'configuration-lead'):
             self._get_agent_bus(agent_name)
 
     async def _on_cleanup(self, app: web.Application) -> None:
@@ -1533,9 +1533,9 @@ class TeaPartyBridge:
                 result.append(d)
             return web.json_response(result)
 
-        # Route proxy_review type to the persistent proxy bus (issue #331)
-        if conv_type == ConversationType.PROXY_REVIEW:
-            bus = self._get_agent_bus('proxy-review')
+        # Route proxy type to the persistent proxy bus (issue #331)
+        if conv_type == ConversationType.PROXY:
+            bus = self._get_agent_bus('proxy')
             convs = bus.active_conversations(conv_type)
             result = []
             for c in convs:
@@ -1545,7 +1545,7 @@ class TeaPartyBridge:
                     session = self._agent_sessions.get(f'proxy:{qualifier}')
                     title = (
                         (session.conversation_title if session else None)
-                        or read_session_title(self.teaparty_home, 'proxy-review', qualifier)
+                        or read_session_title(self.teaparty_home, 'proxy', qualifier)
                     )
                     if title:
                         d['title'] = title
@@ -1622,7 +1622,7 @@ class TeaPartyBridge:
             bus.create_conversation(ConversationType.PROJECT_MANAGER, qualifier)
         elif conv_id.startswith('proxy:'):
             qualifier = conv_id[len('proxy:'):]
-            bus.create_conversation(ConversationType.PROXY_REVIEW, qualifier)
+            bus.create_conversation(ConversationType.PROXY, qualifier)
         elif conv_id.startswith('config:'):
             qualifier = conv_id[len('config:'):]
             bus.create_conversation(ConversationType.CONFIG_LEAD, qualifier)
@@ -1942,7 +1942,7 @@ class TeaPartyBridge:
         )
 
     async def _invoke_proxy(self, qualifier: str) -> None:
-        """Invoke the proxy review agent for the given conversation qualifier.
+        """Invoke the proxy agent for the given conversation qualifier.
 
         Runs as a fire-and-forget asyncio task. The proxy agent reads the
         conversation history and ACT-R memory, responds, processes any
@@ -1959,10 +1959,10 @@ class TeaPartyBridge:
         from teaparty.proxy.hooks import proxy_post_invoke, proxy_build_prompt
         await self._invoke_agent(
             session_key=f'proxy:{qualifier}',
-            agent_name='proxy-review',
+            agent_name='proxy',
             agent_role='proxy',
             qualifier=qualifier,
-            conversation_type=ConversationType.PROXY_REVIEW,
+            conversation_type=ConversationType.PROXY,
             cwd=self._repo_root,
             post_invoke_hook=proxy_post_invoke,
             build_prompt_hook=proxy_build_prompt,
@@ -3081,7 +3081,7 @@ class TeaPartyBridge:
     _CONV_PREFIX_TO_AGENT: dict[str, str] = {
         'om':        'office-manager',
         'pm:':       'project-manager',
-        'proxy:':    'proxy-review',
+        'proxy:':    'proxy',
         'config:':   'configuration-lead',
         'dispatch:': 'office-manager',
     }

@@ -73,4 +73,4 @@ The message threads are separate. Learning crosses between them because both age
 - [team-configuration](../team-configuration/proposal.md) -- the management team YAML defines the office manager's team, including D-A-I human roles
 - [dashboard-ui](../dashboard-ui/proposal.md) -- Sessions card is the entry point
 - [cfa-extensions](../cfa-extensions/proposal.md) -- INTERVENE and WITHDRAW mechanics
-- [proxy-review](../proxy-review/proposal.md) -- the proxy review session is a separate channel to the proxy, not through the office manager
+- [proxy-review](../proxy/proposal.md) -- the proxy review session is a separate channel to the proxy, not through the office manager

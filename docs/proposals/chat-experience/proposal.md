@@ -37,13 +37,13 @@ The D-A-I role model determines participation:
 
 ## Pattern 3: Proxy Review Session
 
-The human opens a chat with their own proxy to inspect and calibrate its model. See [proxy-review](../proxy-review/proposal.md).
+The human opens a chat with their own proxy to inspect and calibrate its model. See [proxy-review](../proxy/proposal.md).
 
 ---
 
 ## Pattern 4: Liaison Chat (Future)
 
-The human opens a chat with another team member's proxy. Deferred pending multi-machine and licensing considerations. See [proxy-review](../proxy-review/proposal.md).
+The human opens a chat with another team member's proxy. Deferred pending multi-machine and licensing considerations. See [proxy-review](../proxy/proposal.md).
 
 ---
 
@@ -55,6 +55,6 @@ See [references/conversation-identity.md](references/conversation-identity.md) f
 
 ## Learning from Conversations
 
-Every pattern generates learning signals. Office manager conversations produce steering chunks and context injections. Job/task escalations are the richest signal, with full dialog between proxy reasoning and human corrections. Interventions capture moments where the human saw something the agents missed. Proxy review sessions are direct calibration -- the most direct signal since they carry explicit human intent, though they lack the artifact context that gate corrections provide. The activation weighting for review corrections versus gate corrections may need to differ; see [proxy-review open questions](../proxy-review/proposal.md#open-questions).
+Every pattern generates learning signals. Office manager conversations produce steering chunks and context injections. Job/task escalations are the richest signal, with full dialog between proxy reasoning and human corrections. Interventions capture moments where the human saw something the agents missed. Proxy review sessions are direct calibration -- the most direct signal since they carry explicit human intent, though they lack the artifact context that gate corrections provide. The activation weighting for review corrections versus gate corrections may need to differ; see [proxy-review open questions](../proxy/proposal.md#open-questions).
 
 For examples of how learning crosses between conversation patterns, see [office-manager: Relationship to the Proxy](../office-manager/proposal.md#relationship-to-the-proxy).
