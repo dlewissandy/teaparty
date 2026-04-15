@@ -122,7 +122,7 @@
   // ── Mount / Unmount ────────────────────────────────────────────────────────
 
   function _resolveChatConfig(config) {
-    // If a `conv` param is supplied (e.g. 'lead:comics-lead:darrell' or 'om:darrell'),
+    // If a `conv` param is supplied (e.g. 'lead:comics-lead:darrell' or 'om'),
     // derive chatConversationId, chatAgentName, and chatTitle from it, overriding defaults.
     var conv = config.conv || '';
     if (!conv) return config;
@@ -1050,18 +1050,9 @@
         }
       } catch(e) {}
     } else if (scope === 'system') {
-      try {
-        var mgmtResp = await fetch('/api/config');
-        if (mgmtResp.ok) {
-          var mgmtData = await mgmtResp.json();
-          var mgmt = mgmtData.management_team || {};
-          if (mgmt.decider) {
-            convId = 'om:' + mgmt.decider;
-            agentName = 'office-manager';
-            title = 'Office Manager';
-          }
-        }
-      } catch(e) {}
+      convId = 'om';
+      agentName = 'office-manager';
+      title = 'Office Manager';
     }
 
     if (convId) {

@@ -21,7 +21,7 @@ from teaparty.messaging.conversations import SqliteMessageBus
 def _make_bus(tmpdir: str):
     db_path = os.path.join(tmpdir, 'messages.db')
     bus = SqliteMessageBus(db_path)
-    conv_id = 'om:test-user'
+    conv_id = 'om'
     return bus, conv_id
 
 
@@ -206,7 +206,7 @@ class TestRunnerReceivesOnStreamEvent(unittest.TestCase):
 
         tmpdir = tempfile.mkdtemp()
         bus = SqliteMessageBus(os.path.join(tmpdir, 'messages.db'))
-        conv_id = 'om:test-user'
+        conv_id = 'om'
 
         from teaparty.teams.session import AgentSession
 

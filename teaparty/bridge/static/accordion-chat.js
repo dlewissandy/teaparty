@@ -18,11 +18,10 @@
   // from the conversation ID using the same logic as AgentSession._session_key():
   //
   //   safe_id = qualifier.replace('/', '-').replace(':', '-').replace(' ', '-')
-  //   session_key = agent_name + '-' + safe_id
+  //   session_key = agent_name + '-' + safe_id   (or just agent_name when qualifier is empty)
   //
-  // For om:{qualifier}:
-  //   agent_name = 'office-manager', qualifier = qualifier
-  //   → 'office-manager-{qualifier}'
+  // For 'om' (no qualifier — singleton office manager):
+  //   → 'office-manager'
   //
   // For lead:{leadName}:{rest}:
   //   agent_name = leadName, qualifier = '{leadName}:{rest}'
@@ -30,9 +29,8 @@
   //
   function deriveSessionId(convId) {
     if (!convId) return null;
-    if (convId.startsWith('om:')) {
-      var qualifier = convId.slice(3);
-      return 'office-manager-' + qualifier;
+    if (convId === 'om') {
+      return 'office-manager';
     }
     if (convId.startsWith('job:')) {
       // job:{project}:{session_id} — session_id is the dispatch tree root

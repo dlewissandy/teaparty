@@ -5,7 +5,7 @@ message bus.  The adapter interface allows swapping storage backends
 (SQLite for POC, external adapters like Slack/Teams later).
 
 Conversation types (see docs/proposals/chat-experience/references/conversation-identity.md):
-  - office_manager: one per human, persistent across days/weeks
+  - office_manager: one per system, persistent
   - job: one per project+job, lives with the job
   - task: one per project+job+task, lives with the task
   - proxy_review: one per decider, indefinite persistence
@@ -53,7 +53,7 @@ def agent_bus_path(teaparty_home: str, agent_name: str) -> str:
 
 
 class ConversationType(Enum):
-    OFFICE_MANAGER = 'office_manager'    # One per human, persistent across days/weeks
+    OFFICE_MANAGER = 'office_manager'    # One per system, persistent
     PROJECT_MANAGER = 'project_manager'  # One per project+human, persistent
     PROJECT_SESSION = 'project_session'  # One per session, closes when session ends
     SUBTEAM = 'subteam'                  # One per dispatch, proxy participates
@@ -104,18 +104,20 @@ _PREFIXES = {
 }
 
 
-def make_conversation_id(conv_type: ConversationType, qualifier: str) -> str:
+def make_conversation_id(conv_type: ConversationType, qualifier: str = '') -> str:
     """Create a namespaced conversation ID.
 
+    When *qualifier* is empty the prefix alone is returned (no colon).
+
     Examples:
-        make_conversation_id(ConversationType.OFFICE_MANAGER, 'darrell')
-        → 'om:darrell'
+        make_conversation_id(ConversationType.OFFICE_MANAGER)
+        → 'om'
 
         make_conversation_id(ConversationType.PROJECT_SESSION, '20260327-143000')
         → 'session:20260327-143000'
     """
     prefix = _PREFIXES[conv_type]
-    return f'{prefix}:{qualifier}'
+    return f'{prefix}:{qualifier}' if qualifier else prefix
 
 
 @runtime_checkable

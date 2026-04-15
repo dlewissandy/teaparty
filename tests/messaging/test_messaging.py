@@ -35,8 +35,8 @@ class TestConversationId(unittest.TestCase):
     """make_conversation_id must produce deterministic namespaced IDs."""
 
     def test_om_format(self):
-        cid = make_conversation_id(ConversationType.OFFICE_MANAGER, 'darrell')
-        self.assertEqual(cid, 'om:darrell')
+        cid = make_conversation_id(ConversationType.OFFICE_MANAGER)
+        self.assertEqual(cid, 'om')
 
     def test_pm_format(self):
         cid = make_conversation_id(ConversationType.PROJECT_MANAGER, 'proj:alice')

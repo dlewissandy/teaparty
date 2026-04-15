@@ -155,6 +155,8 @@ class AgentSession:
     # ── Session lifecycle (via launcher) ─────────────────────────────────
 
     def _session_key(self) -> str:
+        if not self.qualifier:
+            return self.agent_name
         safe_id = self.qualifier.replace('/', '-').replace(':', '-').replace(' ', '-')
         return f'{self.agent_name}-{safe_id}'
 
@@ -1316,8 +1318,11 @@ def read_session_title(
     scope: str = 'management',
 ) -> str | None:
     """Read the conversation title from a saved session's metadata.json."""
-    safe_id = qualifier.replace('/', '-').replace(':', '-').replace(' ', '-')
-    session_key = f'{agent_name}-{safe_id}'
+    if qualifier:
+        safe_id = qualifier.replace('/', '-').replace(':', '-').replace(' ', '-')
+        session_key = f'{agent_name}-{safe_id}'
+    else:
+        session_key = agent_name
     sessions_dir = os.path.join(teaparty_home, scope, 'sessions')
     meta_path = os.path.join(sessions_dir, session_key, 'metadata.json')
     try:

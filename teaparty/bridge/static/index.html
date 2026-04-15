@@ -233,7 +233,7 @@ function showProjectModal() {
 
 // Page state: updated by fetchAll() and WebSocket events.
 // escalationConvMap: session_id → conversation_id from input_requested events.
-var pageState = { projects: [], configs: {}, omConvId: 'om:darrell', omSessionId: 'office-manager-darrell', escalationConvMap: {}, pausedProjects: {} };
+var pageState = { projects: [], configs: {}, omConvId: 'om', omSessionId: 'office-manager', escalationConvMap: {}, pausedProjects: {} };
 
 function jobUrl(slug, convId, opts) {
   opts = opts || {};

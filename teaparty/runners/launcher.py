@@ -266,11 +266,17 @@ def chat_config_dir(
     Parallel instances of the same agent use different *qualifier*
     strings (child session id for dispatches, ``AgentSession.qualifier``
     for top-level invokes) so they do not clobber each other.
+
+    When *qualifier* is empty (singleton agents like the office manager)
+    the qualifier segment is omitted:
+    ``{teaparty_home}/{scope}/agents/{agent_name}/config/``.
     """
-    safe_qualifier = qualifier.replace('/', '-').replace(':', '-').replace(' ', '-')
-    return os.path.join(
-        teaparty_home, scope, 'agents', agent_name, safe_qualifier, 'config',
-    )
+    if qualifier:
+        safe_qualifier = qualifier.replace('/', '-').replace(':', '-').replace(' ', '-')
+        return os.path.join(
+            teaparty_home, scope, 'agents', agent_name, safe_qualifier, 'config',
+        )
+    return os.path.join(teaparty_home, scope, 'agents', agent_name, 'config')
 
 
 def compose_launch_config(

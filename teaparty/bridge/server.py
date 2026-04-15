@@ -1503,15 +1503,13 @@ class TeaPartyBridge:
             result = []
             for c in convs:
                 d = self._serialize_conversation(c)
-                qualifier = c.id[len('om:'):] if c.id.startswith('om:') else ''
-                if qualifier:
-                    session = self._agent_sessions.get(f'om:{qualifier}')
-                    title = (
-                        (session.conversation_title if session else None)
-                        or read_session_title(self.teaparty_home, 'office-manager', qualifier)
-                    )
-                    if title:
-                        d['title'] = title
+                session = self._agent_sessions.get('om')
+                title = (
+                    (session.conversation_title if session else None)
+                    or read_session_title(self.teaparty_home, 'office-manager', '')
+                )
+                if title:
+                    d['title'] = title
                 result.append(d)
             return web.json_response(result)
 
@@ -1617,9 +1615,8 @@ class TeaPartyBridge:
 
         # Auto-create the conversation on first POST so it appears in active_conversations()
         # (sidebar) and the human doesn't need to reload the page.
-        if conv_id.startswith('om:'):
-            qualifier = conv_id[len('om:'):]
-            bus.create_conversation(ConversationType.OFFICE_MANAGER, qualifier)
+        if conv_id == 'om':
+            bus.create_conversation(ConversationType.OFFICE_MANAGER, '')
         elif conv_id.startswith('pm:'):
             qualifier = conv_id[len('pm:'):]
             bus.create_conversation(ConversationType.PROJECT_MANAGER, qualifier)
@@ -1717,8 +1714,8 @@ class TeaPartyBridge:
 
         # Invoke the agent asynchronously; reply will appear in the bus and
         # be broadcast by MessageRelay.
-        if conv_id.startswith('om:'):
-            asyncio.create_task(self._invoke_om(qualifier))
+        if conv_id == 'om':
+            asyncio.create_task(self._invoke_om())
         elif conv_id.startswith('pm:'):
             asyncio.create_task(self._invoke_pm(qualifier))
         elif conv_id.startswith('proxy:'):
@@ -1896,24 +1893,24 @@ class TeaPartyBridge:
                         'Failed to write error message for %s %r', agent_name, qualifier,
                     )
 
-    async def _invoke_om(self, qualifier: str) -> None:
-        """Invoke the office manager agent for the given conversation qualifier.
+    async def _invoke_om(self) -> None:
+        """Invoke the office manager agent.
 
         Runs as a fire-and-forget asyncio task. The OM agent reads the conversation
         history, responds, and writes its reply to the OM bus. MessageRelay picks
         up the reply and broadcasts it to WebSocket clients.
 
-        Concurrent invocations for the same qualifier queue via an asyncio.Lock —
-        the second message begins only after the first completes, ensuring the
-        --resume session ID from the first turn is available to the second.
+        Concurrent invocations queue via an asyncio.Lock — the second message
+        begins only after the first completes, ensuring the --resume session ID
+        from the first turn is available to the second.
 
         On runner failure, writes an error message to the bus so the human sees
         feedback rather than silence.
         """
         await self._invoke_agent(
-            session_key=f'om:{qualifier}',
+            session_key='om',
             agent_name='office-manager',
-            qualifier=qualifier,
+            qualifier='',
             conversation_type=ConversationType.OFFICE_MANAGER,
             dispatches=True,
             cwd=self._repo_root,
@@ -3082,7 +3079,7 @@ class TeaPartyBridge:
 
     # Conversation-ID prefix → agent name whose bus owns those conversations.
     _CONV_PREFIX_TO_AGENT: dict[str, str] = {
-        'om:':       'office-manager',
+        'om':        'office-manager',
         'pm:':       'project-manager',
         'proxy:':    'proxy-review',
         'config:':   'configuration-lead',

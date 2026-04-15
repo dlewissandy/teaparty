@@ -46,21 +46,21 @@ class TestBuildDispatchTree(unittest.TestCase):
     def test_single_node_tree(self):
         """OM with no dispatches returns a single-node tree."""
         sessions_dir = self._make_sessions_dir()
-        _make_session_dir(sessions_dir, 'om-darrell', 'office-manager',
+        _make_session_dir(sessions_dir, 'office-manager', 'office-manager',
                           conversation_map={})
-        tree = self._build_tree(sessions_dir, 'om-darrell')
-        self.assertEqual(tree['session_id'], 'om-darrell')
+        tree = self._build_tree(sessions_dir, 'office-manager')
+        self.assertEqual(tree['session_id'], 'office-manager')
         self.assertEqual(tree['agent_name'], 'office-manager')
         self.assertEqual(tree['children'], [])
 
     def test_one_child(self):
         """OM dispatches to PM — tree has one child."""
         sessions_dir = self._make_sessions_dir()
-        _make_session_dir(sessions_dir, 'om-darrell', 'office-manager',
+        _make_session_dir(sessions_dir, 'office-manager', 'office-manager',
                           conversation_map={'req-1': 'pm-teaparty'})
         _make_session_dir(sessions_dir, 'pm-teaparty', 'project-manager',
                           conversation_map={})
-        tree = self._build_tree(sessions_dir, 'om-darrell')
+        tree = self._build_tree(sessions_dir, 'office-manager')
         self.assertEqual(len(tree['children']), 1)
         self.assertEqual(tree['children'][0]['session_id'], 'pm-teaparty')
         self.assertEqual(tree['children'][0]['agent_name'], 'project-manager')
@@ -68,13 +68,13 @@ class TestBuildDispatchTree(unittest.TestCase):
     def test_nested_dispatch(self):
         """OM → PM → coding-lead — tree is nested two levels deep."""
         sessions_dir = self._make_sessions_dir()
-        _make_session_dir(sessions_dir, 'om-darrell', 'office-manager',
+        _make_session_dir(sessions_dir, 'office-manager', 'office-manager',
                           conversation_map={'req-1': 'pm-teaparty'})
         _make_session_dir(sessions_dir, 'pm-teaparty', 'project-manager',
                           conversation_map={'req-2': 'coding-lead-1'})
         _make_session_dir(sessions_dir, 'coding-lead-1', 'coding-lead',
                           conversation_map={})
-        tree = self._build_tree(sessions_dir, 'om-darrell')
+        tree = self._build_tree(sessions_dir, 'office-manager')
         pm = tree['children'][0]
         self.assertEqual(len(pm['children']), 1)
         self.assertEqual(pm['children'][0]['agent_name'], 'coding-lead')
@@ -82,7 +82,7 @@ class TestBuildDispatchTree(unittest.TestCase):
     def test_parallel_dispatch(self):
         """PM dispatches to two agents — both appear as siblings."""
         sessions_dir = self._make_sessions_dir()
-        _make_session_dir(sessions_dir, 'om-darrell', 'office-manager',
+        _make_session_dir(sessions_dir, 'office-manager', 'office-manager',
                           conversation_map={'req-1': 'pm-teaparty'})
         _make_session_dir(sessions_dir, 'pm-teaparty', 'project-manager',
                           conversation_map={
@@ -93,7 +93,7 @@ class TestBuildDispatchTree(unittest.TestCase):
                           conversation_map={})
         _make_session_dir(sessions_dir, 'test-eng-1', 'test-engineer',
                           conversation_map={})
-        tree = self._build_tree(sessions_dir, 'om-darrell')
+        tree = self._build_tree(sessions_dir, 'office-manager')
         pm = tree['children'][0]
         self.assertEqual(len(pm['children']), 2)
         child_agents = sorted([c['agent_name'] for c in pm['children']])
@@ -102,9 +102,9 @@ class TestBuildDispatchTree(unittest.TestCase):
     def test_missing_child_session(self):
         """If a child session_id has no metadata.json, it appears as a stub."""
         sessions_dir = self._make_sessions_dir()
-        _make_session_dir(sessions_dir, 'om-darrell', 'office-manager',
+        _make_session_dir(sessions_dir, 'office-manager', 'office-manager',
                           conversation_map={'req-1': 'missing-session'})
-        tree = self._build_tree(sessions_dir, 'om-darrell')
+        tree = self._build_tree(sessions_dir, 'office-manager')
         self.assertEqual(len(tree['children']), 1)
         child = tree['children'][0]
         self.assertEqual(child['session_id'], 'missing-session')
@@ -114,16 +114,16 @@ class TestBuildDispatchTree(unittest.TestCase):
     def test_tree_includes_status(self):
         """Each node in the tree has a status field."""
         sessions_dir = self._make_sessions_dir()
-        _make_session_dir(sessions_dir, 'om-darrell', 'office-manager',
+        _make_session_dir(sessions_dir, 'office-manager', 'office-manager',
                           conversation_map={})
-        tree = self._build_tree(sessions_dir, 'om-darrell')
+        tree = self._build_tree(sessions_dir, 'office-manager')
         self.assertIn('status', tree)
 
     def test_resolves_claude_session_uuid(self):
         """conversation_map values are Claude UUIDs, resolved via index."""
         sessions_dir = self._make_sessions_dir()
         # OM's conversation_map points to a Claude UUID, not a dir name
-        _make_session_dir(sessions_dir, 'om-darrell', 'office-manager',
+        _make_session_dir(sessions_dir, 'office-manager', 'office-manager',
                           conversation_map={'req-1': 'uuid-1234-abcd'})
         # Child session dir has a different name but its claude_session_id matches
         child_dir = os.path.join(sessions_dir, 'abc123')
@@ -137,7 +137,7 @@ class TestBuildDispatchTree(unittest.TestCase):
                 'conversation_map': {},
                 'conversation_id': '',
             }, f)
-        tree = self._build_tree(sessions_dir, 'om-darrell')
+        tree = self._build_tree(sessions_dir, 'office-manager')
         self.assertEqual(len(tree['children']), 1)
         self.assertEqual(tree['children'][0]['agent_name'], 'jainai-lead')
 

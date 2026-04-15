@@ -1009,11 +1009,11 @@ class TestBridgeHandlerFiltering(unittest.IsolatedAsyncioTestCase):
         self._persist_child('child-b', 'alpha')
         bridge = self._make_bridge()
         om = self._make_agent_session(
-            'office-manager', 'user-1', project_slug='')
+            'office-manager', '', project_slug='')
         lead = self._make_agent_session(
             'alpha-lead', 'alpha:user-1', project_slug='alpha')
         bridge._agent_sessions = {
-            'om:user-1': om,
+            'om': om,
             'pl:alpha-lead:alpha:user-1': lead,
         }
 
@@ -1039,8 +1039,8 @@ class TestBridgeHandlerFiltering(unittest.IsolatedAsyncioTestCase):
         bridge = self._make_bridge()
         # Only an OM-like session — no project lead.
         bridge._agent_sessions = {
-            'om:user-1': self._make_agent_session(
-                'office-manager', 'user-1', project_slug=''),
+            'om': self._make_agent_session(
+                'office-manager', '', project_slug=''),
         }
 
         req = make_mocked_request(

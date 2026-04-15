@@ -290,14 +290,14 @@ class TestSessionIdDerivation(unittest.TestCase):
             "the module cannot fetch the dispatch tree for project leads"
         )
 
-    def test_om_prefix_handled_in_derivation(self):
-        """Session ID derivation must handle the 'om:' prefix."""
+    def test_om_handled_in_derivation(self):
+        """Session ID derivation must handle the singleton 'om' conversation ID."""
         src = self._read_accordion_js()
-        # The derivation for om: must produce 'office-manager-{qualifier}'
-        # We check that the function handles the om: prefix specifically.
+        # The office manager has no qualifier — convId is exactly 'om'.
+        # The derivation must return 'office-manager' for this case.
         self.assertIn(
-            "'om:'", src,
-            "accordion-chat.js deriveSessionId does not handle the 'om:' prefix — "
+            "'om'", src,
+            "accordion-chat.js deriveSessionId does not handle the 'om' conversation ID — "
             "the accordion will not fetch the dispatch tree for the office manager"
         )
 
@@ -311,18 +311,18 @@ class TestSessionIdDerivation(unittest.TestCase):
         )
 
     def test_om_session_id_derivation_correct(self):
-        """Session ID for 'om:darrell' must be 'office-manager-darrell'.
+        """Session ID for 'om' must be 'office-manager'.
 
         Matches AgentSession._session_key() with agent_name='office-manager',
-        qualifier='darrell'.
+        qualifier='' (no qualifier — singleton OM).
         """
         src = self._read_accordion_js()
-        # The pattern 'office-manager-' must appear in the derivation for om: convIds.
+        # The literal 'office-manager' must appear as the return value for the 'om' case.
         self.assertIn(
-            "'office-manager-'", src,
-            "accordion-chat.js does not produce 'office-manager-{qualifier}' for om: convIds — "
+            "'office-manager'", src,
+            "accordion-chat.js does not return 'office-manager' for the 'om' conversation ID — "
             "the dispatch tree fetch will use the wrong session ID for the office manager. "
-            "Expected: deriveSessionId('om:darrell') === 'office-manager-darrell'"
+            "Expected: deriveSessionId('om') === 'office-manager'"
         )
 
     def test_lead_session_id_uses_agent_name_prefix(self):
