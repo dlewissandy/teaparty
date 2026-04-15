@@ -193,15 +193,15 @@ class TestBridgeCreateProjectE2E(unittest.IsolatedAsyncioTestCase):
             f"bridge path must leave the working tree clean; got:\n{status!r}",
         )
 
-        # 5. {name}-lead agent scaffolded in management catalog
+        # 5. {name}-lead agent scaffolded in project agents directory
         lead_dir = os.path.join(
-            self.home, 'management', 'agents', 'my-project-lead',
+            proj_path, '.teaparty', 'project', 'agents', 'my-project-lead',
         )
         for fname in ('agent.md', 'settings.yaml', 'pins.yaml'):
             self.assertTrue(
                 os.path.isfile(os.path.join(lead_dir, fname)),
-                f"bridge onboarding must scaffold {fname} in the management "
-                f"catalog (audit round-1 finding); missing from {lead_dir}",
+                f"bridge onboarding must scaffold {fname} in the project "
+                f"agents directory; missing from {lead_dir}",
             )
 
         # 6. agent.md frontmatter has the spec-mandated fields
@@ -268,9 +268,9 @@ class TestBridgeCreateProjectE2E(unittest.IsolatedAsyncioTestCase):
             "team's decider; agents can never be deciders",
         )
 
-        # Lead agent scaffolded; body names the resolved decider
+        # Lead agent scaffolded in project; body names the resolved decider
         lead_md = os.path.join(
-            self.home, 'management', 'agents', 'delta-lead', 'agent.md',
+            proj_path, '.teaparty', 'project', 'agents', 'delta-lead', 'agent.md',
         )
         self.assertTrue(os.path.isfile(lead_md))
         with open(lead_md) as f:
@@ -362,9 +362,9 @@ class TestBridgeAddProjectE2E(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(data['description'], 'Bayesian library')
         self.assertIn({'ref': 'configuration'}, data['workgroups'])
 
-        # Lead agent scaffolded
+        # Lead agent scaffolded in project
         self.assertTrue(os.path.isfile(os.path.join(
-            self.home, 'management', 'agents', 'pybayes-lead', 'agent.md',
+            proj_path, '.teaparty', 'project', 'agents', 'pybayes-lead', 'agent.md',
         )))
 
         # Initial commit added on top of the pre-existing one
@@ -412,7 +412,7 @@ class TestMcpHandlerEndToEnd(unittest.TestCase):
         self.assertIn({'ref': 'configuration'}, data['workgroups'])
 
         self.assertTrue(os.path.isfile(
-            os.path.join(home, 'management', 'agents',
+            os.path.join(proj_path, '.teaparty', 'project', 'agents',
                          'gamma-project-lead', 'agent.md'),
         ))
 

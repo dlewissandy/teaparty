@@ -1281,17 +1281,17 @@ def scaffold_project_lead(
     decider: str,
     teaparty_home: str,
 ) -> None:
-    """Create the management-catalog agent definition for a project lead.
+    """Create the project-level agent definition for a project lead.
 
     Writes ``agent.md`` + ``settings.yaml`` + ``pins.yaml`` under
-    ``{teaparty_home}/management/agents/{project_name}-lead/``. Non-destructive:
-    any file that already exists is left untouched so customized leads are
-    never clobbered.
+    ``{project_path}/.teaparty/project/agents/{project_name}-lead/``.
+    Non-destructive: any file that already exists is left untouched so
+    customized leads are never clobbered.
 
     ``project_name`` must already be normalized.
     """
     lead_name = f'{project_name}-lead'
-    agent_dir = os.path.join(teaparty_home, 'management', 'agents', lead_name)
+    agent_dir = os.path.join(project_agents_dir(project_path), lead_name)
     os.makedirs(agent_dir, exist_ok=True)
 
     agent_md = os.path.join(agent_dir, 'agent.md')

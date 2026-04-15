@@ -415,7 +415,7 @@ class TestProjectLeadAlwaysScaffolded(unittest.TestCase):
         ))
         self.assertTrue(result.get('success'), result)
         agent_md = os.path.join(
-            home, 'management', 'agents', 'omicron-lead', 'agent.md'
+            proj, '.teaparty', 'project', 'agents', 'omicron-lead', 'agent.md'
         )
         self.assertTrue(
             os.path.isfile(agent_md),
@@ -438,7 +438,7 @@ class TestProjectLeadAlwaysScaffolded(unittest.TestCase):
         ))
         self.assertTrue(result.get('success'), result)
         agent_md = os.path.join(
-            home, 'management', 'agents', 'pi-proj-lead', 'agent.md'
+            proj, '.teaparty', 'project', 'agents', 'pi-proj-lead', 'agent.md'
         )
         self.assertTrue(
             os.path.isfile(agent_md),
@@ -454,7 +454,7 @@ class TestProjectLeadAlwaysScaffolded(unittest.TestCase):
         create_project('Tau Project', proj, teaparty_home=home, decider='alice')
 
         agent_md = os.path.join(
-            home, 'management', 'agents', 'tau-project-lead', 'agent.md'
+            proj, '.teaparty', 'project', 'agents', 'tau-project-lead', 'agent.md'
         )
         import re
         with open(agent_md) as f:
@@ -491,7 +491,7 @@ class TestProjectLeadAlwaysScaffolded(unittest.TestCase):
         proj = os.path.join(tmp, 'upsilon')
         create_project('upsilon', proj, teaparty_home=home, decider='alice')
         settings_path = os.path.join(
-            home, 'management', 'agents', 'upsilon-lead', 'settings.yaml'
+            proj, '.teaparty', 'project', 'agents', 'upsilon-lead', 'settings.yaml'
         )
         with open(settings_path) as f:
             settings = yaml.safe_load(f) or {}
@@ -514,7 +514,7 @@ class TestProjectLeadAlwaysScaffolded(unittest.TestCase):
         proj = os.path.join(tmp, 'phi')
         create_project('phi', proj, teaparty_home=home, decider='alice')
         pins_path = os.path.join(
-            home, 'management', 'agents', 'phi-lead', 'pins.yaml'
+            proj, '.teaparty', 'project', 'agents', 'phi-lead', 'pins.yaml'
         )
         with open(pins_path) as f:
             pins = yaml.safe_load(f) or []
@@ -531,10 +531,14 @@ class TestProjectLeadAlwaysScaffolded(unittest.TestCase):
 
     def test_lead_scaffold_is_non_destructive(self):
         """Pre-existing lead agent files are never overwritten."""
+        from teaparty.config.config_reader import add_project
         tmp = _make_tmp(self)
         home = _make_teaparty_home(tmp)
-        # Pre-create the lead agent directory with sentinel content.
-        lead_dir = os.path.join(home, 'management', 'agents', 'chi-lead')
+        # Pre-create the project dir (with git init) and sentinel lead files.
+        proj = os.path.join(tmp, 'chi')
+        os.makedirs(proj)
+        subprocess.run(['git', 'init', proj], check=True, capture_output=True)
+        lead_dir = os.path.join(proj, '.teaparty', 'project', 'agents', 'chi-lead')
         os.makedirs(lead_dir, exist_ok=True)
         for fname, sentinel in [
             ('agent.md', '# custom agent\n'),
@@ -544,8 +548,7 @@ class TestProjectLeadAlwaysScaffolded(unittest.TestCase):
             with open(os.path.join(lead_dir, fname), 'w') as f:
                 f.write(sentinel)
 
-        proj = os.path.join(tmp, 'chi')
-        create_project('chi', proj, teaparty_home=home, decider='alice')
+        add_project('chi', proj, teaparty_home=home, decider='alice')
 
         for fname, sentinel in [
             ('agent.md', '# custom agent\n'),
@@ -576,7 +579,7 @@ class TestProjectLeadAlwaysScaffolded(unittest.TestCase):
         create_project('Psi Sys', proj, teaparty_home=home, decider='alice')
 
         agent_md = os.path.join(
-            home, 'management', 'agents', 'psi-sys-lead', 'agent.md'
+            proj, '.teaparty', 'project', 'agents', 'psi-sys-lead', 'agent.md'
         )
         self.assertTrue(
             os.path.isfile(agent_md),
