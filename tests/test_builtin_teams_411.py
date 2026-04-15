@@ -141,14 +141,9 @@ _AGENT_TOOLS: dict[str, set[str]] = {
     'stakeholder-interviewer': {'Read', 'Write', 'AskQuestion'},
 }
 
-# Agents that still require missing external tools — their agent.md body must
-# reference missing-tools.md so the gap is not silently hidden.
-# png-artist, video-researcher, literature-researcher, patent-researcher now have
-# their tools implemented in the teaparty MCP server.
-# acceptance-tester still needs the playwright MCP server (external, not ours).
-_MISSING_TOOL_AGENTS = {
-    'acceptance-tester',
-}
+# No agents currently have missing external tools — all previously-missing
+# tools are now implemented in the teaparty MCP server or removed from scope.
+_MISSING_TOOL_AGENTS: set[str] = set()
 
 # Tool allowlists for pre-existing leads — AC7 reconciliation baseline.
 # These reflect the tools after reconciliation with design docs for those teams.
