@@ -1061,13 +1061,22 @@
 
   async function _inferChatFromScope() {
     // Derive the correct chat partner from the scope/project URL params.
-    // project/workgroup/agent scopes → project team lead
-    // system scope → office manager
+    //
+    // project scope                      → project team lead
+    // workgroup scope + real project     → project team lead
+    // workgroup scope + org/no project   → office manager (management context)
+    // system scope                       → office manager
+    // agent scope                        → config lead (default, no override)
+    // non-project / non-management wg   → config lead (default, no override)
     var scope = _config.pinScope || '';
     var project = _config.projectSlug || '';
     var convId, agentName, title;
 
-    if ((scope === 'project' || scope === 'workgroup' || scope === 'agent') && project) {
+    if ((scope === 'system') || (scope === 'workgroup' && (!project || project === 'org'))) {
+      convId = 'om';
+      agentName = 'office-manager';
+      title = 'Office Manager';
+    } else if ((scope === 'project' || scope === 'workgroup') && project) {
       try {
         var projResp = await fetch('/api/config/' + encodeURIComponent(project));
         if (projResp.ok) {
@@ -1080,11 +1089,8 @@
           }
         }
       } catch(e) {}
-    } else if (scope === 'system') {
-      convId = 'om';
-      agentName = 'office-manager';
-      title = 'Office Manager';
     }
+    // agent scope and standalone workgroups leave the config-lead default in place.
 
     if (convId) {
       _config.chatConversationId = convId;

@@ -701,6 +701,83 @@ class TestAccordionRetargeting(unittest.TestCase):
         )
 
 
+class TestChatRoutingByScope(unittest.TestCase):
+    """Chat partner routing must depend on scope, not just whether a project exists.
+
+    Routing table (checked structurally — the source must contain the right patterns):
+      scope=project + real project     → project team lead (lead: conv ID)
+      scope=workgroup + real project   → project team lead
+      scope=workgroup + org/no project → office manager (management context)
+      scope=system                     → office manager
+      scope=agent                      → config lead (default; no override)
+      standalone workgroup             → config lead (default; no override)
+    """
+
+    def _src(self):
+        if not ARTIFACT_PAGE_JS.exists():
+            self.skipTest("artifact-page.js not yet created")
+        return _read(ARTIFACT_PAGE_JS)
+
+    def test_agent_scope_excluded_from_project_lead_routing(self):
+        """scope=agent must NOT be in the project-lead fetch condition.
+
+        Agents are configuration artifacts; their chat partner is the config lead,
+        not the project team lead.
+        """
+        src = self._src()
+        fn_start = src.find('async function _inferChatFromScope()')
+        self.assertGreater(fn_start, -1, "_inferChatFromScope not found")
+        # Locate the project-lead fetch branch (contains '/api/config/')
+        api_idx = src.find("'/api/config/'", fn_start)
+        self.assertGreater(api_idx, -1, "_inferChatFromScope must fetch /api/config/ for project lead")
+        # The condition guarding that fetch must not include 'agent'
+        cond_start = src.rfind('if', fn_start, api_idx)
+        cond_end = src.find('{', cond_start)
+        condition = src[cond_start:cond_end]
+        self.assertNotIn(
+            "'agent'", condition,
+            "_inferChatFromScope routes 'agent' scope to the project lead — "
+            "agents are config artifacts; their chat must go to the config lead"
+        )
+
+    def test_management_workgroup_routes_to_om(self):
+        """scope=workgroup + project=org must route to the office manager.
+
+        Management workgroups are org-level and their steward is the OM,
+        not a project lead or the config lead.
+        """
+        src = self._src()
+        fn_start = src.find('async function _inferChatFromScope()')
+        self.assertGreater(fn_start, -1, "_inferChatFromScope not found")
+        fn_end = src.find('\n  }', fn_start + 10)
+        fn_body = src[fn_start:fn_end]
+        # The function body must handle the 'org' project case
+        self.assertIn(
+            "'org'", fn_body,
+            "_inferChatFromScope does not handle project=org — "
+            "management workgroups (project=org) must route to the office manager"
+        )
+
+    def test_system_scope_routes_to_om(self):
+        """scope=system must still route to the office manager."""
+        src = self._src()
+        fn_start = src.find('async function _inferChatFromScope()')
+        self.assertGreater(fn_start, -1, "_inferChatFromScope not found")
+        fn_end = src.find('\n  }', fn_start + 10)
+        fn_body = src[fn_start:fn_end]
+        self.assertIn(
+            "'system'", fn_body,
+            "_inferChatFromScope does not handle scope=system — "
+            "system scope must route to the office manager"
+        )
+        # The OM conv ID must appear alongside the system case
+        self.assertIn(
+            "'om'", fn_body,
+            "_inferChatFromScope does not assign convId='om' — "
+            "system scope and management workgroups must route to the OM"
+        )
+
+
 class TestChatLaunchRepoForwarded(unittest.TestCase):
     """SC7: chatLaunchRepo and chatAgentName must be forwarded to AccordionChat."""
 
