@@ -150,9 +150,9 @@ class TestBridgeCreateProjectE2E(unittest.IsolatedAsyncioTestCase):
             f"{entry.get('load_error')}",
         )
         self.assertIn(
-            {'ref': 'Configuration'}, entry['workgroups'],
-            "reloaded project.yaml must expose Configuration as a "
-            "WorkgroupRef — {ref: Configuration} — not a bare string",
+            {'ref': 'configuration'}, entry['workgroups'],
+            "reloaded project.yaml must expose configuration as a "
+            "WorkgroupRef — {ref: configuration} — not a bare string",
         )
 
         # 1. project.yaml normalized name + lead + sentinel + Configuration
@@ -162,7 +162,7 @@ class TestBridgeCreateProjectE2E(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(data['name'], 'my-project')
         self.assertEqual(data['lead'], 'my-project-lead')
         self.assertEqual(data['description'], SENTINEL)
-        self.assertIn({'ref': 'Configuration'}, data['workgroups'])
+        self.assertIn({'ref': 'configuration'}, data['workgroups'])
 
         # 2. .gitignore written
         with open(os.path.join(proj_path, '.gitignore')) as f:
@@ -360,7 +360,7 @@ class TestBridgeAddProjectE2E(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(data['name'], 'pybayes')
         self.assertEqual(data['lead'], 'pybayes-lead')
         self.assertEqual(data['description'], 'Bayesian library')
-        self.assertIn({'ref': 'Configuration'}, data['workgroups'])
+        self.assertIn({'ref': 'configuration'}, data['workgroups'])
 
         # Lead agent scaffolded
         self.assertTrue(os.path.isfile(os.path.join(
@@ -409,7 +409,7 @@ class TestMcpHandlerEndToEnd(unittest.TestCase):
             data = yaml.safe_load(f)
         self.assertEqual(data['name'], 'gamma-project')
         self.assertEqual(data['lead'], 'gamma-project-lead')
-        self.assertIn({'ref': 'Configuration'}, data['workgroups'])
+        self.assertIn({'ref': 'configuration'}, data['workgroups'])
 
         self.assertTrue(os.path.isfile(
             os.path.join(home, 'management', 'agents',
