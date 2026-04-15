@@ -4,11 +4,14 @@ Verifies the management catalog is correctly populated:
   AC1 - all 8 new workgroup YAMLs exist and load without error
   AC2 - every member named in a workgroup has a corresponding agent.md
   AC3 - each agent.md tool allowlist matches the design doc exactly
-  AC4 - digest skill SKILL.md exists and has required frontmatter
+  AC4 - digest skill SKILL.md exists, has required frontmatter, and encodes the
+        full protocol from docs/detailed-design/teams/digest.md
   AC5 - every agent lists 'digest' in its skills
   AC6 - agents with missing external tools carry a missing-tools annotation
-  AC7 - existing leads reconciled; coding-lead and configuration-lead tools unchanged
-  AC8 - all 8 new teams are discoverable via discover_workgroups()
+  AC7 - existing leads reconciled; coding-lead and configuration-lead tool
+        allowlists match the known-good baseline exactly
+  AC8 - all 8 new teams are discoverable and all referenced agents and skills
+        resolve from management paths without additional configuration
 """
 import os
 import re
@@ -17,6 +20,7 @@ import unittest
 import yaml
 
 from teaparty.config.config_reader import (
+    discover_agents,
     discover_skills,
     discover_workgroups,
     load_workgroup,
@@ -131,6 +135,13 @@ _AGENT_TOOLS: dict[str, set[str]] = {
 _MISSING_TOOL_AGENTS = {
     'png-artist', 'video-researcher', 'literature-researcher',
     'patent-researcher', 'acceptance-tester',
+}
+
+# Tool allowlists for pre-existing leads — AC7 reconciliation baseline.
+# These reflect the tools after reconciliation with design docs for those teams.
+_EXISTING_AGENT_TOOLS: dict[str, set[str]] = {
+    'coding-lead': {'Send', 'Reply', 'AskQuestion', 'Read', 'ListFiles'},
+    'configuration-lead': {'Read', 'Glob', 'Grep', 'Bash', 'mcp__teaparty-config__Send'},
 }
 
 
@@ -313,6 +324,36 @@ class TestDigestSkill(unittest.TestCase):
         self.assertTrue(fm['description'],
                         'digest SKILL.md description is empty')
 
+    def test_digest_skill_body_encodes_protocol(self):
+        """digest SKILL.md body encodes every protocol element from digest.md.
+
+        A SKILL.md with placeholder body would pass test_digest_skill_has_valid_frontmatter
+        because that test only checks frontmatter. This test asserts the body
+        contains each concrete protocol requirement so a stub body fails.
+        """
+        skill_md = os.path.join(_SKILLS_DIR, 'digest', 'SKILL.md')
+        with open(skill_md) as f:
+            content = f.read()
+        # Strip frontmatter to get the body.
+        m = re.match(r'^---\n.*?\n---\n(.*)', content, re.DOTALL)
+        body = m.group(1) if m else content
+
+        # scratch/ location (docs/detailed-design/teams/digest.md: Scratch structure)
+        self.assertIn('scratch/', body,
+                      'digest SKILL.md body missing scratch/ location reference')
+        # 200-line limit (digest.md: "no file exceeding 200 lines")
+        self.assertIn('200', body,
+                      'digest SKILL.md body missing 200-line limit')
+        # in-progress status marker
+        self.assertIn('in-progress', body,
+                      'digest SKILL.md body missing in-progress status marker')
+        # done status marker
+        self.assertIn('done', body,
+                      'digest SKILL.md body missing done status marker')
+        # broad-to-specific ordering
+        self.assertIn('broad-to-specific', body,
+                      'digest SKILL.md body missing broad-to-specific ordering requirement')
+
 
 class TestDigestSkillOnAllAgents(unittest.TestCase):
     """AC5 — every new built-in team agent lists digest in its skills."""
@@ -345,3 +386,63 @@ class TestMissingToolAnnotations(unittest.TestCase):
                     f'{agent}: body must reference missing-tools.md '
                     f'but contains no such reference'
                 )
+
+
+class TestExistingLeadReconciliation(unittest.TestCase):
+    """AC7 — existing leads (coding-lead, configuration-lead) tool allowlists
+    match the reconciled baseline exactly. Any drift from the baseline fails.
+    """
+
+    def test_existing_lead_tools_match_reconciled_baseline(self):
+        """coding-lead and configuration-lead tool allowlists match the baseline.
+
+        AC7 says existing leads are reconciled against design docs and drift is
+        corrected. This test encodes the expected state after reconciliation so
+        future changes that accidentally modify these agents' tool lists are caught.
+        """
+        for agent, expected_tools in _EXISTING_AGENT_TOOLS.items():
+            with self.subTest(agent=agent):
+                actual_tools = _agent_tools(agent)
+                self.assertEqual(
+                    actual_tools, expected_tools,
+                    f'{agent}: tools are {sorted(actual_tools)}, '
+                    f'expected {sorted(expected_tools)}'
+                )
+
+
+class TestOptInMechanismResolution(unittest.TestCase):
+    """AC8 — a project can opt into any new team without additional manual
+    configuration: all referenced agents and skills resolve from management paths.
+    """
+
+    def test_all_workgroup_members_resolve_from_management_agents_dir(self):
+        """Every lead and member referenced in a new workgroup YAML resolves
+        from the management agents directory without additional setup.
+
+        This exercises the opt-in claim end-to-end: a project that adds a team
+        name to its workgroup config needs nothing more than the management catalog.
+        """
+        available_agents = set(discover_agents(_AGENTS_DIR))
+        for team, spec in _TEAM_SPEC.items():
+            all_team_agents = [spec['lead']] + spec['members']
+            for agent in all_team_agents:
+                with self.subTest(team=team, agent=agent):
+                    self.assertIn(
+                        agent, available_agents,
+                        f'{team}/{agent}: not resolvable from management agents dir '
+                        f'{_AGENTS_DIR}; would require additional manual configuration'
+                    )
+
+    def test_digest_skill_resolves_from_management_skills_dir(self):
+        """The digest skill required by every agent resolves from the management
+        skills directory without additional setup.
+
+        An agent that lists digest in its skills must be able to find it at
+        runtime from the management catalog alone.
+        """
+        available_skills = set(discover_skills(_SKILLS_DIR))
+        self.assertIn(
+            'digest', available_skills,
+            f'digest skill not resolvable from management skills dir {_SKILLS_DIR}; '
+            f'would require additional manual configuration'
+        )
