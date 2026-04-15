@@ -53,7 +53,7 @@ var minimal = params.get('minimal') === '1';
 
 // ── Determine chat type from conv ID prefix ───────────────────────────────────
 // job:{project}:{session_id}               → job chat (task sidebar)
-// om:{human}, proxy:{decider}, etc.        → participant chat (conversation history)
+// om, proxy:{decider}, etc.               → participant chat (conversation history)
 var convPrefix = convId.split(':')[0];
 var isJobChat = (convPrefix === 'job');
 

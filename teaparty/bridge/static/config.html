@@ -299,7 +299,7 @@ async function loadGlobal() {
     ],
     description: m.description || 'Cross-project coordination, human interaction, organizational strategy, and configuration management.',
     subtitle: subtitle,
-    bladeConvId: m.decider ? 'om:' + m.decider : '',
+    bladeConvId: 'om',
     bladeTitle: 'Management Chat',
     statsBarConfig: { scope: 'management', label: 'Management' },
     cards: [
@@ -307,7 +307,7 @@ async function loadGlobal() {
       { title: 'Workgroups', items: wgMgmtItems, opts: { addSeed: 'I would like to create a new workgroup for the management team.', empty: 'No workgroups' } },
       { title: 'Agents', items: agents, opts: { addSeed: 'I would like to create a new agent in the management agent catalog.' } },
       { title: 'Participants', items: participantItems(m.humans, 'global') },
-      { title: 'Artifacts', items: renderPinItems(pinsData, {scope: 'system', convId: m.decider ? 'om:' + m.decider : ''}), opts: { browseHref: artifactsBrowseUrl({scope: 'system', convId: m.decider ? 'om:' + m.decider : ''}), empty: 'No organizational artifacts' } },
+      { title: 'Artifacts', items: renderPinItems(pinsData, {scope: 'system', convId: 'om'}), opts: { browseHref: artifactsBrowseUrl({scope: 'system', convId: 'om'}), empty: 'No organizational artifacts' } },
       { title: 'Skills', items: skillItems(m.skills, 'global'), opts: { addSeed: 'I would like to add a new skill to the management catalog.' } },
       { title: 'Hooks', items: hookItems(m.hooks, 'global'), opts: { addSeed: 'I would like to create a new hook for the management team.' } },
       { title: 'Scheduled Tasks', items: cronItems(m.scheduled, 'global'), opts: { addSeed: 'I would like to create a new scheduled task for the management team.' } },
