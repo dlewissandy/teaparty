@@ -288,6 +288,8 @@ class AgentSession:
                     session_id=stable_id,
                 )
             except Exception:
+                pass
+            if self._dispatch_session is None:
                 self._dispatch_session = _create_session(
                     agent_name=self.agent_name, scope=self.scope,
                     teaparty_home=self.teaparty_home,
