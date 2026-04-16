@@ -3,16 +3,19 @@
 Spec:
 1. The jail_hook command in actors.py must reference teaparty/workspace/worktree_hook.py,
    not the deleted orchestrator/worktree_hook.py.
-2. The hook must be executable: invoking it via the command path that actors.py assembles
+2. AgentRunner.run() must raise immediately if the hook script is absent from the worktree,
+   making hook failures observable rather than silently allowing unrestricted writes.
+3. The hook must be executable: invoking it via the command path that actors.py assembles
    must produce correct JSON output for all tool categories.
-3. The hook must block absolute paths that target locations outside the worktree.
-4. The hook must allow relative paths (in-worktree by definition).
-5. The hook must deny absolute paths that point inside the worktree with a suggestion
+4. The hook must block absolute paths that target locations outside the worktree.
+5. The hook must allow relative paths (in-worktree by definition).
+6. The hook must deny absolute paths that point inside the worktree with a suggestion
    to use the relative equivalent.
-6. Hook failures (bad JSON input) must not crash the hook — fail-open with allowed:true.
+7. Hook failures (bad JSON input) must not crash the hook — fail-open with allowed:true.
 
 Dimensions covered:
 - actors.py command path: correct vs. deleted (load-bearing path reference test)
+- Auditable failure mode: hook script absent → RuntimeError, not silent launch
 - Tool category: file_path tools (Read, Edit, Write), path tools (Glob, Grep), unknown
 - Path type: relative, absolute inside worktree, absolute outside worktree, missing field
 - Invocation: Python module (_check), subprocess via the command path in actors.py
@@ -54,33 +57,31 @@ def _run_hook(tool_name: str, tool_input: dict, cwd: str) -> dict:
 class ActorsJailHookPathTest(unittest.TestCase):
     """Verify actors.py references the hook at its actual filesystem location."""
 
-    def _actors_command(self) -> str:
-        """Return the jail_hook command string from actors.py source."""
+    def _jail_hook_script(self) -> str:
+        """Return the _JAIL_HOOK_SCRIPT value from actors.py source."""
         actors_src = os.path.join(_REPO_ROOT, 'teaparty', 'cfa', 'actors.py')
         with open(actors_src) as f:
             content = f.read()
-        m = re.search(r"'command':\s*'([^']*worktree_hook\.py)'", content)
+        m = re.search(r"_JAIL_HOOK_SCRIPT\s*=\s*'([^']*worktree_hook\.py)'", content)
         self.assertIsNotNone(
             m,
-            'jail_hook command containing worktree_hook.py not found in actors.py — '
+            '_JAIL_HOOK_SCRIPT constant containing worktree_hook.py not found in actors.py — '
             'the hook setup may have been removed or restructured',
         )
-        return m.group(1)  # e.g. 'python3 teaparty/workspace/worktree_hook.py'
+        return m.group(1)  # e.g. 'teaparty/workspace/worktree_hook.py'
 
     def test_actors_jail_hook_script_path_exists_on_disk(self):
-        """The path embedded in actors.py jail_hook command must resolve to a real file.
+        """The path in actors.py _JAIL_HOOK_SCRIPT must resolve to a real file.
 
-        If this test fails with 'file does not exist at .../orchestrator/worktree_hook.py',
-        the command in actors.py still points to the deleted pre-flatten location.
+        If this test fails, actors.py references a worktree_hook.py path that does
+        not exist in the repo — the hook is inactive and agents can write anywhere.
         """
-        command = self._actors_command()
-        parts = command.split()
-        script_rel = parts[-1]  # last token is the script path
+        script_rel = self._jail_hook_script()
         full_path = os.path.join(_REPO_ROOT, script_rel)
         self.assertTrue(
             os.path.isfile(full_path),
             f'Jail hook file does not exist at {full_path}. '
-            f'actors.py references {script_rel!r} but that path does not exist. '
+            f'actors.py _JAIL_HOOK_SCRIPT={script_rel!r} but that path does not exist. '
             f'The hook is inactive — agents can write anywhere.',
         )
 
@@ -93,11 +94,11 @@ class ActorsJailHookPathTest(unittest.TestCase):
         actors_src = os.path.join(_REPO_ROOT, 'teaparty', 'cfa', 'actors.py')
         with open(actors_src) as f:
             content = f.read()
-        self.assertNotIn(
-            'orchestrator/worktree_hook.py',
-            content,
-            'actors.py still references the deleted orchestrator/worktree_hook.py path. '
-            'This makes the jail hook inactive on every agent launch.',
+        deleted_ref = 'orchestrator/worktree_hook.py'
+        self.assertFalse(
+            deleted_ref in content,
+            f'actors.py still contains {deleted_ref!r} — the deleted pre-flatten path. '
+            f'This makes the jail hook inactive on every agent launch.',
         )
 
 
@@ -258,6 +259,71 @@ class WorktreeHookSubprocessTest(unittest.TestCase):
             out.get('allowed', False),
             f'Hook must allow on malformed JSON (fail-open), got: {out}',
         )
+
+
+class JailHookValidationTest(unittest.TestCase):
+    """_check_jail_hook() must raise if the hook script is absent from the worktree.
+
+    The failure mode must be auditable: a missing hook script must produce an
+    immediate RuntimeError, not a silent launch with no filesystem restriction.
+    This function is called at the top of AgentRunner.run() before launch().
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp()
+        self.worktree = os.path.realpath(self._tmp)
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def test_check_jail_hook_raises_when_script_absent(self):
+        """_check_jail_hook must raise RuntimeError naming the missing path.
+
+        This is the auditable-failure-mode requirement: a worktree without the hook
+        script must be caught immediately with a specific message, not silently launched
+        with no filesystem restriction. If this test fails, the validation was removed.
+        """
+        from teaparty.cfa.actors import _check_jail_hook
+
+        hook_script = 'teaparty/workspace/worktree_hook.py'
+        # worktree has no hook script
+        with self.assertRaises(RuntimeError) as cm:
+            _check_jail_hook(self.worktree, hook_script)
+
+        msg = str(cm.exception)
+        self.assertIn(
+            hook_script,
+            msg,
+            f'RuntimeError must name the missing hook script path, got: {msg!r}',
+        )
+        self.assertIn(
+            'missing',
+            msg.lower(),
+            f'RuntimeError message must indicate the script is missing, got: {msg!r}',
+        )
+
+    def test_check_jail_hook_does_not_raise_when_script_present(self):
+        """_check_jail_hook must not raise when the hook script exists in the worktree.
+
+        Complement to the above: valid worktrees must pass the check cleanly.
+        """
+        from teaparty.cfa.actors import _check_jail_hook
+
+        hook_script = 'teaparty/workspace/worktree_hook.py'
+        hook_dir = os.path.join(self.worktree, 'teaparty', 'workspace')
+        os.makedirs(hook_dir)
+        import shutil
+        shutil.copy(_HOOK_PATH, os.path.join(hook_dir, 'worktree_hook.py'))
+
+        # Must not raise
+        try:
+            _check_jail_hook(self.worktree, hook_script)
+        except RuntimeError as exc:
+            self.fail(
+                f'_check_jail_hook raised RuntimeError even though hook exists: {exc}'
+            )
+                # Other RuntimeErrors are acceptable (e.g., missing agent file)
 
 
 if __name__ == '__main__':

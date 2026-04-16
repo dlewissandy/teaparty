@@ -38,6 +38,13 @@ from teaparty.proxy.agent import ProxyResult
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+def _install_jail_hook(worktree: str) -> None:
+    """Create a stub worktree_hook.py so AgentRunner validation passes in tests."""
+    hook_dir = os.path.join(worktree, 'teaparty', 'workspace')
+    os.makedirs(hook_dir, exist_ok=True)
+    open(os.path.join(hook_dir, 'worktree_hook.py'), 'w').close()
+
+
 def _make_event_bus() -> EventBus:
     bus = MagicMock(spec=EventBus)
     bus.publish = AsyncMock()
@@ -744,6 +751,7 @@ class TestStderrInActorResult(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             ctx.session_worktree = tmpdir
+            _install_jail_hook(tmpdir)
             fake_claude_result = ClaudeResult(
                 exit_code=1,
                 session_id='s1',
@@ -767,6 +775,7 @@ class TestStderrInActorResult(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             ctx.session_worktree = tmpdir
+            _install_jail_hook(tmpdir)
             fake_claude_result = ClaudeResult(
                 exit_code=-1,
                 session_id='s1',
