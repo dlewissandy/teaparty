@@ -408,16 +408,11 @@ def _rerank_by_composite(
     s: float,
 ) -> list[MemoryChunk]:
     """Re-rank chunks by composite score with given weights."""
-    from teaparty.proxy.memory import (
-        base_level_activation as _bla,
-        composite_score as _cs,
-    )
+    from teaparty.proxy.memory import composite_score as _cs
     if not chunks:
         return []
-    activations = [_bla(c.traces, current_interaction, d) for c in chunks]
-    b_min, b_max = min(activations), max(activations)
     scored = [
-        (_cs(c, context_embeddings, current_interaction, b_min, b_max,
+        (_cs(c, context_embeddings, current_interaction,
              activation_weight=activation_weight,
              semantic_weight=semantic_weight, d=d, s=s), c)
         for c in chunks
