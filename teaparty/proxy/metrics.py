@@ -435,7 +435,7 @@ def ablation_actr_vs_recency(
     """Compare ACT-R activation retrieval vs. most-recent-N on the same data.
 
     Config A (current): activation filter (B > tau) then composite scoring
-    with normalized activation as a component.
+    with tanh(B − τ) activation as a component.
     Config B (ablation): most-recent-N candidate selection, then composite
     scoring with activation_weight=0 (semantic similarity + noise only).
 

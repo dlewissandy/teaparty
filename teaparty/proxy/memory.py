@@ -2,7 +2,7 @@
 
 Stores interaction memories as chunks with independent embedding dimensions.
 Retrieval uses two stages: activation filtering (base-level activation > tau),
-then composite scoring (normalized activation + multi-dimensional cosine
+then composite scoring (tanh(B − τ) activation + multi-dimensional cosine
 similarity + logistic noise).
 
 Theory: docs/detailed-design/act-r.md

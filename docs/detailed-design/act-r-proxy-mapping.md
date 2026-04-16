@@ -145,7 +145,7 @@ Both components are on (-1, 1) with a principled zero crossing. The 0.5 / 0.5 we
 
 | Parameter | Starting Value | Role | Source |
 |-----------|---------------|------|--------|
-| Activation weight | 0.5 | Weight of normalized base-level activation in composite | Design parameter; calibrate empirically |
+| Activation weight | 0.5 | Weight of `tanh(B − τ)` activation contribution in composite | Design parameter; calibrate empirically |
 | Semantic weight | 0.5 | Weight of cosine similarity in composite | Design parameter; calibrate empirically |
 | Noise scale (s) | 0.08 | Logistic noise scale; std dev ≈ πs/√3 ≈ 0.145 | Calibrated so noise perturbs ranking without dominating signal (#235) |
 
