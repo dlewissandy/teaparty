@@ -31,6 +31,7 @@ from teaparty.proxy.presence import HumanPresence
 from teaparty.learning.extract import extract_learnings
 from teaparty.workspace.merge import (
     commit_deliverables, squash_merge, MergeConflictEscalation,
+    MergeVerificationError,
 )
 from teaparty.messaging.conversations import (
     ConversationType, MessageBusInputProvider, SqliteMessageBus,
@@ -425,29 +426,44 @@ class Session:
             await commit_deliverables(worktree_path, f'Session {self.session_id}: {self.task[:80]}')
 
             # 12. Squash-merge session into main — the work is done, get it merged.
+            merge_verification_failed = False
             if result.terminal_state == 'COMPLETED_WORK':
                 callback = self._make_conflict_callback() if effective_input else None
                 try:
-                    await squash_merge(
-                        source=worktree_path,
-                        target=repo_root,
-                        message=f'Session {self.session_id}: {self.task[:80]}',
-                        conflict_callback=callback,
-                    )
-                except MergeConflictEscalation as exc:
-                    _log.warning(
-                        'Merge conflict escalated to human: %s',
-                        ', '.join(exc.conflicted_files[:5]),
-                    )
-                    # Fall back to -X theirs after human sees the conflict
-                    await squash_merge(
-                        source=worktree_path,
-                        target=repo_root,
-                        message=f'Session {self.session_id}: {self.task[:80]}',
-                    )
+                    try:
+                        await squash_merge(
+                            source=worktree_path,
+                            target=repo_root,
+                            message=f'Session {self.session_id}: {self.task[:80]}',
+                            conflict_callback=callback,
+                        )
+                    except MergeConflictEscalation as exc:
+                        _log.warning(
+                            'Merge conflict escalated to human: %s',
+                            ', '.join(exc.conflicted_files[:5]),
+                        )
+                        # Fall back to -X theirs after human sees the conflict
+                        await squash_merge(
+                            source=worktree_path,
+                            target=repo_root,
+                            message=f'Session {self.session_id}: {self.task[:80]}',
+                        )
+                except MergeVerificationError as exc:
+                    merge_verification_failed = True
+                    _log.error('Merge verification failed for session %s: %s', self.session_id, exc)
+                    await self.event_bus.publish(Event(
+                        type=EventType.FAILURE,
+                        data={
+                            'reason': (
+                                f'Merge completed but deliverables are missing or truncated: {exc}. '
+                                'Check .teaparty/logs/merge-verification.log for details.'
+                            ),
+                        },
+                        session_id=self.session_id,
+                    ))
 
             # 13. Extract learnings (skippable for test runs)
-            if result.terminal_state == 'COMPLETED_WORK' and not self.skip_learnings:
+            if result.terminal_state == 'COMPLETED_WORK' and not merge_verification_failed and not self.skip_learnings:
                 await extract_learnings(
                     infra_dir=infra_dir,
                     project_dir=project_dir,
@@ -459,6 +475,11 @@ class Session:
             # 14. Clean up session worktree (after learnings, before publish)
             await release_worktree(worktree_path)
 
+            effective_terminal_state = (
+                'MERGE_VERIFICATION_FAILED' if merge_verification_failed
+                else result.terminal_state
+            )
+
             # Telemetry: session_complete (Issue #405)
             try:
                 from teaparty.telemetry import record_event
@@ -468,7 +489,7 @@ class Session:
                     scope=self.project_slug or 'management',
                     session_id=self.session_id,
                     data={
-                        'final_phase': result.terminal_state,
+                        'final_phase': effective_terminal_state,
                         'total_turns': 0,
                         'total_cost_usd': 0.0,
                         'response_text_len': 0,
@@ -481,7 +502,7 @@ class Session:
             await self.event_bus.publish(Event(
                 type=EventType.SESSION_COMPLETED,
                 data={
-                    'terminal_state': result.terminal_state,
+                    'terminal_state': effective_terminal_state,
                     'backtrack_count': result.backtrack_count,
                 },
                 session_id=self.session_id,
@@ -492,7 +513,7 @@ class Session:
             self.event_bus.unsubscribe(bus_writer)
 
             return SessionResult(
-                terminal_state=result.terminal_state,
+                terminal_state=effective_terminal_state,
                 project=self.project_slug,
                 session_id=self.session_id,
                 backtrack_count=result.backtrack_count,
@@ -960,30 +981,45 @@ class Session:
                     f'Session {session_id} (resumed): {task[:80]}',
                 )
 
+            merge_verification_failed = False
             if result.terminal_state == 'COMPLETED_WORK' and worktree_path:
                 repo_root = _ensure_project_repo(project_dir)
                 conflict_cb = _make_conflict_callback_static(
                     effective_input, event_bus, session_id,
                 ) if effective_input else None
                 try:
-                    await squash_merge(
-                        source=worktree_path,
-                        target=repo_root,
-                        message=f'Session {session_id} (resumed): {task[:80]}',
-                        conflict_callback=conflict_cb,
-                    )
-                except MergeConflictEscalation as exc:
-                    _log.warning(
-                        'Merge conflict escalated to human: %s',
-                        ', '.join(exc.conflicted_files[:5]),
-                    )
-                    await squash_merge(
-                        source=worktree_path,
-                        target=repo_root,
-                        message=f'Session {session_id} (resumed): {task[:80]}',
-                    )
+                    try:
+                        await squash_merge(
+                            source=worktree_path,
+                            target=repo_root,
+                            message=f'Session {session_id} (resumed): {task[:80]}',
+                            conflict_callback=conflict_cb,
+                        )
+                    except MergeConflictEscalation as exc:
+                        _log.warning(
+                            'Merge conflict escalated to human: %s',
+                            ', '.join(exc.conflicted_files[:5]),
+                        )
+                        await squash_merge(
+                            source=worktree_path,
+                            target=repo_root,
+                            message=f'Session {session_id} (resumed): {task[:80]}',
+                        )
+                except MergeVerificationError as exc:
+                    merge_verification_failed = True
+                    _log.error('Merge verification failed for session %s: %s', session_id, exc)
+                    await event_bus.publish(Event(
+                        type=EventType.FAILURE,
+                        data={
+                            'reason': (
+                                f'Merge completed but deliverables are missing or truncated: {exc}. '
+                                'Check .teaparty/logs/merge-verification.log for details.'
+                            ),
+                        },
+                        session_id=session_id,
+                    ))
 
-            if result.terminal_state == 'COMPLETED_WORK' and worktree_path:
+            if result.terminal_state == 'COMPLETED_WORK' and not merge_verification_failed and worktree_path:
                 await extract_learnings(
                     infra_dir=infra_dir,
                     project_dir=project_dir,
@@ -996,11 +1032,16 @@ class Session:
             if worktree_path:
                 await release_worktree(worktree_path)
 
+            effective_terminal_state = (
+                'MERGE_VERIFICATION_FAILED' if merge_verification_failed
+                else result.terminal_state
+            )
+
             # 15. Publish session complete + stop writer
             await event_bus.publish(Event(
                 type=EventType.SESSION_COMPLETED,
                 data={
-                    'terminal_state': result.terminal_state,
+                    'terminal_state': effective_terminal_state,
                     'backtrack_count': result.backtrack_count,
                 },
                 session_id=session_id,
@@ -1009,7 +1050,7 @@ class Session:
             event_bus.unsubscribe(resume_bus_writer)
 
             return SessionResult(
-                terminal_state=result.terminal_state,
+                terminal_state=effective_terminal_state,
                 project=project_slug,
                 session_id=session_id,
                 backtrack_count=result.backtrack_count,

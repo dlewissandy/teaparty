@@ -30,6 +30,43 @@ from typing import Callable, Awaitable
 _log = logging.getLogger('teaparty.workspace.merge')
 
 
+class MergeVerificationError(Exception):
+    """Raised when post-merge verification finds missing or truncated files.
+
+    The merge committed successfully at the git level, but the resulting
+    working tree is missing deliverables or contains files that are
+    significantly smaller than their source counterparts.  The session
+    must not complete with COMPLETED_WORK in this state — data loss has
+    been detected.
+
+    Attributes:
+        missing: list of file paths absent from target after merge.
+        truncated: list of (path, src_size, dst_size) for truncated files.
+        source: path to source worktree.
+        target: path to target worktree.
+    """
+    def __init__(
+        self,
+        missing: list[str],
+        truncated: list[tuple],
+        source: str,
+        target: str,
+    ):
+        self.missing = missing
+        self.truncated = truncated
+        self.source = source
+        self.target = target
+        parts: list[str] = []
+        if missing:
+            parts.append(f'{len(missing)} file(s) missing: {", ".join(missing[:5])}')
+        if truncated:
+            parts.append(
+                f'{len(truncated)} file(s) truncated: '
+                + ', '.join(f for f, _, _ in truncated[:5])
+            )
+        super().__init__('Merge verification failed — ' + '; '.join(parts))
+
+
 class MergeConflictEscalation(Exception):
     """Raised when merge conflicts require human review.
 
@@ -176,10 +213,13 @@ async def _verify_merge(source: str, target: str) -> None:
     """Post-merge verification: check that source files exist in target.
 
     Compares tracked source files against the target working tree.
-    Logs warnings for any files present in source but missing or
-    different-sized in target.  This catches silent data loss where
-    a merge reports success but drops or truncates files.
+    Raises MergeVerificationError when files are missing or significantly
+    truncated after the merge.  Also appends an entry to
+    {target}/.teaparty/logs/merge-verification.log so occurrences are
+    trackable across sessions.
     """
+    import datetime
+
     # Get list of tracked files in source (these are the deliverables)
     output = await _git_output(source, 'ls-files')
     if not output.strip():
@@ -204,6 +244,11 @@ async def _verify_merge(source: str, target: str) -> None:
         if src_size > 0 and dst_size < src_size * 0.5:
             truncated.append((relpath, src_size, dst_size))
 
+    if not missing and not truncated:
+        _log.info('Merge verification passed: all %d source files present in target', len(source_files))
+        return
+
+    # Verification failed — log, write audit record, raise.
     if missing:
         _log.error(
             'MERGE VERIFICATION FAILED: %d file(s) missing from target after merge: %s',
@@ -212,11 +257,26 @@ async def _verify_merge(source: str, target: str) -> None:
     if truncated:
         details = [f'{f} (src={s}B, dst={d}B)' for f, s, d in truncated[:10]]
         _log.error(
-            'MERGE VERIFICATION WARNING: %d file(s) appear truncated after merge: %s',
+            'MERGE VERIFICATION FAILED: %d file(s) appear truncated after merge: %s',
             len(truncated), ', '.join(details),
         )
-    if not missing and not truncated:
-        _log.info('Merge verification passed: all %d source files present in target', len(source_files))
+
+    # Write to audit log for cross-session tracking.
+    ts = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    log_dir = os.path.join(target, '.teaparty', 'logs')
+    try:
+        os.makedirs(log_dir, exist_ok=True)
+        audit_path = os.path.join(log_dir, 'merge-verification.log')
+        with open(audit_path, 'a') as fh:
+            fh.write(
+                f'{ts} FAIL source={source} target={target}'
+                f' missing={missing}'
+                f' truncated={[(f, s, d) for f, s, d in truncated]}\n'
+            )
+    except Exception as exc:
+        _log.warning('Could not write merge-verification audit log: %s', exc)
+
+    raise MergeVerificationError(missing, truncated, source, target)
 
 
 async def _get_conflicted_files(worktree: str) -> list[str]:
