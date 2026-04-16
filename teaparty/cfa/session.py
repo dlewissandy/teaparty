@@ -248,254 +248,257 @@ class Session:
         # 4a. Create message bus for persistent human-agent communication (Issue #200).
         bus_path = os.path.join(infra_dir, 'messages.db')
         self._message_bus = SqliteMessageBus(bus_path)
-        if self._role_enforcer:
-            self._message_bus.role_enforcer = self._role_enforcer
-        # Use JOB conversation type so the job chat URL (job:{project}:{session_id})
-        # matches the conversation in the DB (Issue #341).
-        self._conversation_id = make_conversation_id(
-            ConversationType.JOB, f'{self.project_slug}:{self.session_id}',
-        )
-        self._message_bus.create_conversation(
-            ConversationType.JOB, f'{self.project_slug}:{self.session_id}',
-        )
-        # Post the initial task as the first human message so it appears in
-        # the chat window immediately.
-        self._message_bus.send(self._conversation_id, 'human', self.task)
-        self._bus_input_provider = MessageBusInputProvider(
-            bus=self._message_bus,
-            conversation_id=self._conversation_id,
-            sender=self.config.project_lead or 'orchestrator',
-        )
-
-        # 4b. Copy pre-written artifacts into the worktree so they are
-        # visible in the file tree and accessible to the agent.
-        if self.intent_file:
-            shutil.copy2(self.intent_file, os.path.join(worktree_path, 'INTENT.md'))
-        if self.plan_file:
-            shutil.copy2(self.plan_file, os.path.join(worktree_path, 'PLAN.md'))
-
-        # Persist the full prompt so it's never lost to truncation
-        with open(os.path.join(infra_dir, 'PROMPT.txt'), 'w') as f:
-            f.write(self.task)
-
-        # 5. Start state writer (filesystem persistence)
-        state_writer = StateWriter(infra_dir, self.event_bus)
-        await state_writer.start()
-
-        # 5a. Start stream bus writer (typed senders → message bus)
-        bus_writer = _make_stream_bus_writer(
-            self._message_bus, self._conversation_id, self.session_id,
-        )
-        self.event_bus.subscribe(bus_writer)
-
-        # 6. Publish session start
-        await self.event_bus.publish(Event(
-            type=EventType.SESSION_STARTED,
-            data={
-                'task': self.task,
-                'project': self.project_slug,
-                'session_id': self.session_id,
-                'worktree': worktree_path,
-                'message_bus_path': bus_path,
-                'conversation_id': self._conversation_id,
-            },
-            session_id=self.session_id,
-        ))
-
-        # Telemetry: session_create (Issue #405)
         try:
-            from teaparty.telemetry import record_event
-            from teaparty.telemetry import events as _telem_events
-            record_event(
-                _telem_events.SESSION_CREATE,
-                scope=self.project_slug or 'management',
-                session_id=self.session_id,
-                data={
-                    'qualifier': self._conversation_id,
-                    'parent_session_id': '',
-                    'dispatch_message_len': len(self.task),
-                    'purpose': 'normal',
-                },
+            if self._role_enforcer:
+                self._message_bus.role_enforcer = self._role_enforcer
+            # Use JOB conversation type so the job chat URL (job:{project}:{session_id})
+            # matches the conversation in the DB (Issue #341).
+            self._conversation_id = make_conversation_id(
+                ConversationType.JOB, f'{self.project_slug}:{self.session_id}',
             )
-        except Exception:
-            pass
+            self._message_bus.create_conversation(
+                ConversationType.JOB, f'{self.project_slug}:{self.session_id}',
+            )
+            # Post the initial task as the first human message so it appears in
+            # the chat window immediately.
+            self._message_bus.send(self._conversation_id, 'human', self.task)
+            self._bus_input_provider = MessageBusInputProvider(
+                bus=self._message_bus,
+                conversation_id=self._conversation_id,
+                sender=self.config.project_lead or 'orchestrator',
+            )
 
-        # 7. Initialize CfA state at the correct starting point
-        from teaparty.cfa.statemachine.cfa_state import transition, set_state_direct
-        cfa = make_initial_state(task_id=self.session_id)
+            # 4b. Copy pre-written artifacts into the worktree so they are
+            # visible in the file tree and accessible to the agent.
+            if self.intent_file:
+                shutil.copy2(self.intent_file, os.path.join(worktree_path, 'INTENT.md'))
+            if self.plan_file:
+                shutil.copy2(self.plan_file, os.path.join(worktree_path, 'PLAN.md'))
 
-        if self.execute_only or self.plan_file:
-            # Skip intent + planning: jump directly to TASK (execution start)
-            cfa = set_state_direct(cfa, 'TASK')
-        elif self.intent_file or self.skip_intent:
-            # Skip intent: set state to INTENT (planning entry point)
-            # _auto_bridge() in Orchestrator will apply INTENT → DRAFT
-            cfa = set_state_direct(cfa, 'INTENT')
-        else:
-            # Normal path: IDEA → PROPOSAL (agent's first turn)
-            cfa = transition(cfa, 'propose')
+            # Persist the full prompt so it's never lost to truncation
+            with open(os.path.join(infra_dir, 'PROMPT.txt'), 'w') as f:
+                f.write(self.task)
 
-        save_state(cfa, os.path.join(infra_dir, '.cfa-state.json'))
+            # 5. Start state writer (filesystem persistence)
+            state_writer = StateWriter(infra_dir, self.event_bus)
+            await state_writer.start()
 
-        # 8. Retrieve memory context
-        memory_context = self._retrieve_memory(project_dir)
+            # 5a. Start stream bus writer (typed senders → message bus)
+            bus_writer = _make_stream_bus_writer(
+                self._message_bus, self._conversation_id, self.session_id,
+            )
+            self.event_bus.subscribe(bus_writer)
 
-        # 8b. Show memory context if requested
-        if self.show_memory or self.dry_run:
-            self._print_memory_context(memory_context)
-
-        # 8c. Show proxy confidence model if requested
-        if self.show_proxy or self.dry_run:
-            self._print_proxy_model(project_dir)
-
-        if self.dry_run:
+            # 6. Publish session start
             await self.event_bus.publish(Event(
-                type=EventType.SESSION_COMPLETED,
-                data={'terminal_state': 'DRY_RUN', 'backtrack_count': 0},
+                type=EventType.SESSION_STARTED,
+                data={
+                    'task': self.task,
+                    'project': self.project_slug,
+                    'session_id': self.session_id,
+                    'worktree': worktree_path,
+                    'message_bus_path': bus_path,
+                    'conversation_id': self._conversation_id,
+                },
                 session_id=self.session_id,
             ))
+
+            # Telemetry: session_create (Issue #405)
+            try:
+                from teaparty.telemetry import record_event
+                from teaparty.telemetry import events as _telem_events
+                record_event(
+                    _telem_events.SESSION_CREATE,
+                    scope=self.project_slug or 'management',
+                    session_id=self.session_id,
+                    data={
+                        'qualifier': self._conversation_id,
+                        'parent_session_id': '',
+                        'dispatch_message_len': len(self.task),
+                        'purpose': 'normal',
+                    },
+                )
+            except Exception:
+                pass
+
+            # 7. Initialize CfA state at the correct starting point
+            from teaparty.cfa.statemachine.cfa_state import transition, set_state_direct
+            cfa = make_initial_state(task_id=self.session_id)
+
+            if self.execute_only or self.plan_file:
+                # Skip intent + planning: jump directly to TASK (execution start)
+                cfa = set_state_direct(cfa, 'TASK')
+            elif self.intent_file or self.skip_intent:
+                # Skip intent: set state to INTENT (planning entry point)
+                # _auto_bridge() in Orchestrator will apply INTENT → DRAFT
+                cfa = set_state_direct(cfa, 'INTENT')
+            else:
+                # Normal path: IDEA → PROPOSAL (agent's first turn)
+                cfa = transition(cfa, 'propose')
+
+            save_state(cfa, os.path.join(infra_dir, '.cfa-state.json'))
+
+            # 8. Retrieve memory context
+            memory_context = self._retrieve_memory(project_dir)
+
+            # 8b. Show memory context if requested
+            if self.show_memory or self.dry_run:
+                self._print_memory_context(memory_context)
+
+            # 8c. Show proxy confidence model if requested
+            if self.show_proxy or self.dry_run:
+                self._print_proxy_model(project_dir)
+
+            if self.dry_run:
+                await self.event_bus.publish(Event(
+                    type=EventType.SESSION_COMPLETED,
+                    data={'terminal_state': 'DRY_RUN', 'backtrack_count': 0},
+                    session_id=self.session_id,
+                ))
+                await state_writer.stop()
+                self.event_bus.unsubscribe(bus_writer)
+                return SessionResult(
+                    terminal_state='DRY_RUN',
+                    project=self.project_slug,
+                    session_id=self.session_id,
+                )
+
+            # 9. Build task prompt with context
+            task_prompt = self.task
+            if memory_context:
+                task_prompt = f"{self.task}\n\n{memory_context}"
+
+            # 9b. Inject norms from configuration tree (Issue #257)
+            norms_text = self._resolve_norms(project_dir)
+            if norms_text:
+                task_prompt = f"{task_prompt}\n\n{norms_text}"
+
+            # 10. Run orchestrator — use message bus input provider for persistent
+            # communication (Issue #200).  Falls back to the original input_provider
+            # if the bus provider is unavailable (e.g., no-human mode).
+            proxy_model_path = os.path.join(proxy_home(os.path.join(self.poc_root, '.teaparty')), '.proxy-confidence.json')
+            # An explicitly-set input_provider (e.g. in tests) takes precedence over
+            # the message-bus provider.  In production the input_provider is None and
+            # the bus provider handles all gate interactions.
+            effective_input = self.input_provider or self._bus_input_provider
+
+            # Create intervention queue for human INTERVENE delivery (Issue #246).
+            self._intervention_queue = InterventionQueue(
+                message_bus=self._message_bus,
+                conversation_id=self._conversation_id,
+            )
+            if self._role_enforcer:
+                self._intervention_queue.role_enforcer = self._role_enforcer
+
+            orchestrator = Orchestrator(
+                cfa_state=cfa,
+                phase_config=self.config,
+                event_bus=self.event_bus,
+                input_provider=effective_input,
+                infra_dir=infra_dir,
+                project_workdir=project_dir,
+                session_worktree=worktree_path,
+                proxy_model_path=proxy_model_path,
+                project_slug=self.project_slug,
+                poc_root=self.poc_root,
+                task=task_prompt,
+                session_id=self.session_id,
+                skip_intent=self.skip_intent,
+                intent_only=self.intent_only,
+                plan_only=self.plan_only,
+                execute_only=self.execute_only,
+                flat=self.flat,
+                suppress_backtracks=self.suppress_backtracks,
+                proxy_enabled=self.proxy_enabled,
+                project_dir=project_dir,
+                role_enforcer=self._role_enforcer,
+                human_presence=self.human_presence,
+                cost_tracker=self._resolve_cost_tracker(project_dir),
+                intervention_queue=self._intervention_queue,
+                llm_backend=os.environ.get('TEAPARTY_LLM_BACKEND', 'claude'),
+                llm_caller=self._llm_caller,
+            )
+
+            result = await orchestrator.run()
+
+            # 11. Commit deliverables
+            await commit_deliverables(worktree_path, f'Session {self.session_id}: {self.task[:80]}')
+
+            # 12. Squash-merge session into main — the work is done, get it merged.
+            if result.terminal_state == 'COMPLETED_WORK':
+                callback = self._make_conflict_callback() if effective_input else None
+                try:
+                    await squash_merge(
+                        source=worktree_path,
+                        target=repo_root,
+                        message=f'Session {self.session_id}: {self.task[:80]}',
+                        conflict_callback=callback,
+                    )
+                except MergeConflictEscalation as exc:
+                    _log.warning(
+                        'Merge conflict escalated to human: %s',
+                        ', '.join(exc.conflicted_files[:5]),
+                    )
+                    # Fall back to -X theirs after human sees the conflict
+                    await squash_merge(
+                        source=worktree_path,
+                        target=repo_root,
+                        message=f'Session {self.session_id}: {self.task[:80]}',
+                    )
+
+            # 13. Extract learnings (skippable for test runs)
+            if result.terminal_state == 'COMPLETED_WORK' and not self.skip_learnings:
+                await extract_learnings(
+                    infra_dir=infra_dir,
+                    project_dir=project_dir,
+                    session_worktree=worktree_path,
+                    task=self.task,
+                    poc_root=self.poc_root,
+                )
+
+            # 14. Clean up session worktree (after learnings, before publish)
+            await release_worktree(worktree_path)
+
+            # Telemetry: session_complete (Issue #405)
+            try:
+                from teaparty.telemetry import record_event
+                from teaparty.telemetry import events as _telem_events
+                record_event(
+                    _telem_events.SESSION_COMPLETE,
+                    scope=self.project_slug or 'management',
+                    session_id=self.session_id,
+                    data={
+                        'final_phase': result.terminal_state,
+                        'total_turns': 0,
+                        'total_cost_usd': 0.0,
+                        'response_text_len': 0,
+                    },
+                )
+            except Exception:
+                pass
+
+            # 15. Publish session complete
+            await self.event_bus.publish(Event(
+                type=EventType.SESSION_COMPLETED,
+                data={
+                    'terminal_state': result.terminal_state,
+                    'backtrack_count': result.backtrack_count,
+                },
+                session_id=self.session_id,
+            ))
+
+            # 16. Stop state writer and bus writer
             await state_writer.stop()
             self.event_bus.unsubscribe(bus_writer)
+
             return SessionResult(
-                terminal_state='DRY_RUN',
+                terminal_state=result.terminal_state,
                 project=self.project_slug,
                 session_id=self.session_id,
+                backtrack_count=result.backtrack_count,
             )
-
-        # 9. Build task prompt with context
-        task_prompt = self.task
-        if memory_context:
-            task_prompt = f"{self.task}\n\n{memory_context}"
-
-        # 9b. Inject norms from configuration tree (Issue #257)
-        norms_text = self._resolve_norms(project_dir)
-        if norms_text:
-            task_prompt = f"{task_prompt}\n\n{norms_text}"
-
-        # 10. Run orchestrator — use message bus input provider for persistent
-        # communication (Issue #200).  Falls back to the original input_provider
-        # if the bus provider is unavailable (e.g., no-human mode).
-        proxy_model_path = os.path.join(proxy_home(os.path.join(self.poc_root, '.teaparty')), '.proxy-confidence.json')
-        # An explicitly-set input_provider (e.g. in tests) takes precedence over
-        # the message-bus provider.  In production the input_provider is None and
-        # the bus provider handles all gate interactions.
-        effective_input = self.input_provider or self._bus_input_provider
-
-        # Create intervention queue for human INTERVENE delivery (Issue #246).
-        self._intervention_queue = InterventionQueue(
-            message_bus=self._message_bus,
-            conversation_id=self._conversation_id,
-        )
-        if self._role_enforcer:
-            self._intervention_queue.role_enforcer = self._role_enforcer
-
-        orchestrator = Orchestrator(
-            cfa_state=cfa,
-            phase_config=self.config,
-            event_bus=self.event_bus,
-            input_provider=effective_input,
-            infra_dir=infra_dir,
-            project_workdir=project_dir,
-            session_worktree=worktree_path,
-            proxy_model_path=proxy_model_path,
-            project_slug=self.project_slug,
-            poc_root=self.poc_root,
-            task=task_prompt,
-            session_id=self.session_id,
-            skip_intent=self.skip_intent,
-            intent_only=self.intent_only,
-            plan_only=self.plan_only,
-            execute_only=self.execute_only,
-            flat=self.flat,
-            suppress_backtracks=self.suppress_backtracks,
-            proxy_enabled=self.proxy_enabled,
-            project_dir=project_dir,
-            role_enforcer=self._role_enforcer,
-            human_presence=self.human_presence,
-            cost_tracker=self._resolve_cost_tracker(project_dir),
-            intervention_queue=self._intervention_queue,
-            llm_backend=os.environ.get('TEAPARTY_LLM_BACKEND', 'claude'),
-            llm_caller=self._llm_caller,
-        )
-
-        result = await orchestrator.run()
-
-        # 11. Commit deliverables
-        await commit_deliverables(worktree_path, f'Session {self.session_id}: {self.task[:80]}')
-
-        # 12. Squash-merge session into main — the work is done, get it merged.
-        if result.terminal_state == 'COMPLETED_WORK':
-            callback = self._make_conflict_callback() if effective_input else None
-            try:
-                await squash_merge(
-                    source=worktree_path,
-                    target=repo_root,
-                    message=f'Session {self.session_id}: {self.task[:80]}',
-                    conflict_callback=callback,
-                )
-            except MergeConflictEscalation as exc:
-                _log.warning(
-                    'Merge conflict escalated to human: %s',
-                    ', '.join(exc.conflicted_files[:5]),
-                )
-                # Fall back to -X theirs after human sees the conflict
-                await squash_merge(
-                    source=worktree_path,
-                    target=repo_root,
-                    message=f'Session {self.session_id}: {self.task[:80]}',
-                )
-
-        # 13. Extract learnings (skippable for test runs)
-        if result.terminal_state == 'COMPLETED_WORK' and not self.skip_learnings:
-            await extract_learnings(
-                infra_dir=infra_dir,
-                project_dir=project_dir,
-                session_worktree=worktree_path,
-                task=self.task,
-                poc_root=self.poc_root,
-            )
-
-        # 14. Clean up session worktree (after learnings, before publish)
-        await release_worktree(worktree_path)
-
-        # Telemetry: session_complete (Issue #405)
-        try:
-            from teaparty.telemetry import record_event
-            from teaparty.telemetry import events as _telem_events
-            record_event(
-                _telem_events.SESSION_COMPLETE,
-                scope=self.project_slug or 'management',
-                session_id=self.session_id,
-                data={
-                    'final_phase': result.terminal_state,
-                    'total_turns': 0,
-                    'total_cost_usd': 0.0,
-                    'response_text_len': 0,
-                },
-            )
-        except Exception:
-            pass
-
-        # 15. Publish session complete
-        await self.event_bus.publish(Event(
-            type=EventType.SESSION_COMPLETED,
-            data={
-                'terminal_state': result.terminal_state,
-                'backtrack_count': result.backtrack_count,
-            },
-            session_id=self.session_id,
-        ))
-
-        # 16. Stop state writer and bus writer
-        await state_writer.stop()
-        self.event_bus.unsubscribe(bus_writer)
-
-        return SessionResult(
-            terminal_state=result.terminal_state,
-            project=self.project_slug,
-            session_id=self.session_id,
-            backtrack_count=result.backtrack_count,
-        )
+        finally:
+            self._message_bus.close()
 
     def _make_conflict_callback(self):
         """Build a merge conflict callback that asks the human via message bus."""
@@ -823,193 +826,196 @@ class Session:
         role_enforcer = RoleEnforcer.from_humans(humans) if humans else None
         bus_path = os.path.join(infra_dir, 'messages.db')
         message_bus = SqliteMessageBus(bus_path)
-        if role_enforcer:
-            message_bus.role_enforcer = role_enforcer
-        # Use JOB conversation type to match the job chat URL (Issue #341).
-        conversation_id = make_conversation_id(
-            ConversationType.JOB, f'{project_slug}:{session_id}',
-        )
-        message_bus.create_conversation(ConversationType.JOB, f'{project_slug}:{session_id}')
-        # Resolve project lead for gate-prompt attribution (Issue #408).
-        _resume_sender = _resolve_project_lead_sender(project_dir)
-        bus_input_provider = MessageBusInputProvider(
-            bus=message_bus,
-            conversation_id=conversation_id,
-            sender=_resume_sender,
-        )
-
-        # 6. Start state writer + publish SESSION_STARTED with resumed flag
-        # Note: don't delete .running first — _write_running() overwrites it
-        # atomically, avoiding a race where StateReader sees no .running file
-        # and flags the session as orphaned.
-        event_bus = event_bus or EventBus()
-        state_writer = StateWriter(infra_dir, event_bus)
-        await state_writer.start()
-
-        resume_bus_writer = _make_stream_bus_writer(message_bus, conversation_id, session_id)
-        event_bus.subscribe(resume_bus_writer)
-
-        await event_bus.publish(Event(
-            type=EventType.SESSION_STARTED,
-            data={
-                'task': task,
-                'project': project_slug,
-                'session_id': session_id,
-                'worktree': worktree_path,
-                'resumed': True,
-                'message_bus_path': bus_path,
-                'conversation_id': conversation_id,
-            },
-            session_id=session_id,
-        ))
-
-        # 8. Extract phase session IDs from stream JSONLs
-        phase_session_ids = _extract_phase_session_ids(infra_dir)
-
-        # 8b. Clean up stale dispatch .running sentinels.
-        # All dispatches from the previous process are dead — their PIDs
-        # are gone and Claude's in-memory task handles are lost.  Remove
-        # the .running files so the bridge doesn't show them as active.
-        _cleanup_stale_dispatch_sentinels(infra_dir)
-
-        # 9. Derive skip_intent — True if we're past the intent phase
-        current_phase = phase_for_state(cfa.state)
-        skip_intent = current_phase != 'intent'
-
-        # 10. Reconstruct _last_actor_data
-        config = PhaseConfig(poc_root, project_dir=project_dir)
-        last_actor_data = _reconstruct_last_actor_data(
-            cfa, config, worktree_path, infra_dir,
-        )
-
-        # 11. Retrieve memory
-        memory_context = cls._retrieve_memory_static(task, poc_root, project_dir, infra_dir)
-
-        # 12. Build task prompt
-        task_prompt = task
-        if memory_context:
-            task_prompt = f'{task}\n\n{memory_context}'
-
-        # 12b. Inject norms from configuration tree (Issue #257)
-        norms_text = cls._resolve_norms_static(project_dir)
-        if norms_text:
-            task_prompt = f'{task_prompt}\n\n{norms_text}'
-
-        # 13. Construct and run orchestrator — use message bus input provider
-        # for persistent communication (Issue #200).
-        effective_input = bus_input_provider or input_provider
-        proxy_model_path = os.path.join(proxy_home(os.path.join(poc_root, '.teaparty')), '.proxy-confidence.json')
-
-        # Create intervention queue for human INTERVENE delivery (Issue #246).
-        intervention_queue = InterventionQueue(
-            message_bus=message_bus,
-            conversation_id=conversation_id,
-        )
-        if role_enforcer:
-            intervention_queue.role_enforcer = role_enforcer
-
-        # Seed intervention queue with any human messages that arrived while
-        # the session was dead.  These are trailing human messages in the bus
-        # that no agent has responded to — the "kick" that triggered resume.
         try:
-            all_msgs = message_bus.receive(conversation_id)
-            # Find trailing human messages (after the last non-human message).
-            last_agent_idx = -1
-            for i, m in enumerate(all_msgs):
-                if m.sender != 'human':
-                    last_agent_idx = i
-            for m in all_msgs[last_agent_idx + 1:]:
-                if m.sender == 'human':
-                    intervention_queue.enqueue(m.content, sender=m.sender)
-        except Exception:
-            pass
-
-        orchestrator = Orchestrator(
-            cfa_state=cfa,
-            phase_config=config,
-            event_bus=event_bus,
-            input_provider=effective_input,
-            infra_dir=infra_dir,
-            project_workdir=project_dir,
-            session_worktree=worktree_path,
-            proxy_model_path=proxy_model_path,
-            project_slug=project_slug,
-            poc_root=poc_root,
-            task=task_prompt,
-            session_id=session_id,
-            skip_intent=skip_intent,
-            phase_session_ids=phase_session_ids,
-            last_actor_data=last_actor_data,
-            project_dir=project_dir,
-            role_enforcer=role_enforcer,
-            human_presence=human_presence,
-            cost_tracker=_resolve_cost_tracker_impl(project_dir),
-            intervention_queue=intervention_queue,
-        )
-
-        result = await orchestrator.run()
-
-        # 14. Post-run: commit, merge, learnings
-        if worktree_path:
-            await commit_deliverables(
-                worktree_path,
-                f'Session {session_id} (resumed): {task[:80]}',
+            if role_enforcer:
+                message_bus.role_enforcer = role_enforcer
+            # Use JOB conversation type to match the job chat URL (Issue #341).
+            conversation_id = make_conversation_id(
+                ConversationType.JOB, f'{project_slug}:{session_id}',
+            )
+            message_bus.create_conversation(ConversationType.JOB, f'{project_slug}:{session_id}')
+            # Resolve project lead for gate-prompt attribution (Issue #408).
+            _resume_sender = _resolve_project_lead_sender(project_dir)
+            bus_input_provider = MessageBusInputProvider(
+                bus=message_bus,
+                conversation_id=conversation_id,
+                sender=_resume_sender,
             )
 
-        if result.terminal_state == 'COMPLETED_WORK' and worktree_path:
-            repo_root = _ensure_project_repo(project_dir)
-            conflict_cb = _make_conflict_callback_static(
-                effective_input, event_bus, session_id,
-            ) if effective_input else None
+            # 6. Start state writer + publish SESSION_STARTED with resumed flag
+            # Note: don't delete .running first — _write_running() overwrites it
+            # atomically, avoiding a race where StateReader sees no .running file
+            # and flags the session as orphaned.
+            event_bus = event_bus or EventBus()
+            state_writer = StateWriter(infra_dir, event_bus)
+            await state_writer.start()
+
+            resume_bus_writer = _make_stream_bus_writer(message_bus, conversation_id, session_id)
+            event_bus.subscribe(resume_bus_writer)
+
+            await event_bus.publish(Event(
+                type=EventType.SESSION_STARTED,
+                data={
+                    'task': task,
+                    'project': project_slug,
+                    'session_id': session_id,
+                    'worktree': worktree_path,
+                    'resumed': True,
+                    'message_bus_path': bus_path,
+                    'conversation_id': conversation_id,
+                },
+                session_id=session_id,
+            ))
+
+            # 8. Extract phase session IDs from stream JSONLs
+            phase_session_ids = _extract_phase_session_ids(infra_dir)
+
+            # 8b. Clean up stale dispatch .running sentinels.
+            # All dispatches from the previous process are dead — their PIDs
+            # are gone and Claude's in-memory task handles are lost.  Remove
+            # the .running files so the bridge doesn't show them as active.
+            _cleanup_stale_dispatch_sentinels(infra_dir)
+
+            # 9. Derive skip_intent — True if we're past the intent phase
+            current_phase = phase_for_state(cfa.state)
+            skip_intent = current_phase != 'intent'
+
+            # 10. Reconstruct _last_actor_data
+            config = PhaseConfig(poc_root, project_dir=project_dir)
+            last_actor_data = _reconstruct_last_actor_data(
+                cfa, config, worktree_path, infra_dir,
+            )
+
+            # 11. Retrieve memory
+            memory_context = cls._retrieve_memory_static(task, poc_root, project_dir, infra_dir)
+
+            # 12. Build task prompt
+            task_prompt = task
+            if memory_context:
+                task_prompt = f'{task}\n\n{memory_context}'
+
+            # 12b. Inject norms from configuration tree (Issue #257)
+            norms_text = cls._resolve_norms_static(project_dir)
+            if norms_text:
+                task_prompt = f'{task_prompt}\n\n{norms_text}'
+
+            # 13. Construct and run orchestrator — use message bus input provider
+            # for persistent communication (Issue #200).
+            effective_input = bus_input_provider or input_provider
+            proxy_model_path = os.path.join(proxy_home(os.path.join(poc_root, '.teaparty')), '.proxy-confidence.json')
+
+            # Create intervention queue for human INTERVENE delivery (Issue #246).
+            intervention_queue = InterventionQueue(
+                message_bus=message_bus,
+                conversation_id=conversation_id,
+            )
+            if role_enforcer:
+                intervention_queue.role_enforcer = role_enforcer
+
+            # Seed intervention queue with any human messages that arrived while
+            # the session was dead.  These are trailing human messages in the bus
+            # that no agent has responded to — the "kick" that triggered resume.
             try:
-                await squash_merge(
-                    source=worktree_path,
-                    target=repo_root,
-                    message=f'Session {session_id} (resumed): {task[:80]}',
-                    conflict_callback=conflict_cb,
-                )
-            except MergeConflictEscalation as exc:
-                _log.warning(
-                    'Merge conflict escalated to human: %s',
-                    ', '.join(exc.conflicted_files[:5]),
-                )
-                await squash_merge(
-                    source=worktree_path,
-                    target=repo_root,
-                    message=f'Session {session_id} (resumed): {task[:80]}',
-                )
+                all_msgs = message_bus.receive(conversation_id)
+                # Find trailing human messages (after the last non-human message).
+                last_agent_idx = -1
+                for i, m in enumerate(all_msgs):
+                    if m.sender != 'human':
+                        last_agent_idx = i
+                for m in all_msgs[last_agent_idx + 1:]:
+                    if m.sender == 'human':
+                        intervention_queue.enqueue(m.content, sender=m.sender)
+            except Exception:
+                pass
 
-        if result.terminal_state == 'COMPLETED_WORK' and worktree_path:
-            await extract_learnings(
+            orchestrator = Orchestrator(
+                cfa_state=cfa,
+                phase_config=config,
+                event_bus=event_bus,
+                input_provider=effective_input,
                 infra_dir=infra_dir,
-                project_dir=project_dir,
+                project_workdir=project_dir,
                 session_worktree=worktree_path,
-                task=task,
+                proxy_model_path=proxy_model_path,
+                project_slug=project_slug,
                 poc_root=poc_root,
+                task=task_prompt,
+                session_id=session_id,
+                skip_intent=skip_intent,
+                phase_session_ids=phase_session_ids,
+                last_actor_data=last_actor_data,
+                project_dir=project_dir,
+                role_enforcer=role_enforcer,
+                human_presence=human_presence,
+                cost_tracker=_resolve_cost_tracker_impl(project_dir),
+                intervention_queue=intervention_queue,
             )
 
-        # Clean up session worktree (after learnings extraction)
-        if worktree_path:
-            await release_worktree(worktree_path)
+            result = await orchestrator.run()
 
-        # 15. Publish session complete + stop writer
-        await event_bus.publish(Event(
-            type=EventType.SESSION_COMPLETED,
-            data={
-                'terminal_state': result.terminal_state,
-                'backtrack_count': result.backtrack_count,
-            },
-            session_id=session_id,
-        ))
-        await state_writer.stop()
-        event_bus.unsubscribe(resume_bus_writer)
+            # 14. Post-run: commit, merge, learnings
+            if worktree_path:
+                await commit_deliverables(
+                    worktree_path,
+                    f'Session {session_id} (resumed): {task[:80]}',
+                )
 
-        return SessionResult(
-            terminal_state=result.terminal_state,
-            project=project_slug,
-            session_id=session_id,
-            backtrack_count=result.backtrack_count,
-        )
+            if result.terminal_state == 'COMPLETED_WORK' and worktree_path:
+                repo_root = _ensure_project_repo(project_dir)
+                conflict_cb = _make_conflict_callback_static(
+                    effective_input, event_bus, session_id,
+                ) if effective_input else None
+                try:
+                    await squash_merge(
+                        source=worktree_path,
+                        target=repo_root,
+                        message=f'Session {session_id} (resumed): {task[:80]}',
+                        conflict_callback=conflict_cb,
+                    )
+                except MergeConflictEscalation as exc:
+                    _log.warning(
+                        'Merge conflict escalated to human: %s',
+                        ', '.join(exc.conflicted_files[:5]),
+                    )
+                    await squash_merge(
+                        source=worktree_path,
+                        target=repo_root,
+                        message=f'Session {session_id} (resumed): {task[:80]}',
+                    )
+
+            if result.terminal_state == 'COMPLETED_WORK' and worktree_path:
+                await extract_learnings(
+                    infra_dir=infra_dir,
+                    project_dir=project_dir,
+                    session_worktree=worktree_path,
+                    task=task,
+                    poc_root=poc_root,
+                )
+
+            # Clean up session worktree (after learnings extraction)
+            if worktree_path:
+                await release_worktree(worktree_path)
+
+            # 15. Publish session complete + stop writer
+            await event_bus.publish(Event(
+                type=EventType.SESSION_COMPLETED,
+                data={
+                    'terminal_state': result.terminal_state,
+                    'backtrack_count': result.backtrack_count,
+                },
+                session_id=session_id,
+            ))
+            await state_writer.stop()
+            event_bus.unsubscribe(resume_bus_writer)
+
+            return SessionResult(
+                terminal_state=result.terminal_state,
+                project=project_slug,
+                session_id=session_id,
+                backtrack_count=result.backtrack_count,
+            )
+        finally:
+            message_bus.close()
 
     @staticmethod
     def _resolve_norms_static(project_dir: str) -> str:
