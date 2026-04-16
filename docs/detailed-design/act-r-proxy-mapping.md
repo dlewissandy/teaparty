@@ -156,7 +156,7 @@ Both components are on (-1, 1) with a principled zero crossing. The 0.5 / 0.5 we
 When the proxy needs to act (what question to ask at a gate, what observation to surface, how to respond in a discussion):
 
 1. **Filter by activation.** Compute raw B for all chunks matching structural criteria (state, task_type). Discard chunks with B below tau (-0.5).
-2. **Score.** For each survivor, compute the composite score (normalized activation plus semantic similarity plus noise).
+2. **Score.** For each survivor, compute the composite score (`tanh(B − τ)` activation contribution plus semantic similarity plus noise).
 3. **Retrieve top-k.** Return the highest-scoring chunks.
 4. **Serialize and embed.** Convert retrieved chunks to text for the proxy's LLM prompt. The serialization includes structural fields (state, task_type, outcome), prediction fields (prior/posterior), and content. Embeddings are not included (they are binary noise). Each chunk occupies approximately 400-600 tokens (~500 average), so the chunk context is limited to a budget (e.g., 10 chunks at 5000 tokens). The serialization format uses Markdown for readability: heading for each chunk ID, subheadings for each field type, prose content inline.
 5. **Reason.** The proxy's LLM prompt receives the serialized chunks as context: "Here are your relevant memories of working with this human..." The LLM reasons over them to produce a prediction, an observation, or a response.
