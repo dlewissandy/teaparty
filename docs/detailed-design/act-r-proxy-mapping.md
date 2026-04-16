@@ -127,25 +127,25 @@ Retrieval operates in two stages.
 **Stage 2: Composite scoring and ranking.** For survivors of the activation filter, compute a composite score for ranking:
 
 ```
-composite = activation_weight * normalize(B)  +  semantic_weight * cosine_avg  +  noise
+composite = activation_weight * tanh(B - τ)  +  semantic_weight * cosine_avg  +  noise
 ```
 
 Where:
 - `B` is the base-level activation (recency and frequency via ACT-R)
-- `normalize(B)` maps B to [0, 1] via min-max scaling over the candidate set, so that activation and similarity contribute on comparable scales
+- `tanh(B - τ)` maps B to (-1, 1) with a principled zero crossing at the retrieval threshold τ
 - `cosine_avg` is the average cosine similarity across the 4 experience embedding dimensions (situation, artifact, stimulus, response — salience is retrieved independently, see below)
 - `noise` is logistic noise (see [act-r.md](act-r.md))
 - `activation_weight` and `semantic_weight` control the balance (starting point: 0.5 / 0.5)
 
+**Why tanh(B - τ).** Cosine similarity already lives on a natural scale: 0 = orthogonal (no contribution), +1 = perfect match, -1 = antithesis. No normalization needed. Raw activation B is on a log scale with no natural upper bound. To make the two components commensurable, we need a monotonic map from ℝ → (-1, 1). Shifting by τ grounds the zero point: a chunk at exactly the retrieval threshold contributes nothing to the composite, mirroring the cosine semantics. The tradeoff between recency and frequency in B is ACT-R's design — `tanh` is a monotonic transform and preserves it exactly.
+
 **Cosine averaging.** The semantic score is computed by summing cosine similarities across the 4 experience dimensions (situation, artifact, stimulus, response) and dividing by 4, not just the number of populated ones. This means a chunk with high similarity on 2 populated dimensions out of 4 gets `(sim1 + sim2 + 0 + 0) / 4`, while a chunk with moderate similarity across all 4 gets `(sim1 + sim2 + sim3 + sim4) / 4`. This rewards breadth of matching: chunks that match across more dimensions score higher than chunks that match narrowly on fewer dimensions, all else being equal. Salience is excluded from composite scoring and retrieved independently via `retrieve_salience()` (#227).
 
-**Why normalization is needed.** B is unbounded (can range from negative values to ~3+ for heavily-accessed chunks), while cosine similarity is bounded [-1, 1]. Without normalization, heavily-accessed chunks would dominate retrieval regardless of semantic relevance. Min-max normalization over the candidate set ensures both signals contribute proportionally. This follows the approach of Park, J.S., et al. (2023), who normalize all retrieval components to [0, 1] before combining. The normalization range should be refined during Phase 1 when real activation distributions are observed.
-
-Note that because normalization is computed over the candidate set, the effective influence of the activation_weight / semantic_weight balance varies by query. When all candidates have similar activation, semantic relevance dominates. That is the correct behavior. When activation varies widely, it has strong discriminating power. The 0.5 / 0.5 starting point is a design parameter whose effective behavior is query-dependent.
+Both components are on (-1, 1) with a principled zero crossing. The 0.5 / 0.5 weight split has unambiguous meaning: at exactly the threshold and orthogonal context, composite = 0 + 0 + noise.
 
 | Parameter | Starting Value | Role | Source |
 |-----------|---------------|------|--------|
-| Activation weight | 0.5 | Weight of normalized base-level activation in composite | Design parameter; calibrate empirically |
+| Activation weight | 0.5 | Weight of `tanh(B − τ)` activation contribution in composite | Design parameter; calibrate empirically |
 | Semantic weight | 0.5 | Weight of cosine similarity in composite | Design parameter; calibrate empirically |
 | Noise scale (s) | 0.08 | Logistic noise scale; std dev ≈ πs/√3 ≈ 0.145 | Calibrated so noise perturbs ranking without dominating signal (#235) |
 
@@ -156,7 +156,7 @@ Note that because normalization is computed over the candidate set, the effectiv
 When the proxy needs to act (what question to ask at a gate, what observation to surface, how to respond in a discussion):
 
 1. **Filter by activation.** Compute raw B for all chunks matching structural criteria (state, task_type). Discard chunks with B below tau (-0.5).
-2. **Score.** For each survivor, compute the composite score (normalized activation plus semantic similarity plus noise).
+2. **Score.** For each survivor, compute the composite score (`tanh(B − τ)` activation contribution plus semantic similarity plus noise).
 3. **Retrieve top-k.** Return the highest-scoring chunks.
 4. **Serialize and embed.** Convert retrieved chunks to text for the proxy's LLM prompt. The serialization includes structural fields (state, task_type, outcome), prediction fields (prior/posterior), and content. Embeddings are not included (they are binary noise). Each chunk occupies approximately 400-600 tokens (~500 average), so the chunk context is limited to a budget (e.g., 10 chunks at 5000 tokens). The serialization format uses Markdown for readability: heading for each chunk ID, subheadings for each field type, prose content inline.
 5. **Reason.** The proxy's LLM prompt receives the serialized chunks as context: "Here are your relevant memories of working with this human..." The LLM reasons over them to produce a prediction, an observation, or a response.
@@ -293,26 +293,25 @@ def base_level_activation(
     return math.log(total)
 
 
-def normalize_activation(b: float, b_min: float, b_max: float) -> float:
-    """Normalize base-level activation to [0, 1] via min-max scaling."""
-    if b_max == b_min:
-        return 0.5
-    return max(0.0, min(1.0, (b - b_min) / (b_max - b_min)))
-
-
 def composite_score(
     chunk: MemoryChunk,
     context_embeddings: dict[str, list[float]],
     current_interaction: int,
-    b_min: float,
-    b_max: float,
     activation_weight: float = 0.5,
     semantic_weight: float = 0.5,
     d: float = 0.5,
     s: float = 0.08,
+    tau: float = -0.5,
 ) -> float:
-    """Composite ranking score: normalized ACT-R activation +
+    """Composite ranking score: tanh-normalised ACT-R activation +
     multi-dimensional semantic similarity + noise.
+
+    composite = activation_weight * tanh(B - τ)
+              + semantic_weight * cosine_avg
+              + noise
+
+    tanh(B - τ) maps B to (-1, 1) with a zero crossing at the retrieval
+    threshold τ. No min-max range is needed: tanh has no degenerate case.
 
     context_embeddings: dict mapping dimension names to embedding vectors.
     The semantic score sums cosine similarities across the 4 experience
@@ -321,7 +320,7 @@ def composite_score(
     composite scoring and retrieved independently (#227).
     """
     b = base_level_activation(chunk.traces, current_interaction, d)
-    b_norm = normalize_activation(b, b_min, b_max)
+    b_norm = math.tanh(b - tau)
 
     # Experience dimensions only — salience retrieved independently (#227)
     dim_map = {
@@ -338,11 +337,6 @@ def composite_score(
     sem = sim_sum / EXPERIENCE_EMBEDDING_DIMENSIONS
 
     noise = logistic_noise(s)
-    # Note: in standard ACT-R, noise is added to activation alone, not to a
-    # composite score. Adding noise to the composite is a simplification. It
-    # perturbs the combined ranking rather than just the accessibility signal.
-    # The practical effect is small at s = 0.08, but the departure from ACT-R
-    # semantics should be noted.
     return activation_weight * b_norm + semantic_weight * sem + noise
 
 
@@ -358,8 +352,7 @@ def retrieve(
 
     1. Structural filter on state, task_type
     2. Activation filter: discard chunks with raw B below tau
-    3. Compute activation range for normalization over survivors
-    4. Composite scoring and ranking
+    3. Composite scoring and ranking (tanh normalization — no range needed)
     """
     candidates = query_chunks(state=state, task_type=task_type)
     context_embeddings = context_embeddings or {}
@@ -369,22 +362,16 @@ def retrieve(
     for c in candidates:
         b = base_level_activation(c.traces, current_interaction)
         if b > tau:
-            survivors.append((b, c))
+            survivors.append(c)
 
     if not survivors:
         return []
 
-    # Compute activation range for normalization over survivors
-    activations = [b for b, _ in survivors]
-    b_min = min(activations)
-    b_max = max(activations)
-
     # Stage 2: composite scoring for ranking
     scored = []
-    for _, chunk in survivors:
+    for chunk in survivors:
         score = composite_score(
-            chunk, context_embeddings, current_interaction,
-            b_min, b_max,
+            chunk, context_embeddings, current_interaction, tau=tau,
         )
         scored.append((score, chunk))
     scored.sort(key=lambda x: -x[0])

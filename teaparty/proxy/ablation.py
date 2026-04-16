@@ -36,7 +36,6 @@ from teaparty.proxy.memory import (
     blended_text_from_fields,
     composite_score,
     cosine_similarity,
-    normalize_activation,
     single_composite_score,
     query_chunks,
     get_interaction_counter,
@@ -71,16 +70,15 @@ def _retrieve_multi_dim(
     candidates: list[MemoryChunk],
     context_embeddings: dict[str, list[float]],
     current_interaction: int,
-    b_min: float,
-    b_max: float,
     top_k: int,
+    tau: float = RETRIEVAL_THRESHOLD,
 ) -> list[str]:
     """Retrieve top-k chunk IDs using multi-dimensional scoring (Config A)."""
     scored = []
     for chunk in candidates:
         score = composite_score(
             chunk, context_embeddings, current_interaction,
-            b_min, b_max, s=0.0,  # no noise for deterministic comparison
+            s=0.0, tau=tau,  # no noise for deterministic comparison
         )
         scored.append((score, chunk.id))
     scored.sort(key=lambda x: -x[0])
@@ -91,16 +89,15 @@ def _retrieve_single(
     candidates: list[MemoryChunk],
     context_blended: list[float],
     current_interaction: int,
-    b_min: float,
-    b_max: float,
     top_k: int,
+    tau: float = RETRIEVAL_THRESHOLD,
 ) -> list[str]:
     """Retrieve top-k chunk IDs using single blended scoring (Config B)."""
     scored = []
     for chunk in candidates:
         score = single_composite_score(
             chunk, context_blended, current_interaction,
-            b_min, b_max, s=0.0,  # no noise for deterministic comparison
+            s=0.0, tau=tau,  # no noise for deterministic comparison
         )
         scored.append((score, chunk.id))
     scored.sort(key=lambda x: -x[0])
@@ -211,14 +208,6 @@ def run_embedding_ablation(
             if not survivors:
                 continue
 
-            # Compute activation range for normalization
-            activations = [
-                base_level_activation(c.traces, current_interaction, d)
-                for c in survivors
-            ]
-            b_min = min(activations)
-            b_max = max(activations)
-
             # Build context embeddings from the query chunk
             context_embeddings: dict[str, list[float]] = {}
             if query_chunk.embedding_situation:
@@ -237,11 +226,11 @@ def run_embedding_ablation(
             # Retrieve under both configurations
             multi_dim_ids = _retrieve_multi_dim(
                 survivors, context_embeddings, current_interaction,
-                b_min, b_max, top_k,
+                top_k, tau=tau,
             )
             single_ids = _retrieve_single(
                 survivors, context_blended, current_interaction,
-                b_min, b_max, top_k,
+                top_k, tau=tau,
             )
 
             overlap = _overlap_at_k(multi_dim_ids, single_ids)

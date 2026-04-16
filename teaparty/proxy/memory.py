@@ -2,7 +2,7 @@
 
 Stores interaction memories as chunks with independent embedding dimensions.
 Retrieval uses two stages: activation filtering (base-level activation > tau),
-then composite scoring (normalized activation + multi-dimensional cosine
+then composite scoring (tanh(B − τ) activation + multi-dimensional cosine
 similarity + logistic noise).
 
 Theory: docs/detailed-design/act-r.md
@@ -406,13 +406,6 @@ def base_level_activation(
     return math.log(total)
 
 
-def normalize_activation(b: float, b_min: float, b_max: float) -> float:
-    """Normalize base-level activation to [0, 1] via min-max scaling."""
-    if b_max == b_min:
-        return 0.5
-    return max(0.0, min(1.0, (b - b_min) / (b_max - b_min)))
-
-
 def logistic_noise(s: float = NOISE_SCALE) -> float:
     """Sample from Logistic(0, s)."""
     p = random.random()
@@ -442,15 +435,24 @@ def composite_score(
     chunk: MemoryChunk,
     context_embeddings: dict[str, list[float]],
     current_interaction: int,
-    b_min: float,
-    b_max: float,
     activation_weight: float = ACTIVATION_WEIGHT,
     semantic_weight: float = SEMANTIC_WEIGHT,
     d: float = DECAY,
     s: float = NOISE_SCALE,
+    tau: float = RETRIEVAL_THRESHOLD,
 ) -> float:
-    """Composite ranking score: normalized ACT-R activation +
+    """Composite ranking score: tanh-normalised ACT-R activation +
     multi-dimensional semantic similarity + noise.
+
+    composite = activation_weight * tanh(B - τ)
+              + semantic_weight * cosine_avg
+              + noise
+
+    tanh(B - τ) maps ℝ → (-1, 1) with a principled zero crossing at the
+    retrieval threshold τ: a chunk at exactly threshold contributes nothing,
+    mirroring cosine semantics.  It replaces min-max normalization, which
+    collapsed to a constant 0.5 when only one chunk survived the activation
+    filter (issue #416).
 
     Cosine similarities are summed across the 4 experience dimensions
     (situation, artifact, stimulus, response) and divided by
@@ -458,7 +460,7 @@ def composite_score(
     composite scoring and retrieved independently (issue #227).
     """
     b = base_level_activation(chunk.traces, current_interaction, d)
-    b_norm = normalize_activation(b, b_min, b_max)
+    b_norm = math.tanh(b - tau)
 
     # Experience dimensions only — salience is retrieved separately (#227)
     dim_map = {
@@ -485,12 +487,11 @@ def single_composite_score(
     chunk: MemoryChunk,
     context_blended: list[float],
     current_interaction: int,
-    b_min: float,
-    b_max: float,
     activation_weight: float = ACTIVATION_WEIGHT,
     semantic_weight: float = SEMANTIC_WEIGHT,
     d: float = DECAY,
     s: float = NOISE_SCALE,
+    tau: float = RETRIEVAL_THRESHOLD,
 ) -> float:
     """Composite score using a single blended embedding instead of 5.
 
@@ -500,7 +501,7 @@ def single_composite_score(
     (issue #222).
     """
     b = base_level_activation(chunk.traces, current_interaction, d)
-    b_norm = normalize_activation(b, b_min, b_max)
+    b_norm = math.tanh(b - tau)
 
     sem = 0.0
     if chunk.embedding_blended and context_blended:
@@ -556,29 +557,22 @@ def retrieve_chunks(
     if not survivors:
         return []
 
-    # Compute activation range for normalization
-    activations = [b for b, _ in survivors]
-    b_min = min(activations)
-    b_max = max(activations)
-
     # Stage 2: composite scoring
     scored = []
     for _, chunk in survivors:
         if scoring == 'single':
             score = single_composite_score(
                 chunk, context_blended or [], current_interaction,
-                b_min, b_max,
                 activation_weight=activation_weight,
                 semantic_weight=semantic_weight,
-                d=d, s=s,
+                d=d, s=s, tau=tau,
             )
         else:
             score = composite_score(
                 chunk, context_embeddings, current_interaction,
-                b_min, b_max,
                 activation_weight=activation_weight,
                 semantic_weight=semantic_weight,
-                d=d, s=s,
+                d=d, s=s, tau=tau,
             )
         scored.append((score, chunk))
     scored.sort(key=lambda x: -x[0])
@@ -930,18 +924,13 @@ def _retrieve_from_chunks(
     if not survivors:
         return []
 
-    activations = [b for b, _ in survivors]
-    b_min = min(activations)
-    b_max = max(activations)
-
     scored = []
     for _, chunk in survivors:
         score = composite_score(
             chunk, context_embeddings, current_interaction,
-            b_min, b_max,
             activation_weight=activation_weight,
             semantic_weight=semantic_weight,
-            d=d, s=s,
+            d=d, s=s, tau=tau,
         )
         scored.append((score, chunk))
     scored.sort(key=lambda x: -x[0])
