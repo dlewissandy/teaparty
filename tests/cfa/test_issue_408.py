@@ -53,6 +53,14 @@ def _make_tmp(tc: unittest.TestCase) -> str:
     return tmp
 
 
+def _install_jail_hook(worktree: str) -> None:
+    """Create a stub worktree_hook.py so AgentRunner validation passes in tests."""
+    hook_dir = os.path.join(worktree, 'teaparty', 'workspace')
+    os.makedirs(hook_dir, exist_ok=True)
+    with open(os.path.join(hook_dir, 'worktree_hook.py'), 'w') as f:
+        f.write('# stub\n')
+
+
 def _make_project_yaml(project_dir: str, lead: str = '') -> None:
     """Write a minimal project.yaml with the given lead into project_dir."""
     config_dir = os.path.join(project_dir, '.teaparty', 'project')
@@ -885,6 +893,7 @@ class TestAgentRunnerLaunchArgs(unittest.TestCase):
 
         project_workdir = _make_tmp(self)
         poc_root = _make_tmp(self)
+        _install_jail_hook(project_workdir)
         ctx = self._make_context(project_workdir, poc_root)
 
         captured = {}
@@ -911,6 +920,7 @@ class TestAgentRunnerLaunchArgs(unittest.TestCase):
 
         project_workdir = _make_tmp(self)
         poc_root = _make_tmp(self)
+        _install_jail_hook(project_workdir)
         ctx = self._make_context(project_workdir, poc_root)
 
         captured = {}
@@ -936,6 +946,7 @@ class TestAgentRunnerLaunchArgs(unittest.TestCase):
 
         project_workdir = _make_tmp(self)
         poc_root = _make_tmp(self)
+        _install_jail_hook(project_workdir)
         ctx = self._make_context(project_workdir, poc_root)
 
         captured = {}

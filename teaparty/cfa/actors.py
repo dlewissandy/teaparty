@@ -88,6 +88,22 @@ class ActorContext:
 _actor_log = _logging.getLogger('teaparty.cfa.actors')
 
 
+def _check_jail_hook(session_worktree: str, hook_script: str) -> None:
+    """Raise RuntimeError if the jail hook script is absent from the worktree.
+
+    The hook runs as a subprocess relative to the worktree CWD. If the file is
+    missing the subprocess fails silently and agents run without restriction.
+    Raising here makes the failure loud and immediate rather than invisible.
+    """
+    hook_path = os.path.join(session_worktree, hook_script)
+    if not os.path.isfile(hook_path):
+        raise RuntimeError(
+            f'Jail hook script missing: {hook_path}. '
+            f'Cannot launch agent without filesystem restriction. '
+            f'Ensure {hook_script} exists in the worktree checkout.'
+        )
+
+
 # ── AgentRunner ──────────────────────────────────────────────────────────────
 
 # Actions that indicate failure or regression — never auto-selected as the
@@ -164,9 +180,11 @@ class AgentRunner:
         # Issue #150: worktree jail hook — reject Read/Edit/Write calls
         # that use absolute paths or target files outside the worktree.
         # Path is relative to cwd (the worktree), which is a full repo checkout.
+        _JAIL_HOOK_SCRIPT = 'teaparty/workspace/worktree_hook.py'
+        _check_jail_hook(ctx.session_worktree, _JAIL_HOOK_SCRIPT)
         jail_hook = {
             'type': 'command',
-            'command': 'python3 orchestrator/worktree_hook.py',
+            'command': f'python3 {_JAIL_HOOK_SCRIPT}',
         }
         hooks = settings.setdefault('hooks', [])
         for tool in ('Read', 'Edit', 'Write', 'Glob', 'Grep'):
