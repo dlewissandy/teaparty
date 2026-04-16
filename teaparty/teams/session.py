@@ -280,7 +280,7 @@ class AgentSession:
 
         if self._dispatch_session is None:
             from teaparty.runners.launcher import load_session as _load_session
-            stable_id = f'{self.agent_name}-{self.qualifier}'
+            stable_id = self._session_key()
             try:
                 self._dispatch_session = _load_session(
                     agent_name=self.agent_name, scope=self.scope,
