@@ -136,17 +136,29 @@ class TestTanhNormalizationFormula(unittest.TestCase):
         self.assertGreater(b_b, RETRIEVAL_THRESHOLD,
                            f'Sanity: chunk_b B={b_b:.4f} must be above τ={RETRIEVAL_THRESHOLD}')
 
+        tau = RETRIEVAL_THRESHOLD
+        expected_a = math.tanh(b_a - tau)
+        expected_b = math.tanh(b_b - tau)
+
         score_a = composite_score(chunk_a, {}, current, activation_weight=1.0,
                                   semantic_weight=0.0, s=0.0)
         score_b = composite_score(chunk_b, {}, current, activation_weight=1.0,
                                   semantic_weight=0.0, s=0.0)
 
-        self.assertNotAlmostEqual(
-            score_a, score_b, places=4,
-            msg=f'Chunks with different B values ({b_a:.4f} vs {b_b:.4f}) must '
-                f'produce different composite scores; got score_a={score_a:.6f}, '
-                f'score_b={score_b:.6f}. This catches the min-max collapse where '
-                f'normalize_activation returned 0.5 for all single-survivor cases.',
+        # Exact-value assertions: old min-max code returns 1.0 and 0.0 for two
+        # survivors (b_max maps to 1, b_min maps to 0). tanh returns ≈0.462 and
+        # ≈0.152. The exact check fails if the old formula is in place.
+        self.assertAlmostEqual(
+            score_a, expected_a, places=10,
+            msg=f'score_a must equal tanh(B_a - τ) = tanh({b_a:.4f} - {tau}) = '
+                f'{expected_a:.6f}; got {score_a:.6f}. '
+                f'Old min-max would produce 1.0 for the higher-activation chunk.',
+        )
+        self.assertAlmostEqual(
+            score_b, expected_b, places=10,
+            msg=f'score_b must equal tanh(B_b - τ) = tanh({b_b:.4f} - {tau}) = '
+                f'{expected_b:.6f}; got {score_b:.6f}. '
+                f'Old min-max would produce 0.0 for the lower-activation chunk.',
         )
         self.assertGreater(
             score_a, score_b,
