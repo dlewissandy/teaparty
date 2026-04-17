@@ -1105,6 +1105,7 @@ class TeaPartyBridge:
                         )
                     )
                     seen_workgroup_names_lower.add(w.name.lower())
+                    seen_workgroup_names_lower.add(w.name.lower().replace(' ', '-'))
             except FileNotFoundError:
                 _log.warning('Workgroup not found, skipping: %s', entry)
 
@@ -1117,8 +1118,9 @@ class TeaPartyBridge:
             org_wg_path = os.path.join(org_wg_dir, f'{wg_name}.yaml')
             try:
                 org_wg = load_workgroup(org_wg_path)
+                wg_active = org_wg.name.lower() in members_workgroups_lower
                 workgroups.append(
-                    self._serialize_workgroup(org_wg, source='shared', active=False)
+                    self._serialize_workgroup(org_wg, source='shared', active=wg_active)
                 )
             except Exception:
                 _log.warning('Could not load org workgroup: %s', wg_name)
@@ -1327,6 +1329,7 @@ class TeaPartyBridge:
             discover_agents(management_agents_dir(self.teaparty_home))
         )
 
+        parent_humans = team.humans if project_slug else mgmt_team.humans
         members_lower: set[str] | None = (
             {m.lower() for m in team.members_workgroups} if project_slug else None
         )
@@ -1340,6 +1343,7 @@ class TeaPartyBridge:
                         org_catalog_agents=org_catalog_agents,
                         org_hooks_catalog=org_hooks,
                         active=wg_active,
+                        parent_humans=parent_humans,
                     )
                 )
         return web.json_response({'error': f'workgroup not found: {name}'}, status=404)
@@ -3768,6 +3772,7 @@ class TeaPartyBridge:
         org_catalog_skills: list[str] | None = None,
         org_hooks_catalog: list[dict] | None = None,
         active: bool | None = None,
+        parent_humans: list | None = None,
     ) -> dict:
         result = {
             'name': w.name,
@@ -3811,8 +3816,14 @@ class TeaPartyBridge:
             ]
             result['norms'] = dict(w.norms)
             result['budget'] = dict(w.budget)
+            # Merge parent team humans (inherited) with workgroup-specific overrides.
+            # Workgroup-explicit entries win; parent fills in the rest.
+            wg_human_names = {h.name for h in w.humans}
+            merged_humans = list(w.humans) + [
+                h for h in (parent_humans or []) if h.name not in wg_human_names
+            ]
             result['humans'] = [
-                {'name': h.name, 'role': h.role} for h in w.humans
+                {'name': h.name, 'role': h.role} for h in merged_humans
             ]
             result['artifacts'] = list(w.artifacts)
         return result

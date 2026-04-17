@@ -365,16 +365,18 @@ def create_server(agent_tools: set[str] | None = None) -> FastMCP:
         return get_skill_handler(name=name, project_root=project_root, scope=scope)
 
     @server.tool()
-    async def ListWorkgroups(teaparty_home: str = '') -> str:
-        """List all workgroup definitions with summary info.
+    async def ListWorkgroups(teaparty_home: str = '', project: str = '') -> str:
+        """List workgroup definitions with summary info.
 
-        Returns name, description, and lead for each workgroup YAML
-        found in the workgroups/ directory.
+        Returns name, description, and lead for each workgroup. When
+        project is provided, only workgroups that are active members of
+        that project team are returned.
 
         Args:
             teaparty_home: Override for .teaparty/ directory path.
+            project: Project name to filter by active membership.
         """
-        return list_workgroups_handler(teaparty_home=teaparty_home)
+        return list_workgroups_handler(teaparty_home=teaparty_home, project=project)
 
     @server.tool()
     async def GetWorkgroup(name: str, teaparty_home: str = '') -> str:
@@ -1069,7 +1071,7 @@ def _load_agent_tools(
 
     # Project scope: check project agents first
     if project_name and project_name != 'management':
-        from teaparty.mcp.tools.config_helpers import _find_project_path
+        from teaparty.mcp.tools.config_crud import _find_project_path
         project_dir = _find_project_path(project_name, teaparty_home)
         if project_dir:
             candidates.append(

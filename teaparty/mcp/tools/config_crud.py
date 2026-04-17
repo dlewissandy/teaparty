@@ -598,10 +598,22 @@ def get_skill_handler(name: str, project_root: str = '', scope: str = '') -> str
     }})
 
 
-def list_workgroups_handler(teaparty_home: str = '') -> str:
-    """List all workgroup definitions."""
+def list_workgroups_handler(teaparty_home: str = '', project: str = '') -> str:
+    """List workgroup definitions, optionally scoped to a project's active members."""
     home = _teaparty_home(teaparty_home)
     wg_dir = _mgmt_workgroups_dir(home)
+
+    active_lower: set[str] | None = None
+    if project:
+        project_dir = _find_project_path(project, home)
+        if project_dir:
+            try:
+                from teaparty.config.config_reader import load_project_team
+                pt = load_project_team(project_dir)
+                active_lower = {m.lower() for m in pt.members_workgroups}
+            except Exception:
+                pass
+
     items = []
     if os.path.isdir(wg_dir):
         for fname in sorted(os.listdir(wg_dir)):
@@ -609,8 +621,11 @@ def list_workgroups_handler(teaparty_home: str = '') -> str:
                 path = os.path.join(wg_dir, fname)
                 with open(path) as f:
                     data = yaml.safe_load(f) or {}
+                name = data.get('name', fname[:-5])
+                if active_lower is not None and name.lower() not in active_lower:
+                    continue
                 items.append({
-                    'name': data.get('name', fname[:-5]),
+                    'name': name,
                     'description': data.get('description', ''),
                     'lead': data.get('lead', ''),
                 })

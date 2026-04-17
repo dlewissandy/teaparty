@@ -978,15 +978,22 @@ def toggle_project_membership(
         data['scheduled'] = _toggle_scheduled_active(data.get('scheduled') or [], name, active)
     elif kind == 'workgroup':
         home = teaparty_home or default_teaparty_home()
-        org_wg_path = os.path.join(management_workgroups_dir(home), f'{name}.yaml')
+        wg_dir = management_workgroups_dir(home)
+        org_wg_path = os.path.join(wg_dir, f'{name}.yaml')
+        if not os.path.exists(org_wg_path):
+            # Fall back to slugified filename (e.g. 'Quality Control' -> 'quality-control.yaml')
+            slug = name.lower().replace(' ', '-')
+            candidate = os.path.join(wg_dir, f'{slug}.yaml')
+            if os.path.exists(candidate):
+                org_wg_path = candidate
         if os.path.exists(org_wg_path):
+            wg_ref = os.path.splitext(os.path.basename(org_wg_path))[0]
             wg_list = data.get('workgroups') or []
-            name_lower = name.lower()
             if active:
-                if not any('ref' in e and e['ref'].lower() == name_lower for e in wg_list):
-                    wg_list = wg_list + [{'ref': name}]
+                if not any('ref' in e and e['ref'].lower() == wg_ref.lower() for e in wg_list):
+                    wg_list = wg_list + [{'ref': wg_ref}]
             else:
-                wg_list = [e for e in wg_list if not ('ref' in e and e['ref'].lower() == name_lower)]
+                wg_list = [e for e in wg_list if not ('ref' in e and e['ref'].lower() == wg_ref.lower())]
             data['workgroups'] = wg_list
         members = data.setdefault('members', {})
         current = members.get('workgroups') or []
