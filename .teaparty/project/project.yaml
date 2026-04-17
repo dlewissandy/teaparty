@@ -1,15 +1,26 @@
 name: TeaParty
 description: Research platform for durable, scalable agent coordination.
-lead: teaparty-lead
+lead: project-lead
 humans:
   decider: primus
 workgroups:
 - ref: coding
 - ref: configuration
+- ref: Planning
+- ref: Intake
+- ref: Research
+- ref: quality-control
 members:
   workgroups:
   - Coding
+  - Planning
+  - Intake
+  - Research
+  - Quality Control
   skills: []
 artifact_pins:
 - path: docs/
   label: docs
+escalation:
+  WORK_ASSERT: always
+  INTENT_ASSERT: always
