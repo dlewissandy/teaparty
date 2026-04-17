@@ -841,6 +841,48 @@ class ApprovalGate:
                 dialog_history, bridge_override,
             )
 
+    def _check_pending_human_input(
+        self, ctx: ActorContext, project_slug: str,
+    ) -> str:
+        """Return the most recent un-consumed human message, or empty string.
+
+        A human message is "pending" if it is the most recent message in
+        the job conversation AND nothing from the orchestrator/agent/proxy
+        has been written after it.  This catches the post-resume case:
+        the user's message triggers `_resume_job_session`, the session
+        resumes and re-enters the gate, but if we ran consult_proxy first
+        (~30s) the triggering message would be skipped because
+        MessageBusInputProvider captures its `since` cutoff only after
+        consult_proxy returns.
+        """
+        if not project_slug or not ctx.session_id or not ctx.infra_dir:
+            return ''
+        bus_path = os.path.join(ctx.infra_dir, 'messages.db')
+        if not os.path.exists(bus_path):
+            return ''
+        try:
+            from teaparty.messaging.conversations import SqliteMessageBus
+            conv_id = f'job:{project_slug}:{ctx.session_id}'
+            bus = SqliteMessageBus(bus_path)
+            try:
+                messages = bus.receive(conv_id, since_timestamp=0)
+            finally:
+                bus.close()
+        except Exception:
+            _actor_log.debug('pending-input check failed', exc_info=True)
+            return ''
+        # Walk backwards: find the latest human message that has no
+        # non-human message after it.  The initial task is sent as
+        # sender='human' on session start, but it's always followed by
+        # orchestrator output before reaching a gate — so it won't be
+        # mistaken for a pending reply.
+        for msg in reversed(messages):
+            if msg.sender == 'human':
+                return msg.content
+            # Found a non-human message first → no pending human input.
+            return ''
+        return ''
+
     async def _ask_human_through_proxy_inner(
         self, ctx: ActorContext, question: str, artifact_path: str,
         project_slug: str, team: str, dialog_history: str,
@@ -850,6 +892,15 @@ class ApprovalGate:
         from teaparty.proxy.agent import (
             consult_proxy, PROXY_AGENT_CONFIDENCE_THRESHOLD,
         )
+
+        # Fast path: if the human has already posted a response waiting
+        # for this gate (typical after a session resume that was triggered
+        # by the user's POST), consume it directly.  Skipping consult_proxy
+        # avoids a ~30s detour and a race where the triggering message is
+        # filtered out by the listener's `since` cutoff.
+        pending = self._check_pending_human_input(ctx, project_slug)
+        if pending:
+            return pending, False
 
         proxy_result = await consult_proxy(
             question=question,
