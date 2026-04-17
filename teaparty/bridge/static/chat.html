@@ -757,6 +757,8 @@ function connectWS() {
         onSessionCompleted(ev);
       } else if (ev.type === 'heartbeat') {
         onHeartbeat(ev);
+      } else if (ev.type === 'session_status') {
+        onSessionStatus(ev);
       }
     } catch (err) {}
   };
@@ -919,6 +921,20 @@ function wakeSession() {
       updateSendButton();
     })
     .catch(function() {});
+}
+
+function onSessionStatus(ev) {
+  // Backend emits this whenever the session task in _active_job_tasks
+  // is created (status=running) or exits without the session reaching a
+  // terminal CfA state (status=sleeping).  Terminal transitions are
+  // reported via 'session_completed' separately.  Listening here keeps
+  // the Send/Wake button in sync without heartbeat TTLs or state-change
+  // round-trips.
+  if (!isJobChat || !session_id) return;
+  if (ev.session_id && ev.session_id !== session_id) return;
+  if (_sessionStatus === 'terminal') return;  // don't un-terminal
+  _sessionStatus = ev.status || 'running';
+  updateSendButton();
 }
 
 function onSessionCompleted(ev) {

@@ -3113,6 +3113,7 @@ class TeaPartyBridge:
 
         task = asyncio.create_task(_run_session())
         self._active_job_tasks[f'{project_slug}:{session_id}'] = task
+        self._attach_session_status_callbacks(task, project_slug, session_id)
 
         return web.json_response({
             'session_id': session_id,
@@ -3201,8 +3202,62 @@ class TeaPartyBridge:
 
         task = asyncio.create_task(_run_resume())
         self._active_job_tasks[key] = task
+        self._attach_session_status_callbacks(task, project_slug, session_id)
 
     # ── Index handler ─────────────────────────────────────────────────────────
+
+    def _broadcast_session_status(
+        self, project_slug: str, session_id: str, status: str,
+    ) -> None:
+        """Broadcast a session-status change to WebSocket clients.
+
+        Emitted when the session task in _active_job_tasks is created
+        (status='running') or exits without the session reaching a
+        terminal CfA state (status='sleeping').  Terminal transitions
+        are already covered by 'session_completed' events elsewhere.
+
+        Listeners in the chat UI use this to flip the Send button
+        label between 'Send', 'Wake', and 'Done' without waiting for
+        heartbeat staleness or CfA state transitions.
+        """
+        self._broadcast_dispatch({
+            'type': 'session_status',
+            'slug': project_slug,
+            'session_id': session_id,
+            'status': status,
+        })
+
+    def _attach_session_status_callbacks(
+        self, task: 'asyncio.Task', project_slug: str, session_id: str,
+    ) -> None:
+        """Emit session_status='running' now and 'sleeping' on task exit.
+
+        'sleeping' is only emitted if the CfA state is non-terminal when
+        the task finishes — a clean completion reports via
+        session_completed already, and we don't want to race with that.
+        """
+        self._broadcast_session_status(project_slug, session_id, 'running')
+
+        def _on_done(_t: 'asyncio.Task') -> None:
+            try:
+                from teaparty.cfa.statemachine.cfa_state import (
+                    load_state as _load_cfa, is_globally_terminal,
+                )
+                infra_dir = self._resolve_session_infra(session_id)
+                if infra_dir:
+                    cfa_path = os.path.join(infra_dir, '.cfa-state.json')
+                    if os.path.isfile(cfa_path):
+                        cfa = _load_cfa(cfa_path)
+                        if is_globally_terminal(cfa.state):
+                            return  # session_completed handles this
+                self._broadcast_session_status(
+                    project_slug, session_id, 'sleeping')
+            except Exception:
+                _log.debug(
+                    'session_status done-callback failed for %s:%s',
+                    project_slug, session_id, exc_info=True)
+
+        task.add_done_callback(_on_done)
 
     def _broadcast_dispatch(self, event: dict) -> None:
         """Broadcast dispatch lifecycle events to WebSocket clients."""
