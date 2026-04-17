@@ -348,7 +348,12 @@ var _optimisticById = {};  // real_id -> {optId, entry}
 
 // ── Send message ──────────────────────────────────────────────────────────────
 function sendMessage(ta) {
-  if (!ta.value.trim()) return;
+  // Empty textarea + sleeping session → the button is in Wake mode; click
+  // should wake the session without posting a message.
+  if (!ta.value.trim()) {
+    if (_sessionStatus === 'sleeping') wakeSession();
+    return;
+  }
   var displayText = ta.value;
   var wireText = entityContext ? '[Viewing: ' + entityContext + ']\n' + displayText : displayText;
   ta.value = '';
@@ -386,6 +391,12 @@ function sendMessage(ta) {
       // reconciles against it instead of appending a duplicate.
       optimistic.id = body.id;
       _optimisticById[body.id] = optimistic;
+    }
+    // Post to a job conv always kicks _resume_job_session server-side —
+    // refresh button state after a short delay so the label flips from
+    // Wake to Send once the session task is back up.
+    if (isJobChat) {
+      setTimeout(refreshSessionStatus, 300);
     }
     // If this is a participant chat, ensure the conversation appears in the nav and is selected.
     if (!isJobChat) {
@@ -662,10 +673,13 @@ function renderMainArea(navHtml, headerTitle, headerScope, headerActions) {
     '<div class="chat-messages"></div>' +
     '<div class="chat-input-area">' +
     '<textarea rows="1" placeholder="Type a message..." onkeydown="chatKeydown(event)" oninput="autoGrow(this)"></textarea>' +
-    '<button onclick="sendMessage(this.parentElement.querySelector(\'textarea\'))">Send</button>' +
+    '<button id="chatSendBtn" onclick="sendMessage(this.parentElement.querySelector(\'textarea\'))">Send</button>' +
     '</div></div></div>';
 
   refilter();
+  // Kick off session status polling for job chats so the Send button
+  // can morph into a Wake button when the session is sleeping.
+  refreshSessionStatus();
 }
 
 // ── WebSocket (fetch-and-subscribe, issue #398) ─────────────────────────────
@@ -816,8 +830,9 @@ function onInputRequested(ev) {
 function onStateChanged(ev) {
   if (!isJobChat) return;
   if (session_id && ev.session_id !== session_id) return;
-  // Re-fetch CfA state and update only the header-actions region so any
-  // in-progress textarea draft is preserved.
+  // State changed → session is running; refresh button status immediately
+  // and also re-fetch CfA state for the header actions.
+  refreshSessionStatus();
   fetch('/api/cfa/' + encodeURIComponent(session_id))
     .then(function(r) { return r.ok ? r.json() : null; })
     .then(function(cfa) {
@@ -846,6 +861,63 @@ function onHeartbeat(ev) {
     indicator.style.color = status === 'dead' ? 'var(--red)' : 'var(--yellow)';
     indicator.style.display = 'inline';
   }
+  // Heartbeat change is a signal the run state may have changed.
+  if (isJobChat && session_id && ev.session_id === session_id) {
+    refreshSessionStatus();
+  }
+}
+
+// ── Session status (running / sleeping / terminal) ─────────────────────────
+// Drives the Send button's label and color so the user can tell whether
+// their message will reach a running orchestrator or is being used to
+// wake a sleeping one.
+var _sessionStatus = 'running';  // optimistic default
+
+function refreshSessionStatus() {
+  if (!isJobChat || !convProject || !session_id) return;
+  fetch('/api/jobs/' + encodeURIComponent(convProject) + '/' +
+        encodeURIComponent(session_id) + '/status')
+    .then(function(r) { return r.ok ? r.json() : null; })
+    .then(function(data) {
+      if (!data) return;
+      _sessionStatus = data.status || 'running';
+      updateSendButton();
+    })
+    .catch(function() {});
+}
+
+function updateSendButton() {
+  var btn = document.getElementById('chatSendBtn');
+  if (!btn) return;
+  if (_sessionStatus === 'sleeping') {
+    btn.textContent = 'Wake';
+    btn.style.background = 'var(--orange)';
+    btn.style.color = '#1a1a2e';
+    btn.title = 'Session is sleeping. Click to wake it.';
+  } else if (_sessionStatus === 'terminal') {
+    btn.textContent = 'Done';
+    btn.style.background = 'var(--text-dim)';
+    btn.style.color = '#1a1a2e';
+    btn.disabled = true;
+    btn.title = 'Session is complete.';
+  } else {
+    btn.textContent = 'Send';
+    btn.style.background = '';
+    btn.style.color = '';
+    btn.disabled = false;
+    btn.title = '';
+  }
+}
+
+function wakeSession() {
+  if (!convProject || !session_id) return;
+  fetch('/api/jobs/' + encodeURIComponent(convProject) + '/' +
+        encodeURIComponent(session_id) + '/wake', { method: 'POST' })
+    .then(function() {
+      _sessionStatus = 'running';
+      updateSendButton();
+    })
+    .catch(function() {});
 }
 
 function onSessionCompleted(ev) {
@@ -862,10 +934,10 @@ function onSessionCompleted(ev) {
   // Disable input and actions for terminal sessions
   var inputEl = document.querySelector('.chat-input textarea');
   if (inputEl) inputEl.disabled = true;
-  var sendBtn = document.querySelector('.chat-input button');
-  if (sendBtn) sendBtn.disabled = true;
   var actionsEl = document.querySelector('.chat-header-actions');
   if (actionsEl) actionsEl.innerHTML = '<span style="color:var(--text-dim);font-size:9px">' + label + '</span>';
+  _sessionStatus = 'terminal';
+  updateSendButton();
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────

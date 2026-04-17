@@ -393,6 +393,8 @@ class TeaPartyBridge:
         # ── Action endpoints ──────────────────────────────────────────────────
         app.router.add_post('/api/jobs', self._handle_create_job)
         app.router.add_post('/api/withdraw/{session_id}', self._handle_withdraw)
+        app.router.add_get('/api/jobs/{slug}/{session_id}/status', self._handle_job_status)
+        app.router.add_post('/api/jobs/{slug}/{session_id}/wake', self._handle_job_wake)
 
         # ── Filesystem navigation endpoint ────────────────────────────────────
         app.router.add_get('/api/fs/list', self._handle_fs_list)
@@ -2855,6 +2857,61 @@ class TeaPartyBridge:
             pass
 
         return web.json_response(result)
+
+    async def _handle_job_status(self, request: web.Request) -> web.Response:
+        """GET /api/jobs/{slug}/{session_id}/status — report liveness.
+
+        Returns ``{status: 'running'|'sleeping'|'terminal'}``.
+          - running:  the asyncio task is active in _active_job_tasks.
+          - sleeping: no task is running, but the CfA state is non-terminal
+                      (resumable — a POST or explicit wake will restart it).
+          - terminal: the CfA state is globally terminal (COMPLETED_WORK,
+                      WITHDRAWN, etc. — wake is a no-op).
+        """
+        slug = request.match_info['slug']
+        session_id = request.match_info['session_id']
+        key = f'{slug}:{session_id}'
+
+        # Terminal wins: don't report 'running' for a finished session even
+        # if the task is briefly still in the dict.
+        infra_dir = self._resolve_session_infra(session_id)
+        cfa_state = ''
+        if infra_dir:
+            from teaparty.cfa.statemachine.cfa_state import (
+                load_state as _load_cfa, is_globally_terminal,
+            )
+            cfa_path = os.path.join(infra_dir, '.cfa-state.json')
+            if os.path.isfile(cfa_path):
+                try:
+                    cfa = _load_cfa(cfa_path)
+                    cfa_state = cfa.state
+                    if is_globally_terminal(cfa_state):
+                        return web.json_response(
+                            {'status': 'terminal', 'cfa_state': cfa_state})
+                except Exception:
+                    pass
+
+        task = self._active_job_tasks.get(key)
+        if task is not None and not task.done():
+            return web.json_response(
+                {'status': 'running', 'cfa_state': cfa_state})
+
+        return web.json_response(
+            {'status': 'sleeping', 'cfa_state': cfa_state})
+
+    async def _handle_job_wake(self, request: web.Request) -> web.Response:
+        """POST /api/jobs/{slug}/{session_id}/wake — resume a sleeping session.
+
+        Calls _resume_job_session without writing any message to the
+        conversation.  The caller is expected to use this when they want
+        to kick a session awake without bundling a chat message.  (Sending
+        a message via POST /api/conversations/{id} already kicks — this
+        endpoint is for the 'just wake it' case.)
+        """
+        slug = request.match_info['slug']
+        session_id = request.match_info['session_id']
+        await self._resume_job_session(slug, session_id)
+        return web.json_response({'ok': True})
 
     async def _handle_session_tasks(self, request: web.Request) -> web.Response:
         """List dispatched tasks for a session (issue #389).
