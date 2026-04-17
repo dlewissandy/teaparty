@@ -176,6 +176,7 @@ body {
 .git-status-new { color: var(--green); font-size: 8px; margin-right: 3px; flex-shrink: 0; }
 .git-status-modified { color: var(--yellow); font-size: 8px; margin-right: 3px; flex-shrink: 0; }
 .git-status-deleted { color: var(--red); font-size: 8px; margin-right: 3px; flex-shrink: 0; }
+.git-status-session { color: var(--blue, #4aa0ff); font-size: 8px; margin-right: 3px; flex-shrink: 0; }
 
 /* ── Job-mode top strip (issue #402) ─────────── */
 .job-strip {

@@ -186,10 +186,18 @@ def _parse_artifacts(content: str) -> dict[str, str]:
     return sections
 
 
+# CfA session artifacts at the worktree root.  These are gitignored by
+# design (they never ship to main) but are review-critical during the
+# session.  Always surface them in the artifact browser so the reviewer
+# can see and open them regardless of git status.
+_SESSION_ARTIFACTS: tuple[str, ...] = ('INTENT.md', 'PLAN.md', 'WORK_SUMMARY.md')
+
+
 def parse_git_status(worktree_path: str) -> dict[str, str]:
     """Run ``git status --porcelain`` and return ``{relative_path: status}``.
 
-    Status values: ``'new'`` (untracked), ``'modified'``, ``'deleted'``.
+    Status values: ``'new'`` (untracked), ``'modified'``, ``'deleted'``,
+    ``'session'`` (CfA session artifact — gitignored but always surfaced).
     Files with no changes are omitted.
     """
     import subprocess as _sp
@@ -199,24 +207,32 @@ def parse_git_status(worktree_path: str) -> dict[str, str]:
             cwd=worktree_path, capture_output=True, text=True, timeout=10,
         )
     except (FileNotFoundError, _sp.TimeoutExpired):
-        return {}
-    if result.returncode != 0:
-        return {}
+        result = None
     statuses: dict[str, str] = {}
-    for line in result.stdout.splitlines():
-        if len(line) < 4:
+    if result is not None and result.returncode == 0:
+        for line in result.stdout.splitlines():
+            if len(line) < 4:
+                continue
+            xy = line[:2]
+            filepath = line[3:].strip()
+            # Handle renames: "R  old -> new"
+            if ' -> ' in filepath:
+                filepath = filepath.split(' -> ')[-1]
+            if xy == '??' or xy == 'A ' or xy == 'AM':  # staged-new then modified
+                statuses[filepath] = 'new'
+            elif xy[1] == 'D' or xy[0] == 'D':
+                statuses[filepath] = 'deleted'
+            else:
+                statuses[filepath] = 'modified'
+    # Surface CfA session artifacts regardless of git state.  They're
+    # gitignored so git-status never reports them, but they must always
+    # be visible to the human reviewer.  Don't override a real git status
+    # if one was reported (e.g., an unusual repo where they're tracked).
+    for name in _SESSION_ARTIFACTS:
+        if name in statuses:
             continue
-        xy = line[:2]
-        filepath = line[3:].strip()
-        # Handle renames: "R  old -> new"
-        if ' -> ' in filepath:
-            filepath = filepath.split(' -> ')[-1]
-        if xy == '??' or xy == 'A ' or xy == 'AM':  # staged-new then modified
-            statuses[filepath] = 'new'
-        elif xy[1] == 'D' or xy[0] == 'D':
-            statuses[filepath] = 'deleted'
-        else:
-            statuses[filepath] = 'modified'
+        if os.path.isfile(os.path.join(worktree_path, name)):
+            statuses[name] = 'session'
     return statuses
 
 

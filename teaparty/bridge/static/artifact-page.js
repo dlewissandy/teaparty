@@ -424,6 +424,7 @@
     if (status === 'new') return '<span class="git-status-new" title="New (untracked)">\u25cf</span>';
     if (status === 'modified') return '<span class="git-status-modified" title="Modified">\u25cf</span>';
     if (status === 'deleted') return '<span class="git-status-deleted" title="Deleted">\u2717</span>';
+    if (status === 'session') return '<span class="git-status-session" title="Session artifact">\u25c6</span>';
     return '';
   }
 

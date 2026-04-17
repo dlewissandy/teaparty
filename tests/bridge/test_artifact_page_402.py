@@ -521,6 +521,78 @@ class TestGitStatusEndpoint(unittest.TestCase):
             import shutil
             shutil.rmtree(repo)
 
+    def test_parse_git_status_surfaces_session_artifacts(self):
+        """CfA session artifacts (INTENT.md, PLAN.md, WORK_SUMMARY.md) must
+        appear with status 'session' even when gitignored, so the reviewer
+        can always see them in the artifact browser.
+        """
+        from teaparty.bridge.server import parse_git_status
+        repo = tempfile.mkdtemp()
+        subprocess.run(['git', 'init', repo], capture_output=True, check=True)
+        subprocess.run(['git', '-C', repo, 'config', 'user.email', 'test@test.com'],
+                       capture_output=True, check=True)
+        subprocess.run(['git', '-C', repo, 'config', 'user.name', 'Test'],
+                       capture_output=True, check=True)
+        # Gitignore the three session artifacts and commit the gitignore.
+        with open(os.path.join(repo, '.gitignore'), 'w') as f:
+            f.write('INTENT.md\nPLAN.md\nWORK_SUMMARY.md\n')
+        subprocess.run(['git', '-C', repo, 'add', '.gitignore'], capture_output=True, check=True)
+        subprocess.run(['git', '-C', repo, 'commit', '-m', 'init'],
+                       capture_output=True, check=True)
+        # Write the gitignored artifacts.
+        with open(os.path.join(repo, 'INTENT.md'), 'w') as f:
+            f.write('# Intent\n')
+        with open(os.path.join(repo, 'PLAN.md'), 'w') as f:
+            f.write('# Plan\n')
+        try:
+            result = parse_git_status(repo)
+            self.assertEqual(
+                result.get('INTENT.md'), 'session',
+                f"Gitignored INTENT.md must surface as 'session', got {result}"
+            )
+            self.assertEqual(
+                result.get('PLAN.md'), 'session',
+                f"Gitignored PLAN.md must surface as 'session', got {result}"
+            )
+            # Non-existent artifact must not appear.
+            self.assertNotIn(
+                'WORK_SUMMARY.md', result,
+                f"WORK_SUMMARY.md doesn't exist yet; must not appear: {result}"
+            )
+        finally:
+            import shutil
+            shutil.rmtree(repo)
+
+    def test_parse_git_status_session_does_not_override_real_status(self):
+        """If INTENT.md is actually tracked and modified, the real git status
+        takes precedence over the synthetic 'session' status.
+        """
+        from teaparty.bridge.server import parse_git_status
+        repo = tempfile.mkdtemp()
+        subprocess.run(['git', 'init', repo], capture_output=True, check=True)
+        subprocess.run(['git', '-C', repo, 'config', 'user.email', 'test@test.com'],
+                       capture_output=True, check=True)
+        subprocess.run(['git', '-C', repo, 'config', 'user.name', 'Test'],
+                       capture_output=True, check=True)
+        # Track INTENT.md and commit it, then modify.
+        intent_path = os.path.join(repo, 'INTENT.md')
+        with open(intent_path, 'w') as f:
+            f.write('# Original\n')
+        subprocess.run(['git', '-C', repo, 'add', 'INTENT.md'], capture_output=True, check=True)
+        subprocess.run(['git', '-C', repo, 'commit', '-m', 'init'],
+                       capture_output=True, check=True)
+        with open(intent_path, 'w') as f:
+            f.write('# Modified\n')
+        try:
+            result = parse_git_status(repo)
+            self.assertEqual(
+                result.get('INTENT.md'), 'modified',
+                f"Real git status must win over synthetic 'session': {result}"
+            )
+        finally:
+            import shutil
+            shutil.rmtree(repo)
+
 
 class TestJobModeTopStrip(unittest.TestCase):
     """Job mode must show the top strip; browse mode must not."""
