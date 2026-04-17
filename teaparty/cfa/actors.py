@@ -888,12 +888,28 @@ class ApprovalGate:
         )
 
         if proxy_confident:
+            # Make the proxy's Q&A visible in the job conversation so the
+            # human can see it in the accordion and intervene if needed.
+            gate_question = bridge_override or self._generate_bridge(
+                artifact_path, ctx.state, ctx.task,
+                session_worktree=ctx.session_worktree, infra_dir=ctx.infra_dir,
+            )
+            self._publish_proxy_interaction(
+                ctx, project_slug, gate_question, proxy_result.text,
+            )
             return proxy_result.text, True
 
         # Never-escalate: dynamic based on human presence (Issue #202).
         if self.never_escalate or should_never_escalate(
             ctx.state, self.human_presence, team=team,
         ):
+            gate_question = bridge_override or self._generate_bridge(
+                artifact_path, ctx.state, ctx.task,
+                session_worktree=ctx.session_worktree, infra_dir=ctx.infra_dir,
+            )
+            self._publish_proxy_interaction(
+                ctx, project_slug, gate_question, proxy_result.text,
+            )
             return proxy_result.text, True
 
         # Proxy can't answer — escalate to the actual human.
@@ -918,6 +934,31 @@ class ApprovalGate:
             session_id=ctx.session_id,
         ))
         return response_text, False
+
+    def _publish_proxy_interaction(
+        self, ctx: 'ActorContext', project_slug: str,
+        gate_question: str, proxy_response: str,
+    ) -> None:
+        """Write gate question + proxy answer to the job conversation.
+
+        This surfaces proxy dialog in the accordion so the human can see
+        what question was asked on their behalf and how the proxy responded.
+        """
+        bus_path = os.path.join(ctx.infra_dir, 'messages.db')
+        if not os.path.exists(bus_path) or not project_slug or not ctx.session_id:
+            return
+        try:
+            from teaparty.messaging.conversations import SqliteMessageBus
+            conv_id = f'job:{project_slug}:{ctx.session_id}'
+            bus = SqliteMessageBus(bus_path)
+            try:
+                header = f'[{ctx.state}] {gate_question}'
+                bus.send(conv_id, 'proxy-gate', header)
+                bus.send(conv_id, 'proxy', proxy_response)
+            finally:
+                bus.close()
+        except Exception:
+            _actor_log.debug('proxy interaction publish failed', exc_info=True)
 
     def _proxy_record(
         self, state: str, project_slug: str, outcome: str,

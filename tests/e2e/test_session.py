@@ -265,7 +265,16 @@ def _init_git_repo(path: str) -> None:
     subprocess.run(['git', 'config', 'user.name', 'Test'],
                    cwd=path, check=True, capture_output=True)
     Path(path, 'README.md').write_text('# e2e test repo\n')
-    subprocess.run(['git', 'add', 'README.md'], cwd=path, check=True,
+    # Copy the jail hook script so AgentRunner._check_jail_hook passes.
+    # Tests mock the LLM, so the hook never actually executes — but the
+    # runner requires the file's presence before launching the agent.
+    import shutil as _shutil
+    import teaparty.workspace.worktree_hook as _hook_module
+    hook_src = _hook_module.__file__
+    hook_dst = Path(path, 'teaparty', 'workspace', 'worktree_hook.py')
+    hook_dst.parent.mkdir(parents=True, exist_ok=True)
+    _shutil.copy2(hook_src, hook_dst)
+    subprocess.run(['git', 'add', 'README.md', 'teaparty'], cwd=path, check=True,
                    capture_output=True)
     subprocess.run(['git', 'commit', '-m', 'init'], cwd=path, check=True,
                    capture_output=True)
@@ -299,6 +308,11 @@ class _SessionTestBase(unittest.TestCase):
         _init_git_repo(self.poc_root)
         self.projects_dir = os.path.join(self._tmp, 'projects')
         os.makedirs(self.projects_dir)
+        # Pre-init the project repo so AgentRunner._check_jail_hook finds
+        # the worktree_hook.py in every worktree spawned from it.
+        project_dir = os.path.join(self.projects_dir, 'e2e-test')
+        os.makedirs(project_dir)
+        _init_git_repo(project_dir)
 
     def tearDown(self):
         import shutil

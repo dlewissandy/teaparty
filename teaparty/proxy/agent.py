@@ -707,10 +707,24 @@ async def run_proxy_agent(
     )
     context_block = '\n'.join(context_parts) if context_parts else ''
 
+    # Gate-specific instruction — varies by CfA state.
+    # INTENT_ASSERT: the proxy must probe before approving; rubber-stamping is wrong.
+    gate_instruction = ''
+    if state == 'INTENT_ASSERT':
+        gate_instruction = (
+            f'\nYou are being asked whether the stated intent accurately and '
+            f'completely reflects what was requested. Before indicating any '
+            f'approval, probe with at least one specific question that targets '
+            f'a concrete claim or framing choice in the proposal. Ask about '
+            f'scope, assumptions, or anything that seems underspecified. '
+            f'Do not rubber-stamp.\n'
+        )
+
     # ── Pass 1: Prior (without artifact) ─────────────────────────────────
     prior_prompt = (
-        f"You are a human proxy agent. You predict what the human would say "
-        f"at a CfA approval gate. You have NOT seen the artifact yet.\n\n"
+        f"You are standing in for a human at a CfA workflow approval gate. "
+        f"Your job is to respond as that human would — in their voice, "
+        f"directly and without jargon. You have NOT yet seen the artifact.\n\n"
         f"{memory_block}"
         f"{accuracy_block}"
         f"{learning_block}"
@@ -718,13 +732,13 @@ async def run_proxy_agent(
         f"{dialog_block}\n"
         f"State: {state}\n"
         f"Question: {question}\n\n"
-        f"Based on your memories of working with this human and the context "
-        f"above, predict what the human would do.\n\n"
-        f"On the FINAL lines, write:\n"
-        f"ACTION: approve\n"
-        f"CONFIDENCE: 0.85\n\n"
-        f"ACTION must be one of: approve, correct, escalate, withdraw.\n"
-        f"CONFIDENCE is a decimal 0.0 to 1.0."
+        f"{gate_instruction}\n"
+        f"Based on what you know about how this human works, write 2-4 sentences "
+        f"responding to this question the way the human would. Be direct and "
+        f"specific. Do not return a structured verdict — write natural text "
+        f"as the human would say it.\n\n"
+        f"On the final line, write only:\n"
+        f"CONFIDENCE: <float 0.0–1.0>"
     )
 
     prior_text, prior_confidence, prior_action = await _invoke_claude_proxy(
@@ -733,21 +747,19 @@ async def run_proxy_agent(
 
     # Fast-fail: if Pass 1 returned nothing, the CLI is degraded.
     # Skip Pass 2 and surprise extraction to bound worst-case latency.
-    if not prior_text and not prior_action:
+    if not prior_text:
         return _TwoPassResult()
 
     # ── Pass 2: Posterior (with artifact + prior) ────────────────────────
-    prior_block = ''
-    if prior_action:
-        prior_block = (
-            f'\nYour prior prediction (before seeing the artifact):\n'
-            f'ACTION: {prior_action}\n'
-            f'Reasoning: {prior_text[:500]}\n'
-        )
+    prior_block = (
+        f'\nYour initial reaction (before reading the artifact):\n'
+        f'{prior_text[:500]}\n'
+    )
 
     posterior_prompt = (
-        f"You are a human proxy agent. You predict what the human would say "
-        f"at a CfA approval gate. You have now seen the artifact.\n\n"
+        f"You are standing in for a human at a CfA workflow approval gate. "
+        f"Your job is to respond as that human would — in their voice, "
+        f"directly and without jargon. You have now read the artifact.\n\n"
         f"{memory_block}"
         f"{accuracy_block}"
         f"{learning_block}"
@@ -757,15 +769,14 @@ async def run_proxy_agent(
         f"Question: {question}\n\n"
         f"{prior_block}\n"
         f"Now read the artifact and any upstream context files. Revise your "
-        f"prediction based on what you find.\n\n"
+        f"response based on what you find.\n\n"
         f"{context_block}\n\n"
-        f"Respond as the human would. If the artifact changed your prediction, "
-        f"explain what changed and why.\n\n"
-        f"On the FINAL lines, write:\n"
-        f"ACTION: approve\n"
-        f"CONFIDENCE: 0.85\n\n"
-        f"ACTION must be one of: approve, correct, escalate, withdraw.\n"
-        f"CONFIDENCE is a decimal 0.0 to 1.0."
+        f"{gate_instruction}\n"
+        f"Respond as the human would. If your reaction has changed after reading "
+        f"the artifact, say what changed and why. Write natural text — not a "
+        f"structured verdict.\n\n"
+        f"On the final line, write only:\n"
+        f"CONFIDENCE: <float 0.0–1.0>"
     )
 
     post_text, post_confidence, post_action = await _invoke_claude_proxy(
@@ -774,7 +785,7 @@ async def run_proxy_agent(
 
     # Fast-fail: if Pass 2 returned nothing, fall back to the prior result.
     # Skip surprise extraction to avoid a third CLI call on a degraded CLI.
-    if not post_text and not post_action:
+    if not post_text:
         return _TwoPassResult(
             text=prior_text,
             confidence=prior_confidence,
@@ -786,10 +797,9 @@ async def run_proxy_agent(
     # ── Surprise detection ───────────────────────────────────────────────
     prediction_delta = ''
     salient_percepts: list[str] = []
-    action_changed = prior_action and post_action and prior_action != post_action
     confidence_shifted = abs(post_confidence - prior_confidence) > 0.3
 
-    if action_changed or confidence_shifted:
+    if confidence_shifted:
         prediction_delta, salient_percepts = await _extract_surprise(
             prior_action, prior_confidence, prior_text,
             post_action, post_confidence, post_text,
