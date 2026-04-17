@@ -291,7 +291,12 @@ def _calibrate_confidence(
 
 # Minimum number of distinct (state, task_type) pairs in the ACT-R memory
 # store before the proxy is trusted to use its own confidence assessment.
-MEMORY_DEPTH_THRESHOLD = 3
+# Temporarily relaxed to 0 so the proxy can drive gates on fresh projects
+# without the cold-start cap forcing every gate to escalate (which leads
+# to rubber-stamping).  Other safeguards still run: genuine-tension,
+# staleness, exploration-rate, and posterior-accuracy.  The rewrite in
+# the next milestone will revisit the whole calibration stack.
+MEMORY_DEPTH_THRESHOLD = 0
 
 # Posterior accuracy threshold for earned autonomy: the proxy must correctly
 # predict the human's action at least this fraction of the time.
