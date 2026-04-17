@@ -637,11 +637,16 @@ class ApprovalGate:
         fallback_count = 0
         dialog_turns = 0
 
-        # Publish the canonical gate question once, up front, so the
-        # accordion shows what the proxy/human is being asked.
-        self._publish_to_job_conversation(
-            ctx, project_slug, 'proxy-gate', f'[{ctx.state}] {gate_question}',
-        )
+        # NOTE on gate-question publishing:  Do NOT publish the gate question
+        # up front.  Publishing before we're ready to listen creates a race:
+        # the user sees the prompt and responds during the long consult_proxy
+        # call, but MessageBusInputProvider captures its `since` timestamp
+        # only when it starts polling — so the human's reply predates `since`
+        # and is lost.  Instead, the gate question is published at the point
+        # where the answer will actually be acted on: inside
+        # _ask_human_through_proxy_inner for the proxy-answer paths, and via
+        # MessageBusInputProvider's bridge_text write for the human-asked
+        # paths.  Both happen after consult_proxy returns.
 
         while True:
             # Ask the human — through the proxy.
@@ -918,7 +923,15 @@ class ApprovalGate:
             and proxy_result.text
         )
 
+        # Build the gate-question header once for the proxy-answer paths.
+        # Published only here, not from the outer loop, to avoid racing the
+        # listener in MessageBusInputProvider.
+        gate_header = f'[{ctx.state}] {bridge_override or self._generate_bridge(artifact_path, ctx.state, ctx.task, session_worktree=ctx.session_worktree, infra_dir=ctx.infra_dir)}'
+
         if proxy_confident:
+            self._publish_to_job_conversation(
+                ctx, project_slug, 'proxy-gate', gate_header,
+            )
             self._publish_to_job_conversation(
                 ctx, project_slug, 'proxy', proxy_result.text,
             )
@@ -928,6 +941,9 @@ class ApprovalGate:
         if self.never_escalate or should_never_escalate(
             ctx.state, self.human_presence, team=team,
         ):
+            self._publish_to_job_conversation(
+                ctx, project_slug, 'proxy-gate', gate_header,
+            )
             self._publish_to_job_conversation(
                 ctx, project_slug, 'proxy', proxy_result.text,
             )

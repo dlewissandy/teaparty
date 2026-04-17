@@ -710,6 +710,14 @@ class MessageBusInputProvider:
         self._current_request = request
         self._waiting = True
         try:
+            # Capture the poll cutoff BEFORE writing bridge_text.  The caller
+            # may have already surfaced the prompt to the user (e.g. by
+            # publishing a gate question up-front), and the user may have
+            # responded while consult_proxy was running.  Capturing `since`
+            # after the bridge_text write would miss those responses.  Using
+            # gate-entry time catches them.  Stale messages from prior gates
+            # have earlier timestamps and are still excluded.
+            since = time.time()
             # Record the question attributed to the project lead (or 'orchestrator' fallback).
             # Skip if empty — the agent's output is already visible in the conversation
             # (Socratic querying: INTENT_ASSERT with no artifact yet).
@@ -723,7 +731,6 @@ class MessageBusInputProvider:
             self.bus.set_awaiting_input(self.conversation_id, True)
 
             # Poll for human response
-            since = time.time()
             while True:
                 messages = self.bus.receive(self.conversation_id, since_timestamp=since)
                 for msg in messages:
