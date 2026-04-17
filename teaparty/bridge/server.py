@@ -395,6 +395,8 @@ class TeaPartyBridge:
         app.router.add_post('/api/withdraw/{session_id}', self._handle_withdraw)
         app.router.add_get('/api/jobs/{slug}/{session_id}/status', self._handle_job_status)
         app.router.add_post('/api/jobs/{slug}/{session_id}/wake', self._handle_job_wake)
+        app.router.add_get('/api/projects/{slug}/escalation', self._handle_escalation_get)
+        app.router.add_patch('/api/projects/{slug}/escalation', self._handle_escalation_patch)
 
         # ── Filesystem navigation endpoint ────────────────────────────────────
         app.router.add_get('/api/fs/list', self._handle_fs_list)
@@ -2913,6 +2915,77 @@ class TeaPartyBridge:
         await self._resume_job_session(slug, session_id)
         return web.json_response({'ok': True})
 
+    async def _handle_escalation_get(self, request: web.Request) -> web.Response:
+        """GET /api/projects/{slug}/escalation — per-gate escalation modes.
+
+        Returns {gates: [...], modes: {state: mode}} where `gates` is the
+        fixed list of CfA states that accept modes and `modes` is the
+        project's configured overrides (absent keys use the default
+        'when_unsure').
+        """
+        slug = request.match_info['slug']
+        if not self._lookup_project_path(slug):
+            return web.json_response(
+                {'error': f'project not found: {slug}'}, status=404)
+        return web.json_response({
+            'gates': list(self._ESCALATION_GATES),
+            'default': 'when_unsure',
+            'valid_modes': sorted(self._ESCALATION_VALID_MODES),
+            'modes': self._load_escalation_modes(slug),
+        })
+
+    async def _handle_escalation_patch(self, request: web.Request) -> web.Response:
+        """PATCH /api/projects/{slug}/escalation — update one gate's mode.
+
+        Body: {"state": "INTENT_ASSERT", "mode": "always"}.  Rewrites the
+        `escalation` section of project.yaml; in-flight sessions are
+        unaffected until they resume (escalation mode is read at session
+        construction time).
+        """
+        slug = request.match_info['slug']
+        project_path = self._lookup_project_path(slug)
+        if not project_path:
+            return web.json_response(
+                {'error': f'project not found: {slug}'}, status=404)
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({'error': 'invalid JSON'}, status=400)
+        state = body.get('state', '')
+        mode = body.get('mode', '')
+        if state not in self._ESCALATION_GATES:
+            return web.json_response(
+                {'error': f'unknown gate: {state}'}, status=400)
+        if mode not in self._ESCALATION_VALID_MODES:
+            return web.json_response(
+                {'error': f'invalid mode: {mode}'}, status=400)
+
+        # Rewrite project.yaml in place, preserving everything else.
+        import yaml
+        from teaparty.config.config_reader import project_config_path
+        yaml_path = project_config_path(project_path)
+        if not os.path.isfile(yaml_path):
+            return web.json_response(
+                {'error': f'project.yaml not found: {yaml_path}'}, status=404)
+        with open(yaml_path) as f:
+            data = yaml.safe_load(f) or {}
+        escalation = dict(data.get('escalation') or {})
+        # 'when_unsure' is the default; drop the key rather than write it.
+        if mode == 'when_unsure':
+            escalation.pop(state, None)
+        else:
+            escalation[state] = mode
+        if escalation:
+            data['escalation'] = escalation
+        else:
+            data.pop('escalation', None)
+        with open(yaml_path, 'w') as f:
+            yaml.safe_dump(data, f, sort_keys=False)
+        return web.json_response({
+            'ok': True,
+            'modes': self._load_escalation_modes(slug),
+        })
+
     async def _handle_session_tasks(self, request: web.Request) -> web.Response:
         """List dispatched tasks for a session (issue #389).
 
@@ -3019,11 +3092,14 @@ class TeaPartyBridge:
         from teaparty.cfa.session import Session
         from teaparty.messaging.conversations import MessageBusInputProvider
 
+        escalation_modes = self._load_escalation_modes(project_slug)
+
         session = Session(
             task,
             poc_root=self._repo_root,
             project_override=project_slug,
             session_id=session_id,
+            escalation_modes=escalation_modes,
         )
 
         async def _run_session():
@@ -3042,6 +3118,38 @@ class TeaPartyBridge:
             'session_id': session_id,
             'conversation_id': conversation_id,
         })
+
+    # CfA gate states that accept a per-gate escalation mode.
+    _ESCALATION_GATES: tuple[str, ...] = (
+        'INTENT_ASSERT', 'PLAN_ASSERT', 'TASK_ASSERT', 'WORK_ASSERT',
+    )
+    _ESCALATION_VALID_MODES: frozenset[str] = frozenset(
+        {'always', 'when_unsure', 'never'}
+    )
+
+    def _load_escalation_modes(self, project_slug: str) -> dict[str, str]:
+        """Read per-gate escalation modes from the project's project.yaml.
+
+        Returns a dict mapping CfA state → mode string.  Absent states use
+        the default ('when_unsure') and are omitted from the dict.
+        """
+        project_path = self._lookup_project_path(project_slug)
+        if not project_path:
+            return {}
+        try:
+            from teaparty.config.config_reader import load_project_team
+            team = load_project_team(project_path)
+            # Only include recognized gates with valid modes; silently drop
+            # the rest so a stale config can't wedge a session.
+            return {
+                state: mode
+                for state, mode in (team.escalation or {}).items()
+                if state in self._ESCALATION_GATES
+                and mode in self._ESCALATION_VALID_MODES
+            }
+        except Exception:
+            _log.debug('failed to load escalation modes for %s', project_slug, exc_info=True)
+            return {}
 
     async def _resume_job_session(self, project_slug: str, session_id: str) -> None:
         """Resume a CfA session when the human posts to a job conversation.
@@ -3076,11 +3184,14 @@ class TeaPartyBridge:
 
         from teaparty.cfa.session import Session
 
+        escalation_modes = self._load_escalation_modes(project_slug)
+
         async def _run_resume():
             try:
                 await Session.resume_from_disk(
                     infra_dir,
                     poc_root=self._repo_root,
+                    escalation_modes=escalation_modes,
                 )
             except Exception:
                 _log.exception(

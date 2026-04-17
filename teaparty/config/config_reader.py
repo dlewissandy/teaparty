@@ -272,6 +272,11 @@ class ProjectTeam:
     budget: dict[str, float] = field(default_factory=dict)
     stats: dict[str, str] = field(default_factory=dict)
     artifact_pins: list[dict[str, str]] = field(default_factory=list)
+    # Per-gate escalation mode.  Keys are CfA state names (e.g. INTENT_ASSERT);
+    # values are 'always' (always escalate; proxy observes only),
+    # 'when_unsure' (default; escalate only when proxy confidence is low),
+    # or 'never' (proxy decides; escalation path suppressed).
+    escalation: dict[str, str] = field(default_factory=dict)
 
 
 # ── Parsers ──────────────────────────────────────────────────────────────────
@@ -443,6 +448,7 @@ def load_project_team(
         budget=data.get('budget', {}),
         stats=data.get('stats', {}),
         artifact_pins=data.get('artifact_pins', []),
+        escalation=data.get('escalation', {}) or {},
     )
 
 

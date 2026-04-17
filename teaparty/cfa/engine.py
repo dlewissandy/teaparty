@@ -237,6 +237,7 @@ class Orchestrator:
         intervention_queue: InterventionQueue | None = None,
         role_enforcer: RoleEnforcer | None = None,
         human_presence: HumanPresence | None = None,
+        escalation_modes: dict[str, str] | None = None,
         gate_queue: GateQueue | None = None,
         cost_tracker: CostTracker | None = None,
         llm_backend: str = 'claude',
@@ -314,6 +315,7 @@ class Orchestrator:
             proxy_enabled=proxy_enabled,
             never_escalate=never_escalate,
             human_presence=human_presence,
+            escalation_modes=escalation_modes,
             gate_queue=gate_queue,
         )
 

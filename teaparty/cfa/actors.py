@@ -587,6 +587,7 @@ class ApprovalGate:
         proxy_enabled: bool = True,
         never_escalate: bool = False,
         human_presence: HumanPresence | None = None,
+        escalation_modes: dict[str, str] | None = None,
         gate_queue: GateQueue | None = None,
     ):
         self.proxy_model_path = proxy_model_path
@@ -595,6 +596,10 @@ class ApprovalGate:
         self.proxy_enabled = proxy_enabled
         self.never_escalate = never_escalate
         self.human_presence = human_presence
+        # Per-state override of the escalation decision.  Keys are CfA state
+        # names; values are 'always' (force human escalation), 'when_unsure'
+        # (default; use proxy's confidence), or 'never' (force proxy answer).
+        self.escalation_modes = escalation_modes or {}
         self.gate_queue = gate_queue
         self._gate_lock = asyncio.Lock()  # Serializes concurrent gate processing (#202)
         self._last_proxy_result = None  # Most recent ProxyResult for memory recording
@@ -926,11 +931,20 @@ class ApprovalGate:
         if pending:
             return pending, False
 
+        # Per-gate escalation mode override.  'always' forces the human-
+        # present branch regardless of HumanPresence config (proxy still
+        # ran for observation/learning).  'never' forces the proxy-answer
+        # branch regardless of confidence.  'when_unsure' (or unset) falls
+        # through to the default logic below.
+        gate_mode = self.escalation_modes.get(ctx.state, 'when_unsure')
+        force_human = (gate_mode == 'always')
+        force_proxy = (gate_mode == 'never')
+
         # Issue #202: When the human is present at this gate's level,
         # route directly to the human.  The proxy still ran (for observation
         # and learning) but doesn't answer — the human does.
         team = ctx.env_vars.get('POC_TEAM', '')
-        if (self.human_presence is not None
+        if force_human or (self.human_presence is not None
                 and self.human_presence.human_should_answer(ctx.state, team=team)):
             # Human is present — ask them directly, record observation
             bridge_text = bridge_override or self._generate_bridge(
@@ -1002,8 +1016,9 @@ class ApprovalGate:
             )
             return proxy_result.text, True
 
-        # Never-escalate: dynamic based on human presence (Issue #202).
-        if self.never_escalate or should_never_escalate(
+        # Never-escalate: per-gate mode, ApprovalGate flag, or the dynamic
+        # check (Issue #202: default never-escalate states + human absent).
+        if force_proxy or self.never_escalate or should_never_escalate(
             ctx.state, self.human_presence, team=team,
         ):
             if first_turn:

@@ -181,6 +181,7 @@ class Session:
         skip_learning_retrieval: bool = False,
         humans: list | None = None,
         human_presence: HumanPresence | None = None,
+        escalation_modes: dict[str, str] | None = None,
         llm_caller: Any = None,
     ):
         self.task = task
@@ -208,6 +209,7 @@ class Session:
         self.skip_learning_retrieval = skip_learning_retrieval
         self._role_enforcer = RoleEnforcer.from_humans(humans) if humans else None
         self.human_presence = human_presence
+        self.escalation_modes = escalation_modes or {}
         self._llm_caller = llm_caller
 
         # Resolved during run
@@ -414,6 +416,7 @@ class Session:
                 project_dir=project_dir,
                 role_enforcer=self._role_enforcer,
                 human_presence=self.human_presence,
+                escalation_modes=self.escalation_modes,
                 cost_tracker=self._resolve_cost_tracker(project_dir),
                 intervention_queue=self._intervention_queue,
                 llm_backend=os.environ.get('TEAPARTY_LLM_BACKEND', 'claude'),
@@ -791,6 +794,7 @@ class Session:
         input_provider: InputProvider | None = None,
         humans: list | None = None,
         human_presence: HumanPresence | None = None,
+        escalation_modes: dict[str, str] | None = None,
     ) -> SessionResult:
         """Reconstruct a session from persisted disk state and resume orchestration.
 
@@ -968,6 +972,7 @@ class Session:
                 project_dir=project_dir,
                 role_enforcer=role_enforcer,
                 human_presence=human_presence,
+                escalation_modes=escalation_modes,
                 cost_tracker=_resolve_cost_tracker_impl(project_dir),
                 intervention_queue=intervention_queue,
             )

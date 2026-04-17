@@ -233,7 +233,63 @@ function showProjectModal() {
 
 // Page state: updated by fetchAll() and WebSocket events.
 // escalationConvMap: session_id → conversation_id from input_requested events.
-var pageState = { projects: [], configs: {}, omConvId: 'om', omSessionId: 'office-manager', escalationConvMap: {}, pausedProjects: {} };
+var pageState = { projects: [], configs: {}, omConvId: 'om', omSessionId: 'office-manager', escalationConvMap: {}, pausedProjects: {}, escalationModes: {} };
+
+// Escalation gates and mode ordering shared with the backend.
+var ESCALATION_GATES = [
+  {state: 'INTENT_ASSERT', label: 'Intent'},
+  {state: 'PLAN_ASSERT',   label: 'Plan'},
+  {state: 'TASK_ASSERT',   label: 'Task'},
+  {state: 'WORK_ASSERT',   label: 'Work'},
+];
+var ESCALATION_MODES = ['always', 'when_unsure', 'never'];
+var ESCALATION_LABELS = {
+  'always':      'Always',
+  'when_unsure': 'When unsure',
+  'never':       'Never',
+};
+
+function renderEscalation(slug) {
+  var modes = (pageState.escalationModes || {})[slug] || {};
+  var rowsHtml = ESCALATION_GATES.map(function(g) {
+    var cur = modes[g.state] || 'when_unsure';
+    var stops = ESCALATION_MODES.map(function(m) {
+      return '<span class="escalation-slider-stop" onclick="event.stopPropagation();setEscalationMode(\'' + slug + '\',\'' + g.state + '\',\'' + m + '\')"></span>';
+    }).join('');
+    return '<div class="escalation-row">' +
+      '<span class="escalation-gate-label" style="flex:0 0 40px">' + g.label + '</span>' +
+      '<span class="escalation-slider" data-mode="' + cur + '">' + stops + '</span>' +
+      '<span class="escalation-pill" data-mode="' + cur + '">' + ESCALATION_LABELS[cur] + '</span>' +
+    '</div>';
+  }).join('');
+  return '<div style="padding:4px 10px 8px;border-top:1px solid var(--border)">' +
+    '<div style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px;padding:4px 0">Escalation mode</div>' +
+    rowsHtml +
+  '</div>';
+}
+
+function fetchEscalationModes(slug) {
+  return fetch('/api/projects/' + encodeURIComponent(slug) + '/escalation')
+    .then(function(r) { return r.ok ? r.json() : null; })
+    .then(function(data) {
+      if (!data) return;
+      pageState.escalationModes[slug] = data.modes || {};
+    })
+    .catch(function() {});
+}
+
+function setEscalationMode(slug, state, mode) {
+  fetch('/api/projects/' + encodeURIComponent(slug) + '/escalation', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ state: state, mode: mode }),
+  }).then(function(r) { return r.ok ? r.json() : null; })
+    .then(function(data) {
+      if (!data) return;
+      pageState.escalationModes[slug] = data.modes || {};
+      render();
+    });
+}
 
 function jobUrl(slug, convId, opts) {
   opts = opts || {};
@@ -271,7 +327,10 @@ function fetchAll() {
         .then(function(cfg) { pageState.configs[p.slug] = cfg; })
         .catch(function() {});
     });
-    return Promise.all(configFetches);
+    var escalationFetches = pageState.projects.map(function(p) {
+      return fetchEscalationModes(p.slug);
+    });
+    return Promise.all(configFetches.concat(escalationFetches));
   }).then(function() {
     render();
     // Merge escalation state from REST into escalationConvMap.
@@ -381,6 +440,9 @@ function render() {
       });
       projectsHtml += '</div>';
     }
+
+    // Escalation mode controls (per-gate three-way slider)
+    projectsHtml += renderEscalation(p.slug);
 
     // Action buttons
     var pName = p.name || p.slug;
