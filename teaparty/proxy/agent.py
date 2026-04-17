@@ -709,16 +709,28 @@ async def run_proxy_agent(
 
     # Gate-specific instruction — varies by CfA state.
     # INTENT_ASSERT: the proxy must probe before approving; rubber-stamping is wrong.
+    # The instruction is dialog-aware: probe required only if no prior probe in
+    # this review, otherwise evaluate whether the answer resolves the concern.
     gate_instruction = ''
     if state == 'INTENT_ASSERT':
-        gate_instruction = (
-            f'\nYou are being asked whether the stated intent accurately and '
-            f'completely reflects what was requested. Before indicating any '
-            f'approval, probe with at least one specific question that targets '
-            f'a concrete claim or framing choice in the proposal. Ask about '
-            f'scope, assumptions, or anything that seems underspecified. '
-            f'Do not rubber-stamp.\n'
-        )
+        if dialog_history.strip():
+            gate_instruction = (
+                f'\nYou have already been in dialog about this intent (see '
+                f'DIALOG SO FAR). Evaluate whether the agent\'s reply resolves '
+                f'your concern. If it does, approve. If it raises a new '
+                f'concrete concern, ask one more focused question. Do not '
+                f'probe indefinitely — once your questions are answered, '
+                f'approve.\n'
+            )
+        else:
+            gate_instruction = (
+                f'\nYou are being asked whether the stated intent accurately '
+                f'and completely reflects what was requested. Before indicating '
+                f'approval, probe with one specific question that targets a '
+                f'concrete claim or framing choice in the proposal — scope, '
+                f'assumptions, or anything that seems underspecified. '
+                f'Do not rubber-stamp.\n'
+            )
 
     # ── Pass 1: Prior (without artifact) ─────────────────────────────────
     prior_prompt = (
