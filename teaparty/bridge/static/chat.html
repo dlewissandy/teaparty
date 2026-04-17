@@ -310,6 +310,7 @@ function senderClass(sender) {
   var s = sender || '';
   if (s === 'human') return 'msg-sender-human';
   if (s === 'proxy' || s.indexOf('proxy') === 0) return 'msg-sender-proxy';
+  if (s === 'gate') return 'msg-sender-gate';
   return 'msg-sender-agent';
 }
 

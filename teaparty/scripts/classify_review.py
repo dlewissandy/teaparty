@@ -70,7 +70,9 @@ CfA state: {state}
 {response}
 
 --- CLASSIFICATION RULES ---
-1. APPROVE: unqualified positive with NO substantive changes. Signals: "looks good", "ship it", "approved", "make it so", "perfect", "yes", "let's go", "LGTM". The human must express no changes at all.
+1. APPROVE: unqualified positive with NO substantive changes. Signals: "looks good", "ship it", "approved", "make it so", "perfect", "yes", "let's go", "LGTM", "go write the file", "proceed", "go ahead". The human must express no changes at all.
+
+   APPROVE — CRITICAL: explicit approval words like "Approved", "Ship it", "Go write the file" in the response — combined with the absence of any pivot word ("but", "however", "though", "except", "actually") — means APPROVE, even if the surrounding text references prior discussion or summarizes what was clarified. Summarizing a settled point (e.g., "your confirmation on X is exactly what I needed") is ACKNOWLEDGMENT, not a new request. Only treat references to prior discussion as changes if they're framed as things the artifact must now be updated to reflect.
 
 2. WITHDRAW: explicit abandonment. Signals: "cancel", "stop", "call it off", "let's not", "abandon", "never mind", "kill it".
 

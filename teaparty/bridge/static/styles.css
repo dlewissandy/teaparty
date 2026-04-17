@@ -431,6 +431,7 @@ body {
 .msg-sender-human { color: var(--green); }
 .msg-sender-agent { color: var(--purple); }
 .msg-sender-proxy { color: var(--orange); }
+.msg-sender-gate { color: var(--text-dim); font-style: italic; }
 .msg-sender-system { color: var(--text-dim); }
 .msg-text {
   font-size: 11px; line-height: 1.5; color: var(--text-dim);

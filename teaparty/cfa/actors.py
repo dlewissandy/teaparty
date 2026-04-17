@@ -893,7 +893,7 @@ class ApprovalGate:
             consult_proxy, PROXY_AGENT_CONFIDENCE_THRESHOLD,
         )
 
-        # Fast path: if the human has already posted a response waiting
+        # Fast path 1: if the human has already posted a response waiting
         # for this gate (typical after a session resume that was triggered
         # by the user's POST), consume it directly.  Skipping consult_proxy
         # avoids a ~30s detour and a race where the triggering message is
@@ -916,6 +916,15 @@ class ApprovalGate:
             dialog_history=dialog_history,
         )
         self._last_proxy_result = proxy_result
+
+        # Fast path 2: during the 15-30s consult_proxy call, the human may
+        # have posted a reply of their own.  Human input always wins over
+        # the proxy's observation — use it directly instead of acting on
+        # the proxy's answer.  Without this check, the user's feedback is
+        # silently ignored when the proxy is confident.
+        pending = self._check_pending_human_input(ctx, project_slug)
+        if pending:
+            return pending, False
 
         # Issue #202: When the human is present at this gate's level,
         # route directly to the human.  The proxy still ran (for observation
@@ -974,15 +983,20 @@ class ApprovalGate:
             and proxy_result.text
         )
 
-        # Build the gate-question header once for the proxy-answer paths.
-        # Published only here, not from the outer loop, to avoid racing the
-        # listener in MessageBusInputProvider.
-        gate_header = f'[{ctx.state}] {bridge_override or self._generate_bridge(artifact_path, ctx.state, ctx.task, session_worktree=ctx.session_worktree, infra_dir=ctx.infra_dir)}'
+        # Publish the canonical gate question (sender 'gate') only on the
+        # first turn of this gate — the first time the proxy is being asked
+        # about the current artifact.  On subsequent turns, bridge_override
+        # carries the agent's reply to the proxy's prior probe, and that
+        # reply is already published as 'agent' by the outer loop — so
+        # re-publishing it here would be a duplicate with a confusing label.
+        first_turn = not bridge_override
 
         if proxy_confident:
-            self._publish_to_job_conversation(
-                ctx, project_slug, 'proxy-gate', gate_header,
-            )
+            if first_turn:
+                self._publish_to_job_conversation(
+                    ctx, project_slug, 'gate',
+                    f'[{ctx.state}] {self._generate_bridge(artifact_path, ctx.state, ctx.task, session_worktree=ctx.session_worktree, infra_dir=ctx.infra_dir)}',
+                )
             self._publish_to_job_conversation(
                 ctx, project_slug, 'proxy', proxy_result.text,
             )
@@ -992,9 +1006,11 @@ class ApprovalGate:
         if self.never_escalate or should_never_escalate(
             ctx.state, self.human_presence, team=team,
         ):
-            self._publish_to_job_conversation(
-                ctx, project_slug, 'proxy-gate', gate_header,
-            )
+            if first_turn:
+                self._publish_to_job_conversation(
+                    ctx, project_slug, 'gate',
+                    f'[{ctx.state}] {self._generate_bridge(artifact_path, ctx.state, ctx.task, session_worktree=ctx.session_worktree, infra_dir=ctx.infra_dir)}',
+                )
             self._publish_to_job_conversation(
                 ctx, project_slug, 'proxy', proxy_result.text,
             )
