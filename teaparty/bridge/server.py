@@ -2150,6 +2150,26 @@ class TeaPartyBridge:
                     path_root = candidate
             if scope_dir is None:
                 return web.json_response({'error': f'agent not found: {name}'}, status=404)
+            # Fall back to defaults when no pins.yaml is configured: an
+            # agent's own defining files (prompt + settings) are what the
+            # config page should always show without requiring every agent
+            # to opt in via pins.yaml.  If the agent has a pins.yaml, that
+            # list is authoritative — we don't mix.
+            result = resolve_pins(scope_dir, path_root)
+            if not result and not os.path.isfile(os.path.join(scope_dir, 'pins.yaml')):
+                for rel, label in (
+                    ('agent.md', 'Prompt & Identity'),
+                    ('settings.yaml', 'Tool & File Permissions'),
+                ):
+                    abs_path = os.path.normpath(os.path.join(path_root, rel))
+                    if os.path.exists(abs_path):
+                        result.append({
+                            'path': abs_path,
+                            'rel_path': rel,
+                            'label': label,
+                            'is_dir': os.path.isdir(abs_path),
+                        })
+            return web.json_response(result)
 
         elif scope == 'workgroup':
             if not name:
