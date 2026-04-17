@@ -2454,22 +2454,46 @@ class TeaPartyBridge:
 
     # ── Filesystem navigation handler ─────────────────────────────────────────
 
-    async def _handle_fs_list(self, request: web.Request) -> web.Response:
-        """GET /api/fs/list?path=<p> or ?project=<slug> — list directory contents.
+    def _resolve_session_worktree(self, session_id: str) -> str | None:
+        """Resolve a session's worktree path from its session_id.
 
-        Accepts either an explicit ``path`` query parameter (absolute directory path)
-        or a ``project`` slug that is resolved to the project directory.  Returns
-        ``{path, entries}`` where *path* is the resolved absolute directory path.
+        Returns the absolute worktree path, or None if the session cannot
+        be located.
+        """
+        if not session_id:
+            return None
+        infra_dir = self._resolve_session_infra(session_id)
+        if not infra_dir:
+            return None
+        from teaparty.cfa.session import _resolve_worktree_path
+        sessions_parent = os.path.dirname(infra_dir)
+        project_dir = os.path.dirname(sessions_parent)
+        return _resolve_worktree_path(infra_dir, session_id, project_dir)
+
+    async def _handle_fs_list(self, request: web.Request) -> web.Response:
+        """GET /api/fs/list?path=<p>|?project=<slug>|?session=<id> — list directory contents.
+
+        Accepts an explicit ``path``, a ``project`` slug resolved to the
+        project directory, or a ``session`` id resolved to the session's
+        worktree.  Session takes precedence over project so job views
+        always see the worktree files, not the project root.
         """
         path = request.rel_url.query.get('path', '')
+        session = request.rel_url.query.get('session', '')
         project = request.rel_url.query.get('project', '')
+        if not path and session:
+            worktree = self._resolve_session_worktree(session)
+            if not worktree:
+                return web.json_response(
+                    {'error': f'session not found: {session}'}, status=404)
+            path = worktree
         if not path and project:
             proj_path = self._lookup_project_path(project)
             if proj_path is None:
                 return web.json_response({'error': f'project not found: {project}'}, status=404)
             path = proj_path
         if not path:
-            return web.json_response({'error': 'path or project parameter required'}, status=400)
+            return web.json_response({'error': 'path, project, or session parameter required'}, status=400)
         try:
             entries = _list_directory(path)
         except FileNotFoundError as exc:
@@ -2477,13 +2501,22 @@ class TeaPartyBridge:
         return web.json_response({'path': path, 'entries': entries})
 
     async def _handle_git_status(self, request: web.Request) -> web.Response:
-        """GET /api/git-status?path=<worktree> — git status for a worktree.
+        """GET /api/git-status?path=<p>|?project=<slug>|?session=<id> — git status for a worktree.
 
         Returns ``{files: {relative_path: status}}`` where status is
-        ``'new'``, ``'modified'``, or ``'deleted'``.
+        ``'new'``, ``'modified'``, ``'deleted'``, or ``'session'`` (CfA
+        session artifact surfaced even when gitignored).  Accepts the
+        same parameter set as ``/api/fs/list``.
         """
         path = request.rel_url.query.get('path', '')
+        session = request.rel_url.query.get('session', '')
         project = request.rel_url.query.get('project', '')
+        if not path and session:
+            worktree = self._resolve_session_worktree(session)
+            if not worktree:
+                return web.json_response(
+                    {'error': f'session not found: {session}'}, status=404)
+            path = worktree
         if not path and project:
             proj_path = self._lookup_project_path(project)
             if proj_path is None:

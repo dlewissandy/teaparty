@@ -210,9 +210,18 @@
   async function _fetchRepoFiles() {
     var worktree = _config.chatLaunchRepo || '';
     if (!worktree) {
-      // For browse mode, resolve from project slug
+      // Job mode: derive session from conv and ask the server for the
+      // worktree. Browse mode: resolve from project slug.
+      var url = null;
+      if (_config.mode === 'job') {
+        var sid = _deriveSessionId();
+        if (sid) url = '/api/fs/list?session=' + encodeURIComponent(sid);
+      }
+      if (!url) {
+        url = '/api/fs/list?project=' + encodeURIComponent(_config.projectSlug || '');
+      }
       try {
-        var resp = await fetch('/api/fs/list?project=' + encodeURIComponent(_config.projectSlug || ''));
+        var resp = await fetch(url);
         if (resp.ok) {
           var data = await resp.json();
           worktree = data.path || '';
@@ -387,9 +396,16 @@
 
   async function _fetchGitStatus() {
     var worktree = _config.chatLaunchRepo || '';
-    if (!worktree) { _gitStatuses = {}; return; }
+    var url = null;
+    if (worktree) {
+      url = '/api/git-status?path=' + encodeURIComponent(worktree);
+    } else if (_config.mode === 'job') {
+      var sid = _deriveSessionId();
+      if (sid) url = '/api/git-status?session=' + encodeURIComponent(sid);
+    }
+    if (!url) { _gitStatuses = {}; return; }
     try {
-      var resp = await fetch('/api/git-status?path=' + encodeURIComponent(worktree));
+      var resp = await fetch(url);
       if (resp.ok) {
         var data = await resp.json();
         var raw = data.files || {};
