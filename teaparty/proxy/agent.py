@@ -838,6 +838,19 @@ def _build_artifact_context(
     """Build context parts for artifact and upstream documents."""
     context_parts = []
 
+    # Original request (PROMPT.txt) — the source of truth for what the
+    # human actually asked for.  Include it at every assert/escalate state
+    # so the proxy can compare the artifact against the real request and
+    # doesn't hallucinate the ask.  Without this the proxy reviews the
+    # artifact in a vacuum and invents constraints.
+    if infra_dir:
+        prompt_path = os.path.join(infra_dir, 'PROMPT.txt')
+        if os.path.isfile(prompt_path):
+            context_parts.append(
+                f'Original request (the user\'s exact words — this is what '
+                f'the artifact must accurately capture): {prompt_path}'
+            )
+
     if artifact_path and os.path.isfile(artifact_path):
         context_parts.append(f'Artifact under review: {artifact_path}')
     elif not artifact_path and session_worktree and state in ('TASK_ASSERT', 'TASK_ESCALATE'):
