@@ -306,15 +306,23 @@ function filterMessages(messages) {
   });
 }
 
+function senderClass(sender) {
+  var s = sender || '';
+  if (s === 'human') return 'msg-sender-human';
+  if (s === 'proxy' || s.indexOf('proxy') === 0) return 'msg-sender-proxy';
+  return 'msg-sender-agent';
+}
+
 function renderMessages(messages) {
   var filtered = filterMessages(messages);
   return filtered.map(function(m) {
-    var isHuman = (m.sender || '') === 'human';
+    var sender = m.sender || '';
+    var isHuman = sender === 'human';
     var raw = m.content || m.text || '';
     if (isHuman) raw = stripViewingPrefix(raw);
     var rendered = renderMarkdown(raw);
     return '<div class="msg">' +
-      '<div class="msg-sender ' + (isHuman ? 'msg-sender-human' : 'msg-sender-agent') + '">' + (m.sender || '') + '</div>' +
+      '<div class="msg-sender ' + senderClass(sender) + '">' + sender + '</div>' +
       '<div class="msg-text">' + rendered + '</div>' +
     '</div>';
   }).join('');
