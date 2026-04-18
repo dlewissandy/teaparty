@@ -1017,7 +1017,9 @@ class TestHierarchyFields(unittest.TestCase):
         self.assertEqual(child.team_id, 'coding')
         self.assertEqual(child.depth, 1)
         self.assertEqual(child.state, 'INTENT')
-        self.assertEqual(child.phase, 'planning')
+        # phase matches phase_for_state(state); child passes through the
+        # brief INTENT acknowledgment before advancing into planning.
+        self.assertEqual(child.phase, 'intent')
         self.assertTrue(child.task_id.startswith('coding-'))
 
     def test_make_child_state_custom_task_id(self):
@@ -1051,7 +1053,8 @@ class TestHierarchyFields(unittest.TestCase):
     def test_hierarchy_preserved_through_transitions(self):
         parent = _make_at_state('TASK', task_id='uber-001')
         child = make_child_state(parent, 'coding')
-        # Child starts at INTENT (skips intent phase per spec Section 7)
+        # Child starts at INTENT; the inherited intent is acknowledged
+        # (not re-derived) before advancing into planning.
         child = transition(child, 'plan')
         self.assertEqual(child.parent_id, 'uber-001')
         self.assertEqual(child.team_id, 'coding')

@@ -108,17 +108,19 @@ def make_initial_state(task_id: str = '', team_id: str = '') -> CfaState:
 def make_child_state(parent: CfaState, team_id: str, task_id: str = '') -> CfaState:
     """Create a child CfaState linked to a parent dispatch.
 
-    Per spec Section 7: "The subteam does not need its own intent alignment
-    phase because the delegated TASK already carries the approved intent from
-    the outer scope. The subteam enters directly at planning."
+    Per spec Section 7, the subteam does not re-derive intent — the delegated
+    TASK already carries the approved intent from the outer scope.  The child
+    still enters at the INTENT state (to acknowledge the inherited INTENT.md)
+    but passes through it quickly rather than running the full intent-alignment
+    phase.  ``phase`` matches ``phase_for_state(state)`` throughout the session;
+    the first real transition will advance into planning.
 
-    The child starts at INTENT (intent already approved by outer scope),
-    linked to the parent via parent_id = parent.task_id, with
+    Linked to the parent via parent_id = parent.task_id, with
     depth = parent.depth + 1.
     """
     child_task_id = task_id or f"{team_id}-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
     return CfaState(
-        phase='planning',
+        phase='intent',
         state='INTENT',
         actor='planning_team',
         history=[],
@@ -451,7 +453,7 @@ def _cli_test() -> None:
     assert child.team_id == 'coding'
     assert child.depth == 1
     assert child.state == 'INTENT', f"Expected INTENT, got {child.state}"
-    assert child.phase == 'planning', f"Expected planning, got {child.phase}"
+    assert child.phase == 'intent', f"Expected intent, got {child.phase}"
     assert is_root(parent) is True  # depth=0, parent_id='' → root even with task_id set
     root = make_initial_state()
     assert is_root(root) is True

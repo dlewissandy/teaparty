@@ -12,7 +12,7 @@ The CfA state machine (`teaparty/cfa/statemachine/cfa_state.py`) implements the 
 
 **JSON file persistence.** CfA state is persisted as `.cfa-state.json` in the session's infrastructure directory. JSON was chosen over a database because each session runs in an isolated worktree with its own filesystem — file persistence aligns with the isolation model and requires no shared infrastructure.
 
-**Child states skip intent.** `make_child_state(parent, team_id)` enters at INTENT (the planning phase entry point), not IDEA, because intent has already been approved at the parent level. This avoids redundant intent gathering at every hierarchy level. Future work: consider intent re-validation at narrower scope. A child subteam working on a narrower task could legitimately ask "Is this task part of your original intent?"
+**Children acknowledge inherited intent quickly.** `make_child_state(parent, team_id)` enters at the INTENT state, not IDEA, because intent has already been approved at the parent level. The child acknowledges the inherited `INTENT.md` rather than re-deriving it, and advances into planning. `phase` matches `phase_for_state(state)` throughout — so the child is briefly in the intent phase (at state INTENT) before its first transition moves it into planning. Future work: consider intent re-validation at narrower scope. A child subteam working on a narrower task could legitimately ask "Is this task part of your original intent?"
 
 ---
 
