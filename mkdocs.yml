@@ -75,6 +75,12 @@ nav:
       - Heartbeat: systems/bridge/heartbeat.md
       - Stats Bar: systems/bridge/stats-bar.md
       - Telemetry: systems/bridge/telemetry.md
+  - Guides:
+    - Overview: guides/index.md
+    - Quickstart: guides/quickstart.md
+    - Steering a Session: guides/steering-sessions.md
+    - Configuring Teams: guides/configuring-teams.md
+    - Project Onboarding: guides/project-onboarding.md
   - Case Study:
     - Overview: case-study/index.md
     - Intent & Planning: case-study/dialog.md
@@ -83,6 +89,13 @@ nav:
     - Obstacles: case-study/obstacles.md
     - Learnings: case-study/learnings.md
     - Key Takeaways: case-study/takeaways.md
+  - Reference:
+    - Folder Structure: reference/folder-structure.md
+    - Team Configuration: reference/team-configuration.md
+    - Built-in Teams: reference/built-in-teams/index.md
+    - Dashboard: reference/dashboard.md
+    - UX Design: reference/UX.md
+    - Autodiscovery: reference/autodiscovery.md
   - Research:
     - Research Library: research/INDEX.md
     - Conversation Patterns for Agents: research/conversation-patterns.md
@@ -94,16 +107,7 @@ nav:
     - Human Proxy Agent Design: research/human-proxy-agent-design.md
     - Proxy Prediction & Active Learning: research/proxy-prediction-and-active-learning.md
     - Self-Compacting Memory: research/self-compacting-memory.md
-  - Guides:
-    - Project Onboarding: guides/project-onboarding.md
-  - Reference:
-    - Folder Structure: reference/folder-structure.md
-    - Team Configuration: reference/team-configuration.md
-    - Built-in Teams: reference/built-in-teams/index.md
-    - Dashboard: reference/dashboard.md
-    - UX Design: reference/UX.md
-    - Autodiscovery: reference/autodiscovery.md
-  - Evaluation:
+  - Planned Validation:
     - Overview: experimental-results/index.md
     - CfA Backtrack Effectiveness: experimental-results/cfa-backtrack-effectiveness.md
     - Hierarchical vs. Flat Coordination: experimental-results/hierarchical-vs-flat-coordination.md
@@ -112,10 +116,3 @@ nav:
     - Asymmetric Regret Calibration: experimental-results/asymmetric-regret-calibration.md
     - Scoped vs. Flat Retrieval: experimental-results/scoped-vs-flat-retrieval.md
     - Cost-Quality Frontier: experimental-results/cost-quality-frontier.md
-  - Future Work:
-    - Research Directions: reference/research-directions.md
-    - "Cognitive Architecture (Phases 2–7)": proposals/cognitive-architecture.md
-    - Recursive Dispatch: proposals/recursive-dispatch/proposal.md
-    - Workflow Skills: proposals/workflow-skills/proposal.md
-    - Self-Improvement: proposals/self-improvement/proposal.md
-    - "Milestone 4": proposals/milestone-4.md
