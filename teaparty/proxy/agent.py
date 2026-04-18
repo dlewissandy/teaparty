@@ -843,18 +843,27 @@ def _build_artifact_context(
     """Build context parts for artifact and upstream documents."""
     context_parts = []
 
-    # Original request (PROMPT.txt) — the source of truth for what the
-    # human actually asked for.  Include it at every assert/escalate state
-    # so the proxy can compare the artifact against the real request and
-    # doesn't hallucinate the ask.  Without this the proxy reviews the
-    # artifact in a vacuum and invents constraints.
+    # PROMPT.txt is the initial seed — the user's first-turn wording.
+    # INTENT.md may have been refined since, and IS the authoritative spec
+    # at PLAN_ASSERT / WORK_ASSERT / TASK_ASSERT.  Label accordingly so
+    # the proxy doesn't treat a stale PROMPT as ground truth and flag
+    # approved refinements as "over-scoped" contradictions.
     if infra_dir:
         prompt_path = os.path.join(infra_dir, 'PROMPT.txt')
         if os.path.isfile(prompt_path):
-            context_parts.append(
-                f'Original request (the user\'s exact words — this is what '
-                f'the artifact must accurately capture): {prompt_path}'
-            )
+            if state in ('INTENT_ASSERT', 'INTENT_ESCALATE'):
+                # Intent is being built from PROMPT — it's authoritative here.
+                context_parts.append(
+                    f'Original request (the user\'s exact words — INTENT.md '
+                    f'must accurately capture this): {prompt_path}'
+                )
+            else:
+                # Post-intent phases: INTENT.md supersedes PROMPT.txt.
+                context_parts.append(
+                    f'Initial seed (the user\'s first-turn wording; may have '
+                    f'been refined since — see INTENT.md for the current '
+                    f'authoritative spec): {prompt_path}'
+                )
 
     if artifact_path and os.path.isfile(artifact_path):
         context_parts.append(f'Artifact under review: {artifact_path}')
@@ -872,7 +881,10 @@ def _build_artifact_context(
                     continue
                 path = os.path.join(search_dir, name)
                 if os.path.isfile(path):
-                    context_parts.append(f'Upstream context: {path}')
+                    context_parts.append(
+                        f'Authoritative spec (approved intent — this is '
+                        f'what the artifact must fulfill): {path}'
+                    )
                     break
     if state in ('WORK_ASSERT', 'TASK_ASSERT', 'TASK_ESCALATE'):
         for name in ('PLAN.md', 'WORK_SUMMARY.md'):
