@@ -2,7 +2,7 @@
 
 Research on detecting, classifying, and resolving conflicting information in persistent agent memory — with particular focus on LLM agent systems that accumulate episodic memories of a specific human's decisions and preferences.
 
-This file was created to support the TeaParty proxy agent's "contradictory retrieval" signal (described in `docs/conceptual-design/human-proxies.md` §"Knowing When to Ask"): when retrieved memories point in conflicting directions, the proxy must recognize the conflict, classify its cause, and decide whether to act, merge, or escalate.
+This file was created to support the TeaParty proxy agent's "contradictory retrieval" signal (described in `docs/systems/human-proxy/index.md` §"Knowing When to Ask"): when retrieved memories point in conflicting directions, the proxy must recognize the conflict, classify its cause, and decide whether to act, merge, or escalate.
 
 ---
 

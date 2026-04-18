@@ -40,16 +40,15 @@ class TestNoStaleReferences(unittest.TestCase):
 
     DOC_FILES = [
         "overview.md",
-        "conceptual-design/agent-dispatch.md",
-        "conceptual-design/hierarchical-teams.md",
-        "conceptual-design/human-proxies.md",
-        "conceptual-design/cfa-state-machine.md",
-        "detailed-design/index.md",
-        "detailed-design/agent-runtime.md",
-        "detailed-design/cfa-state-machine.md",
-        "detailed-design/approval-gate.md",
-        "detailed-design/heartbeat.md",
-        "detailed-design/learning-system.md",
+        "systems/messaging/dispatch.md",
+        "systems/human-proxy/index.md",
+        "systems/cfa-orchestration/index.md",
+        "systems/cfa-orchestration/state-machine.md",
+        "systems/index.md",
+        "systems/workspace/agent-runtime.md",
+        "systems/human-proxy/approval-gate.md",
+        "systems/bridge/heartbeat.md",
+        "systems/learning/index.md",
         "reference/folder-structure.md",
     ]
 
@@ -66,8 +65,8 @@ class TestNoStaleReferences(unittest.TestCase):
         self.assertEqual(violations, [], "\n".join(violations))
 
     def test_no_liaison_references_in_dispatch(self):
-        """agent-dispatch.md does not describe liaison agents."""
-        content = _read("conceptual-design/agent-dispatch.md")
+        """dispatch doc does not describe liaison agents."""
+        content = _read("systems/messaging/dispatch.md")
         self.assertNotIn("relay_to_subteam", content)
         # "liaison" may appear in historical context but not as current model
         if "liaison" in content.lower():
@@ -81,13 +80,13 @@ class TestNoStaleReferences(unittest.TestCase):
             ]
             self.assertEqual(
                 lines, [],
-                "agent-dispatch.md references liaisons as current: "
+                "dispatch.md references liaisons as current: "
                 + "; ".join(lines),
             )
 
     def test_no_persistent_team_sessions(self):
-        """agent-dispatch.md describes one-shot launch, not persistent sessions."""
-        content = _read("conceptual-design/agent-dispatch.md")
+        """dispatch doc describes one-shot launch, not persistent sessions."""
+        content = _read("systems/messaging/dispatch.md")
         self.assertNotIn(
             "long-lived",
             content.lower(),
@@ -110,9 +109,10 @@ class TestOverview(unittest.TestCase):
         content = self._make_content()
         self.assertIn("Office Manager", content)
 
-    def test_describes_project_manager(self):
+    def test_describes_project_lead(self):
+        """overview.md documents the Project Lead role (current team lead)."""
         content = self._make_content()
-        self.assertIn("Project Manager", content)
+        self.assertIn("Project Lead", content)
 
     def test_describes_bus_dispatch(self):
         """Overview mentions bus-mediated dispatch, not liaison relay."""
@@ -146,55 +146,46 @@ class TestOverview(unittest.TestCase):
 class TestNewDocsExist(unittest.TestCase):
     """AC-14 through AC-21: New documents exist."""
 
-    def test_conceptual_messaging(self):
+    def test_messaging_doc(self):
         self.assertTrue(
-            _exists("conceptual-design/messaging.md"),
-            "Missing docs/conceptual-design/messaging.md",
+            _exists("systems/messaging/index.md"),
+            "Missing docs/systems/messaging/index.md",
         )
 
-    def test_conceptual_team_configuration(self):
+    def test_team_configuration_doc(self):
         self.assertTrue(
-            _exists("conceptual-design/team-configuration.md"),
-            "Missing docs/conceptual-design/team-configuration.md",
+            _exists("reference/team-configuration.md"),
+            "Missing docs/reference/team-configuration.md",
         )
 
-    def test_conceptual_office_manager(self):
-        self.assertTrue(
-            _exists("conceptual-design/office-manager.md"),
-            "Missing docs/conceptual-design/office-manager.md",
+    def test_office_manager_documented_in_overview(self):
+        """Office Manager is documented in overview.md (org model)."""
+        content = _read("overview.md")
+        self.assertIn(
+            "Office Manager", content,
+            "overview.md should document the Office Manager role",
         )
 
-    def test_detailed_context_budget(self):
+    def test_context_budget_doc(self):
         self.assertTrue(
-            _exists("detailed-design/context-budget.md"),
-            "Missing docs/detailed-design/context-budget.md",
+            _exists("systems/cfa-orchestration/context-budget.md"),
+            "Missing docs/systems/cfa-orchestration/context-budget.md",
         )
 
-    def test_detailed_messaging(self):
+    def test_messaging_implementation_doc(self):
         self.assertTrue(
-            _exists("detailed-design/messaging.md"),
-            "Missing docs/detailed-design/messaging.md",
+            _exists("systems/messaging/bus-and-conversations.md"),
+            "Missing docs/systems/messaging/bus-and-conversations.md",
         )
 
-    def test_detailed_team_configuration(self):
-        self.assertTrue(
-            _exists("detailed-design/team-configuration.md"),
-            "Missing docs/detailed-design/team-configuration.md",
+    def test_launcher_doc(self):
+        """unified-launch.md describes the as-built launch() function."""
+        content = _read("systems/workspace/unified-launch.md")
+        self.assertIn(
+            "launch(",
+            content,
+            "unified-launch.md should describe the as-built launch() function",
         )
-
-    def test_detailed_launcher(self):
-        """Either launcher.md exists or unified-agent-launch.md was rewritten."""
-        has_launcher = _exists("detailed-design/launcher.md")
-        # If no launcher.md, check that unified-agent-launch.md describes
-        # the as-built system (contains "launch()" function reference)
-        if not has_launcher:
-            content = _read("detailed-design/unified-agent-launch.md")
-            self.assertIn(
-                "launch(",
-                content,
-                "Neither launcher.md exists nor unified-agent-launch.md "
-                "describes the as-built launch() function",
-            )
 
     def test_reference_dashboard(self):
         self.assertTrue(
@@ -230,7 +221,9 @@ class TestCfaStateMachine(unittest.TestCase):
     """AC-6: CfA state machine doc includes INTERVENE and WITHDRAW."""
 
     def _make_content(self):
-        return _read("conceptual-design/cfa-state-machine.md")
+        return _read("systems/cfa-orchestration/index.md") + "\n" + _read(
+            "systems/cfa-orchestration/state-machine.md"
+        )
 
     def test_mentions_intervene(self):
         content = self._make_content()
@@ -241,11 +234,11 @@ class TestCfaStateMachine(unittest.TestCase):
         self.assertIn("WITHDRAW", content)
 
 
-class TestDetailedDesignIndex(unittest.TestCase):
-    """AC-7: detailed-design/index.md is current."""
+class TestArchitectureIndex(unittest.TestCase):
+    """AC-7: systems/index.md (formerly detailed-design/index.md) is current."""
 
     def _make_content(self):
-        return _read("detailed-design/index.md")
+        return _read("systems/index.md")
 
     def test_no_poc_references(self):
         content = self._make_content()
@@ -256,7 +249,10 @@ class TestDetailedDesignIndex(unittest.TestCase):
         self.assertIn("teaparty/", content)
 
     def test_mentions_unified_launcher(self):
-        content = self._make_content()
+        """Unified launcher is documented under systems/workspace/."""
+        content = _read("systems/workspace/index.md") + "\n" + _read(
+            "systems/workspace/unified-launch.md"
+        )
         self.assertTrue(
             "unified" in content.lower() or "launch" in content.lower(),
             "Should mention the unified launcher",

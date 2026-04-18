@@ -7,7 +7,7 @@ Computes four metrics from proxy_memory.db chunks:
 4. Retrieval relevance — inspectable retrieval sets with activation scores
 Plus go/no-go assessment and reporting.
 
-Theory: docs/detailed-design/act-r-proxy-memory.md §Evaluation metrics
+Theory: docs/systems/human-proxy/act-r/memory.md §Evaluation metrics
 """
 from __future__ import annotations
 

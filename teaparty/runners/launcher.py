@@ -4,7 +4,7 @@ Every agent in TeaParty launches through the functions in this module.
 The launcher reads .teaparty/ config and produces the correct ``claude -p``
 invocation.  No special cases, no alternative paths.
 
-Design: docs/detailed-design/unified-agent-launch.md
+Design: docs/systems/workspace/unified-launch.md
 Issue: #394
 """
 from __future__ import annotations

@@ -192,5 +192,5 @@ The dashboard is an HTML application served by `teaparty/bridge/server.py` on `l
 ## Further Reading
 
 - [Overview](../overview.md) — master conceptual model
-- [Team Configuration](../conceptual-design/team-configuration.md) — `.teaparty/` config tree design
-- [Agent Dispatch](../conceptual-design/agent-dispatch.md) — message routing and dispatch
+- [Team Configuration](team-configuration.md) — `.teaparty/` config tree design
+- [Agent Dispatch](../systems/messaging/index.md) — message routing and dispatch

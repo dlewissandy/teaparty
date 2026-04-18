@@ -1,7 +1,7 @@
 """Specification tests for Issue #409: full project onboarding sequence.
 
 These tests encode the requirements from
-``docs/detailed-design/project-onboarding.md`` as load-bearing assertions.
+``docs/guides/project-onboarding.md`` as load-bearing assertions.
 
 Covers:
 

@@ -5,9 +5,9 @@ Retrieval uses two stages: activation filtering (base-level activation > tau),
 then composite scoring (tanh(B − τ) activation + multi-dimensional cosine
 similarity + logistic noise).
 
-Theory: docs/detailed-design/act-r.md
-Chunk schema: docs/detailed-design/act-r-proxy-mapping.md
-Two-pass prediction: docs/detailed-design/act-r-proxy-sensorium.md
+Theory: docs/systems/human-proxy/act-r/overview.md
+Chunk schema: docs/systems/human-proxy/act-r/mapping.md
+Two-pass prediction: docs/systems/human-proxy/act-r/sensorium.md
 """
 from __future__ import annotations
 

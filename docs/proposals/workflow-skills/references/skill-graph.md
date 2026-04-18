@@ -92,4 +92,4 @@ crystallized-from: 4 sessions
 **Phase sequence:** phase-survey.md → phase-synthesize.md → phase-draft.md → phase-validate.md → phase-finalize.md
 ```
 
-The `applies-when` / `does-not-apply-when` pair encodes the applicability boundary. It is required at crystallization time — not optional — because it is the input a future classifier will use. See [crystallization.md](crystallization.md).
+The `applies-when` / `does-not-apply-when` pair encodes the applicability boundary. It is required at crystallization time — not optional — because it is the input a future classifier will use. See [crystallization.md](../proposal.md).

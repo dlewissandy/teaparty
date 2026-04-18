@@ -19,7 +19,7 @@ work. Concretely, under ``teaparty/bridge/static/``:
    inside plain JS function bodies (e.g. post-fetch navigation) are
    allowed because there is no click target to make into an anchor.
 
-See ``docs/conceptual-design/ui-navigation.md`` for the convention these
+See ``docs/systems/bridge/navigation.md`` for the convention these
 tests enforce.
 """
 from __future__ import annotations
@@ -31,7 +31,7 @@ import unittest
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 STATIC_DIR = REPO_ROOT / 'teaparty' / 'bridge' / 'static'
-CONVENTION_DOC = 'docs/conceptual-design/ui-navigation.md'
+CONVENTION_DOC = 'docs/systems/bridge/navigation.md'
 
 # Every file extension we expect to find under STATIC_DIR. If a new
 # extension appears, test_static_tree_shape fails and forces the author to

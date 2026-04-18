@@ -117,7 +117,7 @@ When a child agent with a listener is spawned via `Send`, the spawner adds the c
 
 Requestor injection applies only to agents that have their own `BusEventListener` (leads with sub-rosters). These agents have a `SEND_SOCKET` and can use Send. Leaf workers without a listener cannot Send; they communicate with their caller exclusively through Reply. For leaf workers, the caller identity is conveyed through the Task/Context envelope, not through a roster entry.
 
-This is the same requestor injection pattern described in the [invocation model](../../agent-dispatch/references/invocation-model.md#entry-construction-by-member-type). When a child Sends to its requestor (parent), the child's listener uses resume semantics (the parent already has a session), not spawn semantics. The requestor entry in the roster is marked with a `"type": "requestor"` field so the listener can distinguish this case.
+This is the same requestor injection pattern described in the [invocation model](../../../systems/messaging/dispatch.md). When a child Sends to its requestor (parent), the child's listener uses resume semantics (the parent already has a session), not spawn semantics. The requestor entry in the roster is marked with a `"type": "requestor"` field so the listener can distinguish this case.
 
 ---
 

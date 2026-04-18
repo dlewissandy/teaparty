@@ -3,7 +3,7 @@
 Replaces the flat .running PID sentinel with structured .heartbeat files
 that carry lifecycle state, parent linkage, and mtime-based liveness.
 
-Design: docs/detailed-design/heartbeat.md
+Design: docs/systems/bridge/heartbeat.md
 Issue: #149
 """
 from __future__ import annotations

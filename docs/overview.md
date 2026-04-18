@@ -1,244 +1,168 @@
-# TeaParty Architecture
+# Organizational Model
 
-TeaParty is a platform where teams of humans and AI agents co-author files and collaborate in chat. A management hierarchy organizes all work: the management team coordinates across projects, project teams coordinate within a project, and workgroups execute the work.
+TeaParty organizes work the way organizations do: a management team coordinates across projects, project teams coordinate within projects, and workgroups execute tasks. This page describes that shape — the *what* — and links into the [architecture](systems/index.md) that implements it.
 
----
+## Why a hierarchy?
 
-## Corporate Hierarchy
+A single flat team — one agent planning a project and writing every file — eventually loses coherence. The twentieth revision of the plan buries the original intent. Cross-workgroup coordination crowds out the task at hand. File contents from one workstream dilute the context needed for another. This is *context rot*: not a prompting failure but a structural one. No instruction can prevent a context window from filling up, and once it does, the model's attention drifts toward whatever is most recent, not whatever is most important.
 
-The corporate hierarchy determines who can talk to whom, who manages whom, and where work gets assigned.
+Summarization, truncation, and retrieval each trade one problem for another. The structural fix is to scope each agent's responsibility so its context window contains only what is relevant to its work — and to enforce that scope with a process boundary, not a prompt instruction. Hierarchical teams are TeaParty's answer.
+
+## Corporate hierarchy
+
+Defined in `~/.teaparty/teaparty.yaml` and each project's `.teaparty/project.yaml`:
 
 ```
 Management Team
-  +-- Office Manager (team lead)
-  +-- Human (decider)
-  +-- Configuration Team (workgroup)
-  |     +-- Configuration Lead
-  |     +-- Agent Specialist, Skills Specialist, ...
-  |
-  +-- Project Team A
-  |     +-- Project Lead (team lead)
-  |     +-- Workgroup: Engineering
-  |     |     +-- agents: implementer, reviewer, ...
-  |     |     +-- jobs: "fix login bug", "add search", ...
-  |     +-- Workgroup: Design
-  |           +-- agents: designer, researcher, ...
-  |
-  +-- Project Team B
-        +-- ...
+  ├── Office Manager (team lead)
+  ├── Human (decider)
+  ├── Configuration Team (workgroup)
+  │     ├── Configuration Lead
+  │     └── Agent Specialist, Skills Specialist, …
+  ├── Project Team A
+  │     ├── Project Lead (team lead)
+  │     ├── Workgroup: Engineering
+  │     │     ├── agents: implementer, reviewer, …
+  │     │     └── jobs: "fix login bug", "add search", …
+  │     └── Workgroup: Design
+  │           └── agents: designer, researcher, …
+  └── Project Team B
+        └── …
 ```
 
-### Management Team
+### Management team
 
-The top-level organizational structure, defined in `~/.teaparty/teaparty.yaml`. The management team contains the office manager, the human, the configuration team, and references to all project teams.
+The top-level structure. Contains the OM, the human, the configuration team, and references to all project teams.
 
-- **Lead agent**: The Office Manager (OM). Coordinates across projects, dispatches work, synthesizes status, and transmits the human's intent through the hierarchy. See [office-manager](proposals/office-manager/proposal.md).
-- **Human**: The decider. Interacts via chat with the OM, project leads, and the proxy. The Decider-Advisor-Informed (D-A-I) role model governs participation at every level. See [team-configuration](proposals/team-configuration/proposal.md).
-- **Configuration Team**: A workgroup that creates and modifies agents, skills, hooks, and other Claude Code artifacts. See [configuration-team](proposals/configuration-team/proposal.md).
+- **Office Manager (OM)** — coordinates across projects, dispatches work, synthesizes status, carries the human's intent through the hierarchy.
+- **Human** — the decider. Interacts via chat with the OM, project leads, and the proxy. The D-A-I role model (below) governs participation at every level.
+- **Configuration Team** — a workgroup that creates and modifies agents, skills, hooks, and workgroups. Exposed to the OM through MCP tools.
 
-### Project Team
+### Project team
 
-A project has its own repo (or subdirectory), its own `.teaparty/` configuration, and a project lead who coordinates workgroups within it. Projects are registered in `teaparty.yaml` with a `path:` entry.
+Each project has its own repository (or subdirectory), its own `.teaparty/` configuration, and a project lead. Projects are registered in `teaparty.yaml` with a `path:` entry.
 
-- **Lead agent**: The Project Lead. Accepts jobs, decomposes them into tasks, dispatches tasks to workgroup agents, merges results. The project lead creates jobs in its own project's `.teaparty/jobs/` directory.
-- **Workgroups**: Can be project-scoped (defined in `{project}/.teaparty/workgroups/`) or shared across projects via `ref:` references to org-level workgroups in `~/.teaparty/workgroups/`.
-- **Configuration**: `{project}/.teaparty/project.yaml` defines the project team, its workgroups, skills, and norms. See [team-configuration](proposals/team-configuration/proposal.md).
+- **Project Lead** — accepts jobs, decomposes them into tasks, dispatches tasks to workgroup agents, merges results. Creates jobs in its own project's `.teaparty/jobs/` directory.
+- **Workgroups** — either project-scoped (in `{project}/.teaparty/workgroups/`) or shared across projects via `ref:` to org-level workgroups in `~/.teaparty/workgroups/`.
 
 ### Workgroup
 
 A leaf team of agents that executes work. A workgroup has a specific focus, a roster of specialist agents, and a skills catalog.
 
-- **Lead agent**: The workgroup lead. Coordinates workgroup agents within jobs.
-- **Agents**: Specialists with defined roles, tools, model selection, and skills. They do the actual work within tasks.
-- **Terminal**: Workgroups do not contain subteams. They are the execution boundary.
+- **Workgroup Lead** — coordinates workgroup agents within jobs.
+- **Workgroup Agents** — specialists with defined roles, tools, model selection, and skills. They do the actual work.
+- **Terminal** — workgroups do not contain subteams. They are the execution boundary.
 
-### Partnerships
+See [reference/built-in-teams/](reference/built-in-teams/index.md) for the catalog of built-in workgroups (coding, research, writing, editorial, art, quality-control, analytics, and more).
 
-> Partnerships are a future platform design for cross-organization collaboration. They are not part of the current single-machine, single-user system.
+## Work hierarchy
 
----
-
-## Work Hierarchy
-
-Work flows down through three levels. Each level gets its own conversation on the message bus and its own workspace.
+Work flows down through three levels. Each level gets its own [conversation on the message bus](systems/messaging/index.md) and its own [workspace](systems/workspace/index.md).
 
 ```
-Office Manager                       -- cross-project coordination
-  |
-  +-- Project Lead                   -- cross-workgroup coordination
-        |
-        +-- Job (single project)     -- a unit of work, typically a GitHub issue
-              |
-              +-- Task (single agent) -- dispatched to a workgroup agent
-              +-- Task
+Office Manager                       ← cross-project coordination
+  │
+  └── Project Lead                   ← cross-workgroup coordination
+        │
+        └── Job (single project)     ← a unit of work, typically a GitHub issue
+              │
+              ├── Task (single agent) ← dispatched to a workgroup agent
+              └── Task
 ```
 
 ### Job
 
-A top-level unit of work within a project, typically tied to a GitHub issue. The project lead accepts and coordinates jobs.
+A top-level unit of work within a project, typically tied to a GitHub issue.
 
-- **Created by**: The project lead, in response to OM dispatch or human request.
-- **Workspace**: Each job gets its own git worktree at `{project}/.teaparty/jobs/job-{id}--{slug}/worktree/`. See [job-worktrees](proposals/job-worktrees/proposal.md).
-- **Lifecycle**: `active -> complete | failed`
+- **Created by** the project lead, in response to OM dispatch or human request.
+- **Workspace**: each job gets its own git worktree at `{project}/.teaparty/jobs/job-{id}--{slug}/worktree/`.
+- **Lifecycle**: `active → complete | failed`.
 
 ### Task
 
 A sub-unit of work within a job, dispatched by the project lead to a specific workgroup agent. Leads routinely dispatch multiple tasks in parallel.
 
-- **Created by**: The project lead, via `Send` to the target agent.
-- **Workspace**: Each task gets its own git worktree branched from the job's worktree. Parallel tasks on a shared checkout corrupt each other -- task worktrees are unconditional.
-- **Merge**: Completed task branches are merged back into the job branch by the project lead. The job branch is merged to the integration branch on job completion.
+- **Created by** the project lead, via `Send` to the target agent.
+- **Workspace**: each task gets its own worktree branched from the job's worktree. Parallel tasks on a shared checkout would corrupt each other — task worktrees are unconditional.
+- **Merge**: completed task branches are merged back into the job branch by the project lead. The job branch is merged to the integration branch on job completion.
 
-### Cross-Project Coordination
+### Cross-project coordination
 
-Cross-project communication is always mediated by the office manager. Project-scoped agents have no direct bus routes to other projects. The OM holds cross-project context and translates between them. See [agent-dispatch routing](proposals/agent-dispatch/proposal.md).
+Cross-project communication is always mediated by the office manager. Project-scoped agents have no direct bus routes to other projects. The OM holds cross-project context and translates between them.
 
----
+## Context compression at boundaries
 
-## Conversation Kinds
+When an agent `Send`s a message to another agent, the sender composes what the recipient will see. This is where context compression happens: the sender decides what information the recipient needs, stripping away internal deliberation, coordination history, and irrelevant detail.
 
-Agent messages are routed by conversation kind on the message bus. See [messaging](proposals/messaging/proposal.md) and [agent-dispatch](proposals/agent-dispatch/proposal.md).
+- **Downward**, a lead agent translates high-level coordination into a scoped task description. The recipient sees the task, not the planning discussion that produced it.
+- **Upward**, the result flows back via `Reply`. The reply contains the outcome, not the recipient's reasoning.
+
+Each hop compresses. The OM sees project-level status summaries, not job-level agent discussions. The project lead sees workgroup results, not internal file churn. The workgroup agent sees its task, not cross-workgroup coordination.
+
+| Level | Context contains | Context does NOT contain |
+|---|---|---|
+| Office Manager | Cross-project coordination, human preferences, steering | Internal project work, workgroup details |
+| Project Lead | Project scope, workgroup dispatch, task results | Management coordination, other projects |
+| Workgroup agent | Task description, workgroup files | Project-level coordination, other workgroups' work |
+
+## Scoping creates a blindness — Learning fixes it
+
+Context isolation solves rot but creates its own problem: a scoped agent cannot see the organizational knowledge — values, conventions, norms — that should inform its work. This is the gap the [Learning & Memory system](systems/learning/index.md) exists to bridge. Institutional learnings are injected into each agent's context at the appropriate scope; task learnings from prior work are fuzzy-retrieved. Neither mechanism works without the other: scoping without retrieval creates drift, retrieval without scoping creates rot.
+
+## How work flows
+
+### Conversation kinds
+
+Agent messages are routed by conversation kind on the [message bus](systems/messaging/index.md):
 
 | Kind | Participants | Initiated by |
-|------|-------------|-------------|
+|---|---|---|
 | Office manager | Human + OM | Human opens from Sessions card |
 | Project session | Human + project lead + proxy | Job or gate event |
 | Agent dispatch | Lead + worker agent | Lead via `Send` |
 | Proxy review | Human + their own proxy | Human opens directly |
 | Config lead | OM + configuration specialists | OM routes config request |
 
-Multiple conversations can be active simultaneously. All persist on the message bus and can be resumed.
+Multiple conversations can be active simultaneously. All persist on the bus and can be resumed.
 
----
-
-## Human Interaction Model
-
-Humans interact with TeaParty through conversation, primarily via the dashboard chat blade.
-
-### What Humans Can Do
-
-| Action | How |
-|--------|-----|
-| Chat with the office manager | Open a conversation from the Sessions card |
-| Participate in job/task conversations | Join the chat, talk alongside agents |
-| Launch jobs directly | Request work through the OM or project lead |
-| Review and calibrate the proxy | Open a proxy review session |
-| Steer priorities | Memory-based steering via OM conversation |
-| Intervene in active sessions | Type in a job/task chat (triggers INTERVENE) |
-| Withdraw sessions | Dashboard Withdraw button (kill signal) |
-
-### Two Kinds of Influence
-
-**Memory-based steering** records durable preferences that influence all future work. "Focus on security." These propagate through the shared memory pool, surfacing in any agent's retrieval when context matches.
-
-**Direct intervention** acts immediately on a specific session. The OM calls MCP tools: `WithdrawSession`, `PauseDispatch`, `ResumeDispatch`, `ReprioritizeDispatch`. See [office-manager](proposals/office-manager/proposal.md).
-
-### D-A-I Role Model
-
-Every team has exactly one decider. The decider has final authority at gates. Advisors can interject but their input is advisory. Informed members observe but cannot write. See [team-configuration](proposals/team-configuration/proposal.md).
-
----
-
-## Agent Model
+### Agent model
 
 - **Agents are autonomous**, not scripted. They decide what to do based on conversation context, workflow state, and their own judgment. No prescriptive prompts or retry loops.
-- **Agent output is never truncated.** Output rules are minimal -- no format constraints, length limits, or plain-text-only directives.
+- **Agent output is never truncated.** Output rules are minimal — no format constraints, length limits, or plain-text-only directives.
 - **Workflows are advisory, not mandatory.** Agents follow them by choice, not enforcement.
-- **Every agent is an independent process.** Each agent runs as a standalone `claude -p` invocation with `--resume` for multi-turn conversations. Agents communicate via the message bus using `Send` and `Reply`, not by holding teammates in context. See [agent-dispatch](proposals/agent-dispatch/proposal.md).
-- **Lead agents coordinate.** The OM coordinates across projects. Project leads coordinate within a project. Workgroup leads coordinate within a workgroup. Leads decompose work, send requests to named roster members, and synthesize responses.
+- **Every agent is an independent process.** Each runs as a standalone `claude -p` invocation with `--resume` for multi-turn conversations. Agents communicate via the message bus using `Send` and `Reply`, not by holding teammates in context.
+- **Lead agents coordinate.** The OM across projects, project leads within a project, workgroup leads within a workgroup. Leads decompose work, send requests to named roster members, and synthesize responses.
 - **Bus routing enforces boundaries.** Routing policy derives from workgroup membership. Cross-team requests go through the project lead. Cross-project requests go through the OM.
 
-### Agent Types
+### Execution model
 
-| Type | Scope | Role |
-|------|-------|------|
-| Office Manager | Management team | Cross-project coordination, human's primary agent |
-| Project Manager | Management team | Project coordination (future, for multi-PM setups) |
-| Project Lead | Project team | Decomposes jobs into tasks, dispatches to workgroup agents |
-| Configuration Lead | Configuration workgroup | Routes config requests to specialists |
-| CRUD Specialist | Configuration workgroup | Creates/modifies agents, skills, hooks, workgroups, projects |
-| Workgroup Lead | Single workgroup | Coordinates workgroup agents within jobs |
-| Workgroup Agent | Single workgroup | Executes tasks |
-| Human Proxy | Cross-cutting | Handles escalations and gates autonomously; escalates when uncertain |
+Agents use the write-then-exit-then-resume pattern. A lead that dispatches parallel requests records outstanding threads in its conversation history before exiting. Workers call `Reply` when done. The lead is re-invoked when all threads close. State lives on the bus, not in process memory — durability across restarts follows from that.
 
-### Execution Model
+The `Send` tool flushes current state to a scratch file before posting, assembling a composite message with the task and current job context. The recipient gets a self-contained brief.
 
-Agents use the write-then-exit-then-resume pattern. A lead that sends parallel requests records outstanding threads in its conversation history before exiting. Workers call `Reply` when done. The lead is re-invoked when all threads close. State lives on the bus, not in process memory -- durability across restarts follows from that.
+## Humans in the loop
 
-The `Send` tool flushes current state to a scratch file before posting, assembling a composite message with the task and current job context. The recipient gets a self-contained brief. See [agent-dispatch](proposals/agent-dispatch/proposal.md).
+### D-A-I role model
 
----
+Every team has exactly one **Decider**. The decider has final authority at gates. **Advisors** can interject but their input is advisory. **Informed** members observe but cannot write. See [reference/team-configuration](reference/team-configuration.md) for how D-A-I roles are assigned.
 
-## Workspace Model
+### Two kinds of influence
 
-Session = worktree. Every session gets a git worktree. Every job gets a worktree. Every task gets a worktree. The 1:1:1 correspondence between session, worktree, and branch is unconditional.
+**Memory-based steering** records durable preferences that influence all future work ("Focus on security"). These propagate through the shared memory pool and surface in any agent's retrieval when context matches.
 
-```
-{project}/.teaparty/
-  jobs/
-    jobs.json
-    job-{id}--{slug}/
-      worktree/          -- job's git worktree
-      job.json           -- job state
-      tasks/
-        task-{id}--{slug}/
-          worktree/      -- task's git worktree (branched from job)
-          task.json      -- task state
-```
+**Direct intervention** acts immediately on a specific session. The OM calls MCP tools: `WithdrawSession`, `PauseDispatch`, `ResumeDispatch`, `ReprioritizeDispatch`.
 
-Jobs are project-scoped. A pybayes job lives in the pybayes repo, not in the TeaParty repo. Cleanup is hierarchical -- removing a job directory removes everything it owns. See [job-worktrees](proposals/job-worktrees/proposal.md).
+### Human Proxy
 
----
+The [Human Proxy](systems/human-proxy/index.md) is a learned agent that stands in for the human at gates and escalations, earning autonomy through demonstrated alignment. The proxy operates at each level of the hierarchy, differentiated by D-A-I role — the decider at the project level may be a different human than the decider at the workgroup level.
 
-## Technology Stack
+## When the hierarchy flattens
 
-| Layer | Technology |
-|-------|-----------|
-| Agent runtime | Claude Code CLI (`claude -p` with `--resume`) |
-| Package | `teaparty/` (Python, installed via `uv sync`) |
-| Message bus | `teaparty/messaging/` -- event bus, conversations, routing, IPC |
-| CfA engine | `teaparty/cfa/` -- protocol engine, actors, session, dispatch, state machine, gates |
-| Proxy | `teaparty/proxy/` -- human proxy system |
-| Learning | `teaparty/learning/` -- hierarchical memory (episodic, procedural, research) |
-| Teams | `teaparty/teams/` -- multi-turn team coordination (OM, project lead/manager) |
-| Runners | `teaparty/runners/` -- LLM execution backends (Claude CLI, Ollama, deterministic) |
-| MCP server | `teaparty/mcp/` -- config CRUD, escalation, messaging, intervention tools |
-| Workspace | `teaparty/workspace/` -- git worktree and job lifecycle |
-| Dashboard | `teaparty/bridge/` -- HTML dashboard + bridge server (localhost:8081) |
-| Config | `.teaparty/` -- agents, workgroups, projects, management settings |
-| Tests | `unittest.TestCase` with `_make_*()` helpers |
+Not every task needs the full structure. Simple work dispatched by the OM may go directly to a single agent. Multiple sequential tasks from one workgroup need only the project lead dispatching them one at a time. The overhead of hierarchical dispatch is justified by the context isolation it provides — for work that fits in a single context window, skip it.
 
----
+## Further reading
 
-## Further Reading
-
-### Conceptual Design
-- [CfA State Machine](conceptual-design/cfa-state-machine.md) -- Three-phase Conversation for Action protocol
-- [Intent Engineering](conceptual-design/intent-engineering.md) -- AI-assisted intent capture dialog
-- [Strategic Planning](conceptual-design/strategic-planning.md) -- Bridge from intent to execution
-- [Human Proxies](conceptual-design/human-proxies.md) -- Learned proxy agents that stand in for humans
-- [Learning System](conceptual-design/learning-system.md) -- Hierarchical memory, scoped retrieval, promotion chain
-- [Hierarchical Teams](conceptual-design/hierarchical-teams.md) -- Hierarchical agent team architecture
-- [Agent Dispatch](conceptual-design/agent-dispatch.md) -- Message routing and team sessions
-
-### Proposals (Milestone 3)
-- [Milestone 3: Human Interaction Layer](proposals/milestone-3.md) -- Humans as team members at every level
-- [Office Manager](proposals/office-manager/proposal.md) -- Human's coordination partner, cross-project gateway
-- [Messaging](proposals/messaging/proposal.md) -- Message bus design, conversation persistence
-- [Agent Dispatch](proposals/agent-dispatch/proposal.md) -- Single-agent invocations, bus-mediated communication, routing
-- [Team Configuration](proposals/team-configuration/proposal.md) -- File-based configuration tree, D-A-I roles
-- [Configuration Team](proposals/configuration-team/proposal.md) -- Workgroup for creating Claude Code artifacts
-- [Chat Experience](proposals/chat-experience/proposal.md) -- Four human interaction patterns
-- [Job Worktrees](proposals/job-worktrees/proposal.md) -- Hierarchical, project-scoped worktree layout
-- [CfA Extensions](proposals/cfa-extensions/proposal.md) -- INTERVENE and WITHDRAW events
-- [Proxy Review](proposals/proxy/proposal.md) -- Direct proxy calibration channel
-- [Context Budget](proposals/context-budget/proposal.md) -- Stream-based context management
-- [Dashboard UI](proposals/dashboard-ui/proposal.md) -- Hierarchical dashboard with drill-down navigation
-
-### Detailed Design
-- [Detailed Design](detailed-design/index.md) -- Implementation status, gap analysis, data models
-
-### Reference
-- [Folder Structure](reference/folder-structure.md) -- Directory layout on disk
-- [UX Design](reference/UX.md) -- User experience philosophy
-- [Research Directions](reference/research-directions.md) -- Active open questions
+- [Architecture](systems/index.md) — the six systems that implement this model.
+- [Case Study](case-study/index.md) — end-to-end demonstration: a four-sentence prompt to a 55,000-word manuscript.
+- [Folder Structure](reference/folder-structure.md) — directory layout on disk.
+- [Team Configuration](reference/team-configuration.md) — the `.teaparty/` config tree, catalog merging, D-A-I roles.

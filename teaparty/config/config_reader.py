@@ -1497,7 +1497,7 @@ def add_project(
     """Add an existing directory as a TeaParty project.
 
     Performs the full onboarding sequence specified in
-    ``docs/detailed-design/project-onboarding.md``: name normalization,
+    ``docs/guides/project-onboarding.md``: name normalization,
     directory scaffolding, ``project.yaml`` with description sentinel and
     Configuration workgroup, ``.gitignore`` from template, registry entry,
     and initial commit.
@@ -1544,7 +1544,7 @@ def create_project(
     """Create a new project directory with full scaffolding.
 
     Performs the full onboarding sequence specified in
-    ``docs/detailed-design/project-onboarding.md``. Raises ValueError if the
+    ``docs/guides/project-onboarding.md``. Raises ValueError if the
     directory already exists or a project with this name is registered.
     """
     name = normalize_project_name(name)

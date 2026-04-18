@@ -3,7 +3,7 @@
 Every agent in TeaParty must launch through a single function that reads
 .teaparty/ config and produces the correct `claude -p` invocation.  These
 tests encode the design doc requirements from
-docs/detailed-design/unified-agent-launch.md.
+docs/systems/workspace/unified-launch.md.
 """
 from __future__ import annotations
 

@@ -14,8 +14,8 @@ achieves >= 95% of multi-dimensional retrieval's quality, the 5x embedding cost
 is not justified. Since action match rate cannot be measured offline, retrieval
 overlap at top-k is used as a proxy metric.
 
-Theory: docs/detailed-design/act-r-proxy-memory.md
-Sensorium: docs/detailed-design/act-r-proxy-sensorium.md
+Theory: docs/systems/human-proxy/act-r/memory.md
+Sensorium: docs/systems/human-proxy/act-r/sensorium.md
 """
 from __future__ import annotations
 

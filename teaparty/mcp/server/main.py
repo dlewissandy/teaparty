@@ -435,7 +435,7 @@ def create_server(agent_tools: set[str] | None = None) -> FastMCP:
         Runs the full onboarding sequence: normalizes the name, scaffolds
         .teaparty/project/project.yaml, writes .gitignore, registers the
         project, scaffolds ``{name}-lead`` in the management catalog, and
-        makes an initial commit. See docs/detailed-design/project-onboarding.md.
+        makes an initial commit. See docs/guides/project-onboarding.md.
 
         Args:
             name: Project name. Normalized to lowercase with hyphens.
@@ -460,7 +460,7 @@ def create_server(agent_tools: set[str] | None = None) -> FastMCP:
         """Create a new project directory with full scaffolding.
 
         Same onboarding sequence as AddProject, plus directory creation and
-        ``git init``. See docs/detailed-design/project-onboarding.md.
+        ``git init``. See docs/guides/project-onboarding.md.
 
         Args:
             name: Project name. Normalized to lowercase with hyphens.

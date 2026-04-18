@@ -9,7 +9,7 @@ The design principle is event sourcing: capture atomic events, compute
 aggregates on read, never store aggregates. A new metric is a new query
 over existing events, not a new table or a new writer.
 
-See ``docs/detailed-design/telemetry.md`` for the full event catalog and
+See ``docs/systems/bridge/telemetry.md`` for the full event catalog and
 the design rationale.
 """
 from __future__ import annotations

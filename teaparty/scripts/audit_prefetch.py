@@ -88,8 +88,8 @@ def main():
         help="Output directory for context files (default: audit/context)",
     )
     parser.add_argument(
-        "--docs-dir", default="docs/detailed-design",
-        help="Design documents directory (default: docs/detailed-design)",
+        "--docs-dir", default="docs/systems",
+        help="Design documents directory (default: docs/systems)",
     )
     args = parser.parse_args()
 

@@ -5,7 +5,7 @@ Verifies the management catalog is correctly populated:
   AC2 - every member named in a workgroup has a corresponding agent.md
   AC3 - each agent.md tool allowlist matches the design doc exactly
   AC4 - digest skill SKILL.md exists, has required frontmatter, and encodes the
-        full protocol from docs/detailed-design/teams/digest.md
+        full protocol from docs/reference/built-in-teams/digest.md
   AC5 - every agent lists 'digest' in its skills
   AC6 - agents with missing external tools carry a missing-tools annotation
   AC7 - existing leads reconciled; coding-lead and configuration-lead tool
@@ -39,7 +39,7 @@ _AGENTS_DIR = management_agents_dir(_TEAPARTY_HOME)
 _SKILLS_DIR = management_skills_dir(_TEAPARTY_HOME)
 _WORKGROUPS_DIR = management_workgroups_dir(_TEAPARTY_HOME)
 
-# Expected workgroup members per design doc (docs/detailed-design/teams/*.md).
+# Expected workgroup members per design doc (docs/reference/built-in-teams/*.md).
 # Format: {team_name: {'lead': str, 'members': [str]}}
 _TEAM_SPEC: dict[str, dict] = {
     'research': {
@@ -347,7 +347,7 @@ class TestDigestSkill(unittest.TestCase):
         m = re.match(r'^---\n.*?\n---\n(.*)', content, re.DOTALL)
         body = m.group(1) if m else content
 
-        # scratch/ location (docs/detailed-design/teams/digest.md: Scratch structure)
+        # scratch/ location (docs/reference/built-in-teams/digest.md: Scratch structure)
         self.assertIn('scratch/', body,
                       'digest SKILL.md body missing scratch/ location reference')
         # 200-line limit (digest.md: "no file exceeding 200 lines")

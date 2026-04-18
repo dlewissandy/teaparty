@@ -24,7 +24,7 @@ Winograd and Flores (*Understanding Computers and Cognition*, 1986) recognized t
 
 TeaParty adapts their Conversation for Action framework for this reality. A three-phase protocol — Intent, Planning, Execution — is formalized as a state machine with explicit transitions and cross-phase backtracks. Each phase produces artifacts that make implicit context explicit: what to optimize for, what to protect, and what tradeoffs are acceptable. Approval gates between phases are not just checkpoints — they are learning opportunities where the system observes human corrections and preferences, feeding the memory and proxy systems described below. The result is intent engineering — agents operating from a shared specification of purpose, not an ambiguous request.
 
-[Intent Engineering →](conceptual-design/intent-engineering.md) · [Strategic Planning →](conceptual-design/strategic-planning.md) · [CfA State Machine →](conceptual-design/cfa-state-machine.md)
+[CfA Orchestration →](systems/cfa-orchestration/index.md) · [Intent Engineering →](systems/cfa-orchestration/intent-engineering.md) · [Strategic Planning →](systems/cfa-orchestration/planning.md)
 
 ### Hierarchical Memory and Learning
 
@@ -38,7 +38,7 @@ Learning is not a storage problem. It is a retrieval problem — getting the rig
 
 A promotion chain moves validated learnings up through the organizational hierarchy — from team sessions through projects to global scope. Four learning moments (prospective, in-flight, corrective, retrospective) capture knowledge at the points where it matters most. Fuzzy retrieval injects relevant knowledge into each agent's scoped context, bridging the gap that context scoping creates.
 
-[Learning System →](conceptual-design/learning-system.md) · [Research Index →](research/INDEX.md)
+[Learning & Memory →](systems/learning/index.md) · [Research Index →](research/INDEX.md)
 
 ### Hierarchical Teams
 
@@ -52,7 +52,7 @@ TeaParty organizes agent teams in a hierarchy that mirrors how real organization
 
 Agents serve as context boundaries. The hierarchy provides scoping — each agent sees only what is relevant to its role and level. Reducing the scope of what each agent works on mitigates context rot within each scoped conversation.
 
-[Hierarchical Teams →](conceptual-design/hierarchical-teams.md)
+[Organizational Model →](overview.md) · [Messaging →](systems/messaging/index.md) · [Workspace →](systems/workspace/index.md)
 
 ### Human Proxy Agents
 
@@ -62,7 +62,7 @@ As agent teams grow, the human becomes a bottleneck. Other agents escalate quest
 
 The human proxy agent's single job is to learn to stand in for the human. It answers clarifying questions from other agents, responds to escalations, engages in dialog about the human's preferences, and approves or rejects plans — all based on an evolving model of what the human would decide. Over time it observes human reactions: corrections indicate the model was wrong, rubber-stamps indicate it was right. Asymmetric regret weighting ensures false approvals cost more than false escalations. The proxy earns autonomy through demonstrated alignment, reducing the burden on the human without removing them from the loop.
 
-[Human Proxy Agents →](conceptual-design/human-proxies.md) · [Least-Regret Escalation →](conceptual-design/intent-engineering.md#least-regret-escalation)
+[Human Proxy →](systems/human-proxy/index.md) · [Approval Gate →](systems/human-proxy/approval-gate.md)
 
 ## Proof of Concept
 
@@ -71,6 +71,12 @@ TeaParty eats its own dogfood. The platform's documentation, design artifacts, a
 The POC runs on Claude Code CLI with minimal scaffolding: a dispatch script for inter-process communication, a plan-execute lifecycle script implementing the CfA state machine, and git worktree isolation for safe concurrent execution. An uber team decomposes work and coordinates strategy; subteams of specialized agents (writers, coders, artists, researchers) execute in parallel, each in their own process with their own context window. Learning extraction runs after every session, feeding validated insights back into the memory hierarchy that informs the next round of work.
 
 This is bootstrapping in progress. Every page in this documentation, every architectural decision, and every line of application code has been produced or reviewed by agent teams operating under the protocols described above. The result is a tight feedback loop: the system we're building is also the system we're testing, and the failures we encounter are the failures we're designing solutions for.
+
+### See it run
+
+The [**Humor Book case study**](case-study/index.md) walks through a complete end-to-end session: a four-sentence prompt becomes a 55,000-word manuscript — a prologue, seven chapters, two editorial passes, two verification passes — produced autonomously by hierarchical agent teams with proxy-managed approval gates. It includes the intent and planning dialogs, execution traces across five phases and eight parallel research tracks, the obstacles encountered, and the learning system's self-assessment.
+
+Every artifact the session produced — drafts, specs, proxy-interaction logs, worktree layouts, dashboard screenshot — is preserved in [`case-study/artifacts/`](case-study/artifacts/).
 
 ### Project History
 
@@ -82,6 +88,10 @@ This is bootstrapping in progress. Every page in this documentation, every archi
 {% endif %}{% endfor %}
 
 The full research bibliography is in [Research Library →](research/INDEX.md).
+
+## Architecture
+
+The six systems that realize the four pillars above are documented in [**Architecture**](systems/index.md) — one system per folder, with a landing page that describes what, why, how, and current status. The [organizational model](overview.md) describes the team hierarchy (office manager → project lead → workgroup) that emerges when those systems compose.
 
 ## Experimental Results
 

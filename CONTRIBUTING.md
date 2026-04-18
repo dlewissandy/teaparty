@@ -78,20 +78,19 @@ Documentation follows an academic paper structure. The mkdocs site (`uv run mkdo
 | Section | Purpose | Directory |
 |---------|---------|-----------|
 | Introduction | What TeaParty is, the problem, contributions | `docs/index.md`, `docs/overview.md` |
-| Background | Narrative essays positioning our work | `docs/background/` |
-| Conceptual Design | What and why — the four pillars | `docs/conceptual-design/` |
-| Detailed Design | How — maps concepts to code | `docs/detailed-design/` |
+| Architecture | The six systems (CfA, Messaging, Workspace, Human Proxy, Learning, Bridge) | `docs/systems/` |
+| Case Study | End-to-end demonstration of the system | `docs/case-study/` |
+| Research | Academic context, vanilla technology references (ACT-R, Soar), narrative essays | `docs/research/` |
+| Guides | How-to content (project onboarding, etc.) | `docs/guides/` |
+| Reference | Folder structure, team configuration, built-in teams, dashboard, UX, autodiscovery | `docs/reference/` |
 | Evaluation | Experimental results and ablations | `docs/experimental-results/` |
-| Discussion | Observed behaviors, UX | `docs/reference/` |
-| Building Blocks | Vanilla technology references (ACT-R, Soar) | `docs/research/` |
-| End-to-End Walkthrough | Case studies | `docs/e2e/` |
-| Future Work | Proposals and research directions | `docs/proposals/`, `docs/reference/` |
+| Future Work | Proposals and research directions | `docs/proposals/`, `docs/reference/research-directions.md` |
 
-**Background essays are narratives, not bullet-point lists.** They tell a story: here is the intellectual landscape, here is what exists, here is the gap we address. See `docs/background/` for the standard.
+**Each system folder has a progressive `index.md`.** Concepts, mechanism, status, and links to deeper topics in one page. Detail lives in sibling files within the same folder. See `docs/systems/cfa-orchestration/index.md` for the shape.
 
-**Building Blocks are vanilla technology references.** They describe things we use but did not invent, with no TeaParty-specific content. Our adaptations go in Detailed Design.
+**Research essays are narratives, not bullet-point lists.** They tell a story: here is the intellectual landscape, here is what exists, here is the gap we address. The `docs/research/` folder contains both our own positioning essays and vanilla technology references (ACT-R, Soar, etc.) that we build on.
 
-**Proposals are intellectually honest.** If a design is not implemented, it lives in `docs/proposals/`, not in conceptual or detailed design. Conceptual design contains only designs with corresponding implementations.
+**Proposals are intellectually honest.** If a design is not implemented, it lives in `docs/proposals/`. Implemented designs belong in `docs/systems/` with an honest status section that distinguishes operational from in-progress.
 
 ### Commit Messages
 
@@ -113,7 +112,7 @@ These skills use subagent isolation to prevent context window exhaustion. Each r
 
 CI runs automatically on PRs to main and develop. Both jobs must pass before a PR can merge:
 
-- **test** — runs `uv run pytest projects/POC/orchestrator/tests/`
+- **test** — runs `uv run pytest tests/`
 - **docs** — runs `uv run mkdocs build`
 
 These cover the deterministic layer: state machine logic, activation math, dispatch, learning extraction, proxy memory, and doc cross-references. The agentic layer (LLM calls, approval gate decisions, session behavior) is non-deterministic and cannot be tested in CI — that is what dogfooding sessions are for.
@@ -124,7 +123,7 @@ These cover the deterministic layer: state machine logic, activation math, dispa
 git clone https://github.com/dlewissandy/teaparty.git
 cd teaparty
 uv sync
-uv run pytest projects/POC/orchestrator/tests/ --tb=short -q   # verify tests pass
+uv run pytest tests/ --tb=short -q                               # verify tests pass
 uv run mkdocs serve                                              # browse docs at localhost:8000
 ```
 
@@ -132,7 +131,7 @@ To run a session interactively (requires Claude Code CLI and a human at the appr
 
 ```bash
 ./teaparty.sh                                                    # HTML dashboard (localhost:8081)
-uv run python -m projects.POC.orchestrator "Your task"           # CLI session
+uv run python -m teaparty "Your task"                            # CLI session
 ```
 
-Read `docs/index.md` for the research overview, then `docs/overview.md` for the system architecture. The background essays in `docs/background/` provide the intellectual context.
+Read `docs/index.md` for the research overview, then `docs/overview.md` for the organizational model, then `docs/systems/index.md` for the architecture. The narrative essays in `docs/research/` provide the intellectual context.

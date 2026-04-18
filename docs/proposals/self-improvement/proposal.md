@@ -2,7 +2,7 @@
 
 Teams can improve their own capabilities over time — validating that skills work correctly, testing that hooks fire as expected, and evolving their configuration based on what they learn. This happens below the radar of what the human needs to know about.
 
-**Not part of Milestone 3.** This proposal is for a future milestone, once the configuration infrastructure ([team-configuration](../team-configuration/proposal.md), [configuration-team](../configuration-team/proposal.md)) is in place.
+**Not part of Milestone 3.** This proposal is for a future milestone, once the configuration infrastructure ([team-configuration](../../reference/team-configuration.md), [configuration-team](../../reference/team-configuration.md)) is in place.
 
 ---
 
@@ -35,9 +35,9 @@ These are agent-initiated proposals that flow through the normal CfA protocol �
 
 ## Prerequisites
 
-- [Team Configuration](../team-configuration/proposal.md) — the YAML configuration tree must be in place
-- [Configuration Team](../configuration-team/proposal.md) — the team that creates and modifies artifacts must exist
-- [CfA Extensions](../cfa-extensions/proposal.md) — agent-initiated proposals need the CfA protocol
+- [Team Configuration](../../reference/team-configuration.md) — the YAML configuration tree must be in place
+- [Configuration Team](../../reference/team-configuration.md) — the team that creates and modifies artifacts must exist
+- [CfA Extensions](../../systems/cfa-orchestration/state-machine.md) — agent-initiated proposals need the CfA protocol
 
 ---
 

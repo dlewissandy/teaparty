@@ -4,7 +4,7 @@ Master catalog of peer-reviewed and authoritative research informing TeaParty de
 
 Research is organized by topic file. Each entry includes: title, authors/year, tags, and a one-line summary.
 
-See [learning-system.md](../conceptual-design/learning-system.md) for the conceptual design of TeaParty's learning system, which builds on the research foundations in this index.
+See [learning-system.md](../systems/learning/index.md) for the conceptual design of TeaParty's learning system, which builds on the research foundations in this index.
 
 ## Scope and Research Positioning
 
@@ -274,19 +274,19 @@ Traces the research lineage behind specific mechanisms in TeaParty's human proxy
 
 ## Conversation Protocols and Speech Act Theory
 
-Foundational work on speech act theory and its application to coordination protocols. These papers underpin TeaParty's Conversation for Action (CfA) design. See `docs/background/conversation-patterns.md` for the narrative essay situating this work.
+Foundational work on speech act theory and its application to coordination protocols. These papers underpin TeaParty's Conversation for Action (CfA) design. See `docs/research/conversation-patterns.md` for the narrative essay situating this work.
 
 | Title | Authors, Year | Tags | One-line Summary | Source |
 |-------|--------------|------|-----------------|--------|
-| How to Do Things with Words | Austin, 1962 | `#speech-acts` `#coordination` | Foundational: utterances are not descriptions but performative acts; distinguishes locutionary, illocutionary, and perlocutionary acts. | `docs/background/conversation-patterns.md` |
-| Speech Acts: An Essay in the Philosophy of Language | Searle, 1969 | `#speech-acts` `#coordination` | Systematized speech act theory with explicit rules for illocutionary force; five categories: assertives, directives, commissives, expressives, declarations. | `docs/background/conversation-patterns.md` |
-| Expression and Meaning | Searle, 1979 | `#speech-acts` `#coordination` | Refined five-category taxonomy with illocutionary point, direction of fit, and psychological state as the three distinguishing dimensions. | `docs/background/conversation-patterns.md` |
-| Understanding Computers and Cognition | Winograd & Flores, 1986 | `#cfa` `#speech-acts` `#coordination` `#teaparty-direct` | Introduced the Conversation for Action state machine; treats coordination as structured speech acts rather than information exchange. Direct ancestor of TeaParty's CfA protocol. | `docs/background/conversation-patterns.md` |
-| The Contract Net Protocol | Smith, 1980 | `#multi-agent` `#coordination` | Market-inspired task allocation via announcement/bid/award; handles task assignment but assumes unambiguous task descriptions — does not address intent alignment. | `docs/background/conversation-patterns.md` |
-| A Blackboard Architecture for Control | Hayes-Roth, 1985 | `#multi-agent` `#coordination` | Shared working memory with opportunistic knowledge-source scheduling; coordination by shared state, not commitment; poor fit for human-AI mixed teams. | `docs/background/conversation-patterns.md` |
-| ReAct: Synergizing Reasoning and Acting in Language Models | Yao et al., ICLR 2023 | `#agent-reasoning` `#llm` | Interleaved reasoning traces and actions improve single-agent task performance; plan-execute loop with local recovery; no intent alignment or cross-phase backtrack. | `docs/background/conversation-patterns.md` |
-| Plan-and-Solve Prompting | Wang et al., ACL 2023 | `#agent-reasoning` `#llm` | Separates plan generation from execution to reduce missing-step errors; treats human request as complete specification; no approval gate mechanism. | `docs/background/conversation-patterns.md` |
-| AutoGen: Enabling Next-Gen LLM Applications via Multi-Agent Conversation | Wu et al., 2023 | `#multi-agent` `#llm` `#coordination` | Flexible multi-agent conversation framework (LLMs, humans, tools); conversation structure is content-driven, not protocol-enforced; no commitment tracking. | `docs/background/conversation-patterns.md` |
+| How to Do Things with Words | Austin, 1962 | `#speech-acts` `#coordination` | Foundational: utterances are not descriptions but performative acts; distinguishes locutionary, illocutionary, and perlocutionary acts. | `docs/research/conversation-patterns.md` |
+| Speech Acts: An Essay in the Philosophy of Language | Searle, 1969 | `#speech-acts` `#coordination` | Systematized speech act theory with explicit rules for illocutionary force; five categories: assertives, directives, commissives, expressives, declarations. | `docs/research/conversation-patterns.md` |
+| Expression and Meaning | Searle, 1979 | `#speech-acts` `#coordination` | Refined five-category taxonomy with illocutionary point, direction of fit, and psychological state as the three distinguishing dimensions. | `docs/research/conversation-patterns.md` |
+| Understanding Computers and Cognition | Winograd & Flores, 1986 | `#cfa` `#speech-acts` `#coordination` `#teaparty-direct` | Introduced the Conversation for Action state machine; treats coordination as structured speech acts rather than information exchange. Direct ancestor of TeaParty's CfA protocol. | `docs/research/conversation-patterns.md` |
+| The Contract Net Protocol | Smith, 1980 | `#multi-agent` `#coordination` | Market-inspired task allocation via announcement/bid/award; handles task assignment but assumes unambiguous task descriptions — does not address intent alignment. | `docs/research/conversation-patterns.md` |
+| A Blackboard Architecture for Control | Hayes-Roth, 1985 | `#multi-agent` `#coordination` | Shared working memory with opportunistic knowledge-source scheduling; coordination by shared state, not commitment; poor fit for human-AI mixed teams. | `docs/research/conversation-patterns.md` |
+| ReAct: Synergizing Reasoning and Acting in Language Models | Yao et al., ICLR 2023 | `#agent-reasoning` `#llm` | Interleaved reasoning traces and actions improve single-agent task performance; plan-execute loop with local recovery; no intent alignment or cross-phase backtrack. | `docs/research/conversation-patterns.md` |
+| Plan-and-Solve Prompting | Wang et al., ACL 2023 | `#agent-reasoning` `#llm` | Separates plan generation from execution to reduce missing-step errors; treats human request as complete specification; no approval gate mechanism. | `docs/research/conversation-patterns.md` |
+| AutoGen: Enabling Next-Gen LLM Applications via Multi-Agent Conversation | Wu et al., 2023 | `#multi-agent` `#llm` `#coordination` | Flexible multi-agent conversation framework (LLMs, humans, tools); conversation structure is content-driven, not protocol-enforced; no commitment tracking. | `docs/research/conversation-patterns.md` |
 
 ---
 

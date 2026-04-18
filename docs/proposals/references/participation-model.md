@@ -55,7 +55,7 @@ The proxy's confidence threshold serves a dual purpose: it controls proxy accura
 
 ## What the Human Experiences
 
-The human talks to whoever is in front of them -- office manager or project gate -- and learning propagates across channels through the shared memory pool. Steering given to the office manager surfaces in proxy gate decisions; corrections at gates surface in office manager status reports. For worked examples of this cross-pollination, see [office-manager: Relationship to the Proxy](../office-manager/proposal.md#relationship-to-the-proxy).
+The human talks to whoever is in front of them -- office manager or project gate -- and learning propagates across channels through the shared memory pool. Steering given to the office manager surfaces in proxy gate decisions; corrections at gates surface in office manager status reports. For worked examples of this cross-pollination, see [office-manager: Relationship to the Proxy](../../overview.md#relationship-to-the-proxy).
 
 ## Cold Start
 
