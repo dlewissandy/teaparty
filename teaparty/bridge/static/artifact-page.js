@@ -450,6 +450,22 @@
     _refreshInterval = setInterval(async function() {
       var needsRender = false;
 
+      // Poll the top-level file list so files written mid-session (e.g.
+      // PLAN.md produced by the planning phase) appear in the tree without
+      // requiring a page reload.  Preserves existing entries' expanded/
+      // children state so folder-open state isn't lost on each tick.
+      var prevNames = _repoFiles.map(function(f) { return f.path; }).sort().join('|');
+      var prevByPath = {};
+      _repoFiles.forEach(function(f) { prevByPath[f.path] = f; });
+      await _fetchRepoFiles();
+      _repoFiles = _repoFiles.map(function(f) {
+        var prev = prevByPath[f.path];
+        if (prev) { f.expanded = prev.expanded; f.children = prev.children; }
+        return f;
+      });
+      var newNames = _repoFiles.map(function(f) { return f.path; }).sort().join('|');
+      if (prevNames !== newNames) needsRender = true;
+
       // Poll git status for file tree indicators
       var prevStatuses = JSON.stringify(_gitStatuses);
       await _fetchGitStatus();
