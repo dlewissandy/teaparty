@@ -1273,19 +1273,78 @@ def _check_allowed_project_roots(path: str, roots: list[str]) -> None:
 
 
 PROJECT_LEAD_TOOLS = [
-    'Read', 'Glob', 'Grep', 'Bash',
-    'mcp__teaparty-config__GetAgent', 'mcp__teaparty-config__GetProject',
-    'mcp__teaparty-config__GetSkill', 'mcp__teaparty-config__GetWorkgroup',
-    'mcp__teaparty-config__ListAgents', 'mcp__teaparty-config__ListHooks',
-    'mcp__teaparty-config__ListPins', 'mcp__teaparty-config__ListProjects',
-    'mcp__teaparty-config__ListScheduledTasks', 'mcp__teaparty-config__ListSkills',
-    'mcp__teaparty-config__ListTeamMembers', 'mcp__teaparty-config__ListWorkgroups',
-    'mcp__teaparty-config__PinArtifact', 'mcp__teaparty-config__ProjectStatus',
-    'mcp__teaparty-config__Send', 'mcp__teaparty-config__UnpinArtifact',
+    # Built-in file tools (read project state; write PLAN.md / WORK_SUMMARY.md)
+    'Read', 'Glob', 'Grep', 'Write', 'Edit',
+    # Built-in web tools (research during planning)
+    'WebSearch', 'WebFetch',
+    # Built-in shell (execution phase)
+    'Bash',
+    # Team communication primitives
+    'mcp__teaparty-config__Send',
+    'mcp__teaparty-config__Reply',
+    'mcp__teaparty-config__CloseConversation',
+    'mcp__teaparty-config__AskQuestion',
+    # Config inspection
+    'mcp__teaparty-config__GetAgent',
+    'mcp__teaparty-config__ListAgents',
+    'mcp__teaparty-config__GetWorkgroup',
+    'mcp__teaparty-config__ListWorkgroups',
+    'mcp__teaparty-config__GetSkill',
+    'mcp__teaparty-config__ListSkills',
+    'mcp__teaparty-config__GetProject',
+    'mcp__teaparty-config__ListProjects',
+    'mcp__teaparty-config__ListTeamMembers',
+    'mcp__teaparty-config__ListHooks',
+    'mcp__teaparty-config__ListScheduledTasks',
+    'mcp__teaparty-config__ListPins',
+    'mcp__teaparty-config__PinArtifact',
+    'mcp__teaparty-config__UnpinArtifact',
+    'mcp__teaparty-config__ProjectStatus',
     'mcp__teaparty-config__WithdrawSession',
 ]
 
 PROJECT_LEAD_PERMISSIONS = list(PROJECT_LEAD_TOOLS)
+
+# Template body for a scaffolded project lead.  Two substitution points:
+# `{project_name}` identifies the project; `{decider}` names the human the
+# project ultimately serves.  Every other sentence is identical across
+# projects so the role definition stays consistent and can be edited once
+# here.  The CfA phase framing (deliverable per phase, boundaries, write-
+# every-invocation) is supplied by the engine at runtime, not here.
+PROJECT_LEAD_BODY_TEMPLATE = '''You are the lead of the **{project_name}** project — root of your team tree. The project's human decider is **{decider}**. Lead; don't execute. Delegate whenever you could.
+
+## What you do
+
+**0. Strategic plan.** Decide the steps, owners, and invariants; drive the plan through completion.
+
+**1. Delegate.** `Send` a task: reference the spec, define done.
+
+**2. Consolidate.** Members `Reply` to signal done. Verify against plan and spec; accept, or `Send` a correction.
+
+**3. Mediate.** The team is a tree — members don't address each other. When A Asks for B, route through you: shape, forward, relay the Reply.
+
+**4. Reconcile.** Members share one worktree. When outputs disagree, an invariant breaks, or an error spans members, untangle and re-dispatch.
+
+**5. Decide done.** When a step's outputs are complete and coherent, advance — next step, or delivery.
+
+**6. Interface externally.** Originators (OM or human), sibling projects, inbound inquiries — all via you. Members `Send` to you to route when they need external reach.
+
+## Tools
+
+`Send` and `Reply` are the team-comm primitives — see tool docstrings for thread semantics. Four intents ride on them: Request, Ask, Answer, Deliver — in the message content, not the tool. `AskQuestion` routes to proxy or human. `CloseConversation` tears down a thread you opened.
+
+Independent tracks: `Send` to each in the same turn; threads run in parallel.
+
+## Escalation
+
+Escalate upward by `Send`ing an Ask to the originator when:
+- only the originator can decide,
+- the intent is inadequate,
+- an interpretation change is non-trivial or irreversible,
+- a blocker can't be untangled.
+
+Silent adaptation is wrong when the originator might want to decide.
+'''
 
 
 def scaffold_project_lead(
@@ -1310,9 +1369,9 @@ def scaffold_project_lead(
     agent_md = os.path.join(agent_dir, 'agent.md')
     if not os.path.exists(agent_md):
         description = (
-            f'{project_name} project lead. Receives work from the Office '
-            f'Manager, breaks it down for workgroup leads, and reports back '
-            f'up. Use for any task scoped to the {project_name} project.'
+            f'Lead of the {project_name} project — leads the team, '
+            f'delegates work, consolidates results. Use for any task '
+            f'scoped to the {project_name} project.'
         )
         frontmatter = {
             'name': lead_name,
@@ -1321,15 +1380,8 @@ def scaffold_project_lead(
             'model': 'sonnet',
             'maxTurns': 30,
         }
-        body = (
-            f'# {lead_name}\n\n'
-            f'You are the project lead for **{project_name}** at '
-            f'`{project_path}`. Read `.teaparty/project/project.yaml` to '
-            f'understand the project and its registered workgroups. The '
-            f'decider for this project is **{decider}**.\n\n'
-            f'When work arrives from the Office Manager, decompose it and '
-            f'dispatch to the appropriate workgroup lead via `Send`. Use '
-            f'`ProjectStatus` to report progress back up the chain.\n'
+        body = PROJECT_LEAD_BODY_TEMPLATE.format(
+            project_name=project_name, decider=decider,
         )
         with open(agent_md, 'w') as f:
             f.write('---\n')
