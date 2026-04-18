@@ -17,18 +17,48 @@ Every agent in TeaParty launches through a single async function: `launch()` in 
 ```python
 async def launch(
     *,
+    # Core identity
     agent_name: str,
     message: str,
     scope: str,                   # 'management' or 'project'
     teaparty_home: str,           # path to .teaparty/
-    worktree: str,                # path to session worktree
+    org_home: str | None = None,  # fallback for management-scope lookups
+
+    # Tier split (see unified-launch.md)
+    tier: str = 'job',            # 'job' or 'chat'
+    worktree: str = '',           # required for job tier
+    launch_cwd: str = '',         # required for chat tier (cwd to run in)
+    config_dir: str = '',         # where per-launch config is written (chat tier)
+
+    # Session continuity
     resume_session: str = '',     # claude session ID for --resume
-    mcp_port: int = 0,            # HTTP MCP server port (0 = no MCP)
-    on_stream_event: Callable | None = None,
-    event_bus: EventBus | None = None,
     session_id: str = '',
+    telemetry_scope: str = '',
+
+    # MCP + bus wiring
+    mcp_port: int = 0,            # HTTP MCP server port (0 = no MCP)
+    on_stream_event: Callable[[dict], None] | None = None,
+    event_bus: Any = None,
+
+    # Heartbeat + children registry
     heartbeat_file: str = '',
+    parent_heartbeat: str = '',
+    children_file: str = '',
     stall_timeout: int = 1800,
+
+    # Optional overrides — used by CfA to bypass the standard
+    # .teaparty/ derivation when it has per-phase PhaseConfig
+    settings_override: dict[str, Any] | None = None,
+    add_dirs: list[str] | None = None,
+    agents_json: str | None = None,
+    agents_file: str | None = None,
+    stream_file: str = '',
+    env_vars: dict[str, str] | None = None,
+    permission_mode_override: str = '',
+    tools_override: str | None = None,
+
+    # LLM backend (scripted in tests)
+    llm_caller: LLMCaller = _default_claude_caller,
 ) -> ClaudeResult:
 ```
 

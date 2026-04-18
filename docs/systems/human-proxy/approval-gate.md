@@ -108,6 +108,8 @@ Per-gate decisions:
 - TASK_ESCALATE: "Resolve the worker's escalation."
 - WORK_ASSERT: "Approve or revise the overall deliverable."
 
+**INTENT_ASSERT-specific probe override.** At INTENT_ASSERT (and only INTENT_ASSERT), the proxy's prior and posterior prompts carry an extra instruction: if there's no dialog history yet, "probe with one specific question that targets a concrete claim or framing choice in the proposal — scope, assumptions, or anything that seems underspecified. Do not rubber-stamp." If there's already dialog history, the instruction pivots to "evaluate whether the agent's reply resolves your concern; once your questions are answered, approve." This counteracts the rubber-stamp failure mode that 583cccd8 addressed — the proxy was approving intent too readily without probing whether the stated intent actually matched what was requested. No other gate state receives this override.
+
 **Decision flow:**
 
 ```

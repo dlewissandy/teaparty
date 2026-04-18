@@ -254,9 +254,9 @@ CREATE TABLE proxy_chunks (
     task_type TEXT DEFAULT '',
     outcome TEXT NOT NULL,
     lens TEXT DEFAULT '',
-    prior_prediction TEXT DEFAULT '',
+    prior_prediction TEXT DEFAULT '',   -- deprecated post-583cccd8; empty on new chunks
     prior_confidence REAL DEFAULT 0,
-    posterior_prediction TEXT DEFAULT '',
+    posterior_prediction TEXT DEFAULT '', -- deprecated post-583cccd8; empty on new chunks
     posterior_confidence REAL DEFAULT 0,
     prediction_delta TEXT DEFAULT '',
     salient_percepts TEXT DEFAULT '[]', -- JSON array of strings
@@ -269,7 +269,9 @@ CREATE TABLE proxy_chunks (
     embedding_artifact TEXT,
     embedding_stimulus TEXT,
     embedding_response TEXT,
-    embedding_salience TEXT
+    embedding_salience TEXT,
+    embedding_blended TEXT,            -- single blended embedding (#222 ablation: Configuration B)
+    deleted_at INTEGER DEFAULT NULL    -- soft-delete timestamp (#236); memory_depth filters WHERE deleted_at IS NULL
 );
 
 -- Global interaction counter (monotonically increasing)
