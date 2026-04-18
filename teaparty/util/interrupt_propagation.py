@@ -176,7 +176,21 @@ def _kill_pid(pid: int) -> None:
 
 
 def _set_state_withdrawn(infra_dir: str, phase: str) -> None:
-    """Write WITHDRAWN to .cfa-state.json in the given infra dir."""
+    """Write WITHDRAWN to .cfa-state.json in the given infra dir.
+
+    Semantic wart noted during the 2026-04-18 doc/code audit:
+    ``phase`` here is the CALLER's phase (the parent driving the
+    cascade), not the child's own pre-withdrawal phase.  The child's
+    last-known phase is overwritten, losing the information about
+    where the child actually was when the cascade reached it.
+    WITHDRAWN is not in INTENT_STATES / PLANNING_STATES /
+    EXECUTION_STATES, so phase_for_state('WITHDRAWN') would raise —
+    the phase slot has to be filled with *something*.  Whether that
+    something should be the parent's phase (current), the child's
+    preserved pre-withdrawal phase, or a sentinel like 'withdrawn'
+    is a calibration-stack design choice left for the milestone-4
+    rewrite (#337).
+    """
     cfa_path = os.path.join(infra_dir, '.cfa-state.json')
     try:
         with open(cfa_path) as f:
