@@ -28,10 +28,9 @@ teaparty/                           # top-level package
       intervention_listener.py      # intervention socket
   proxy/                            # human proxy system (independent of CfA)
     agent.py                        # proxy agent, consult_proxy()
-    approval_gate.py                # confidence-based gate decisions
+    approval_gate.py                # confidence-based gate decisions (pre-ACT-R stack; now monitoring-only)
     memory.py                       # ACT-R memory retrieval
     metrics.py                      # prediction tracking
-    human_proxy.py                  # proxy script
     hooks.py                        # proxy hook handlers
   learning/                         # hierarchical memory & learning (independent of CfA)
     extract.py                      # post-session learning extraction

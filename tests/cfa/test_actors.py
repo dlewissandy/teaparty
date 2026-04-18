@@ -455,10 +455,10 @@ class TestAgentRunnerRelocatesPlan(unittest.TestCase):
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
-# ── Import source: approval_gate.py, not human_proxy.py ──────────────────────
+# ── Approval-gate exports ────────────────────────────────────────────────────
 
 class TestApprovalGateImports(unittest.TestCase):
-    """actors.py must import from approval_gate.py, not human_proxy.py."""
+    """actors.py depends on these exports from approval_gate.py."""
 
     def test_generate_response_importable(self):
         from teaparty.proxy.approval_gate import generate_response
