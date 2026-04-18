@@ -1,6 +1,6 @@
 name: TeaParty
 description: Research platform for durable, scalable agent coordination.
-lead: project-lead
+lead: teaparty-lead
 humans:
   decider: primus
 workgroups:
