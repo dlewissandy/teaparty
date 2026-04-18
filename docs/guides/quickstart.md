@@ -30,7 +30,11 @@ That resolves the environment declared in `pyproject.toml`. No other install ste
 The script bootstraps `uv` if missing, then launches the bridge server:
 `uv run python3 -m teaparty.bridge --teaparty-home "$REPO_ROOT/.teaparty"`.
 
-Open <http://localhost:8081>. You will land on the management view: the Office Manager chat, the Sessions card, and the project list. The page updates live as sessions emit state.
+Open <http://localhost:8081>. You will land on the management view: the stats bar, the Management Team card, the project list with active jobs, and escalation-mode settings. The page updates live as sessions emit state.
+
+![Dashboard home — project card, active jobs, escalation settings](../images/guides/dashboard-home.png)
+
+The stats bar at the top tracks session health — turns, cost, process time, commits, job counts, conversation counts. On the right edge, a collapsible chat blade opens into the Office Manager conversation (shown throughout [Steering a Session](steering-sessions.md)).
 
 Optionally, in another terminal:
 

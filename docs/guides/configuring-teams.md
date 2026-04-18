@@ -13,6 +13,16 @@ The configuration lead is safer because its specialists validate input against t
 
 See [Organizational Model](../overview.md) for what the configuration team is and where it sits in the hierarchy.
 
+The dashboard renders the two scopes as browsable catalog pages:
+
+![Management Team catalog — Projects, Agents, Participants on the left; Artifacts, Skills, Hooks, Scheduled Tasks on the right](../images/guides/management-catalog.png)
+
+The Management Team page lists the organization-wide registry: every project, every management-level agent (with LEAD badges where applicable), every participant and their D-A-I role, and the hooks and scheduled tasks that fire for management-scoped work. The **EDIT** button in the top right opens the configuration lead in the chat blade scoped to this catalog.
+
+![TeaParty Team catalog — project-scoped workgroups (Coding, Configuration, Planning, Intake, Research, Quality Control), the project lead, and the chat blade open to the project lead](../images/guides/project-team.png)
+
+Each project has its own equivalent page. The workgroups card on the left lists every workgroup defined for the project, each with its lead, member count, and focus. Hitting a workgroup drills into its roster.
+
 ## Adding an agent
 
 Open the Office Manager chat and describe the agent you want. Specify the role, the tools it should have, the model, and any skills it should know. The OM routes this to the configuration lead, which dispatches the agent specialist to create `{scope}/.teaparty/.../agents/<slug>/agent.md` with YAML frontmatter (name, description, tools, model, maxTurns) and a prose body.

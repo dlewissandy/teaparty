@@ -12,6 +12,10 @@ The dashboard's chat blade mounts on every page that isn't a full-screen chat, a
 
 Multiple conversations persist simultaneously. Leaving the OM to talk to a project lead doesn't end the OM thread; both survive on the bus.
 
+![Management chat blade with the Office Manager thread — stale-session alerts, open queue, dispatch chain back through the project lead, configuration lead, and workgroup specialist](../images/guides/dashboard-chat-blade.png)
+
+The chat blade header names the current conversation (here, *Management Chat* talking to the Office Manager), the filter tabs control which event types render in the transcript, and the list below the input shows every agent currently active on the bus. Clicking one switches the blade to that conversation.
+
 ## Intervening vs. withdrawing
 
 Two orthogonal controls sit on top of the [CfA state machine](../systems/cfa-orchestration/index.md).
@@ -53,3 +57,7 @@ When the proxy doesn't have enough confidence to approve on your behalf, it esca
 Your response is the ground truth the proxy learns from. Approve, reject, or redirect — and when the call is non-obvious, say *why*. The proxy records a differential between what it would have decided and what you actually decided; the reason you give is what turns that differential into a transferable pattern rather than a one-off data point.
 
 Gates are also where INTERVENE is cheapest. If you're going to approve but want the next phase shaped differently, say so in the same response — the agent reads your gate answer before transitioning.
+
+![Job detail with the project-lead chat open — completion review with a line-by-line acceptance list, followed by a human "i agree. This is done." and a Done button](../images/guides/job-with-chat.png)
+
+On a job page, the chat blade is scoped to that job's project lead. Here the lead has just summarized the job against its success criteria; the human response at the bottom (*"i agree. This is done."*) is the gate approval. The **Done** button commits the approval and advances the state machine.
