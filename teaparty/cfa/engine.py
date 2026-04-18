@@ -2303,32 +2303,29 @@ class Orchestrator:
             # Intent phase, or artifacts not yet written
             base_task = self.task or self.project_slug
 
-        # Prepend CfA phase framing.  The agent.md is role-only; the engine
-        # supplies the deliverable, the boundary, and the re-entry rule per
-        # phase.  On-disk files from prior passes may be stale.
+        # Prepend CfA phase framing.  agent.md is role-only; this layer
+        # supplies deliverable, boundary, and re-entry rule per phase.
         if phase_name == 'intent':
             base_task = (
                 '--- CfA: Intent Alignment Phase ---\n'
-                'Deliverable: INTENT.md. Do not do the work described below.\n'
-                'Capture what the human wants, success criteria, constraints, and open questions.\n'
-                'End every invocation with a Write of INTENT.md, even on re-entry — re-writing verbatim signals you verified the file against the current request.\n'
+                'Deliverable: INTENT.md — what the human wants, success criteria, constraints, open questions. Do not do the work described below.\n'
+                'Write INTENT.md every invocation, even on re-entry; re-writing verbatim signals you verified it against the current request.\n'
                 '--- end ---\n\n'
                 + base_task
             )
         elif phase_name == 'planning':
             base_task = (
                 '--- CfA: Planning Phase ---\n'
-                'Deliverable: PLAN.md. Do not produce the execution artifact — that belongs to the next phase. Skipping planning because the task feels small is a protocol violation.\n'
-                'On re-entry, reconcile existing files against the current INTENT.md and any human feedback in this conversation; prior-pass files may be stale.\n'
-                'End every invocation with a Write of PLAN.md.\n'
+                'Deliverable: PLAN.md. Skipping planning because the task feels small is a protocol violation — the execution artifact belongs to the next phase, not this one.\n'
+                'On re-entry, reconcile existing files against the current INTENT.md and human feedback; prior-pass files may be stale.\n'
+                'Write PLAN.md every invocation.\n'
                 '--- end ---\n\n'
                 + base_task
             )
         elif phase_name == 'execution':
             base_task = (
                 '--- CfA: Execution Phase ---\n'
-                'Dispatch to the teams named in PLAN.md. Do not produce deliverables yourself.\n'
-                'Verify each team\'s output against PLAN.md and INTENT.md before accepting. On a subteam backtrack or review request: review, route, or escalate. Do not guess.\n'
+                'Dispatch to the teams named in PLAN.md. Verify each team\'s output against PLAN.md and INTENT.md before accepting. On a subteam backtrack or review request: review, route, or escalate. Do not guess.\n'
                 'Deliverable: WORK_SUMMARY.md once the plan\'s steps are complete and verified.\n'
                 '--- end ---\n\n'
                 + base_task
