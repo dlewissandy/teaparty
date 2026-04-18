@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from teaparty.learning.episodic.indexer import (
     chunk_by_entries,
     chunk_text,
+    classify_scope,
     compute_prominence,
     apply_prominence_weights,
     index_file,
@@ -410,6 +411,74 @@ class TestIndexFileIntegration(unittest.TestCase):
                 meta = json.loads(row[0])
                 self.assertEqual(meta, {})
         conn.close()
+
+
+class TestClassifyScope(unittest.TestCase):
+    """Regression tests for classify_scope after the .sessions/ -> .teaparty/jobs/ migration."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _make_path(self, *parts: str) -> str:
+        """Create a file at the given relative path inside tmpdir and return its absolute path."""
+        full = os.path.join(self.tmpdir, *parts)
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        Path(full).write_text('stub')
+        return full
+
+    def test_current_layout_task_path_is_team_scope(self):
+        """{project}/.teaparty/jobs/job-X/tasks/task-Y/... -> team."""
+        src = self._make_path(
+            '.teaparty', 'jobs', 'job-abc--slug', 'tasks', 'task-xyz--slug',
+            'worktree', 'MEMORY.md',
+        )
+        self.assertEqual(classify_scope(src, self.tmpdir), 'team')
+
+    def test_current_layout_job_institutional_is_project_scope(self):
+        """{project}/.teaparty/jobs/job-X/institutional.md -> project."""
+        src = self._make_path(
+            '.teaparty', 'jobs', 'job-abc--slug', 'institutional.md',
+        )
+        self.assertEqual(classify_scope(src, self.tmpdir), 'project')
+
+    def test_legacy_sessions_path_is_team_scope(self):
+        """Backward compat: pre-migration .sessions/ layout still classifies as team."""
+        src = self._make_path(
+            '.sessions', '20260101-000000', 'MEMORY.md',
+        )
+        self.assertEqual(classify_scope(src, self.tmpdir), 'team')
+
+    def test_project_root_file_is_project_scope(self):
+        """{project}/some-doc.md -> project (under project, not under any task)."""
+        src = self._make_path('some-doc.md')
+        self.assertEqual(classify_scope(src, self.tmpdir), 'project')
+
+    def test_path_outside_project_is_global(self):
+        """A path not under the project base -> global."""
+        other = tempfile.mkdtemp()
+        try:
+            src = os.path.join(other, 'MEMORY.md')
+            Path(src).write_text('stub')
+            self.assertEqual(classify_scope(src, self.tmpdir), 'global')
+        finally:
+            import shutil
+            shutil.rmtree(other, ignore_errors=True)
+
+    def test_empty_base_dir_is_global(self):
+        """No base_project_dir -> global."""
+        src = self._make_path('anywhere.md')
+        self.assertEqual(classify_scope(src, ''), 'global')
+
+    def test_unrelated_tasks_directory_is_not_team_scope(self):
+        """A 'tasks/' directory that isn't under .teaparty/jobs/ with a
+        'task-' prefix doesn't count as team scope."""
+        # A tasks/ directory that doesn't have a task- prefixed child
+        src = self._make_path('tasks', 'my-todo-list.md')
+        self.assertEqual(classify_scope(src, self.tmpdir), 'project')
 
 
 if __name__ == '__main__':

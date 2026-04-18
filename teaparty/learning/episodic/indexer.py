@@ -795,18 +795,43 @@ SCOPE_MULTIPLIERS = {
 
 
 def classify_scope(source_path: str, base_project_dir: str) -> str:
-    """Classify source scope: 'team' (.sessions/ path), 'project', or 'global'."""
+    """Classify source scope: 'team', 'project', or 'global'.
+
+    Team scope: paths under a specific task's directory.  Each task is
+    dispatched to a specific workgroup (its ``team`` field in
+    ``task.json``), so learnings extracted from a task's worktree
+    belong to that workgroup.  Match on ``.teaparty/jobs/*/tasks/task-*/``
+    in the relative path.
+
+    Project scope: paths under the project but not within a specific
+    task (e.g. job-level ``institutional.md``, project-wide memories).
+
+    Global scope: paths outside the project entirely.
+
+    Backward compatibility: the pre-migration layout wrote session
+    artifacts under ``{project}/.sessions/``.  Historical entries
+    indexed from that layout are also classified as team scope so
+    the 1.5× multiplier continues to apply on their retrieval.
+    """
     if not base_project_dir:
         return 'global'
     try:
         p = Path(source_path).resolve()
         base = Path(base_project_dir).resolve()
-        rel = p.relative_to(base)
-        if '.sessions' in rel.parts:
-            return 'team'
-        return 'project'
+        rel_parts = p.relative_to(base).parts
     except ValueError:
         return 'global'
+
+    # Current layout: .teaparty/jobs/<job>/tasks/task-*/...
+    for i, part in enumerate(rel_parts[:-1]):
+        if part == 'tasks' and rel_parts[i + 1].startswith('task-'):
+            return 'team'
+
+    # Legacy layout (pre-.teaparty/jobs/ migration): .sessions/...
+    if '.sessions' in rel_parts:
+        return 'team'
+
+    return 'project'
 
 
 def apply_scope_multipliers(

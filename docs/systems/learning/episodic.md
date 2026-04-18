@@ -28,16 +28,21 @@ This is not undifferentiated prose. The metadata enables prominence scoring, tem
 
 ## Hierarchy on disk
 
-Learnings are stored at multiple scope levels:
+Learnings are stored at multiple scope levels.  Current on-disk layout (post-repo-flattening migration):
 
 ```
-projects/MEMORY.md                                          # global
-projects/<project>/MEMORY.md                                # project
-projects/<project>/institutional.md                         # institutional (always loaded)
-projects/<project>/tasks/                                   # task learnings (fuzzy-retrieved)
-projects/<project>/.sessions/<ts>/MEMORY.md                 # session
-projects/<project>/.sessions/<ts>/<team>/MEMORY.md          # team
-projects/<project>/.sessions/<ts>/<team>/<dispatch>/MEMORY.md  # dispatch
+~/MEMORY.md                                                          # global (user-home)
+<project>/MEMORY.md                                                  # project
+<project>/institutional.md                                           # institutional (always loaded)
+<project>/.teaparty/jobs/<job>/institutional.md                      # session/job-level
+<project>/.teaparty/jobs/<job>/tasks/<task>/worktree/MEMORY.md       # team (per-task workgroup)
+<project>/.teaparty/jobs/<job>/tasks/<task>/worktree/...             # additional team-scope artifacts
+```
+
+Legacy layout (pre-migration, still matched by `classify_scope()` for backward compatibility with any historical index rows):
+
+```
+projects/<project>/.sessions/<ts>/...                                # legacy team scope
 ```
 
 ## Extraction dimensions
