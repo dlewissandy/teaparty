@@ -48,11 +48,11 @@ class CfaState:
 
 The state machine does not prescribe failure recovery — it transitions based on valid actions from the current state. At the orchestrator level, `engine.py` handles failures:
 
-- **Agent failure during execution:** Orchestrator calls `engine.on_agent_failure()`, which validates whether a backtrack is legal (CfA allows it) and executes the transition.
+- **Infrastructure failure during execution:** On catastrophic failures (subprocess crash, unrecoverable CLI error), the engine publishes `INPUT_REQUESTED` with state `INFRASTRUCTURE_FAILURE`, asks the human to choose between `retry`, `backtrack`, or `withdraw`, and routes the response through `teaparty.scripts.classify_review.classify('FAILURE', …)` to resolve the action (`engine.py:_handle_infrastructure_failure`). Each branch then drives a normal `transition(state, action)` from the current CfA state.
 - **Escalation during execution:** Escalation is a valid action from most states and transitions to an ESCALATE state for human review.
-- **Approval gate rejection:** At ASSERT states, if the human rejects, the state machine provides a corrective action (e.g., PLAN_ASSERT → PLAN_CORRECTION) that feeds the feedback back into the appropriate phase.
+- **Approval gate rejection:** At ASSERT states, if the human rejects, the state machine provides a corrective action (e.g., `PLAN_ASSERT --correct→ PLANNING_RESPONSE`) that feeds the feedback back into the appropriate phase.
 
-No built-in timeout or retry — those are orchestrator responsibilities.
+There is no dedicated `on_agent_failure()` method — the engine routes all failures through either the `INFRASTRUCTURE_FAILURE` dialog above or the normal escalation/backtrack paths exposed by `available_actions()`. No built-in timeout or retry — those are orchestrator responsibilities.
 
 ---
 
@@ -70,8 +70,8 @@ This is a deliberate tradeoff: uninterrupted execution (goal) vs. task-level lea
 
 ---
 
-## Remaining Gaps
+## Recently landed
 
-- [#92](https://github.com/dlewissandy/teaparty/issues/92): Replace bespoke state management with `python-statemachine` library (would give formal guard conditions, event hooks, and visualization)
-- [#46–#57](https://github.com/dlewissandy/teaparty/issues/46): GAP A3.* — plan file detection, permission block gates, backtrack feedback injection, escalation exit codes
-- [#38–#45](https://github.com/dlewissandy/teaparty/issues/38): GAP A2.* — intent phase gaps (stale INTENT.md, version bumping, relocation)
+- [#92](https://github.com/dlewissandy/teaparty/issues/92): Migrated to the `python-statemachine` library. The state machine object (`CfAMachine` in `teaparty/cfa/statemachine/cfa_machine.py`) enforces the JSON transition table and is what `CfaState.transition()` dispatches through.
+- [#46–#57](https://github.com/dlewissandy/teaparty/issues/46): GAP A3.* — plan file detection, permission block gates, backtrack feedback injection, escalation exit codes.
+- [#38–#45](https://github.com/dlewissandy/teaparty/issues/38): GAP A2.* — intent phase gaps (stale INTENT.md, version bumping, relocation).

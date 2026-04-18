@@ -97,7 +97,6 @@ Every project repo has `.teaparty/project/` — the project-level configuration.
   skills/{name}/             # skill definitions (catalog)
   workgroups/{name}.yaml     # workgroup definitions (catalog)
   settings.yaml              # base settings for this scope
-  metrics.db                 # session metrics (cost, tokens, duration, turn count)
   sessions/                  # runtime: session storage
     {session-id}/
       worktree/              # git worktree (checkout of the scope's repo)
@@ -193,7 +192,7 @@ Everything below these entry points is agents dispatching to other agents via Se
 - **Follow-up or close:** The caller (the agent or human who initiated the conversation) decides whether to send another message or close. The target agent never unilaterally closes — it responds and waits.
 - **Close:** CloseConversation removes the entry from the dispatching agent's conversation map (freeing a slot) and triggers worktree cleanup on the target session.
 - **Withdraw:** Iterates the agent's conversation map, closes each open conversation, cleans up all child sessions.
-- **Metrics:** The stream processor writes to `{scope}/metrics.db` after each turn (cost, tokens, duration, keyed by session/agent/turn). The database survives session cleanup and supports queries across sessions, agents, and time ranges.
+- **Metrics:** After each turn, `ClaudeRunner` emits a `TURN_COMPLETE` telemetry event via `teaparty.telemetry.record_event` carrying cost, tokens, duration, and turn metadata. The events are queryable via the bridge's `/api/telemetry/*` endpoints. There is no separate `metrics.db`; see [Bridge telemetry](../bridge/telemetry.md).
 
 The launcher is stateless — it does not cache, track, or persist anything between calls.
 
@@ -213,8 +212,7 @@ The launcher must enforce these constraints on every invocation:
 - Invoke via the genuine `claude` binary only.
 - Never extract OAuth tokens for direct HTTP use.
 - Never instrument around Claude Code's built-in throttling.
-- System-wide concurrency ceiling of 10, configurable.
-- Per-agent concurrency limit of 3. Each dispatching agent's worktree holds a conversation map (request ID → session ID) in `metadata.json`. A slot is occupied until the conversation is closed. The fourth Send blocks until a slot frees, which forces the agent to close conversations when done. The map also enables graceful shutdown on withdraw.
+- Per-agent concurrency limit of 3 (`MAX_CONVERSATIONS_PER_AGENT`). Each dispatching agent's worktree holds a conversation map (request ID → session ID) in `metadata.json`. A slot is occupied until the conversation is closed. A fourth `Send` is refused until a slot frees, which forces the agent to close conversations when done. The map also enables graceful shutdown on withdraw. This is the only concurrency backpressure in code today; a system-wide ceiling across all agents has been discussed but not implemented.
 - Let the CLI set the pace, not the orchestrator.
 - Keep system prompts stable across invocations for a given agent/task.
 - Use session resumption (`--resume`) rather than reconstructing context from scratch.
@@ -226,46 +224,13 @@ Every launch streams events to the bus in real time: deduplicate tool_use/tool_r
 
 ---
 
-## Scope
+## Behaviors preserved through the unification
 
-This is our initial assessment. Investigation will likely reveal additional places that need changes. Anything morally part of the same goal gets fixed in the same work — we do not file separate tickets for technical debt that exists because of the problem we are solving.
+The unified `launch()` function preserves these behaviors, all of which are now the baseline for every agent invocation:
 
-### Known codepaths to unify or eliminate
-
-- `AgentPool._start_process` (`cfa/agent_pool.py`) — persistent NDJSON stdin, caller pre-composes
-- `AgentSpawner.spawn` (`cfa/agent_spawner.py`) — one-shot, self-composes via `compose_worktree`
-- `ClaudeRunner.run` (`runners/claude.py`) — per-turn with `--resume`, caller-composed
-- `OfficeManagerSession.invoke` (`teams/office_manager.py`) — builds roster JSON, starts bus listener, writes MCP config
-- `ConfigLeadSession.invoke` (`teams/config_lead.py`) — builds roster JSON, starts bus listener, scoped to entity
-- `ProjectLeadSession.invoke` (`teams/project_lead.py`) — no roster, no MCP, no dispatch
-- `ProjectManagerSession.invoke` (`teams/project_manager.py`) — same as project lead
-- `ProxyReviewSession.invoke` (`proxy/review.py`) — post-processes correction/reinforcement signals
-
-### Supporting code to absorb or delete
-
-- `compose_worktree` / `compose_agents` / `compose_skills` (`cfa/agent_spawner.py`)
-- `compose_claude_md` (`cfa/agent_spawner.py`) — overwrites repo CLAUDE.md with management.md; delete entirely
-- `populate_scoped_claude_dir` (`runners/claude.py`)
-- `_build_roster_agents_json` (`teams/office_manager.py`)
-- `_derive_roster` (`cfa/agent_spawner.py`)
-- `ensure_agent_worktree` (`workspace/worktree.py`)
-- `AgentPool` / `AgentProcess` (`cfa/agent_pool.py`)
-
-### Directory structure cleanup
-
-- Consolidate scattered runtime state (`om/`, `pm/`, `proxy/`, `config/`, `sockets/`) into `{scope}/sessions/`
-- Separate job catalog from job storage
-- Remove worktrees from agent config directories
-
----
-
-## What Good Looks Like
-
-The OM is the only agent that currently works end-to-end. Not everything about its implementation is good — it's a special case that should not exist — but it demonstrates behaviors that the unified launcher must preserve:
-
-- **Config-driven roster.** `_derive_roster` (`agent_spawner.py:387`) derives roster from workgroup/project config for any agent. The OM's `_build_roster_agents_json` is a special-case duplicate.
-- **Stream event processing.** `_classify_event` and `_make_live_stream_relay` (`office_manager.py:210, 315`) deduplicate and relay stream events. Must become baseline.
-- **Poisoned session detection.** Scan `system` events for MCP failure, clear session ID. (`office_manager.py:838-857`)
-- **Empty response recovery.** Clear session ID when no assistant text produced. (`office_manager.py:859-871`)
-- **`--setting-sources user` on every invocation.** Required for OAuth token auth.
-- **Environment isolation.** `ClaudeRunner._build_env` (`runners/claude.py:404`) strips env to allowlist. Agents must not inherit orchestrator credentials.
+- **Config-driven roster.** `teaparty.config.roster.resolve_launch_cwd` and the roster-derivation helpers build a roster JSON from the workgroup/project config for any agent that leads a team. No per-agent special cases.
+- **Stream event processing.** `teaparty/teams/stream.py::_classify_event` and `_make_live_stream_relay` deduplicate `tool_use`/`tool_result` by ID, classify by sender, and relay immediately to the message bus. Baseline for all agents.
+- **Poisoned session detection.** `detect_poisoned_session` in `teaparty/runners/launcher.py` scans stream events for MCP-server failures and returns an empty session ID so the caller starts fresh.
+- **Empty response recovery.** `should_clear_session` in `teaparty/runners/launcher.py` clears the session ID when no assistant text was produced.
+- **`--setting-sources user` on every invocation.** Required for Max OAuth authentication.
+- **Environment isolation.** `ClaudeRunner._build_env` strips the environment to an allowlist; agents do not inherit orchestrator credentials.

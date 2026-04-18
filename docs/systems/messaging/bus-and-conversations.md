@@ -22,7 +22,7 @@ located by the `agent_bus_path()` helper.
 
 ### Schema
 
-Two primary tables:
+Three primary tables:
 
 **messages** -- `(id TEXT PK, conversation TEXT, sender TEXT, content TEXT, timestamp REAL)`.
 Indexed on `(conversation, timestamp)` for efficient range queries.
@@ -77,7 +77,7 @@ reaches zero the fan-in is complete and the caller is re-invoked.
 ## EventBus (in-process pub/sub)
 
 `EventBus` in `bus.py` is a lightweight async pub/sub for orchestrator-to-bridge
-communication within the same process.  It defines 18 event types:
+communication within the same process.  It defines 20 event types:
 
 - Session lifecycle: `SESSION_STARTED`, `SESSION_COMPLETED`
 - Dispatch lifecycle: `DISPATCH_STARTED`, `DISPATCH_COMPLETED`
@@ -100,40 +100,57 @@ The `InputRequest` dataclass describes what the orchestrator needs: `type`
 
 ## BusEventListener (Unix socket IPC)
 
-`BusEventListener` bridges MCP tool calls (Send, Reply, CloseConversation) to
-bus operations via Unix domain sockets.  The orchestrator starts four sockets
-before launching Claude Code:
+`BusEventListener` bridges MCP tool calls (`Send`, `CloseConversation`) and
+bridge-triggered interjections to bus operations via Unix domain sockets.
+The orchestrator starts three sockets before launching Claude Code:
 
 | Socket | Purpose |
 |--------|---------|
 | `send.sock` | Receives Send(member, composite, context_id) calls |
-| `reply.sock` | Receives Reply(message) calls |
 | `close.sock` | Receives CloseConversation calls |
 | `interject.sock` | Receives bridge-triggered interjections (--resume) |
+
+There is no agent-facing `Reply` tool — replies are inferred from subprocess
+exit (see *Reply flow* below).
 
 ### Send flow
 
 1. Agent calls Send via MCP; the MCP server connects to `send.sock`.
 2. Listener receives `{type: "send", member, composite, context_id}`.
 3. If `context_id` refers to an existing open conversation, the recipient's
-   prior session is resumed (not spawned fresh).
+   prior session is resumed (not spawned fresh) and `{status: "queued",
+   context_id}` is returned immediately — non-blocking.
 4. If the conversation is closed, an error is returned immediately.
-5. For new conversations, a context record is created synchronously in the bus.
-6. `spawn_fn(member, composite, context_id)` runs as a background task.
-7. `{status: "queued", context_id}` is returned immediately -- non-blocking.
+5. For new conversations, a context record is created synchronously in the
+   bus and `_spawn_and_record(...)` is awaited. Send **blocks** until the
+   recipient subprocess completes (or is detached), and returns
+   `{status: "ok", context_id, result: <recipient output>}` with the inline
+   result. The blocking-on-new-conversation behavior came in with the #398
+   fetch-and-subscribe atomicity rewrite.
 
 Context IDs follow the format `agent:{initiator}:{recipient}:{uuid4}`.  The UUID
 suffix ensures parallel Send calls to the same recipient produce distinct contexts.
 
 ### Reply flow and fan-in
 
-1. Agent calls Reply; listener closes the current agent context record.
-2. `reply_fn(context_id, session_id, message)` injects the result into the
-   caller's conversation history.
+There is no separate Reply MCP tool — the recipient subprocess exiting IS
+the reply signal.
+
+1. `_spawn_and_record()` runs the recipient's `spawn_fn` and captures its
+   returned result text.
+2. When `spawn_fn` returns, the listener calls `trigger_reply(context_id,
+   result_text)`, which closes the agent context record and injects the
+   result into the caller's conversation history.
 3. The parent's `pending_count` is decremented.  When it reaches zero,
    `reinvoke_fn` triggers the caller's re-invocation.
 4. Per-agent `asyncio.Lock` instances serialize concurrent `--resume` calls
    for the same agent, preventing race conditions in fan-in scenarios.
+
+The pre-583cccd8 design had agents call an explicit `Reply` MCP tool at
+turn end. That tool was removed when turn-end became the canonical reply
+signal — the classifier (`teaparty/cfa/actors.py:_classify_review`) now
+categorizes the final response instead of the agent emitting a structured
+verdict.
 
 ---
 
@@ -170,29 +187,41 @@ for post-processing.
 
 ---
 
-## WebSocket broadcast: MessageRelay
+## WebSocket delivery: MessageRelay
 
 `MessageRelay` in `teaparty/bridge/message_relay.py` polls per-session message
-buses and pushes events to the dashboard via WebSocket.
+buses and delivers events to subscribed dashboard connections via WebSocket.
 
-### Architecture
+### Architecture (post-#398)
 
 - Holds a shared `bus_registry: dict[session_id, SqliteMessageBus]` (managed
   by the StatePoller).
-- Tracks `_last_ts: dict[conversation_id, float]` for incremental polling.
-- Tracks `_awaiting: set[conversation_id]` to avoid redundant input_requested events.
+- Tracks `_subscriptions: dict[connection, dict[conversation_id, cursor]]`
+  mapping each WebSocket connection to the set of conversations it is
+  following, each with its own cursor. Cursors are opaque `"{ts:.9f}:{id}"`
+  strings so that ties on timestamp are broken by message id, eliminating
+  the off-by-one risks of the earlier `_last_ts` float-only scheme.
+- Tracks `_awaiting: dict[conversation_id, session_id]` to avoid redundant
+  input_requested events and to emit `escalation_cleared` on True→False
+  transitions.
+- Uses a single `asyncio.Lock` to serialize the fetch-and-subscribe
+  atomicity contract documented in [chat-delivery](chat-delivery.md).
 
 ### Poll cycle
 
-`poll_once()` iterates all active buses:
+`poll_once()` iterates subscriptions rather than broadcasting globally:
 
-1. For each conversation, fetches messages since `_last_ts[cid]`.
-2. Broadcasts each new message as `{type: "message", id, conversation_id, sender,
-   content, timestamp}`.
+1. For each `(connection, conversation_id)` subscription, fetches messages
+   with cursor > last-seen cursor.
+2. Delivers new messages only to the owning connection as `{type: "message",
+   id, conversation_id, sender, content, timestamp}`.
 3. Queries `conversations_awaiting_input()` for flag changes.
-4. For newly-awaiting conversations, fetches the latest orchestrator message as
-   the question text and broadcasts `{type: "input_requested", session_id,
-   conversation_id, question}`.
+4. For newly-awaiting conversations, fetches the latest orchestrator
+   message as the question text and broadcasts `{type: "input_requested",
+   session_id, conversation_id, question}` to connections subscribed to
+   that conversation.
+5. On True→False transitions, emits `{type: "escalation_cleared",
+   session_id, conversation_id}` so the UI can dismiss its pending prompt.
 
 `run()` loops `poll_once()` at a configurable interval (default 1 second).
 
@@ -200,5 +229,6 @@ buses and pushes events to the dashboard via WebSocket.
 
 | Event type | Payload | Trigger |
 |------------|---------|---------|
-| `message` | id, conversation_id, sender, content, timestamp | New message in any conversation |
+| `message` | id, conversation_id, sender, content, timestamp | New message in a subscribed conversation |
 | `input_requested` | session_id, conversation_id, question | `awaiting_input` flag set on a conversation |
+| `escalation_cleared` | session_id, conversation_id | `awaiting_input` flag cleared (escalation resolved) |

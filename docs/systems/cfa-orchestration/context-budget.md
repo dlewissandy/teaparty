@@ -101,19 +101,17 @@ The orchestrator is the sole writer; agents only read.
 
 ---
 
-## Design targets not yet implemented
+## Recently landed
 
-The following capabilities are described in the design proposals but not yet
-present in the code:
+- **Cost enforcement:** `_check_cost_budget` in `teaparty/cfa/engine.py:1649` publishes `COST_WARNING` at 80% and `COST_LIMIT` at 100%, pauses the job via `INPUT_REQUESTED`, asks the human whether to continue, and injects a wrap-up prompt on decline. Project-level enforcement runs alongside via `_check_project_cost_budget`.
+- **Context-compaction enforcement:** `_check_context_budget` in `teaparty/cfa/engine.py:1599` injects `/compact` as a `_pending_intervention` when the threshold is crossed, so the next agent turn begins with a compaction pass.
+
+## Design targets not yet implemented
 
 - **Detail files for all sections:** `render()` references `.context/human-input.md`
   and `.context/dead-ends.md`, and `ScratchWriter` has `append_human_input()` and
   `append_dead_end()` methods.  However, state change and artifact detail files
   are not yet written -- only the scratch.md summary includes them.
-- **Cost enforcement:** `ContextBudget` tracks utilization and fires threshold
-  flags, but there is no hard enforcement that prevents an agent from exceeding
-  the budget.  The `COST_WARNING` and `COST_LIMIT` event types exist on the bus
-  but budget enforcement logic is not connected.
 - **Progressive disclosure:** The scratch file design calls for a tiered
   structure where scratch.md is a concise index with pointers to detail files,
   and detail files contain full content.  The rendering produces pointers but

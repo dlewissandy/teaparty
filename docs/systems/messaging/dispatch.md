@@ -12,19 +12,19 @@ The message bus is the single transport layer for all communication in TeaParty.
 
 This uniformity means every interaction is stored, routable, and visible. The bus is a durable persistent store, not a transient message queue. Conversation records survive process restarts. An agent that exits and is later re-invoked finds its conversation history intact.
 
-See [messaging.md](index.md) (forthcoming) for the bus storage model and adapter interface.
+See [Messaging overview](index.md) for the two-bus model and the layer map; see [bus-and-conversations](bus-and-conversations.md) for the schema and Unix-socket interface.
 
 ---
 
-## Send and Reply
+## Send and turn-end reply
 
-Two operations handle all inter-agent communication.
+Inter-agent communication uses one MCP tool and a turn-end convention.
 
-**Send(member, message)** delivers a message to a named roster member, opening a new conversation thread. The caller decides what context to include in the message — task description, relevant state, pointers to files. Context compression happens at the Send boundary: the caller distills what the recipient needs to know into the message body. No intermediate agent reformulates or relays the content.
+**Send(member, message)** delivers a message to a named roster member, opening a new conversation thread (or resuming an existing one). The caller decides what context to include in the message — task description, relevant state, pointers to files. Context compression happens at the Send boundary: the caller distills what the recipient needs to know into the message body. No intermediate agent reformulates or relays the content.
 
-**Reply(message)** responds to whoever opened the current thread and closes it. The conversation context is already established from the opening Send.
+**Reply is the recipient's final turn output.** There is no agent-facing `Reply` MCP tool. The recipient subprocess's output when its turn completes is, by convention, the reply to the opening Send. The listener captures it via `trigger_reply`, closes the child context, and delivers it to the caller. This replaced an earlier explicit Reply tool when the proxy migration to conversational prompts (commit 583cccd8, 2026-04-16) made structured per-turn verdicts unnecessary — the `_classify_review` script in `teaparty/cfa/actors.py` now categorizes free-text responses into CfA actions downstream.
 
-Each conversation thread has an open/close lifecycle owned by the originator. The originator opens the thread with Send; the recipient closes it with Reply. A single agent can have multiple threads open simultaneously — a lead that sends three parallel requests has three open threads tracked in its conversation history.
+Each conversation thread has an open/close lifecycle owned by the originator. The originator opens the thread with Send; the recipient closes it by exiting its turn. A single agent can have multiple threads open simultaneously — a lead that sends three parallel requests has three open threads tracked in its conversation history.
 
 ---
 
@@ -75,12 +75,13 @@ Work flows down through a chain of independent processes, each with its own cont
 
 ```
 Office Manager
-  └── Project Manager (per project)
-        └── Project Lead
-              └── Workgroup Agents
+  └── Project Lead (per project)
+        └── Workgroup Agents
 ```
 
-The office manager receives human requests and routes them to the appropriate project. The project manager coordinates cross-workgroup planning. The project lead decomposes work into tasks for workgroup agents. Each level communicates with the level below via Send/Reply on the bus.
+The office manager receives human requests and routes them directly to the appropriate project's lead. The project lead decomposes work into tasks for workgroup agents. Each level communicates with the level below via Send on the bus; the recipient's turn-end output is the reply.
+
+`PROJECT_MANAGER` exists as a *conversation kind* in `ConversationType` — it's the human's dedicated chat thread with a project — but there is no intermediate project-manager *agent tier* between OM and project lead. Dispatch goes OM → project lead → workgroup agent in the live routing table (`teaparty/messaging/dispatcher.py`); adding a recursive OM → PM → PL tier is tracked in the `recursive-dispatch` proposal.
 
 Every level is a separate `claude -p` process. The office manager does not hold the project lead's context. The project lead does not hold its workers' reasoning. Each process boundary is a hard context isolation guarantee — not a prompt instruction that might be forgotten, but a physical separation that cannot be breached.
 
@@ -98,11 +99,9 @@ Events relay from the bus to WebSocket connections for dashboard visibility. The
 
 ## Concurrency
 
-The system enforces a ceiling of **10 concurrent agent processes**. This is a system-wide limit — across all projects, all workgroups, all conversation kinds.
+Each agent may have at most **3 open conversations** at once, controlled by `MAX_CONVERSATIONS_PER_AGENT` in `teaparty/runners/launcher.py` and enforced via `check_slot_available()` against the agent's `metadata.json`. An agent that has sent three requests and is awaiting their turn-end replies cannot open a fourth until one closes. This per-agent limit prevents any single lead from monopolizing the concurrency pool.
 
-Each agent may have at most **3 open conversations** tracked in its `metadata.json`. An agent that has sent three requests and is awaiting replies cannot open a fourth until one closes. This per-agent limit prevents any single lead from monopolizing the concurrency pool.
-
-The combination of the two limits bounds total system resource consumption while allowing meaningful parallelism within a project.
+There is no system-wide ceiling on total concurrent agent processes — the per-agent cap is the only backpressure mechanism in code today. A truly system-wide limit (bounding total agent processes across all projects, workgroups, and conversation kinds) has been proposed but is not implemented.
 
 ---
 

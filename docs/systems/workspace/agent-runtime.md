@@ -40,7 +40,7 @@ The function:
 4. Builds a sanitized environment (allowlisted env vars only)
 5. Instantiates `ClaudeRunner` with the derived configuration
 6. Runs the subprocess, streams events, returns `ClaudeResult`
-7. Records turn metrics to `{scope}/metrics.db`
+7. Emits a `TURN_COMPLETE` telemetry event via `teaparty.telemetry.record_event`
 
 The launcher is stateless -- it does not cache, track, or persist anything between calls.
 
@@ -125,7 +125,7 @@ Iterates the agent's conversation map, closes each open conversation, cleans up 
 
 ### Metrics
 
-After each turn, the launcher writes to `{scope}/metrics.db` via `_record_metrics()`: cost, tokens, duration, keyed by session/agent/turn. The database survives session cleanup and supports queries across sessions, agents, and time ranges.
+After each turn, the launcher emits a `TURN_COMPLETE` telemetry event via `teaparty.telemetry.record_event` carrying cost, tokens, duration, and turn metadata. Events are written to the per-scope telemetry event stream (see [Bridge telemetry](../bridge/telemetry.md)) and queried via `/api/telemetry/*` on the bridge. There is no separate `metrics.db` — earlier designs planned one, but the implementation unified on the telemetry event stream.
 
 ---
 
@@ -166,8 +166,7 @@ The launcher enforces these constraints on every invocation:
 - **Genuine binary only.** Invoke via the `claude` binary found on `PATH`. No wrappers, no shims.
 - **No OAuth extraction.** Never extract OAuth tokens for direct HTTP use.
 - **No throttle circumvention.** Never instrument around Claude Code's built-in rate limiting.
-- **System concurrency ceiling.** Configurable (default 10). The launcher does not exceed this.
-- **Per-agent concurrency limit.** Each dispatching agent's `metadata.json` holds a conversation map (request ID to child session ID). Maximum 3 concurrent conversations per agent (`MAX_CONVERSATIONS_PER_AGENT`). The fourth `Send` blocks until a slot frees, which forces agents to close conversations when done.
+- **Per-agent concurrency limit.** Each dispatching agent's `metadata.json` holds a conversation map (request ID to child session ID). Maximum 3 concurrent conversations per agent (`MAX_CONVERSATIONS_PER_AGENT` in `teaparty/runners/launcher.py`). The fourth `Send` is refused until a slot frees, which forces agents to close conversations when done. This per-agent cap is the only concurrency backpressure in code today — a truly system-wide ceiling bounding total agent processes across all projects has been discussed but is not implemented.
 - **CLI sets the pace.** The launcher does not retry, batch, or parallelize beyond what the CLI permits.
 - **Stable system prompts.** Agent definitions and settings are deterministic for a given config state.
 - **Session resumption.** Use `--resume` rather than reconstructing context from scratch.

@@ -47,7 +47,7 @@ projects/<project>/.sessions/<ts>/...                                # legacy te
 
 ## Extraction dimensions
 
-- **Temporal (WHEN).** All extraction currently happens **retrospective only** — post-session, after the orchestrator completes. Prospective and in-flight extraction are design targets.
+- **Temporal (WHEN).** Extraction runs at four moments — prospective (before execution, `.premortem.md`), in-flight (at phase milestones, `.assumptions.jsonl`), corrective (at gate mismatches), and retrospective (post-session LLM pass). All four are wired end-to-end; retrospective produces the richest signal, prospective and in-flight currently emit weaker heuristics that will be tuned in the milestone-4 rewrite.
 - **Spatial (WHERE).** Entries are labeled by scope where they apply: team, session, project, global, dispatch.
 - **Type (WHAT).** Entries are labeled by type/domain: observations, escalation, intent-alignment, corrective, procedural, directive.
 
@@ -93,5 +93,5 @@ The decay floor is applied to `recency_decay`, not to final prominence. Time alo
 - `summarize.py` — session summarization across extraction scopes, calls the promotion pipeline
 - `reinforce.py` — reinforcement signal tracking
 - `compact.py` — deduplication, similarity merging, retired entry removal
-- `retire_stage.py` — retirement policy for stale or contradicted entries
-- `detect_stage.py` — contradiction detection
+- `detect_stage.py` — detects the current project stage from `INTENT.md` (stage metadata drives scope-aware extraction and retirement)
+- `retire_stage.py` — stage-based retirement: retires `domain='task'` entries whose `phase` matches the just-ended project stage (contradiction-driven importance adjustment is in `consolidation.py`, not here)

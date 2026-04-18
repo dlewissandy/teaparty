@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
-"""CLI for ACT-R Phase 1 evaluation metrics and ablations.
+"""CLI for ACT-R evaluation metrics and ablations.
 
 Usage:
     uv run python -m teaparty.proxy.evaluate <db_path>
     uv run python -m teaparty.proxy.evaluate <db_path> --json
     uv run python -m teaparty.proxy.evaluate <db_path> --ablation embedding
 
-Computes all four evaluation metrics and the go/no-go assessment from
-a proxy_memory.db file and prints the report.  With --ablation embedding,
-runs the multi-dimensional vs single-blended embedding comparison.
+Computes evaluation metrics (surprise calibration, retrieval relevance)
+from a proxy_memory.db file and prints the report.  With --ablation
+embedding, runs the multi-dimensional vs single-blended embedding
+comparison.  Action-based metrics (action match rate, prior calibration,
+go/no-go) were retired in the 583cccd8 conversational-prompts migration
+and replaced by downstream classification via _classify_review.
 """
 import argparse
 import json
@@ -23,16 +26,6 @@ def _run_evaluation(conn, as_json: bool) -> None:
 
     if as_json:
         out = {
-            'action_match': {
-                'rate': report['action_match'].rate,
-                'eligible': report['action_match'].eligible,
-                'matched': report['action_match'].matched,
-            },
-            'prior_calibration': {
-                'rate': report['prior_calibration'].rate,
-                'eligible': report['prior_calibration'].eligible,
-                'agreed': report['prior_calibration'].agreed,
-            },
             'surprise_calibration': {
                 'rate': report['surprise_calibration'].rate,
                 'surprises': report['surprise_calibration'].surprises,
@@ -41,15 +34,6 @@ def _run_evaluation(conn, as_json: bool) -> None:
             'retrieval_relevance': {
                 'chunks_above_threshold': len(report['retrieval_relevance'].retrievals),
                 'total_candidates': report['retrieval_relevance'].total_candidates,
-            },
-            'go_no_go': {
-                'total_eligible': report['go_no_go'].total_eligible,
-                'distinct_task_types': report['go_no_go'].distinct_task_types,
-                'distinct_states': report['go_no_go'].distinct_states,
-                'action_match_rate': report['go_no_go'].action_match_rate,
-                'sample_sufficient': report['go_no_go'].sample_sufficient,
-                'coverage_met': report['go_no_go'].coverage_met,
-                'verdict': report['go_no_go'].verdict,
             },
         }
         print(json.dumps(out, indent=2))

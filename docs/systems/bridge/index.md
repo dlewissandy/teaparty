@@ -38,11 +38,15 @@ Bridge is a thin aiohttp application that serves static HTML and JS from
 maintains a single WebSocket broadcast channel at `/ws`.
 
 - **State in.** A `StateReader` reads session and config state from disk.
-  A `StatePoller` watches for heartbeat, participant, and CfA state
-  changes and emits `state_update` events. A `MessageRelay` polls the
-  per-session [messaging](../messaging/index.md) `SqliteMessageBus`
-  instances and emits `message` and `input_requested` events. Every
-  event dict is fanned out as a JSON frame to all connected clients.
+  A `StatePoller` watches for CfA state changes, heartbeat updates, and
+  terminal-session transitions, emitting `state_changed`, `heartbeat`,
+  and `session_completed` events. A `MessageRelay` subscribes
+  connections to specific conversations on the per-session
+  [messaging](../messaging/index.md) `SqliteMessageBus` instances and
+  delivers `message`, `input_requested`, and `escalation_cleared`
+  events — the fetch-and-subscribe atomicity contract in
+  [chat-delivery](../messaging/chat-delivery.md) ensures each connection receives
+  only the events it subscribed for.
 - **State out.** Human chat input posts through the relay back into the
   conversation that the blade is bound to, where the target agent picks
   it up on its next turn.

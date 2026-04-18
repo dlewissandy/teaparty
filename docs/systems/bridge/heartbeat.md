@@ -5,7 +5,7 @@
 
 ## Context
 
-The stall watchdog in `claude_runner.py` equates "progress" with "stdout from the lead process." When a lead dispatches background agents and waits for results, the watchdog sees silence and kills the entire process tree, destroying work in progress.
+The stall watchdog in `teaparty/runners/claude.py` equates "progress" with "stdout from the lead process." When a lead dispatches background agents and waits for results, the watchdog sees silence and kills the entire process tree, destroying work in progress.
 
 The existing fix (`has_running_agents` boolean extending the timeout to 2 hours) cannot detect stalled children, cannot handle the lead dying and orphaning children, and does not generalize to nested hierarchical dispatch.
 
@@ -87,7 +87,7 @@ When the parent watchdog finds a dead child, it checks the child's CfA state, wh
 
 If the CfA state is terminal-success (`COMPLETED_WORK`), merge the worktree and move on. If terminal-failure (`WITHDRAWN`, escalation), surface the failure to the lead; do not merge, because the worktree contains incomplete work. If non-terminal and retries remain, re-dispatch with `--resume`: reuse the worktree, load CfA state from the existing file, pass the prior Claude session ID for conversation continuity. `dispatch()` gains a `resume_worktree` parameter that skips worktree creation and loads CfA state from the existing `.cfa-state.json`. Stream files are append-only and a partial stream is usable (the session ID appears in the first few events).
 
-Each re-dispatch increments `.retry-count` in the child's infra directory. Crashes, OOM kills, and stall timeouts are retryable with immediate retry, since these conditions are typically transient. API 529s are retryable with exponential backoff and jitter, matching the existing 529 handling in `claude_runner.py`. Budget is 3 attempts per phase, with a total cap of 9 attempts per child regardless of CfA advancement. This prevents a child that advances one state and then consistently crashes from consuming unbounded retries. If retries are exhausted, surface the failure to the lead as context and let it decide whether to skip, re-scope, or escalate. A child CfA escalation or withdrawal is not retryable. The child is saying the work cannot be done.
+Each re-dispatch increments `.retry-count` in the child's infra directory. Crashes, OOM kills, and stall timeouts are retryable with immediate retry, since these conditions are typically transient. API 529s are retryable with exponential backoff and jitter, matching the existing 529 handling in `teaparty/runners/claude.py`. Budget is 3 attempts per phase, with a total cap of 9 attempts per child regardless of CfA advancement. This prevents a child that advances one state and then consistently crashes from consuming unbounded retries. If retries are exhausted, surface the failure to the lead as context and let it decide whether to skip, re-scope, or escalate. A child CfA escalation or withdrawal is not retryable. The child is saying the work cannot be done.
 
 ### Recovery at every level
 
@@ -128,7 +128,7 @@ The interesting failure modes are races, partial failures, and timing. The key t
 | Alive-but-not-beating kill | 300s | 10 missed beats |
 | Parent death grace | 60s | Shutdown budget for saving nearly-complete work, not a completion guarantee |
 | Retry budget | 3 per phase, 9 per child | Per-phase resets on CfA state advancement; total cap prevents unbounded retries |
-| 529 backoff | Exponential with jitter | Matches existing `claude_runner.py` 529 handling |
+| 529 backoff | Exponential with jitter | Matches existing `teaparty/runners/claude.py` 529 handling |
 
 ## New dependency
 

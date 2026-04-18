@@ -25,7 +25,7 @@ Between phases, approval gates involve the human proxy — a learned model of th
 
 Two orthogonal human controls sit on top of the state machine. **INTERVENE** delivers a course correction at the next turn boundary — advisory by default, authoritative from the decider. **WITHDRAW** is a kill signal that cascades immediately through the dispatch hierarchy and terminates the work.
 
-The engine lives in `teaparty/cfa/`. The transition table is a JSON file (`teaparty/cfa/statemachine/cfa-state-machine.json`) that serves as the single source of truth for both the runtime and the design docs; `cfa_state.py` loads it and implements immutable transitions; `engine.py` drives the loop; `actors.py` routes each state to the actor responsible for it; and `gates/` implements the approval, escalation, and intervention machinery.
+The engine lives in `teaparty/cfa/`. The transition table is a JSON file (`teaparty/cfa/statemachine/cfa-state-machine.json`) that serves as the single source of truth for both the runtime and the design docs; `cfa_state.py` loads it and `cfa_machine.py` (the `python-statemachine`-backed engine) implements immutable transitions; `engine.py` drives the loop; `actors.py` routes each state to the actor responsible for it; and `gates/` implements the escalation and intervention machinery. The approval gate decision model lives in [`teaparty/proxy/approval_gate.py`](../human-proxy/approval-gate.md) — approval is a proxy-system responsibility that CfA invokes, not a CfA-internal concern.
 
 ## Status
 
@@ -40,11 +40,15 @@ Operational:
 
 In progress / designed:
 
-- [#92](https://github.com/dlewissandy/teaparty/issues/92) — migrate the bespoke transition table to the `python-statemachine` library for formal guard conditions, event hooks, and visualization.
-- [#46–#57](https://github.com/dlewissandy/teaparty/issues/46) — execution-phase gaps: plan-file detection, permission-block gates, backtrack feedback injection, escalation exit codes.
-- [#38–#45](https://github.com/dlewissandy/teaparty/issues/38) — intent-phase gaps: stale `INTENT.md` handling, version bumping, relocation.
 - Task-level learning signal. TASK_ASSERT and TASK_ESCALATE are currently marked never-escalate — the proxy's guess runs unreviewed, so no differential is recorded when the guess is wrong. This is a deliberate uninterrupted-execution tradeoff whose cost is being tracked.
 - Intent re-validation at narrower scope for deep subteams.
+- Engagement orchestration (org-lead negotiation, decomposition of engagements into jobs, feedback bubble-up) — partial; single-level dispatch is operational, recursive spawn tracked separately in the `recursive-dispatch` proposal.
+
+Recently landed (no longer open):
+
+- [#92](https://github.com/dlewissandy/teaparty/issues/92) — migration to the `python-statemachine` library. `teaparty/cfa/statemachine/cfa_machine.py` is the live transition engine; `CfaState.transition()` routes through `CfAMachine`.
+- [#38–#45](https://github.com/dlewissandy/teaparty/issues/38) — intent-phase gaps.
+- [#46–#57](https://github.com/dlewissandy/teaparty/issues/46) — execution-phase gaps.
 
 ## Deeper topics
 

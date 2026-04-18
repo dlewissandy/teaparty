@@ -11,7 +11,7 @@ The artifact browser and the job screen are the same page, parameterized by mode
 
 ```
 artifacts.html  ──┐
-                   ├──> ArtifactPage.mount(container, config)  [artifact-page.js]
+                   ├──> ArtifactPage.mount(config)  [artifact-page.js]
 job.html       ──┘       ├── File tree with git-status indicators
                           ├── File viewer (markdown, code, images, PDFs)
                           ├── Live refresh (polls /api/git-status every 2s)
@@ -19,7 +19,7 @@ job.html       ──┘       ├── File tree with git-status indicators
                           └── Job-mode top strip (workflow-bar.js)
 ```
 
-Both HTML files are thin shells (~30 lines) that import `artifact-page.js` and call `ArtifactPage.mount()` with mode-specific config. No rendering, state, or event-handling code lives in the shells.
+Both HTML files are thin shells (~30 lines) that import `artifact-page.js` and call `ArtifactPage.mount()` with mode-specific config. The `config` object carries DOM-element references (`contentEl`, `breadcrumbEl`, `bladeEl`) in addition to mode settings; there is no separate `container` positional argument. No rendering, state, or event-handling code lives in the shells.
 
 ## Server Endpoints
 

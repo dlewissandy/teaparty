@@ -65,6 +65,7 @@ for ev in telemetry.query_events(event_type='gate_failed',
 
 - `GET /api/telemetry/events` — raw event query, filtered by the standard fields; 1000-row default limit for admin debugging.
 - `GET /api/telemetry/stats/{scope}` — all aggregation helpers for a scope in one JSON response; pass `scope=all` to omit the filter. The stats bar consumer reads from this endpoint.
+- `GET /api/telemetry/chart/{chart_type}` — time-series / histogram data for the stats graph page. Supported chart types: `cost_over_time`, `turns_per_day`, `active_sessions_timeline`, `phase_distribution`, `backtrack_cost`, `escalation_outcomes`, `withdrawal_phases`, `gate_pass_rate`. Query params: `scope`, `agent`, `session`, `time_range`.
 
 ## Schema
 

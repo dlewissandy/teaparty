@@ -50,16 +50,20 @@ The accordion fetches `/api/dispatch-tree/{sessionId}`. The session ID is derive
 
 | convId form | sessionId |
 |---|---|
-| `om:{qualifier}` | `office-manager-{qualifier}` |
+| `om` (bare) | `office-manager` — the OM is a singleton, no qualifier |
 | `lead:{name}:{qualifier}` | `{name}-{name}-{qualifier}` |
+| `job:{project}:{session_id}` | `{session_id}` — scoped to the job's project lead |
+| `config:{...}` | resolves to the `configuration-lead` thread for that entity |
 
 ## Page routing table
 
 | Page | convId | Agent |
 |---|---|---|
-| Home | `om:{qualifier}` | office-manager |
-| Management Team config | `lead:teaparty-lead:{qualifier}` | teaparty-lead |
+| Home | `om` (bare) | office-manager |
+| Management Team config | `om` (bare) — the OM routes configuration intent to the configuration lead internally | office-manager |
 | Project Team config | `lead:{slug}-lead:{qualifier}` | {slug}-lead |
 | Agent/Workgroup detail | parent project's lead | parent project's lead |
+| Job detail | `job:{project}:{session_id}` | project lead for that project |
+| Artifacts page | `job:{project}:{session_id}` or `om` depending on the page's mode | project lead or office-manager |
 
-Home is the only page that talks to the office manager.
+The `om:{qualifier}` form existed in earlier iterations; the OM is now a singleton and uses a bare `om` convId everywhere.
