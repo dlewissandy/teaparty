@@ -1,10 +1,9 @@
 # Unified Agent Launch
 
 **Status:** Implemented
-**Issue:** #394 (initial), #397 (chat-tier split)
 **Implementation:** `launch()` in `teaparty/runners/launcher.py`
 
-## Two launch tiers (issue #397)
+## Two launch tiers
 
 TeaParty launches agents in two distinct tiers that share the same
 `launch()` function but take different branches:

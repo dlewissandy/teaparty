@@ -44,12 +44,6 @@ In progress / designed:
 - Intent re-validation at narrower scope for deep subteams.
 - Engagement orchestration (org-lead negotiation, decomposition of engagements into jobs, feedback bubble-up) — partial; single-level dispatch is operational, recursive spawn tracked separately in the `recursive-dispatch` proposal.
 
-Recently landed (no longer open):
-
-- [#92](https://github.com/dlewissandy/teaparty/issues/92) — migration to the `python-statemachine` library. `teaparty/cfa/statemachine/cfa_machine.py` is the live transition engine; `CfaState.transition()` routes through `CfAMachine`.
-- [#38–#45](https://github.com/dlewissandy/teaparty/issues/38) — intent-phase gaps.
-- [#46–#57](https://github.com/dlewissandy/teaparty/issues/46) — execution-phase gaps.
-
 ## Deeper topics
 
 - [state-machine](state-machine.md) — full specification: states, transitions, backtracks, and the JSON transition table.

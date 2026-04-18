@@ -1,7 +1,6 @@
 # Bidirectional Heartbeat Liveness
 
 **Status:** Draft
-**Issue:** [#149](https://github.com/dlewissandy/teaparty/issues/149)
 
 ## Context
 
@@ -36,7 +35,7 @@ The file has two phases. At creation it contains the orchestrator's PID and `"st
 
 On clean exit, the writer sets `"status": "completed"` or `"status": "withdrawn"` depending on the CfA outcome. On crash, the status stays `"running"` with a stale mtime. This gives the recovery scan four distinguishable states without a separate file: never existed (no file), running (status `"running"`, fresh mtime), running but dead (status `"running"`, stale mtime or PID gone), and finished (status `"completed"` or `"withdrawn"`).
 
-The `started` field stores `psutil.Process(os.getpid()).create_time()`, not `time.time()`. On macOS this has microsecond resolution; on Linux the actual accuracy is roughly one second despite the many decimal places `psutil` returns (see psutil issue #877). PID wraparound takes minutes to hours even under heavy load, so the sub-second tolerance is more than sufficient. A heartbeat is stale after 120 seconds (4 missed beats). Before declaring anything dead, the watchdog confirms the PID is gone via `psutil` and that `create_time()` differs from `started`.
+The `started` field stores `psutil.Process(os.getpid()).create_time()`, not `time.time()`. On macOS this has microsecond resolution; on Linux the actual accuracy is roughly one second despite the many decimal places `psutil` returns. PID wraparound takes minutes to hours even under heavy load, so the sub-second tolerance is more than sufficient. A heartbeat is stale after 120 seconds (4 missed beats). Before declaring anything dead, the watchdog confirms the PID is gone via `psutil` and that `create_time()` differs from `started`.
 
 ### Child heartbeat discovery
 

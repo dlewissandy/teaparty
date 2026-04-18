@@ -33,7 +33,7 @@ Tracks conversation lifecycle and input-request flags.
 **agent_contexts** -- `(context_id TEXT PK, initiator_agent_id, recipient_agent_id,
 parent_context_id, session_id, status, pending_count INTEGER, created_at,
 conversation_status, agent_worktree_path)`.  Tracks agent-to-agent dispatch
-contexts for fan-out/fan-in coordination (issue #351).
+contexts for fan-out/fan-in coordination.
 
 All databases use WAL mode for concurrent read safety.
 
@@ -125,8 +125,7 @@ exit (see *Reply flow* below).
    bus and `_spawn_and_record(...)` is awaited. Send **blocks** until the
    recipient subprocess completes (or is detached), and returns
    `{status: "ok", context_id, result: <recipient output>}` with the inline
-   result. The blocking-on-new-conversation behavior came in with the #398
-   fetch-and-subscribe atomicity rewrite.
+   result.
 
 Context IDs follow the format `agent:{initiator}:{recipient}:{uuid4}`.  The UUID
 suffix ensures parallel Send calls to the same recipient produce distinct contexts.
@@ -146,11 +145,9 @@ the reply signal.
 4. Per-agent `asyncio.Lock` instances serialize concurrent `--resume` calls
    for the same agent, preventing race conditions in fan-in scenarios.
 
-The pre-583cccd8 design had agents call an explicit `Reply` MCP tool at
-turn end. That tool was removed when turn-end became the canonical reply
-signal — the classifier (`teaparty/cfa/actors.py:_classify_review`) now
-categorizes the final response instead of the agent emitting a structured
-verdict.
+Turn-end is the canonical reply signal — the classifier
+(`teaparty/cfa/actors.py:_classify_review`) categorizes the final response
+instead of the agent emitting a structured verdict.
 
 ---
 
@@ -192,15 +189,14 @@ for post-processing.
 `MessageRelay` in `teaparty/bridge/message_relay.py` polls per-session message
 buses and delivers events to subscribed dashboard connections via WebSocket.
 
-### Architecture (post-#398)
+### Architecture
 
 - Holds a shared `bus_registry: dict[session_id, SqliteMessageBus]` (managed
   by the StatePoller).
 - Tracks `_subscriptions: dict[connection, dict[conversation_id, cursor]]`
   mapping each WebSocket connection to the set of conversations it is
   following, each with its own cursor. Cursors are opaque `"{ts:.9f}:{id}"`
-  strings so that ties on timestamp are broken by message id, eliminating
-  the off-by-one risks of the earlier `_last_ts` float-only scheme.
+  strings so that ties on timestamp are broken by message id.
 - Tracks `_awaiting: dict[conversation_id, session_id]` to avoid redundant
   input_requested events and to emit `escalation_cleared` on True→False
   transitions.

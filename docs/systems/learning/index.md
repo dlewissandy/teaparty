@@ -31,13 +31,13 @@ The deeper framing: memory is a retrieval problem, not a storage problem. And re
 
 Operational:
 
-- Promotion chain with recurrence detection, proxy exclusion, project-agnostic filtering ([#217](https://github.com/dlewissandy/teaparty/issues/217))
-- Continuous skill refinement: friction detection, LLM-driven skill updates, per-skill quality monitoring ([#229](https://github.com/dlewissandy/teaparty/issues/229))
-- Skill crystallization: candidate clustering, category-scoped generalization, lookup-time matching ([#234](https://github.com/dlewissandy/teaparty/issues/234))
-- Temporal decay: 90-day half-life, 10% decay floor, reinforcement resets the clock ([#218](https://github.com/dlewissandy/teaparty/issues/218))
-- Type-aware retrieval with per-type budget allocation ([#197](https://github.com/dlewissandy/teaparty/issues/197))
-- Bidirectional proxy feedback via `proxy-tasks/` ([#198](https://github.com/dlewissandy/teaparty/issues/198))
-- Contradiction detection for proxy memory ([#228](https://github.com/dlewissandy/teaparty/issues/228)) and for task/institutional learnings ([#244](https://github.com/dlewissandy/teaparty/issues/244))
+- Promotion chain with recurrence detection, proxy exclusion, project-agnostic filtering
+- Continuous skill refinement: friction detection, LLM-driven skill updates, per-skill quality monitoring
+- Skill crystallization: candidate clustering, category-scoped generalization, lookup-time matching
+- Temporal decay: 90-day half-life, 10% decay floor, reinforcement resets the clock
+- Type-aware retrieval with per-type budget allocation
+- Bidirectional proxy feedback via `proxy-tasks/`
+- Contradiction detection for proxy memory and for task/institutional learnings
 
 Designed, not yet implemented:
 

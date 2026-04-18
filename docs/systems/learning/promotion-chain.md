@@ -2,7 +2,7 @@
 
 Learnings are written at the most specific scope where they apply. The promotion chain moves validated learnings upward — team → session → project → global — with increasingly aggressive filtering at each level. The point is to prevent scope pollution: a correction that applied to one specific task shouldn't automatically become global policy.
 
-Implemented in `teaparty/learning/promotion.py`, resolved by [#217](https://github.com/dlewissandy/teaparty/issues/217).
+Implemented in `teaparty/learning/promotion.py`.
 
 ## What promotes, and what doesn't
 

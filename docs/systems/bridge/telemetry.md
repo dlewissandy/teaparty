@@ -1,6 +1,6 @@
 # Telemetry — event-sourced store
 
-_Issue #405._ Reference for the unified telemetry store that replaces the scattered `metrics.db`, session metadata files, and ad-hoc stat aggregations that came before it.
+Reference for the unified telemetry store that replaces the scattered `metrics.db`, session metadata files, and ad-hoc stat aggregations that came before it.
 
 ## Design principle
 

@@ -40,7 +40,7 @@ This explains the priority ordering:
 
 The approval gate's capabilities stack across three tiers:
 
-**Tier 1 (Operational now):** Two-pass prediction + cold-start calibration via ACT-R memory depth. The proxy agent always runs. The memory-depth cold-start mechanism caps confidence at 0.5 when ACT-R memory depth falls below `MEMORY_DEPTH_THRESHOLD`; the threshold is currently set to `0` (see commit `4f9d16ea`, 2026-04-17). The mechanism is in place and will be re-tuned in the milestone-4 skill-graph rewrite ([#337](https://github.com/dlewissandy/teaparty/issues/337)). The per-gate confidence check (confidence < 0.8 → escalate at ASSERT states; use best guess at never-escalate states) runs unchanged.
+**Tier 1 (Operational now):** Two-pass prediction + cold-start calibration via ACT-R memory depth. The proxy agent always runs. The memory-depth cold-start mechanism caps confidence at 0.5 when ACT-R memory depth falls below `MEMORY_DEPTH_THRESHOLD`; the threshold is currently set to `0`. The mechanism is in place and will be re-tuned in the milestone-4 skill-graph rewrite. The per-gate confidence check (confidence < 0.8 → escalate at ASSERT states; use best guess at never-escalate states) runs unchanged.
 
 **Tier 2 (Operational now):** Retrieval-backed patterns from `.proxy-interactions.jsonl` (legacy similar interactions) and `proxy-patterns.md` (flat behavioral patterns). These are loaded as context for the proxy agent's two-pass prediction. ACT-R memory chunks (Tier 3) supplement these with structured retrieval.
 
@@ -62,10 +62,10 @@ All three tiers are wired into `consult_proxy()`. The proxy architecture was des
 3. **Two-pass prediction** via `run_proxy_agent()` — a Claude CLI session with file-read tools:
    - **Pass 1 (prior)**: predict without seeing the artifact, using only memories and learned patterns
    - **Pass 2 (posterior)**: predict after reading the artifact + prior prediction
-   - **Surprise detection**: if confidence shifted > 0.3 between passes, extract what in the artifact caused the shift (salient percepts + a one-sentence description). Pre-583cccd8, a separate action-change branch also triggered surprise; that was retired when prompts stopped emitting categorical ACTION tokens — categorical classification now happens downstream on the final response via `_classify_review`.
+   - **Surprise detection**: if confidence shifted > 0.3 between passes, extract what in the artifact caused the shift (salient percepts + a one-sentence description). An earlier design also triggered surprise on a separate action-change branch; that was retired when prompts stopped emitting categorical ACTION tokens — categorical classification now happens downstream on the final response via `_classify_review`.
    - The agent receives: gate question, artifact/upstream context paths (file references, not pre-injected), ACT-R memory chunks, learned patterns, similar interactions, dialog history
 4. **Reinforce ACT-R memories** — retrieved chunks get a retrieval trace after the agent has consumed them (ACT-R Rule 2: post-consumption reinforcement)
-5. **Cold-start calibration** via `_calibrate_confidence()` — mechanism still in place; threshold currently `0` (see Tier 1 note above and commit `4f9d16ea`)
+5. **Cold-start calibration** via `_calibrate_confidence()` — mechanism still in place; threshold currently `0` (see Tier 1 note above)
 6. **Agent returns** text (what the human would say) + calibrated confidence (0.0–1.0)
 
 ### Proxy Agent Context Injection
@@ -108,7 +108,7 @@ Per-gate decisions:
 - TASK_ESCALATE: "Resolve the worker's escalation."
 - WORK_ASSERT: "Approve or revise the overall deliverable."
 
-**INTENT_ASSERT-specific probe override.** At INTENT_ASSERT (and only INTENT_ASSERT), the proxy's prior and posterior prompts carry an extra instruction: if there's no dialog history yet, "probe with one specific question that targets a concrete claim or framing choice in the proposal — scope, assumptions, or anything that seems underspecified. Do not rubber-stamp." If there's already dialog history, the instruction pivots to "evaluate whether the agent's reply resolves your concern; once your questions are answered, approve." This counteracts the rubber-stamp failure mode that 583cccd8 addressed — the proxy was approving intent too readily without probing whether the stated intent actually matched what was requested. No other gate state receives this override.
+**INTENT_ASSERT-specific probe override.** At INTENT_ASSERT (and only INTENT_ASSERT), the proxy's prior and posterior prompts carry an extra instruction: if there's no dialog history yet, "probe with one specific question that targets a concrete claim or framing choice in the proposal — scope, assumptions, or anything that seems underspecified. Do not rubber-stamp." If there's already dialog history, the instruction pivots to "evaluate whether the agent's reply resolves your concern; once your questions are answered, approve." This counteracts a rubber-stamp failure mode in which the proxy approved intent too readily without probing whether the stated intent actually matched what was requested. No other gate state receives this override.
 
 **Decision flow:**
 
@@ -162,15 +162,15 @@ Uses the same `consult_proxy()` path as ApprovalGate.
 
 The proxy agent's self-assessed confidence (from two-pass prediction) is the decision signal. `_calibrate_confidence()` applies six gates in order:
 
-**Cold-start guard:** Checks the ACT-R memory store for experience diversity — the number of distinct (state, task_type) pairs. If memory depth is below `MEMORY_DEPTH_THRESHOLD`, confidence is capped at 0.5 regardless of the agent's self-assessment. The mechanism is operational but the threshold is currently set to `0` (effectively disabled on fresh projects). Commit `4f9d16ea` (2026-04-17) relaxed it because the old `3` threshold caused every fresh-project gate to escalate, forcing humans into rubber-stamping. With the improved conversational prompts, probe-or-paraphrase gate instructions, and classifier, the proxy's self-reported confidence is trustworthy enough to drive clear-cut gates from turn one; the other guards in this section still run. The threshold — and the whole calibration stack — is slated for re-tuning in the milestone-4 skill-graph rewrite ([#337](https://github.com/dlewissandy/teaparty/issues/337)).
+**Cold-start guard:** Checks the ACT-R memory store for experience diversity — the number of distinct (state, task_type) pairs. If memory depth is below `MEMORY_DEPTH_THRESHOLD`, confidence is capped at 0.5 regardless of the agent's self-assessment. The mechanism is operational but the threshold is currently set to `0` (effectively disabled on fresh projects). It was relaxed because the old `3` threshold caused every fresh-project gate to escalate, forcing humans into rubber-stamping. With the improved conversational prompts, probe-or-paraphrase gate instructions, and classifier, the proxy's self-reported confidence is trustworthy enough to drive clear-cut gates from turn one; the other guards in this section still run. The threshold — and the whole calibration stack — is slated for re-tuning in the milestone-4 skill-graph rewrite.
 
-**Genuine tension guard (#228):** If retrieved memories contain a genuine unresolved tension (`has_genuine_tension` from conflict classification), confidence is capped at 0.5 to force escalation. The proxy cannot resolve a genuine tension without human input.
+**Genuine tension guard:** If retrieved memories contain a genuine unresolved tension (`has_genuine_tension` from conflict classification), confidence is capped at 0.5 to force escalation. The proxy cannot resolve a genuine tension without human input.
 
-**Staleness guard (#237):** If `proxy_accuracy.last_updated` for the current (state, task_type) is older than `STALENESS_DAYS` (7), confidence is capped at 0.5. Preferences drift; the model must not converge to an outdated snapshot.
+**Staleness guard:** If `proxy_accuracy.last_updated` for the current (state, task_type) is older than `STALENESS_DAYS` (7), confidence is capped at 0.5. Preferences drift; the model must not converge to an outdated snapshot.
 
-**Exploration rate (#237):** With probability `EXPLORATION_RATE` (0.15), confidence is capped at 0.5 regardless of all other signals. This prevents convergence to "always auto-approve" and ensures the model continues to see human decisions for ongoing calibration.
+**Exploration rate:** With probability `EXPLORATION_RATE` (0.15), confidence is capped at 0.5 regardless of all other signals. This prevents convergence to "always auto-approve" and ensures the model continues to see human decisions for ongoing calibration.
 
-**Accuracy-based autonomy (#226):** If per-context posterior accuracy is available (>= `ACCURACY_MIN_INTERACTIONS` (10) interactions), the proxy's track record gates the decision. If posterior accuracy is below `ACCURACY_AUTONOMY_THRESHOLD` (0.85), confidence is capped. Above threshold, the agent's self-assessed confidence passes through.
+**Accuracy-based autonomy:** If per-context posterior accuracy is available (>= `ACCURACY_MIN_INTERACTIONS` (10) interactions), the proxy's track record gates the decision. If posterior accuracy is below `ACCURACY_AUTONOMY_THRESHOLD` (0.85), confidence is capped. Above threshold, the agent's self-assessed confidence passes through.
 
 **Passthrough:** If none of the above gates fire, the agent's self-assessed confidence is returned unchanged.
 
@@ -201,36 +201,36 @@ Concern vocabulary: error_handling, rollback, security, idempotency, testing, do
 
 ## Implementation Status
 
-| Area | Status | Issue |
-|------|--------|-------|
-| AskQuestion MCP tool replaces file-based escalation | Done | [#137](https://github.com/dlewissandy/teaparty/issues/137) |
-| Proxy is a real Claude agent with tools | Done | [#139](https://github.com/dlewissandy/teaparty/issues/139) |
-| Differential recording (proxy prediction vs. human actual) | Done | [#138](https://github.com/dlewissandy/teaparty/issues/138) |
-| Alignment validation questions at gates | Done | [#102](https://github.com/dlewissandy/teaparty/issues/102) |
-| Cold-start intake dialog (Phase 1) | Done | [#125](https://github.com/dlewissandy/teaparty/issues/125) |
-| Retrieval-backed prediction (tier 1 patterns + tier 2 interactions) | Done | [#11](https://github.com/dlewissandy/teaparty/issues/11) |
-| Never-escalate for task-level gates (TASK_ASSERT, TASK_ESCALATE) | Done | [#139](https://github.com/dlewissandy/teaparty/issues/139) |
-| Unified proxy path (consult_proxy for all entry points) | Done | [#143](https://github.com/dlewissandy/teaparty/issues/143) |
-| Two-pass prediction (prior/posterior) | Done | [#179](https://github.com/dlewissandy/teaparty/issues/179) |
-| ACT-R memory retrieval in proxy flow | Done | [#179](https://github.com/dlewissandy/teaparty/issues/179) |
-| Cold-start gating mechanism via ACT-R memory depth | Built; threshold relaxed to 0 (see `4f9d16ea`; slated for re-tune in [#337](https://github.com/dlewissandy/teaparty/issues/337)) | [#220](https://github.com/dlewissandy/teaparty/issues/220) |
-| EMA decoupled from confidence scoring | Done | [#220](https://github.com/dlewissandy/teaparty/issues/220) |
-| Post-consumption reinforcement of retrieved chunks | Done | [#219](https://github.com/dlewissandy/teaparty/issues/219) |
-| Contradiction detection and resolution in proxy memory | Done | [#228](https://github.com/dlewissandy/teaparty/issues/228) |
-| LLM-as-judge conflict classification (two-tier: heuristic then LLM) | Done | [#228](https://github.com/dlewissandy/teaparty/issues/228) |
-| Asymmetric confidence decay (Hindsight, arXiv:2512.12818) | Done | [#228](https://github.com/dlewissandy/teaparty/issues/228) |
-| Post-session proxy memory consolidation | Done | [#228](https://github.com/dlewissandy/teaparty/issues/228) |
-| Per-context prediction accuracy tracking per (state, task_type) | Done | [#226](https://github.com/dlewissandy/teaparty/issues/226) |
-| Proxy-learning integration (bidirectional feedback) | Done | [#198](https://github.com/dlewissandy/teaparty/issues/198) |
-| Salience index separated from chunk embeddings | Done | [#227](https://github.com/dlewissandy/teaparty/issues/227) |
-| Embedding wired into proxy pattern compaction | Done | [#214](https://github.com/dlewissandy/teaparty/issues/214) |
-| ACT-R Phase 1 ablation harness (evaluation metrics) | Done | [#221](https://github.com/dlewissandy/teaparty/issues/221) |
-| Ablation: multi-dim vs single blended embedding | Done | [#222](https://github.com/dlewissandy/teaparty/issues/222) |
-| Ablation: activation decay vs simple recency | Done | [#223](https://github.com/dlewissandy/teaparty/issues/223) |
-| Ablation: composite scoring vs activation-only and similarity-only | Done | [#225](https://github.com/dlewissandy/teaparty/issues/225) |
-| Intake dialog Phases 2–3 (prediction-comparison, rituals) | Design target | [#125](https://github.com/dlewissandy/teaparty/issues/125) |
-| Text derivative learning (proxy self-assessment) | Design target | |
-| Proxy accuracy measurement on real escalations | Design target | |
+| Area | Status |
+|------|--------|
+| AskQuestion MCP tool replaces file-based escalation | Done |
+| Proxy is a real Claude agent with tools | Done |
+| Differential recording (proxy prediction vs. human actual) | Done |
+| Alignment validation questions at gates | Done |
+| Cold-start intake dialog (Phase 1) | Done |
+| Retrieval-backed prediction (tier 1 patterns + tier 2 interactions) | Done |
+| Never-escalate for task-level gates (TASK_ASSERT, TASK_ESCALATE) | Done |
+| Unified proxy path (consult_proxy for all entry points) | Done |
+| Two-pass prediction (prior/posterior) | Done |
+| ACT-R memory retrieval in proxy flow | Done |
+| Cold-start gating mechanism via ACT-R memory depth | Built; threshold relaxed to 0; slated for re-tune in the milestone-4 skill-graph rewrite |
+| EMA decoupled from confidence scoring | Done |
+| Post-consumption reinforcement of retrieved chunks | Done |
+| Contradiction detection and resolution in proxy memory | Done |
+| LLM-as-judge conflict classification (two-tier: heuristic then LLM) | Done |
+| Asymmetric confidence decay (Hindsight, arXiv:2512.12818) | Done |
+| Post-session proxy memory consolidation | Done |
+| Per-context prediction accuracy tracking per (state, task_type) | Done |
+| Proxy-learning integration (bidirectional feedback) | Done |
+| Salience index separated from chunk embeddings | Done |
+| Embedding wired into proxy pattern compaction | Done |
+| ACT-R Phase 1 ablation harness (evaluation metrics) | Done |
+| Ablation: multi-dim vs single blended embedding | Done |
+| Ablation: activation decay vs simple recency | Done |
+| Ablation: composite scoring vs activation-only and similarity-only | Done |
+| Intake dialog Phases 2–3 (prediction-comparison, rituals) | Design target |
+| Text derivative learning (proxy self-assessment) | Design target |
+| Proxy accuracy measurement on real escalations | Design target |
 
 ### References
 

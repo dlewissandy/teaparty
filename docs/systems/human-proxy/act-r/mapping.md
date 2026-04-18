@@ -24,12 +24,12 @@ Each chunk represents a **memory of an interaction** between the proxy and the h
     "salient_percepts": ["no rollback strategy", "database migration risk"],
 
     # Categorical prior/posterior prediction fields exist in the schema
-    # (prior_prediction, posterior_prediction) but are no longer populated
-    # as of commit 583cccd8 (2026-04-16).  The conversational-prompts
-    # migration moved categorical action classification downstream to
-    # `_classify_review` in teaparty/cfa/actors.py, which runs on the
-    # final human/proxy response rather than per-pass.  Historical rows
-    # written before the migration may still have values.
+    # (prior_prediction, posterior_prediction) but are no longer populated.
+    # The conversational-prompts migration moved categorical action
+    # classification downstream to `_classify_review` in
+    # teaparty/cfa/actors.py, which runs on the final human/proxy response
+    # rather than per-pass.  Historical rows written before the migration
+    # may still have values.
 
     # Content fields
     "human_response": "Add a rollback strategy for the migration",
@@ -66,7 +66,7 @@ The chunk has three layers.
 
 This replaces the single content embedding with a multi-dimensional representation that separates what the proxy sensed from what happened. It enables retrieval by any dimension or intersection of dimensions.
 
-**Note on multi-dimensional retrieval.** Using independent embeddings per chunk and aggregating cosine similarities at retrieval time is a novel design choice without published validation. The closest precedent is Park, J.S., et al.'s (2023) generative agents, which combine separate recency, importance, and relevance scores. Those are different signal types, not faceted semantic embeddings. Phase 1 should include an explicit ablation comparing 4-dimensional experience retrieval against a single blended embedding to determine whether the added complexity and embedding cost earn their keep. Salience retrieval should be evaluated separately: does providing attention-model context improve posterior accuracy? This is a cleaner ablation because it isolates the experience question from the attention question (#227).
+**Note on multi-dimensional retrieval.** Using independent embeddings per chunk and aggregating cosine similarities at retrieval time is a novel design choice without published validation. The closest precedent is Park, J.S., et al.'s (2023) generative agents, which combine separate recency, importance, and relevance scores. Those are different signal types, not faceted semantic embeddings. Phase 1 should include an explicit ablation comparing 4-dimensional experience retrieval against a single blended embedding to determine whether the added complexity and embedding cost earn their keep. Salience retrieval should be evaluated separately: does providing attention-model context improve posterior accuracy? This is a cleaner ablation because it isolates the experience question from the attention question.
 
 ---
 
@@ -145,7 +145,7 @@ Where:
 
 **Why tanh(B - τ).** Cosine similarity already lives on a natural scale: 0 = orthogonal (no contribution), +1 = perfect match, -1 = antithesis. No normalization needed. Raw activation B is on a log scale with no natural upper bound. To make the two components commensurable, we need a monotonic map from ℝ → (-1, 1). Shifting by τ grounds the zero point: a chunk at exactly the retrieval threshold contributes nothing to the composite, mirroring the cosine semantics. The tradeoff between recency and frequency in B is ACT-R's design — `tanh` is a monotonic transform and preserves it exactly.
 
-**Cosine averaging.** The semantic score is computed by summing cosine similarities across the 4 experience dimensions (situation, artifact, stimulus, response) and dividing by 4, not just the number of populated ones. This means a chunk with high similarity on 2 populated dimensions out of 4 gets `(sim1 + sim2 + 0 + 0) / 4`, while a chunk with moderate similarity across all 4 gets `(sim1 + sim2 + sim3 + sim4) / 4`. This rewards breadth of matching: chunks that match across more dimensions score higher than chunks that match narrowly on fewer dimensions, all else being equal. Salience is excluded from composite scoring and retrieved independently via `retrieve_salience()` (#227).
+**Cosine averaging.** The semantic score is computed by summing cosine similarities across the 4 experience dimensions (situation, artifact, stimulus, response) and dividing by 4, not just the number of populated ones. This means a chunk with high similarity on 2 populated dimensions out of 4 gets `(sim1 + sim2 + 0 + 0) / 4`, while a chunk with moderate similarity across all 4 gets `(sim1 + sim2 + sim3 + sim4) / 4`. This rewards breadth of matching: chunks that match across more dimensions score higher than chunks that match narrowly on fewer dimensions, all else being equal. Salience is excluded from composite scoring and retrieved independently via `retrieve_salience()`.
 
 Both components are on (-1, 1) with a principled zero crossing. The 0.5 / 0.5 weight split has unambiguous meaning: at exactly the threshold and orthogonal context, composite = 0 + 0 + noise.
 
@@ -153,7 +153,7 @@ Both components are on (-1, 1) with a principled zero crossing. The 0.5 / 0.5 we
 |-----------|---------------|------|--------|
 | Activation weight | 0.5 | Weight of `tanh(B − τ)` activation contribution in composite | Design parameter; calibrate empirically |
 | Semantic weight | 0.5 | Weight of cosine similarity in composite | Design parameter; calibrate empirically |
-| Noise scale (s) | 0.08 | Logistic noise scale; std dev ≈ πs/√3 ≈ 0.145 | Calibrated so noise perturbs ranking without dominating signal (#235) |
+| Noise scale (s) | 0.08 | Logistic noise scale; std dev ≈ πs/√3 ≈ 0.145 | Calibrated so noise perturbs ranking without dominating signal |
 
 ---
 
@@ -224,8 +224,8 @@ class MemoryChunk:
     outcome: str                     # approve, correct, dismiss, promote, discuss
     lens: str                        # discovery lens (empty for gate mode)
     prior_prediction: str            # Pass 1 prediction (deprecated; empty
-                                     # on chunks written after 583cccd8;
-                                     # classification now runs downstream)
+                                     # on new chunks; classification now
+                                     # runs downstream)
     prior_confidence: float          # Pass 1 confidence
     posterior_prediction: str        # Pass 2 prediction (deprecated — see
                                      # prior_prediction note)
@@ -254,9 +254,9 @@ CREATE TABLE proxy_chunks (
     task_type TEXT DEFAULT '',
     outcome TEXT NOT NULL,
     lens TEXT DEFAULT '',
-    prior_prediction TEXT DEFAULT '',   -- deprecated post-583cccd8; empty on new chunks
+    prior_prediction TEXT DEFAULT '',   -- deprecated; empty on new chunks
     prior_confidence REAL DEFAULT 0,
-    posterior_prediction TEXT DEFAULT '', -- deprecated post-583cccd8; empty on new chunks
+    posterior_prediction TEXT DEFAULT '', -- deprecated; empty on new chunks
     posterior_confidence REAL DEFAULT 0,
     prediction_delta TEXT DEFAULT '',
     salient_percepts TEXT DEFAULT '[]', -- JSON array of strings
@@ -270,8 +270,8 @@ CREATE TABLE proxy_chunks (
     embedding_stimulus TEXT,
     embedding_response TEXT,
     embedding_salience TEXT,
-    embedding_blended TEXT,            -- single blended embedding (#222 ablation: Configuration B)
-    deleted_at INTEGER DEFAULT NULL    -- soft-delete timestamp (#236); memory_depth filters WHERE deleted_at IS NULL
+    embedding_blended TEXT,            -- single blended embedding (ablation: Configuration B)
+    deleted_at INTEGER DEFAULT NULL    -- soft-delete timestamp; memory_depth filters WHERE deleted_at IS NULL
 );
 
 -- Global interaction counter (monotonically increasing)
@@ -288,7 +288,7 @@ The embedding_model column records which model produced the vectors, enabling re
 
 ```python
 EXPERIENCE_EMBEDDING_DIMENSIONS = 4  # situation, artifact, stimulus, response
-# Salience is retrieved independently via retrieve_salience() (#227)
+# Salience is retrieved independently via retrieve_salience()
 
 
 def base_level_activation(
@@ -328,12 +328,12 @@ def composite_score(
     The semantic score sums cosine similarities across the 4 experience
     dimensions and divides by EXPERIENCE_EMBEDDING_DIMENSIONS (4), not
     the number of populated dimensions. Salience is excluded from
-    composite scoring and retrieved independently (#227).
+    composite scoring and retrieved independently.
     """
     b = base_level_activation(chunk.traces, current_interaction, d)
     b_norm = math.tanh(b - tau)
 
-    # Experience dimensions only — salience retrieved independently (#227)
+    # Experience dimensions only — salience retrieved independently
     dim_map = {
         'situation': chunk.embedding_situation,
         'artifact': chunk.embedding_artifact,

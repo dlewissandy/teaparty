@@ -1,6 +1,6 @@
 # Chat Delivery: Fetch-and-Subscribe Atomicity
 
-**Status:** implemented (issue #398)
+**Status:** implemented
 
 ## Contract
 
@@ -114,9 +114,9 @@ advances the cursor before releasing the lock.
 
 `awaiting_input` transitions are now first-class events:
 
-- `input_requested` on False → True (unchanged from the pre-#398 behavior).
-- `escalation_cleared` on True → False (new). The dashboard reacts to this
-  to clear the attention dot. `index.html` no longer infers escalation state
+- `input_requested` on False → True.
+- `escalation_cleared` on True → False. The dashboard reacts to this
+  to clear the attention dot. `index.html` does not infer escalation state
   by inspecting chat `message` broadcasts — in fact `index.html` does not
   subscribe to any conversation.
 

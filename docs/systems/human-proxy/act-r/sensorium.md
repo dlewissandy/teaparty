@@ -78,7 +78,7 @@ Surprise extraction triggers when the prior and posterior meaningfully diverge.
 
 **Otherwise**: no surprise. No additional calls. The chunk is still stored but with empty salience fields.
 
-An earlier design included a second trigger — categorical action change between passes (e.g., prior "approve", posterior "correct") — which would have fired a heavier-weight extraction (2 LLM calls). That branch was retired in the 583cccd8 migration when the pass prompts stopped requesting `ACTION:` tokens in favor of natural human-voice text; action classification now happens downstream from the final response via `_classify_review` rather than per-pass. The 0.3 confidence threshold is a starting heuristic, not a precision instrument; LLM-generated confidence is poorly calibrated and this will be re-examined in the milestone-4 calibration-stack rewrite ([#337](https://github.com/dlewissandy/teaparty/issues/337)).
+An earlier design included a second trigger — categorical action change between passes (e.g., prior "approve", posterior "correct") — which would have fired a heavier-weight extraction (2 LLM calls). That branch was retired when the pass prompts stopped requesting `ACTION:` tokens in favor of natural human-voice text; action classification now happens downstream from the final response via `_classify_review` rather than per-pass. The 0.3 confidence threshold is a starting heuristic, not a precision instrument; LLM-generated confidence is poorly calibrated and this will be re-examined in the milestone-4 calibration-stack rewrite.
 
 Most gates produce no surprise. This is the design working correctly. Routine interactions reinforce the prior (making it more accurate), while surprising cases build the attention model (what to look for). Learned attention is intentionally built from the minority of interactions that produce surprise. You attend to what is unexpected, rather than to what is routine.
 
@@ -92,7 +92,7 @@ A proxy with poor initial accuracy generates more surprises and richer training 
 
 Phase 1 must include surprise rate monitoring to detect slow learning. If surprise rate stabilizes below 5% early in the session (before 50 interactions), the learned attention model may not develop sufficient signal. If surprise rate does not converge by the end of Phase 1 (above 15% throughout), the prior remains poorly calibrated and the proxy is not ready for autonomy.
 
-If confidence-based surprise proves too noisy in practice, alternatives — such as restoring a classified action differential, or tuning the threshold per-state — are on the table for the calibration-stack revisit in milestone-4 ([#337](https://github.com/dlewissandy/teaparty/issues/337)). The current design accepts that confidence is an imperfect signal and relies on the other calibration guards (genuine tension, staleness, exploration rate, per-context accuracy) to catch cases where the confidence number alone is misleading.
+If confidence-based surprise proves too noisy in practice, alternatives — such as restoring a classified action differential, or tuning the threshold per-state — are on the table for the calibration-stack revisit in milestone-4. The current design accepts that confidence is an imperfect signal and relies on the other calibration guards (genuine tension, staleness, exploration rate, per-context accuracy) to catch cases where the confidence number alone is misleading.
 
 ---
 
@@ -148,10 +148,11 @@ Each percept dimension gets its own embedding, not one blended vector.
 | **Response** | What the human did | The correction text, the approval, the dismissal |
 | **Salience** | What changed between prior and posterior | The prediction delta — the surprise |
 
-The first four dimensions (situation, artifact, stimulus, response) are the **experience dimensions** — they participate in composite scoring during experience retrieval. Salience is retrieved independently via a dedicated `retrieve_salience()` function that queries only chunks with non-null salience embeddings (#227). This separation means:
+The first four dimensions (situation, artifact, stimulus, response) are the **experience dimensions** — they participate in composite scoring during experience retrieval. Salience is retrieved independently via a dedicated `retrieve_salience()` function that queries only chunks with non-null salience embeddings. This separation means:
 
 - Experience retrieval answers "what happened in similar situations?" using 4 dimensions
 - Salience retrieval answers "when has the proxy been surprised in ways relevant to this situation?" using a context vector constructed from the artifact + situation
+
 
 A new interaction can match on:
 

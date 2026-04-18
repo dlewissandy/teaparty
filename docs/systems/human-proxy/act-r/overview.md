@@ -55,7 +55,7 @@ ACT-R retrieves the single chunk with highest activation above threshold. We ret
 
 The composite score mixes ACT-R activation with semantic similarity. This is not ACT-R — it is a hybrid that uses ACT-R's activation as one signal among two. The design doc for this is [mapping.md](mapping.md).
 
-Normalization is min-max over the candidate set. This makes the effective weight of activation relative to the current query, not absolute. See issue #192 for known limitations.
+Normalization is min-max over the candidate set. This makes the effective weight of activation relative to the current query, not absolute.
 
 ---
 
@@ -66,7 +66,7 @@ In ACT-R, a chunk is reinforced (gets a new trace) every time it participates in
 1. **On chunk creation** — the initial trace
 2. **On explicit reinforcement** — after the proxy has consumed retrieved memories and produced a response, the caller explicitly reinforces the chunks that were used via `reinforce_retrieved()`
 
-Retrieval itself does not add traces (see issue #191). This departs from some ACT-R implementations where retrieval automatically reinforces, but aligns with the ACT-R specification that reinforcement occurs when a chunk is "specifically retrieved for a task and actively referenced by a production rule."
+Retrieval itself does not add traces. This departs from some ACT-R implementations where retrieval automatically reinforces, but aligns with the ACT-R specification that reinforcement occurs when a chunk is "specifically retrieved for a task and actively referenced by a production rule."
 
 ---
 

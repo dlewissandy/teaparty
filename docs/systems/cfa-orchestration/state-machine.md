@@ -67,11 +67,3 @@ The orchestrator marks certain states (TASK_ASSERT, TASK_ESCALATE) as **never-es
 **Consequence for learning:** When the proxy's guess is wrong at a never-escalate state, no human sees the decision, so no differential is recorded. This silence means high-value learning signals are lost at the task level. The proxy can only learn from escalations at ASSERT states (intent, plan, work).
 
 This is a deliberate tradeoff: uninterrupted execution (goal) vs. task-level learning (cost). See [approval-gate.md](../human-proxy/approval-gate.md) for the full discussion of never-escalate states.
-
----
-
-## Recently landed
-
-- [#92](https://github.com/dlewissandy/teaparty/issues/92): Migrated to the `python-statemachine` library. The state machine object (`CfAMachine` in `teaparty/cfa/statemachine/cfa_machine.py`) enforces the JSON transition table and is what `CfaState.transition()` dispatches through.
-- [#46–#57](https://github.com/dlewissandy/teaparty/issues/46): GAP A3.* — plan file detection, permission block gates, backtrack feedback injection, escalation exit codes.
-- [#38–#45](https://github.com/dlewissandy/teaparty/issues/38): GAP A2.* — intent phase gaps (stale INTENT.md, version bumping, relocation).

@@ -1,6 +1,5 @@
 # Stats Bar
 
-**Issue:** #406  
 **Status:** Implemented
 
 ## Pattern
@@ -31,7 +30,7 @@ Excluded pages: artifacts page, stats graph page itself.
 
 Note on workgroup_filter: telemetry events are keyed by scope and agent_name; there is no workgroup field. The stats bar shows parent-scope stats for workgroup pages.
 
-Note on job session_filter: `job.html` does not carry a root session ID in its URL params, so the job page shows project-scoped stats (not session-scoped). Session-scoped stats would require #402's job launch to encode the root session ID in the URL.
+Note on job session_filter: `job.html` does not carry a root session ID in its URL params, so the job page shows project-scoped stats (not session-scoped). Session-scoped stats would require job launch to encode the root session ID in the URL.
 
 ## Stats shown (STAT_DEFS order)
 
@@ -90,7 +89,7 @@ Pages are **semantic groups**, not fixed-size slices of a flat list — `STAT_PA
 - `GET /api/telemetry/stats/{scope}` — Aggregated stats for a scope. Query params: `agent`, `session`, `time_range` (`today` | `7d` | `30d` | `all`). Returns all paged-ticker fields plus chart-page breakdowns.
 - `GET /api/telemetry/chart/{chart_type}` — Time-series / histogram data for the stats graph page. Chart types: `cost_over_time`, `turns_per_day`, `active_sessions_timeline`, `phase_distribution`, `backtrack_cost`, `escalation_outcomes`, `withdrawal_phases`, `gate_pass_rate`. Query params: `scope`, `agent`, `session`, `time_range`.
 
-Both endpoints read from the event-sourced telemetry store introduced in #405 (`teaparty/telemetry/`).
+Both endpoints read from the event-sourced telemetry store (`teaparty/telemetry/`).
 
 ## Structural invariant
 

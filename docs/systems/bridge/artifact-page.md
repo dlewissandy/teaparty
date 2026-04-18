@@ -15,7 +15,7 @@ artifacts.html  ──┐
 job.html       ──┘       ├── File tree with git-status indicators
                           ├── File viewer (markdown, code, images, PDFs)
                           ├── Live refresh (polls /api/git-status every 2s)
-                          ├── AccordionChat blade (#400 shared chat UX)
+                          ├── AccordionChat blade (shared chat UX)
                           └── Job-mode top strip (workflow-bar.js)
 ```
 
@@ -27,6 +27,6 @@ Both HTML files are thin shells (~30 lines) that import `artifact-page.js` and c
 
 ## Dependencies
 
-- `accordion-chat.js` (#400) — shared chat UX
+- `accordion-chat.js` — shared chat UX
 - `workflow-bar.js` — shared workflow bar (extracted from index.html)
 - `breadcrumb.js` — shared breadcrumb helper

@@ -36,7 +36,7 @@ It cannot distinguish habitual from episodic patterns. A human's stable preferen
 
 It has no connection to discovery mode. The proxy's between-session reviews produce richer interactions than a scalar can represent. See [autodiscovery.md](../../../reference/autodiscovery.md) for details.
 
-ACT-R activation memory solves these problems. EMA stays, reframed as monitoring. This transition is complete — EMA is decoupled from confidence scoring ([#220](https://github.com/dlewissandy/teaparty/issues/220)) and ACT-R memory drives retrieval and prediction.
+ACT-R activation memory solves these problems. EMA stays, reframed as monitoring. This transition is complete — EMA is decoupled from confidence scoring and ACT-R memory drives retrieval and prediction.
 
 Note: the design does permit autonomous proxy action (without escalation to the human) when the proxy has demonstrably inspected the artifact via two-pass prediction and its predictions consistently match the human's patterns. This is earned through consistent inspection, not inferred from a scalar. See [sensorium.md](sensorium.md) for how this differs from EMA-based auto-approval.
 
@@ -59,7 +59,7 @@ Replace the scalar confidence model with **activation-weighted embedding retriev
 ## What Changed, What Stayed
 
 **Changed (all operational):**
-- EMA role: from decision gate (approve/escalate) to system health monitor (are upstream agents improving?) ([#220](https://github.com/dlewissandy/teaparty/issues/220))
+- EMA role: from decision gate (approve/escalate) to system health monitor (are upstream agents improving?)
 - Memory: from scalar per state-task pair to chunk-based activation memory (`proxy_memory.db`)
 - Decision process: from threshold check to simulated dialog (proxy asks the questions the human would ask, then decides)
 - `consult_proxy()`: from confidence lookup to retrieval plus LLM reasoning over past interactions
@@ -91,9 +91,9 @@ Phase 0 design decisions have been resolved:
 
 ### Phase 1: Integration — Complete
 
-ACT-R memory system and two-pass prediction are operational on the develop branch. EMA is decoupled from the decision gate ([#220](https://github.com/dlewissandy/teaparty/issues/220)) and serves as a system health monitor only.
+ACT-R memory system and two-pass prediction are operational on the develop branch. EMA is decoupled from the decision gate and serves as a system health monitor only.
 
-**Evaluation metrics** — implemented in `evaluate_proxy.py` and `proxy_metrics.py` ([#221](https://github.com/dlewissandy/teaparty/issues/221)):
+**Evaluation metrics** — implemented in `evaluate_proxy.py` and `proxy_metrics.py`:
 - Action match rate: did the proxy's posterior action match the human's actual decision?
 - Prior calibration: how often did the prior match the posterior?
 - Surprise calibration: when surprise was detected, did the human's response confirm that the salient percepts were relevant?
@@ -106,17 +106,17 @@ ACT-R memory system and two-pass prediction are operational on the develop branc
 - ACT-R decay vs. simple recency ablation: if most-recent-N retrieval achieves >= 95% of ACT-R decay's match rate, the activation machinery is not earning its complexity.
 
 **Ablations — implemented** in `proxy_ablation.py`:
-- Multi-dimensional embeddings (5 vectors) vs. single blended embedding ([#222](https://github.com/dlewissandy/teaparty/issues/222)) — scoring is swappable via `retrieve_chunks()` mode parameter
-- ACT-R decay vs. simple recency (most-recent-N) ([#223](https://github.com/dlewissandy/teaparty/issues/223))
-- Composite score vs. activation-only and similarity-only retrieval ([#225](https://github.com/dlewissandy/teaparty/issues/225)) — leave-one-out ablation with action match rate metric
+- Multi-dimensional embeddings (5 vectors) vs. single blended embedding — scoring is swappable via `retrieve_chunks()` mode parameter
+- ACT-R decay vs. simple recency (most-recent-N)
+- Composite score vs. activation-only and similarity-only retrieval — leave-one-out ablation with action match rate metric
 - Two-pass prediction vs. single-pass (posterior only) — built into the two-pass architecture
 
 Additional Phase 1 capabilities implemented:
-- Salience index separated from chunk embeddings ([#227](https://github.com/dlewissandy/teaparty/issues/227))
-- Contradiction detection and LLM-as-judge classification ([#228](https://github.com/dlewissandy/teaparty/issues/228))
-- Per-context prediction accuracy tracking ([#226](https://github.com/dlewissandy/teaparty/issues/226))
-- Asymmetric confidence decay following Hindsight (arXiv:2512.12818) ([#228](https://github.com/dlewissandy/teaparty/issues/228))
-- Post-session proxy memory consolidation with Mem0-style ADD/UPDATE/DELETE/SKIP taxonomy ([#228](https://github.com/dlewissandy/teaparty/issues/228))
+- Salience index separated from chunk embeddings
+- Contradiction detection and LLM-as-judge classification
+- Per-context prediction accuracy tracking
+- Asymmetric confidence decay following Hindsight (arXiv:2512.12818)
+- Post-session proxy memory consolidation with Mem0-style ADD/UPDATE/DELETE/SKIP taxonomy
 
 **Status:** Phase 1 is feature-complete. Go/no-go evaluation requires accumulating sufficient gate interactions from real sessions.
 
@@ -185,10 +185,10 @@ SESSION START
             else:
                 no surprise, no additional calls
 
-            (Pre-583cccd8, an additional `prior.action != posterior.action`
-             branch triggered a heavier 2-call extraction.  Categorical
-             per-pass actions were retired in that migration; classification
-             now runs downstream on the final response via _classify_review.)
+            (An earlier design triggered a heavier 2-call extraction when
+             `prior.action != posterior.action`.  Categorical per-pass
+             actions were retired; classification now runs downstream on
+             the final response via _classify_review.)
 
         DECISION
             execute gate using posterior
@@ -233,7 +233,7 @@ MemoryChunk
     embedding_situation, _artifact, _stimulus, _response, _salience -- independent vectors
 ```
 
-Both passes produce free human-voice text followed by `CONFIDENCE: <float>` on the final line. Surprise extraction runs when confidence shifted significantly (1 additional LLM call). Most gates produce no surprise: 2 calls. Surprises cost 3. Categorical action — which drives learning from human corrections — is classified downstream from the final human/proxy response by `_classify_review` in `teaparty/cfa/actors.py`, not per-pass at the proxy; that split dates to commit 583cccd8 (2026-04-16).
+Both passes produce free human-voice text followed by `CONFIDENCE: <float>` on the final line. Surprise extraction runs when confidence shifted significantly (1 additional LLM call). Most gates produce no surprise: 2 calls. Surprises cost 3. Categorical action — which drives learning from human corrections — is classified downstream from the final human/proxy response by `_classify_review` in `teaparty/cfa/actors.py`, not per-pass at the proxy.
 
 ### Cache Economics
 
