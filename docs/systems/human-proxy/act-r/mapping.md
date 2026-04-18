@@ -18,12 +18,18 @@ Each chunk represents a **memory of an interaction** between the proxy and the h
     "lens": "",                      # for discovery mode: which lens produced this
 
     # Two-pass prediction results (see sensorium.md)
-    "prior_prediction": "approve",   # Pass 1: prediction without artifact
-    "prior_confidence": 0.8,
-    "posterior_prediction": "correct",  # Pass 2: prediction with artifact
-    "posterior_confidence": 0.85,
+    "prior_confidence": 0.8,          # Pass 1: confidence without artifact
+    "posterior_confidence": 0.85,     # Pass 2: confidence after reading artifact
     "prediction_delta": "Missing rollback section changed prediction",
     "salient_percepts": ["no rollback strategy", "database migration risk"],
+
+    # Categorical prior/posterior prediction fields exist in the schema
+    # (prior_prediction, posterior_prediction) but are no longer populated
+    # as of commit 583cccd8 (2026-04-16).  The conversational-prompts
+    # migration moved categorical action classification downstream to
+    # `_classify_review` in teaparty/cfa/actors.py, which runs on the
+    # final human/proxy response rather than per-pass.  Historical rows
+    # written before the migration may still have values.
 
     # Content fields
     "human_response": "Add a rollback strategy for the migration",
@@ -77,7 +83,7 @@ These two rules match standard ACT-R. Chunks are reinforced only when specifical
 
 ## How Does an Interaction Become a Chunk?
 
-Every gate interaction produces a chunk. Chunks always include structural fields, prediction fields, and outcome. The salience fields (`prediction_delta`, `salient_percepts`, `embedding_salience`) are populated only when surprise occurs. The prior and posterior actions differ, or the confidence delta exceeds the surprise threshold. See [sensorium.md](sensorium.md). Non-surprise chunks have empty salience fields but are still stored and contribute to the memory through their other dimensions.
+Every gate interaction produces a chunk. Chunks always include structural fields, prediction fields, and outcome. The salience fields (`prediction_delta`, `salient_percepts`, `embedding_salience`) are populated only when surprise occurs — the confidence delta between Pass 1 and Pass 2 exceeds the surprise threshold (0.3). See [sensorium.md](sensorium.md). Non-surprise chunks have empty salience fields but are still stored and contribute to the memory through their other dimensions.
 
 ### Gate Mode (During Sessions)
 
@@ -217,9 +223,12 @@ class MemoryChunk:
     task_type: str                   # project slug or empty
     outcome: str                     # approve, correct, dismiss, promote, discuss
     lens: str                        # discovery lens (empty for gate mode)
-    prior_prediction: str            # Pass 1 prediction (without artifact)
+    prior_prediction: str            # Pass 1 prediction (deprecated; empty
+                                     # on chunks written after 583cccd8;
+                                     # classification now runs downstream)
     prior_confidence: float          # Pass 1 confidence
-    posterior_prediction: str        # Pass 2 prediction (with artifact)
+    posterior_prediction: str        # Pass 2 prediction (deprecated — see
+                                     # prior_prediction note)
     posterior_confidence: float      # Pass 2 confidence
     prediction_delta: str            # what changed between passes (salience)
     salient_percepts: list[str]      # artifact features that caused the shift

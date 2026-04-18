@@ -95,6 +95,13 @@ def action_match_rate(conn: sqlite3.Connection) -> ActionMatchResult:
 
     Eligible population: chunks where human_response is non-empty (the human
     actually responded) AND posterior_prediction is non-empty (two-pass ran).
+
+    NOTE: Since the 583cccd8 conversational-prompts migration, the proxy
+    prompts emit natural-voice text rather than categorical ACTION tokens,
+    so posterior_prediction is no longer populated on new chunks.  This
+    metric still runs against historical rows written before the migration
+    but will report 0 eligible for any new chunk.  Downstream classification
+    of the final human response happens via _classify_review in actors.py.
     """
     rows = conn.execute(
         """SELECT posterior_prediction, outcome FROM proxy_chunks
@@ -116,6 +123,12 @@ def prior_calibration(conn: sqlite3.Connection) -> PriorCalibrationResult:
     """Fraction of chunks where prior_prediction == posterior_prediction.
 
     Eligible population: chunks where both prior and posterior are non-empty.
+
+    NOTE: Superseded by the 583cccd8 conversational-prompts migration.
+    Categorical per-pass action classification was retired; prior_prediction
+    and posterior_prediction are no longer populated.  Historical rows still
+    contribute if present.  Confidence-based surprise calibration (see
+    surprise_calibration) is the current migration-era equivalent.
     """
     rows = conn.execute(
         """SELECT prior_prediction, posterior_prediction FROM proxy_chunks
@@ -136,39 +149,41 @@ def prior_calibration(conn: sqlite3.Connection) -> PriorCalibrationResult:
 def surprise_calibration(conn: sqlite3.Connection) -> SurpriseCalibrationResult:
     """When surprise was detected, did the human respond?
 
-    Surprise is detected when:
-    - The action changed (prior_prediction != posterior_prediction), OR
-    - Confidence shifted > 0.3 (|posterior_confidence - prior_confidence| > 0.3), OR
+    Surprise is detected when any of:
+    - Confidence shifted > 0.3 (|posterior_confidence - prior_confidence|)
     - prediction_delta is non-empty (explicitly flagged by the proxy)
+    - salient_percepts are populated (extracted from a shift)
 
     Confirmation means human_response is non-empty.
+
+    The pre-583cccd8 design also counted "action changed
+    (prior_prediction != posterior_prediction)" as a surprise signal, but
+    the conversational-prompts migration retired categorical per-pass
+    actions — proxy responses are now free text classified downstream
+    from the final human/proxy answer via _classify_review.
     """
     rows = conn.execute(
-        """SELECT prior_prediction, posterior_prediction,
-                  prior_confidence, posterior_confidence,
+        """SELECT prior_confidence, posterior_confidence,
                   prediction_delta, salient_percepts, human_response
            FROM proxy_chunks
-           WHERE prior_prediction != '' AND posterior_prediction != ''"""
+           WHERE prior_confidence > 0 OR posterior_confidence > 0"""
     ).fetchall()
 
     surprises = 0
     confirmed = 0
     for r in rows:
-        prior_action = r[0]
-        posterior_action = r[1]
-        prior_conf = r[2] or 0.0
-        posterior_conf = r[3] or 0.0
-        delta_text = r[4] or ''
-        percepts = r[5] or '[]'
+        prior_conf = r[0] or 0.0
+        posterior_conf = r[1] or 0.0
+        delta_text = r[2] or ''
+        percepts = r[3] or '[]'
 
-        action_changed = prior_action != posterior_action
         confidence_shifted = abs(posterior_conf - prior_conf) > CONFIDENCE_SHIFT_THRESHOLD
         has_delta = bool(delta_text)
         has_percepts = percepts not in ('[]', '')
 
-        if action_changed or confidence_shifted or has_delta or has_percepts:
+        if confidence_shifted or has_delta or has_percepts:
             surprises += 1
-            if r[6]:  # human_response non-empty
+            if r[4]:  # human_response non-empty
                 confirmed += 1
 
     if surprises == 0:

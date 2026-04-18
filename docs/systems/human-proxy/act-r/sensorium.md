@@ -52,7 +52,7 @@ In the example above, the salience signal is: "missing rollback section in a dat
 
 This is prediction-change salience. Inspired by the Bayesian surprise framework of Itti & Baldi (2009), but operating on categorical predictions rather than probability distributions. It applies to attention. The most informative percepts are the ones that change the prediction the most. The same principle that Allen AI's AutoDiscovery uses for guiding hypothesis exploration. Applied to what the proxy pays attention to, not what experiments to run.
 
-**A note on signal quality.** The prior-posterior delta is an approximate salience signal, not a precise measurement. Temperature 0 does not guarantee deterministic LLM outputs. Floating-point precision, GPU parallelism, and prompt structure differences between Pass 1 and Pass 2 introduce noise unrelated to the artifact's influence. The binary surprise trigger (action changed vs. did not) is partly a robustness choice. It thresholds away small noise-driven variations that would contaminate a continuous delta measure.
+**A note on signal quality.** The prior-posterior delta is an approximate salience signal, not a precise measurement. Temperature 0 does not guarantee deterministic LLM outputs. Floating-point precision, GPU parallelism, and prompt structure differences between Pass 1 and Pass 2 introduce noise unrelated to the artifact's influence. The confidence-shift threshold (0.3) is partly a robustness choice — it discards small noise-driven variations that would contaminate a continuous delta measure.
 
 ---
 
@@ -74,13 +74,11 @@ The two passes serve different purposes. Both are essential.
 
 Surprise extraction triggers when the prior and posterior meaningfully diverge.
 
-**Action changed** (e.g., approve to correct): strong surprise. Extract a one-sentence description of what changed and a list of salient percept phrases (2 additional short-context LLM calls).
+**Confidence delta exceeds threshold** (|posterior_confidence − prior_confidence| > 0.3): surprise. A single short-context LLM call produces a one-sentence description of what in the artifact caused the shift, plus 2–5 salient percept phrases.
 
-**Confidence delta exceeds threshold** (e.g., |posterior_confidence - prior_confidence| > 0.3, same action): moderate surprise. Extract salient percepts but with a lighter-weight extraction (1 LLM call). Note: the 0.3 threshold is a starting heuristic, not a precision instrument. LLM-generated confidence scores are poorly calibrated, so this threshold needs empirical calibration during Phase 1. If confidence values prove too noisy, the fallback is the binary mechanism (action change only), which is more robust because it thresholds on a categorical variable.
+**Otherwise**: no surprise. No additional calls. The chunk is still stored but with empty salience fields.
 
-**Neither**: no surprise. No additional calls. The chunk is still stored but with empty salience fields.
-
-This replaces the purely binary surprise mechanism. The confidence threshold captures cases where the artifact was noteworthy. A confidence jump from 0.3 to 0.9 without changing the action is informative. It opens the door without opening it to noise from minor confidence fluctuations.
+An earlier design included a second trigger — categorical action change between passes (e.g., prior "approve", posterior "correct") — which would have fired a heavier-weight extraction (2 LLM calls). That branch was retired in the 583cccd8 migration when the pass prompts stopped requesting `ACTION:` tokens in favor of natural human-voice text; action classification now happens downstream from the final response via `_classify_review` rather than per-pass. The 0.3 confidence threshold is a starting heuristic, not a precision instrument; LLM-generated confidence is poorly calibrated and this will be re-examined in the milestone-4 calibration-stack rewrite ([#337](https://github.com/dlewissandy/teaparty/issues/337)).
 
 Most gates produce no surprise. This is the design working correctly. Routine interactions reinforce the prior (making it more accurate), while surprising cases build the attention model (what to look for). Learned attention is intentionally built from the minority of interactions that produce surprise. You attend to what is unexpected, rather than to what is routine.
 
@@ -94,7 +92,7 @@ A proxy with poor initial accuracy generates more surprises and richer training 
 
 Phase 1 must include surprise rate monitoring to detect slow learning. If surprise rate stabilizes below 5% early in the session (before 50 interactions), the learned attention model may not develop sufficient signal. If surprise rate does not converge by the end of Phase 1 (above 15% throughout), the prior remains poorly calibrated and the proxy is not ready for autonomy.
 
-The binary surprise mechanism (action change only) is the robust fallback if confidence-based surprise proves too noisy. It eliminates the calibration problem entirely by thresholding on a categorical variable. If Phase 1 shows that confidence-based surprise adds noise without signal, the system reverts to binary surprise extraction and the salience model trains on fewer but higher-quality examples.
+If confidence-based surprise proves too noisy in practice, alternatives — such as restoring a classified action differential, or tuning the threshold per-state — are on the table for the calibration-stack revisit in milestone-4 ([#337](https://github.com/dlewissandy/teaparty/issues/337)). The current design accepts that confidence is an imperfect signal and relies on the other calibration guards (genuine tension, staleness, exploration rate, per-context accuracy) to catch cases where the confidence number alone is misleading.
 
 ---
 

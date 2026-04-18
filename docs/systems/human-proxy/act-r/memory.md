@@ -171,21 +171,24 @@ SESSION START
 
         PASS 1 -- PRIOR
             generate from cached prefix + gate context, no artifact
-            output: free text + ACTION: <action> / CONFIDENCE: <float> on final lines
-            parse -> prior.action, prior.prose
+            output: free human-voice text + CONFIDENCE: <float> on final line
+            parse -> prior.prose, prior.confidence
 
         PASS 2 -- POSTERIOR
             generate from cached prefix + gate context + artifact + prior
-            output: free text + ACTION: <action> / CONFIDENCE: <float> on final lines
-            parse -> posterior.action, posterior.prose
+            output: free human-voice text + CONFIDENCE: <float> on final line
+            parse -> posterior.prose, posterior.confidence
 
         SURPRISE
-            if prior.action != posterior.action:
-                strong surprise: extract description + salient percepts (2 LLM calls)
-            else if |posterior.confidence - prior.confidence| > 0.3:
-                moderate surprise: extract salient percepts (1 LLM call)
+            if |posterior.confidence - prior.confidence| > 0.3:
+                surprise: extract description + salient percepts (1 LLM call)
             else:
                 no surprise, no additional calls
+
+            (Pre-583cccd8, an additional `prior.action != posterior.action`
+             branch triggered a heavier 2-call extraction.  Categorical
+             per-pass actions were retired in that migration; classification
+             now runs downstream on the final response via _classify_review.)
 
         DECISION
             execute gate using posterior
@@ -208,30 +211,29 @@ EMA and the memory system operate on separate data paths. EMA tracks approval ra
 ### Data Structures
 
 ```
-StructuredPrediction
-    action    : one of {approve, correct, escalate, withdraw}
-    prose     : free-text reasoning
+PassResult
+    prose      : free human-voice text
+    confidence : 0.0–1.0 float
 
 SurpriseDelta
-    magnitude       : 1.0 (action changed), 0.5 (confidence shifted), or 0.0 (confirmed)
-    prior action    : action before artifact
-    prior prose     : reasoning before artifact
-    posterior action : action after artifact
+    magnitude        : 0.5 (confidence shifted > 0.3), or 0.0 (confirmed)
+    prior prose      : reasoning before artifact
+    prior confidence : confidence before artifact
     posterior prose  : reasoning after artifact
-    description     : what changed (only on strong surprise)
+    posterior confidence : confidence after artifact
+    description      : what in the artifact caused the shift
     salient percepts : list of artifact features that caused the shift
 
 MemoryChunk
     id, type, state, task_type, outcome              -- structural (SQL-filtered)
-    prior action, prior prose                         -- Pass 1 result
-    posterior action, posterior prose                  -- Pass 2 result
+    prior confidence, posterior confidence           -- two-pass trajectory
     surprise description, salient percepts            -- processed percept (empty if no surprise)
-    human response, proxy error                       -- ground truth
+    human response                                   -- ground truth (classified via _classify_review)
     traces                                            -- list of interaction numbers
     embedding_situation, _artifact, _stimulus, _response, _salience -- independent vectors
 ```
 
-Both passes produce free text followed by `ACTION: <action>` and `CONFIDENCE: <float>` on the final lines, parsed from the end of output. Surprise extraction only runs when the action changed or confidence shifted significantly (1 additional LLM call). Most gates produce no surprise: 2 calls. Surprises cost 3.
+Both passes produce free human-voice text followed by `CONFIDENCE: <float>` on the final line. Surprise extraction runs when confidence shifted significantly (1 additional LLM call). Most gates produce no surprise: 2 calls. Surprises cost 3. Categorical action — which drives learning from human corrections — is classified downstream from the final human/proxy response by `_classify_review` in `teaparty/cfa/actors.py`, not per-pass at the proxy; that split dates to commit 583cccd8 (2026-04-16).
 
 ### Cache Economics
 

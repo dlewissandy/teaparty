@@ -45,10 +45,11 @@ class ProxyResult:
     text: str                   # Full text response (what the human would say)
     confidence: float           # 0.0–1.0: how confident the agent is this matches the human
     from_agent: bool = True     # True if agent generated this, False if stats escalated
-    # Two-pass prediction data (populated when ACT-R memory is active)
-    prior_action: str = ''
+    # Two-pass prediction data (populated when ACT-R memory is active).
+    # Action classification was removed in the 583cccd8 conversational-prompts
+    # migration — prompts now emit natural-voice text, which _classify_review
+    # categorizes downstream from the final human/proxy response.
     prior_confidence: float = 0.0
-    posterior_action: str = ''
     posterior_confidence: float = 0.0
     prediction_delta: str = ''
     salient_percepts: list[str] = field(default_factory=list)
@@ -186,9 +187,7 @@ async def consult_proxy(
         text=two_pass.text,
         confidence=confidence,
         from_agent=True,
-        prior_action=two_pass.prior_action,
         prior_confidence=two_pass.prior_confidence,
-        posterior_action=two_pass.posterior_action,
         posterior_confidence=two_pass.posterior_confidence,
         prediction_delta=two_pass.prediction_delta,
         salient_percepts=two_pass.salient_percepts,
@@ -627,10 +626,8 @@ class _TwoPassResult:
     """Internal result from two-pass prediction."""
     text: str = ''
     confidence: float = 0.0
-    prior_action: str = ''
     prior_confidence: float = 0.0
     prior_text: str = ''
-    posterior_action: str = ''
     posterior_confidence: float = 0.0
     prediction_delta: str = ''
     salient_percepts: list[str] = field(default_factory=list)
@@ -758,7 +755,7 @@ async def run_proxy_agent(
         f"CONFIDENCE: <float 0.0–1.0>"
     )
 
-    prior_text, prior_confidence, prior_action = await _invoke_claude_proxy(
+    prior_text, prior_confidence = await _invoke_claude_proxy(
         prior_prompt, session_worktree,
     )
 
@@ -796,7 +793,7 @@ async def run_proxy_agent(
         f"CONFIDENCE: <float 0.0–1.0>"
     )
 
-    post_text, post_confidence, post_action = await _invoke_claude_proxy(
+    post_text, post_confidence = await _invoke_claude_proxy(
         posterior_prompt, session_worktree,
     )
 
@@ -806,30 +803,32 @@ async def run_proxy_agent(
         return _TwoPassResult(
             text=prior_text,
             confidence=prior_confidence,
-            prior_action=prior_action,
             prior_confidence=prior_confidence,
             prior_text=prior_text,
         )
 
     # ── Surprise detection ───────────────────────────────────────────────
+    # Sole trigger: confidence shifted substantially between passes.  The
+    # pre-583cccd8 design also triggered on categorical action change, but
+    # the conversational-prompts migration replaced structured verdicts
+    # with natural text — action classification now happens downstream via
+    # _classify_review on the final response, not per-pass here.
     prediction_delta = ''
     salient_percepts: list[str] = []
     confidence_shifted = abs(post_confidence - prior_confidence) > 0.3
 
     if confidence_shifted:
         prediction_delta, salient_percepts = await _extract_surprise(
-            prior_action, prior_confidence, prior_text,
-            post_action, post_confidence, post_text,
+            prior_confidence, prior_text,
+            post_confidence, post_text,
             artifact_path, session_worktree,
         )
 
     return _TwoPassResult(
         text=post_text or prior_text,
         confidence=post_confidence if post_text else prior_confidence,
-        prior_action=prior_action,
         prior_confidence=prior_confidence,
         prior_text=prior_text,
-        posterior_action=post_action,
         posterior_confidence=post_confidence,
         prediction_delta=prediction_delta,
         salient_percepts=salient_percepts,
@@ -901,8 +900,8 @@ def _build_artifact_context(
 
 async def _invoke_claude_proxy(
     prompt: str, session_worktree: str,
-) -> tuple[str, float, str]:
-    """Invoke claude -p and parse output. Returns (text, confidence, action)."""
+) -> tuple[str, float]:
+    """Invoke claude -p and parse output. Returns (text, confidence)."""
     try:
         result = await asyncio.get_event_loop().run_in_executor(
             None,
@@ -916,28 +915,26 @@ async def _invoke_claude_proxy(
         )
     except (FileNotFoundError, subprocess.TimeoutExpired):
         _log.warning('Proxy agent invocation failed')
-        return ('', 0.0, '')
+        return ('', 0.0)
 
     if result.returncode != 0 or not result.stdout.strip():
         _log.warning('Proxy agent returned non-zero or empty output')
-        return ('', 0.0, '')
+        return ('', 0.0)
 
     output = result.stdout.strip()
-    text, confidence = parse_proxy_agent_output(output)
-    action = parse_action_from_output(output)
-    return (text, confidence, action)
+    return parse_proxy_agent_output(output)
 
 
 async def _extract_surprise(
-    prior_action: str, prior_confidence: float, prior_text: str,
-    post_action: str, post_confidence: float, post_text: str,
+    prior_confidence: float, prior_text: str,
+    post_confidence: float, post_text: str,
     artifact_path: str, session_worktree: str,
 ) -> tuple[str, list[str]]:
-    """Extract surprise description and salient percepts when prediction changed."""
+    """Extract surprise description and salient percepts when confidence shifts."""
     prompt = (
-        f"The proxy's prediction changed after seeing the artifact.\n\n"
-        f"Prior: {prior_action} ({prior_confidence:.2f})\n"
-        f"Posterior: {post_action} ({post_confidence:.2f})\n\n"
+        f"The proxy's confidence shifted substantially after reading the artifact.\n\n"
+        f"Prior confidence: {prior_confidence:.2f}\n"
+        f"Posterior confidence: {post_confidence:.2f}\n\n"
         f"Prior reasoning: {prior_text[:300]}\n"
         f"Posterior reasoning: {post_text[:300]}\n"
     )
@@ -1140,20 +1137,3 @@ def parse_proxy_agent_output(output: str) -> tuple[str, float]:
     return (output, 0.0)
 
 
-_VALID_ACTIONS = frozenset(['approve', 'correct', 'escalate', 'withdraw'])
-
-
-def parse_action_from_output(output: str) -> str:
-    """Extract ACTION: <action> from proxy agent output.
-
-    Searches from the end of the output. Returns the action string
-    (approve, correct, escalate, withdraw) or empty string if not found.
-    """
-    lines = output.rstrip().split('\n')
-    for i in range(len(lines) - 1, max(len(lines) - 5, -1), -1):
-        match = re.search(r'ACTION:\s*(\w+)', lines[i], re.IGNORECASE)
-        if match:
-            action = match.group(1).lower()
-            if action in _VALID_ACTIONS:
-                return action
-    return ''

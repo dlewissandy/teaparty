@@ -1240,9 +1240,7 @@ class ApprovalGate:
                     content=conversation or feedback or '',
                     delta=feedback if outcome == 'correct' else '',
                     human_response=feedback or predicted_response or '',
-                    prior_prediction=pr.prior_action if pr else '',
                     prior_confidence=pr.prior_confidence if pr else 0.0,
-                    posterior_prediction=pr.posterior_action if pr else '',
                     posterior_confidence=pr.posterior_confidence if pr else 0.0,
                     prediction_delta=pr.prediction_delta if pr else '',
                     salient_percepts=pr.salient_percepts if pr else [],
@@ -1294,16 +1292,17 @@ class ApprovalGate:
         # Extract the artifact type from the path (e.g., PLAN.md, INTENT.md)
         artifact_type = os.path.basename(artifact_path) if artifact_path else 'unknown'
 
-        # Include the proxy's prior prediction if available — the delta
+        # Include the proxy's confidence trajectory if available — the delta
         # between prediction and reality is the highest-value learning signal.
+        # Categorical action classification was removed in 583cccd8; actions
+        # are now classified downstream from the final human response via
+        # _classify_review, so the proxy-side fields here are confidence-only.
         pr = self._last_proxy_result
         prediction_block = ''
         if pr:
             prediction_block = (
-                f"**Proxy prior prediction:** {pr.prior_action} "
-                f"(confidence: {pr.prior_confidence:.2f})\n"
-                f"**Proxy posterior prediction:** {pr.posterior_action} "
-                f"(confidence: {pr.posterior_confidence:.2f})\n"
+                f"**Proxy prior confidence:** {pr.prior_confidence:.2f}\n"
+                f"**Proxy posterior confidence:** {pr.posterior_confidence:.2f}\n"
             )
             if pr.prediction_delta:
                 prediction_block += f"**Prediction delta:** {pr.prediction_delta}\n"
