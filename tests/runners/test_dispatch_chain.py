@@ -386,7 +386,7 @@ class TestThreeDeepDispatchChain(unittest.TestCase):
                 current_context_id='agent:root:agent-a:init',
                 initiator_agent_id='agent-a',
             )
-            send_path, reply_path, close_path = await listener.start()
+            send_path, close_path = await listener.start()
 
             try:
                 # Simulate agent A calling Send(to='agent-b', message='...')

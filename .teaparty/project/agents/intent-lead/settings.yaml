@@ -7,7 +7,6 @@ permissions:
   - Edit
   - WebSearch
   - WebFetch
-  - mcp__teaparty-config__Reply
   - mcp__teaparty-config__AskQuestion
   - mcp__teaparty-config__GetProject
   - mcp__teaparty-config__ListProjects

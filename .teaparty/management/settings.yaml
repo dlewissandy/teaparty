@@ -2,7 +2,6 @@ permissions:
   allow:
     # Dispatch
     - mcp__teaparty-config__Send
-    - mcp__teaparty-config__Reply
     - mcp__teaparty-config__AskQuestion
     - mcp__teaparty-config__CloseConversation
     # Read

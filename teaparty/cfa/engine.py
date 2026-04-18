@@ -438,9 +438,8 @@ class Orchestrator:
                 cleanup_fn=self._cleanup_bus_agent_worktree,
                 dispatcher=self._build_bus_dispatcher(),
             )
-            send_socket, reply_socket, close_socket = await self._bus_event_listener.start()
+            send_socket, close_socket = await self._bus_event_listener.start()
             mcp_env['SEND_SOCKET'] = send_socket
-            mcp_env['REPLY_SOCKET'] = reply_socket
             mcp_env['CLOSE_CONV_SOCKET'] = close_socket
             mcp_env['AGENT_ID'] = lead_agent_id
 
@@ -560,8 +559,6 @@ class Orchestrator:
                     try:
                         if req_type == 'send':
                             response = await self._handle_bus_send(request)
-                        elif req_type == 'reply':
-                            response = await self._handle_bus_reply(request)
                         elif req_type == 'close_conversation':
                             response = await self._handle_bus_close(request)
                         else:
@@ -599,43 +596,6 @@ class Orchestrator:
             result_text = await listener._spawn_and_record(member, composite, context_id)
             return {'status': 'ok', 'context_id': context_id, 'result': result_text}
         return {'status': 'queued', 'context_id': context_id}
-
-    async def _handle_bus_reply(self, request: dict) -> dict:
-        """Handle a Reply request from the dispatch bus."""
-        message = request.get('message', '')
-        context_id = request.get('context_id', '')
-        listener = self._bus_event_listener
-        if not context_id and listener:
-            context_id = listener.current_context_id
-
-        parent_context_id = ''
-        parent_session_id = ''
-        should_reinvoke = False
-
-        if context_id and listener and listener.bus_db_path:
-            ctx = listener._get_context(context_id)
-            if ctx:
-                parent_context_id = ctx.get('parent_context_id', '')
-            listener._close_context(context_id)
-            if parent_context_id:
-                new_count = listener._decrement_parent_pending_count(parent_context_id)
-                if new_count == 0:
-                    parent_ctx = listener._get_context(parent_context_id)
-                    if parent_ctx:
-                        parent_session_id = parent_ctx.get('session_id', '')
-                    should_reinvoke = True
-
-        if listener and listener.reply_fn is not None and parent_context_id:
-            asyncio.create_task(
-                listener.reply_fn(parent_context_id, parent_session_id, message),
-            )
-
-        if listener and listener.reinvoke_fn is not None and should_reinvoke:
-            asyncio.create_task(
-                listener._locked_reinvoke(parent_context_id, parent_session_id, message),
-            )
-
-        return {'status': 'ok'}
 
     async def _handle_bus_close(self, request: dict) -> dict:
         """Handle a CloseConversation request from the dispatch bus."""
@@ -860,7 +820,7 @@ class Orchestrator:
             dispatcher=dispatcher,
         )
 
-        send_socket, reply_socket, close_socket = await listener.start()
+        send_socket, close_socket = await listener.start()
 
         # Build MCP config pointing to child listener sockets
         venv_python = sys.executable
@@ -870,7 +830,6 @@ class Orchestrator:
                 'args': ['-m', 'teaparty.mcp.server.main'],
                 'env': {
                     'SEND_SOCKET': send_socket,
-                    'REPLY_SOCKET': reply_socket,
                     'CLOSE_CONV_SOCKET': close_socket,
                     'AGENT_ID': child_agent_id,
                     'CONTEXT_ID': child_context_id,
@@ -1012,9 +971,9 @@ class Orchestrator:
     def _update_lead_bus_session(self, session_id: str) -> None:
         """Update the orchestrator's bus context record with the latest lead session_id.
 
-        Called after each agent turn so BusEventListener._handle_reply_connection
-        can retrieve the session_id needed to call reinvoke_fn when all workers
-        have replied (Issue #358).
+        Called after each agent turn so BusEventListener.trigger_reply (run at
+        child subprocess exit) can retrieve the session_id needed to call
+        reinvoke_fn when all workers have replied (Issue #358).
         """
         if not self._bus_lead_context_id:
             return
@@ -1986,8 +1945,9 @@ class Orchestrator:
             phase = phase_for_state(self.cfa.state)
             self._phase_session_ids[phase] = claude_sid
             # Keep the orchestrator's bus context record up to date so
-            # BusEventListener._handle_reply_connection can retrieve the
-            # latest session_id when all workers reply (Issue #358).
+            # BusEventListener.trigger_reply (run at child subprocess exit)
+            # can retrieve the latest session_id when all workers reply
+            # (Issue #358).
             self._update_lead_bus_session(claude_sid)
 
         # Persist and emit

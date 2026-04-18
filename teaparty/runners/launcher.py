@@ -311,6 +311,8 @@ def compose_launch_config(
     os.makedirs(config_dir, exist_ok=True)
 
     # Settings: scope base + agent override (same merge as worktree path).
+    # settings.yaml is the authoritative whitelist; agent.md frontmatter
+    # `tools:` is a legacy fallback for agents not yet migrated.
     settings = _merge_settings(agent_name, scope, teaparty_home)
     try:
         agent_def_path = resolve_agent_definition(agent_name, scope, teaparty_home)
@@ -319,12 +321,17 @@ def compose_launch_config(
         agent_def_path = ''
         fm = {}
 
-    tools_str = fm.get('tools', '')
-    if tools_str:
-        all_tools_list = [t.strip() for t in tools_str.split(',') if t.strip()]
-        perms = settings.get('permissions') or {}
-        perms['allow'] = all_tools_list
-        settings['permissions'] = perms
+    # Fallback: if settings.yaml doesn't grant permissions, derive them
+    # from the frontmatter tools list. The CLI's permission prompt fires
+    # when a tool is visible (via --tools) but not in permissions.allow,
+    # so both the flag and the allow list must cover the same set.
+    if not (settings.get('permissions') or {}).get('allow'):
+        tools_str = fm.get('tools', '')
+        if tools_str:
+            fallback = [t.strip() for t in tools_str.split(',') if t.strip()]
+            perms = settings.get('permissions') or {}
+            perms['allow'] = fallback
+            settings['permissions'] = perms
 
     settings_path = os.path.join(config_dir, 'settings.json')
     with open(settings_path, 'w') as f:
@@ -816,30 +823,31 @@ async def launch(
     except FileNotFoundError:
         fm = {}
 
-    # Derive tools from frontmatter (unless overridden)
-    tools = tools_override
-    if tools is None:
-        tools_str = fm.get('tools', '')
-        if tools_str:
-            all_tools = [t.strip() for t in tools_str.split(',') if t.strip()]
-            if 'ToolSearch' not in all_tools:
-                all_tools.append('ToolSearch')
-            tools = ','.join(all_tools)
-
     # Permission mode
     permission_mode = permission_mode_override or fm.get('permissionMode', 'default') or 'default'
 
-    # Settings
+    # Settings: scope base + agent override, authoritative for the whitelist.
+    # Frontmatter `tools:` is a legacy fallback only used when settings.yaml
+    # has no permissions.allow.
     if settings_override is not None:
         settings = dict(settings_override)
     else:
         settings = _merge_settings(agent_name, scope, teaparty_home)
-        tools_str = fm.get('tools', '')
-        if tools_str:
-            all_tools_list = [t.strip() for t in tools_str.split(',') if t.strip()]
-            perms = settings.get('permissions', {})
-            perms['allow'] = all_tools_list
-            settings['permissions'] = perms
+
+    # Derive --tools from settings.yaml's permissions.allow; fall back to
+    # frontmatter tools: for agents that have not yet migrated to settings.yaml.
+    tools = tools_override
+    if tools is None:
+        allow = (settings.get('permissions') or {}).get('allow') or []
+        if not allow:
+            tools_str = fm.get('tools', '')
+            if tools_str:
+                allow = [t.strip() for t in tools_str.split(',') if t.strip()]
+        if allow:
+            all_tools = list(allow)
+            if 'ToolSearch' not in all_tools:
+                all_tools.append('ToolSearch')
+            tools = ','.join(all_tools)
 
     if is_chat:
         effective_cwd = launch_cwd

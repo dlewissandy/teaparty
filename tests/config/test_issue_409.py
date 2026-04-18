@@ -447,7 +447,11 @@ class TestProjectLeadAlwaysScaffolded(unittest.TestCase):
         )
 
     def test_lead_agent_md_has_spec_frontmatter(self):
-        """agent.md must have name, description, tools, model=sonnet, maxTurns=30."""
+        """agent.md must have name, description, model=sonnet, maxTurns=30.
+
+        The tool whitelist lives in settings.yaml, not agent.md frontmatter
+        — agent.md is role-only.
+        """
         tmp = _make_tmp(self)
         home = _make_teaparty_home(tmp)
         proj = os.path.join(tmp, 'tau')
@@ -472,17 +476,11 @@ class TestProjectLeadAlwaysScaffolded(unittest.TestCase):
             f"design doc requires maxTurns=30; got {fm.get('maxTurns')!r}",
         )
         self.assertIn('tau-project', fm['description'])
-        tools = fm.get('tools', '')
-        for required_tool in [
-            'Read', 'Glob', 'Grep', 'Bash',
-            'mcp__teaparty-config__Send',
-            'mcp__teaparty-config__ProjectStatus',
-            'mcp__teaparty-config__WithdrawSession',
-        ]:
-            self.assertIn(
-                required_tool, tools,
-                f"project-lead tools must include {required_tool}",
-            )
+        self.assertNotIn(
+            'tools', fm,
+            "agent.md frontmatter must NOT carry a tools list — the "
+            "whitelist lives in settings.yaml (see test_lead_settings_yaml_permissions)",
+        )
 
     def test_lead_settings_yaml_permissions(self):
         """settings.yaml must grant allow-list for the project-lead tool set."""

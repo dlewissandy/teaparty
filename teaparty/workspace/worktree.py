@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import shutil
 
 log = logging.getLogger(__name__)
 
@@ -158,6 +159,7 @@ async def create_subchat_worktree(
     source_ref: str,
     dest_path: str,
     branch_name: str,
+    parent_worktree: str = '',
 ) -> None:
     """Create a per-session worktree at *dest_path* on a new branch.
 
@@ -168,9 +170,17 @@ async def create_subchat_worktree(
     branch name, or ``HEAD``).
 
     After creation, writes a ``.gitignore`` that excludes per-launch
-    infrastructure files (``.mcp.json``, ``.claude/``, ``stream.jsonl``)
-    so that parallel subchats forked from the same parent HEAD do not
-    conflict on those files during squash-merge.
+    infrastructure files (``.mcp.json``, ``.claude/``, ``stream.jsonl``,
+    ``.scratch/``) so that parallel subchats forked from the same parent
+    HEAD do not conflict on those files during squash-merge.
+
+    When *parent_worktree* is given and contains a ``.scratch/`` directory,
+    its contents are copied into the new worktree's ``.scratch/``.  This
+    is how inter-agent scratch notes propagate across Send boundaries:
+    the parent writes ``.scratch/<name>.md``, Send fires, the child's
+    worktree boots with a snapshot of those notes.  The copy is one-way
+    and point-in-time; the parent's later writes do not reach the
+    already-running child.
     """
     os.makedirs(os.path.dirname(dest_path), exist_ok=True)
     async with _repo_lock(source_repo):
@@ -185,6 +195,8 @@ async def create_subchat_worktree(
             '.mcp.json\n'
             '.claude/\n'
             'stream.jsonl\n'
+            '# Inter-agent scratch — copied at spawn, never committed\n'
+            '.scratch/\n'
         )
     await _run_git(dest_path, 'add', '.gitignore')
     proc = await asyncio.create_subprocess_exec(
@@ -194,6 +206,28 @@ async def create_subchat_worktree(
         stderr=asyncio.subprocess.DEVNULL,
     )
     await proc.wait()
+
+    # Seed .scratch/ from the parent's snapshot (if any) before the child
+    # agent starts reading.  The directory always exists afterwards so
+    # agents can reference `.scratch/<name>.md` without creating it.
+    scratch_dst = os.path.join(dest_path, '.scratch')
+    os.makedirs(scratch_dst, exist_ok=True)
+    if parent_worktree:
+        scratch_src = os.path.join(parent_worktree, '.scratch')
+        if os.path.isdir(scratch_src):
+            for entry in os.listdir(scratch_src):
+                src = os.path.join(scratch_src, entry)
+                dst = os.path.join(scratch_dst, entry)
+                try:
+                    if os.path.isdir(src):
+                        shutil.copytree(src, dst, dirs_exist_ok=True)
+                    else:
+                        shutil.copy2(src, dst)
+                except OSError as exc:
+                    log.warning(
+                        'scratch copy failed for %s → %s: %s',
+                        src, dst, exc,
+                    )
 
 
 async def commit_all_pending(worktree_path: str, message: str) -> bool:

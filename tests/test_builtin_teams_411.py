@@ -148,7 +148,7 @@ _MISSING_TOOL_AGENTS: set[str] = set()
 # Tool allowlists for pre-existing leads — AC7 reconciliation baseline.
 # These reflect the tools after reconciliation with design docs for those teams.
 _EXISTING_AGENT_TOOLS: dict[str, set[str]] = {
-    'coding-lead': {'mcp__teaparty-config__Send', 'mcp__teaparty-config__Reply',
+    'coding-lead': {'mcp__teaparty-config__Send',
                     'mcp__teaparty-config__AskQuestion', 'Read', 'ListFiles'},
     'configuration-lead': {'Read', 'Glob', 'Grep', 'Bash', 'mcp__teaparty-config__Send'},
 }

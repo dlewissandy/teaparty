@@ -116,6 +116,10 @@ def _is_excluded(relpath: str) -> bool:
     # dispatch-composed version.
     if relpath == '.claude' or relpath.startswith('.claude/') or relpath.startswith('.claude\\'):
         return True
+    # .scratch/ holds inter-agent working notes — ephemeral, copied at
+    # spawn, never committed, never merged.
+    if relpath == '.scratch' or relpath.startswith('.scratch/') or relpath.startswith('.scratch\\'):
+        return True
     basename = os.path.basename(relpath)
     if basename in _MERGE_EXCLUDE:
         return True

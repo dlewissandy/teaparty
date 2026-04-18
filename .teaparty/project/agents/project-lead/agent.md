@@ -3,14 +3,6 @@ name: project-lead
 description: "Project lead fallback \u2014 leads the team, delegates work, consolidates\
   \ results. Substituted by the project-scoped lead in phase-config when project.yaml\
   \ names one."
-tools: Read, Glob, Grep, Write, Edit, WebSearch, WebFetch, Bash, mcp__teaparty-config__Send,
-  mcp__teaparty-config__Reply, mcp__teaparty-config__CloseConversation, mcp__teaparty-config__AskQuestion,
-  mcp__teaparty-config__GetAgent, mcp__teaparty-config__ListAgents, mcp__teaparty-config__GetWorkgroup,
-  mcp__teaparty-config__ListWorkgroups, mcp__teaparty-config__GetSkill, mcp__teaparty-config__ListSkills,
-  mcp__teaparty-config__GetProject, mcp__teaparty-config__ListProjects, mcp__teaparty-config__ListTeamMembers,
-  mcp__teaparty-config__ListHooks, mcp__teaparty-config__ListScheduledTasks, mcp__teaparty-config__ListPins,
-  mcp__teaparty-config__PinArtifact, mcp__teaparty-config__UnpinArtifact, mcp__teaparty-config__ProjectStatus,
-  mcp__teaparty-config__WithdrawSession
 model: sonnet
 maxTurns: 30
 ---

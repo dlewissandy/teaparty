@@ -1,8 +1,7 @@
-"""Bus event listener: Unix socket servers for Send and Reply MCP tool IPC.
+"""Bus event listener: Unix socket server for Send MCP tool IPC.
 
-The orchestrator starts two sockets before launching Claude Code:
+The orchestrator starts a socket before launching Claude Code:
   SEND_SOCKET  — receives Send(member, composite, context_id) calls
-  REPLY_SOCKET — receives Reply(message) calls
 
 Send flow:
   1. Agent calls Send → MCP server connects to SEND_SOCKET
@@ -12,12 +11,13 @@ Send flow:
   5. Listener returns {status: queued, context_id} immediately (non-blocking)
   6. spawn_fn runs in a background task; result (session_id) is stored in the record
 
-Reply flow:
-  1. Agent calls Reply → MCP server connects to REPLY_SOCKET
-  2. Listener receives {type: reply, message}
-  3. Listener closes the agent context record for current_context_id
-  4. Listener calls reinvoke_fn(context_id, session_id, message) to resume the caller
-  5. Returns {status: ok}
+Reply flow (automatic, no agent tool):
+  When the spawned child subprocess exits, _spawn_and_record calls
+  trigger_reply(context_id, result_text). trigger_reply closes the
+  child's context, decrements the parent's pending_count, injects the
+  reply into the parent's history, and re-invokes the parent when the
+  fan-out completes. Agents do not call Reply themselves — turn-end is
+  the signal.
 
 The caller is not blocked for recipient execution — Send returns as soon as the
 context record is created and the spawn task is enqueued.  This is the non-blocking
@@ -112,11 +112,9 @@ class BusEventListener:
         self.dispatcher = dispatcher  # BusDispatcher | None
 
         self._send_server: asyncio.AbstractServer | None = None
-        self._reply_server: asyncio.AbstractServer | None = None
         self._close_server: asyncio.AbstractServer | None = None
         self._interjection_server: asyncio.AbstractServer | None = None
         self._send_socket_path = ''
-        self._reply_socket_path = ''
         self._close_socket_path = ''
         self._interjection_socket_path = ''
         self._sock_dir = ''
@@ -129,27 +127,22 @@ class BusEventListener:
         """Path to the interjection Unix socket for bridge-triggered --resume."""
         return self._interjection_socket_path
 
-    async def start(self) -> tuple[str, str, str]:
+    async def start(self) -> tuple[str, str]:
         """Start all socket servers.
 
         Returns:
-            (send_socket_path, reply_socket_path, close_socket_path)
+            (send_socket_path, close_socket_path)
 
         The interjection socket path is available via ``self.interjection_socket_path``.
         """
         self._sock_dir = tempfile.mkdtemp(prefix='teaparty-bus-')
         self._send_socket_path = os.path.join(self._sock_dir, 'send.sock')
-        self._reply_socket_path = os.path.join(self._sock_dir, 'reply.sock')
         self._close_socket_path = os.path.join(self._sock_dir, 'close.sock')
         self._interjection_socket_path = os.path.join(self._sock_dir, 'interject.sock')
 
         self._send_server = await asyncio.start_unix_server(
             self._handle_send_connection,
             path=self._send_socket_path,
-        )
-        self._reply_server = await asyncio.start_unix_server(
-            self._handle_reply_connection,
-            path=self._reply_socket_path,
         )
         self._close_server = await asyncio.start_unix_server(
             self._handle_close_connection,
@@ -160,29 +153,27 @@ class BusEventListener:
             path=self._interjection_socket_path,
         )
         _log.info(
-            'BusEventListener started: send=%s reply=%s close=%s interject=%s',
-            self._send_socket_path, self._reply_socket_path,
-            self._close_socket_path, self._interjection_socket_path,
+            'BusEventListener started: send=%s close=%s interject=%s',
+            self._send_socket_path, self._close_socket_path,
+            self._interjection_socket_path,
         )
-        return self._send_socket_path, self._reply_socket_path, self._close_socket_path
+        return self._send_socket_path, self._close_socket_path
 
     async def stop(self) -> None:
         """Stop all servers and clean up socket files."""
         for server in (
-            self._send_server, self._reply_server,
-            self._close_server, self._interjection_server,
+            self._send_server, self._close_server, self._interjection_server,
         ):
             if server is not None:
                 server.close()
                 await server.wait_closed()
         self._send_server = None
-        self._reply_server = None
         self._close_server = None
         self._interjection_server = None
 
         for path in (
-            self._send_socket_path, self._reply_socket_path,
-            self._close_socket_path, self._interjection_socket_path,
+            self._send_socket_path, self._close_socket_path,
+            self._interjection_socket_path,
         ):
             if path:
                 try:
@@ -197,7 +188,6 @@ class BusEventListener:
                 pass
 
         self._send_socket_path = ''
-        self._reply_socket_path = ''
         self._close_socket_path = ''
         self._interjection_socket_path = ''
         self._sock_dir = ''
@@ -314,8 +304,11 @@ class BusEventListener:
     ) -> str:
         """Spawn recipient, record metadata, return result text.
 
-        Returns the agent's result_text (from --output-format json) so the
-        caller's Send tool call can return it inline.
+        When the child subprocess exits, treat its last agent message
+        (``result_text``) as the implicit reply and run the same bookkeeping
+        the old Reply bus message triggered — close context, decrement
+        parent pending_count, inject into parent history, re-invoke parent
+        on fan-in completion.
         """
         try:
             _log.info('_spawn_and_record: starting spawn for member=%r context=%s', member, context_id)
@@ -330,6 +323,10 @@ class BusEventListener:
                     self._set_session_id(context_id, session_id)
                 if worktree_path:
                     self._set_worktree_path(context_id, worktree_path)
+
+            # Turn-end is the reply signal. Run the listener-side bookkeeping
+            # now that the child's work is done.
+            await self.trigger_reply(context_id, result_text)
 
             return result_text
 
@@ -348,82 +345,53 @@ class BusEventListener:
         except Exception:
             _log.exception('Error resuming agent for context %s', context_id)
 
-    async def _handle_reply_connection(
-        self,
-        reader: asyncio.StreamReader,
-        writer: asyncio.StreamWriter,
-    ) -> None:
-        """Handle a Reply MCP tool call.
+    async def trigger_reply(self, context_id: str, message: str) -> None:
+        """Signal that a worker's turn has ended with *message* as its reply.
 
-        Protocol:
-          MCP → listener: {type: "reply", message: str}
-          listener → MCP: {status: "ok"}
+        Called automatically when a spawned child subprocess exits — the
+        engine treats turn-end as the reply signal so agents do not have
+        to remember to issue one. The bookkeeping is identical to the
+        old Reply bus-message path: close the child's context, decrement
+        the parent's pending_count, inject the reply into the parent's
+        history, and re-invoke the parent when the fan-out is fully in.
         """
-        try:
-            line = await reader.readline()
-            if not line:
-                return
-            request = json.loads(line.decode())
-            message = request.get('message', '')
+        context_id = context_id or self.current_context_id
+        _log.info(
+            'trigger_reply: context_id=%r message_len=%d',
+            context_id, len(message),
+        )
+        parent_context_id = ''
+        parent_session_id = ''
+        should_reinvoke = False
 
-            # Workers include their own context_id in the Reply socket message
-            # (set via the CONTEXT_ID env var injected at spawn time).
-            # Fall back to current_context_id for callers that predate this field.
-            context_id = request.get('context_id', '') or self.current_context_id
-            _log.info(
-                'Reply received: context_id=%r message_len=%d',
-                context_id, len(message),
+        if context_id and self.bus_db_path:
+            ctx = self._get_context(context_id)
+            if ctx:
+                parent_context_id = ctx.get('parent_context_id', '')
+            self._close_context(context_id)
+            if parent_context_id:
+                new_count = self._decrement_parent_pending_count(parent_context_id)
+                if new_count == 0:
+                    parent_ctx = self._get_context(parent_context_id)
+                    if parent_ctx:
+                        parent_session_id = parent_ctx.get('session_id', '')
+                    should_reinvoke = True
+
+        # Inject the reply into the caller's history on every reply
+        # (regardless of pending_count) so fan-out scenarios get all N
+        # replies in the history before the caller resumes.
+        if self.reply_fn is not None and parent_context_id:
+            asyncio.create_task(
+                self.reply_fn(parent_context_id, parent_session_id, message)
             )
-            parent_context_id = ''
-            parent_session_id = ''
-            should_reinvoke = False
 
-            if context_id and self.bus_db_path:
-                ctx = self._get_context(context_id)
-                if ctx:
-                    parent_context_id = ctx.get('parent_context_id', '')
-                self._close_context(context_id)
-                # Decrement the parent's pending_count.  When it reaches zero all
-                # workers in this fan-out have replied and the caller can be resumed.
-                if parent_context_id:
-                    new_count = self._decrement_parent_pending_count(parent_context_id)
-                    if new_count == 0:
-                        parent_ctx = self._get_context(parent_context_id)
-                        if parent_ctx:
-                            parent_session_id = parent_ctx.get('session_id', '')
-                        should_reinvoke = True
-
-            response = {'status': 'ok'}
-            writer.write(json.dumps(response).encode() + b'\n')
-            await writer.drain()
-
-            # Inject this worker's reply into the caller's history on EVERY reply
-            # (regardless of pending_count) so that in fan-out scenarios all N
-            # worker replies are in the history before the caller resumes.
-            # conversation-model.md: "appends it to the caller's local conversation
-            # history file" — per Reply, not just the last.
-            if self.reply_fn is not None and parent_context_id:
-                asyncio.create_task(
-                    self.reply_fn(parent_context_id, parent_session_id, message)
-                )
-
-            # Re-invoke the caller only when all fan-out workers have replied
-            # (pending_count reached zero).  Use a per-agent lock so only one
-            # --resume per caller is active at a time
-            # (conversation-model.md — per-agent re-invocation lock).
-            if self.reinvoke_fn is not None and should_reinvoke:
-                asyncio.create_task(
-                    self._locked_reinvoke(parent_context_id, parent_session_id, message)
-                )
-
-        except Exception:
-            _log.exception('Error handling Reply connection')
-        finally:
-            writer.close()
-            try:
-                await writer.wait_closed()
-            except Exception:
-                pass
+        # Re-invoke the caller only when all fan-out workers have landed
+        # (pending_count reached zero). Per-agent lock serializes --resume
+        # calls for the same caller.
+        if self.reinvoke_fn is not None and should_reinvoke:
+            asyncio.create_task(
+                self._locked_reinvoke(parent_context_id, parent_session_id, message)
+            )
 
     async def _locked_reinvoke(
         self, context_id: str, session_id: str, message: str,

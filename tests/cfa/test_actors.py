@@ -182,21 +182,50 @@ class TestGenerateBridge(unittest.TestCase):
             poc_root=self.tmpdir,
         )
 
-    def test_present_artifact_uses_canonical_gate_question(self):
-        """_generate_bridge with a known assert state returns the canonical question."""
+    def test_bridge_names_decision_and_lists_artifact(self):
+        """_generate_bridge opens with the decision line and lists the artifact.
+
+        The bridge is a self-contained Send to the reviewer — same discipline
+        as the Send tool. For a known assert state with an artifact on disk,
+        the output must: (1) state the decision the reviewer is being asked
+        to make, (2) list the artifact under review by its absolute path.
+        """
         gate = self._make_gate()
         artifact_path = os.path.join(self.tmpdir, 'INTENT.md')
         Path(artifact_path).write_text('# Intent')
 
         text = gate._generate_bridge(artifact_path, 'INTENT_ASSERT', 'task')
 
-        self.assertEqual(text, 'Do you recognize this as your idea, completely and accurately articulated?')
+        self.assertIn('Decide: Approve or revise the proposed intent.', text)
+        self.assertIn('Available:', text)
+        self.assertIn(f'{artifact_path} — the artifact under review', text)
 
-    def test_no_artifact_path_returns_generic_fallback(self):
-        """When no artifact path is given, a generic fallback message is returned."""
+    def test_bridge_includes_actor_message_when_provided(self):
+        """When the caller plumbs actor_message through, the bridge carries
+        it verbatim as the third slot — the gate does not substitute for it.
+        """
+        gate = self._make_gate()
+        artifact_path = os.path.join(self.tmpdir, 'INTENT.md')
+        Path(artifact_path).write_text('# Intent')
+
+        text = gate._generate_bridge(
+            artifact_path, 'INTENT_ASSERT', 'task',
+            actor_message="I've captured what the user asked for in INTENT.md.",
+        )
+
+        self.assertIn(
+            "I've captured what the user asked for in INTENT.md.",
+            text,
+        )
+
+    def test_bridge_without_artifact_still_names_decision(self):
+        """Even when no artifact exists yet, the bridge must name the
+        decision being requested — not fall back to a generic placeholder
+        that strips the actor's message or obscures what's being asked.
+        """
         gate = self._make_gate()
         text = gate._generate_bridge('', 'INTENT_ASSERT', 'task')
-        self.assertEqual(text, 'Ready for review at INTENT_ASSERT.')
+        self.assertIn('Decide: Approve or revise the proposed intent.', text)
 
 
 # ── Phase config artifact values ──────────────────────────────────────────────

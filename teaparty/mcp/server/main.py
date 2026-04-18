@@ -21,7 +21,6 @@ from teaparty.mcp.tools.escalation import (
 
 from teaparty.mcp.tools.messaging import (
     send_handler,
-    reply_handler,
     close_conversation_handler,
 )
 
@@ -88,6 +87,16 @@ from teaparty.mcp.tools.image_gen import (
 MCP_SERVER_NAME = 'teaparty-config'
 
 
+# Shared messaging discipline — used in the Send / AskQuestion tool
+# descriptions.  Keep in one place so the wording stays consistent.
+_SCRATCH_DISCLOSURE = (
+    'Only if the message would run long, put the detail in '
+    '`.scratch/<name>.md` and reference the path. `.scratch/` is '
+    "gitignored; its contents snapshot to the child's worktree at "
+    'Send time.'
+)
+
+
 def list_mcp_tool_names() -> list[str]:
     """Return the namespaced tool names exposed by the teaparty-config MCP server.
 
@@ -117,23 +126,18 @@ def create_server(agent_tools: set[str] | None = None) -> FastMCP:
     server = FastMCP('teaparty-config', json_response=False)
 
 
-    @server.tool()
+    @server.tool(description=(
+        'Ask a question; routed to the appropriate responder.\n\n'
+        "Self-contained: the responder hasn't seen your conversation. "
+        'Name the situation, the decision, options ruled out, and what '
+        'their answer commits them to. "Should I proceed?" is a misuse.'
+        '\n\n' + _SCRATCH_DISCLOSURE + '\n\n'
+        'Args:\n'
+        '    question: Your question, self-contained per the above.\n'
+        '    context: Ignored when a scratch file is present.'
+    ))
     async def AskQuestion(question: str, context: str = '') -> str:
-        """Ask a question that will be routed to the appropriate responder.
-
-        Use this tool when you need clarification, have a question about
-        intent, or need human input before proceeding.  The question will
-        be answered — you do not need to write escalation files.
-
-        The tool automatically injects the caller's scratch file as context
-        so the proxy or human receives the full job state alongside the
-        question.
-
-        Args:
-            question: Your question. Be specific and concise.
-            context: Ignored when a scratch file is present; kept for
-                backward compatibility when the scratch file is absent.
-        """
+        """Ask a question; routed to the appropriate responder."""
         return await ask_question_handler(
             question=question,
             context=context,
@@ -145,18 +149,23 @@ def create_server(agent_tools: set[str] | None = None) -> FastMCP:
     async def Send(member: str, message: str, context_id: str = '') -> str:
         """Send a message to a roster member, opening or continuing a thread.
 
-        The tool automatically prepends the caller's scratch file as a
-        Context section so the recipient has full job state without the
-        caller constructing a manual brief.
+        Self-contained: the recipient hasn't seen your conversation.
+        Name the work, definition of done, pointers to authoritative
+        context, and what you've decided or ruled out. "Write the
+        essay" is a misuse; continuing a thread doesn't excuse you.
 
-        After Send completes, the agent's turn ends.  TeaParty re-invokes
-        the caller when a response arrives on the thread.
+        Only if the message would run long, put the detail in
+        `.scratch/<name>.md` and reference the path. `.scratch/` is
+        gitignored; its contents snapshot to the child's worktree at
+        Send time.
+
+        After Send your turn ends; TeaParty re-invokes you on reply.
 
         Args:
-            member: Name key of a roster entry in your --agents object.
-            message: The task or question for the recipient.
-            context_id: Optional existing context ID to continue a thread.
-                Omit to open a new thread.
+            member: Name key of a roster entry in --agents.
+            message: The task or question, self-contained per the above.
+            context_id: Existing context ID to continue a thread; omit
+                to open a new one.
         """
         return await send_handler(
             member=member,
@@ -165,20 +174,6 @@ def create_server(agent_tools: set[str] | None = None) -> FastMCP:
             scratch_path=_scratch_path_from_env(),
             flush_fn=_default_flush,
         )
-
-    @server.tool()
-    async def Reply(message: str) -> str:
-        """Reply to the agent that opened the current thread and close it.
-
-        No context injection — the context is already established in the
-        thread.  Calling Reply ends the agent's turn and marks the thread
-        closed.  The calling agent's pending_count in the parent context
-        is decremented.
-
-        Args:
-            message: Your reply — result, answer, or completion notice.
-        """
-        return await reply_handler(message=message)
 
     @server.tool()
     async def CloseConversation(conversation_id: str) -> str:

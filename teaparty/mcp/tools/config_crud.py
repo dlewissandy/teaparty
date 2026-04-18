@@ -735,7 +735,6 @@ def create_agent_handler(
             'permissions': {
                 'allow': [
                     'mcp__teaparty-config__Send',
-                    'mcp__teaparty-config__Reply',
                     'mcp__teaparty-config__ListAgents',
                     'mcp__teaparty-config__GetAgent',
                     'mcp__teaparty-config__ListSkills',

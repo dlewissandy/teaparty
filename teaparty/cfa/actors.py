@@ -300,6 +300,14 @@ class AgentRunner:
         # Pass context budget to the engine for turn-boundary decisions (Issue #260)
         data['context_budget'] = result.context_budget
 
+        # Carry the actor's last assistant text so the next gate can use it
+        # as the triggering message — what the agent said as they hit the
+        # gate. The gate then composes a self-contained bridge to the
+        # proxy/human instead of substituting a canonical template.
+        actor_message = _last_assistant_text(result.stream_file)
+        if actor_message:
+            data['actor_message'] = actor_message
+
         # Check for expected artifact in the session worktree.
         if ctx.phase_spec.artifact:
             artifact_path = _find_artifact(
@@ -483,6 +491,45 @@ def _find_artifact_path_in_stream(stream_file: str, artifact_name: str) -> str:
     return last_path
 
 
+def _last_assistant_text(stream_file: str) -> str:
+    """Return the last assistant text block in *stream_file*.
+
+    The gate uses this as the actor's self-contained triggering message —
+    what the agent wrote as they hit the gate.  Empty when the stream
+    file is missing, unreadable, or the turn produced no text blocks.
+    """
+    if not stream_file or not os.path.isfile(stream_file):
+        return ''
+    last_text = ''
+    try:
+        with open(stream_file) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    event = json.loads(line)
+                except (json.JSONDecodeError, ValueError):
+                    continue
+                if event.get('type') != 'assistant':
+                    continue
+                content = event.get('message', {}).get('content', [])
+                buf: list[str] = []
+                for item in content:
+                    if not isinstance(item, dict):
+                        continue
+                    if item.get('type') != 'text':
+                        continue
+                    text = item.get('text', '').strip()
+                    if text:
+                        buf.append(text)
+                if buf:
+                    last_text = '\n'.join(buf)
+    except OSError:
+        return ''
+    return last_text
+
+
 def _find_artifact(worktree: str, artifact_name: str) -> str:
     """Find an artifact in the worktree.  Checks the root first, then
     searches up to one level deep.  Returns the path or '' if not found.
@@ -540,13 +587,53 @@ _CFA_STATE_TO_PHASE: dict[str, str] = {
 # ── ApprovalGate ─────────────────────────────────────────────────────────────
 
 
-# Canonical alignment questions for each approval gate.  These are the
-# questions the proxy and human both see — no LLM rephrasing.
-_GATE_QUESTIONS: dict[str, str] = {
-    'INTENT_ASSERT': 'Do you recognize this as your idea, completely and accurately articulated?',
-    'PLAN_ASSERT': 'Do you recognize this as a strategic plan to operationalize your idea well?',
-    'TASK_ASSERT': 'Does this work look like your task, correctly executed?',
-    'WORK_ASSERT': 'Do you recognize the deliverables and project files as your idea, completely and well implemented?',
+# Gate templates: per-state (decision, doc_specs) pairs.  The gate
+# composes a three-slot bridge to the proxy/human — the decision being
+# asked, the documents available, and the actor's own triggering message.
+# The gate does not substitute a canonical question for what the actor
+# actually said; it makes the request actionable by naming the decision
+# and the resources, then carries the actor's message through unchanged.
+#
+# doc_specs is an ordered list of (filename, one-line-purpose) pairs.
+# Files that don't exist at review time are silently skipped.
+_GATE_TEMPLATES: dict[str, tuple[str, list[tuple[str, str]]]] = {
+    'INTENT_ASSERT': (
+        'Approve or revise the proposed intent.',
+        [
+            ('INTENT.md', 'the proposed intent'),
+            ('PROMPT.txt', "the user's original request"),
+        ],
+    ),
+    'PLAN_ASSERT': (
+        'Approve or revise the proposed plan.',
+        [
+            ('PLAN.md', 'the proposed plan'),
+            ('INTENT.md', 'the approved intent'),
+            ('PROMPT.txt', "the user's original request"),
+        ],
+    ),
+    'TASK_ASSERT': (
+        'Accept or correct this sub-task output.',
+        [
+            ('PLAN.md', 'the approved plan'),
+            ('INTENT.md', 'the approved intent'),
+        ],
+    ),
+    'TASK_ESCALATE': (
+        "Resolve the worker's escalation.",
+        [
+            ('PLAN.md', 'the approved plan'),
+            ('INTENT.md', 'the approved intent'),
+        ],
+    ),
+    'WORK_ASSERT': (
+        'Approve or revise the overall deliverable.',
+        [
+            ('WORK_SUMMARY.md', "the lead's completion summary"),
+            ('PLAN.md', 'the approved plan'),
+            ('INTENT.md', 'the approved intent'),
+        ],
+    ),
 }
 
 # States where the proxy runs but never escalates to the human.
@@ -636,7 +723,13 @@ class ApprovalGate:
             pass
 
         from teaparty.proxy.agent import consult_proxy
-        gate_question = _GATE_QUESTIONS.get(ctx.state, f'Please review: {artifact_path}')
+        actor_message = ctx.data.get('actor_message', '')
+        gate_question = self._generate_bridge(
+            artifact_path, ctx.state, ctx.task,
+            session_worktree=ctx.session_worktree,
+            infra_dir=ctx.infra_dir,
+            actor_message=actor_message,
+        )
         dialog_history = ''
         next_bridge = ''  # set after dialog turns to show the agent's reply
         fallback_count = 0
@@ -944,12 +1037,14 @@ class ApprovalGate:
         # route directly to the human.  The proxy still ran (for observation
         # and learning) but doesn't answer — the human does.
         team = ctx.env_vars.get('POC_TEAM', '')
+        actor_message = ctx.data.get('actor_message', '')
         if force_human or (self.human_presence is not None
                 and self.human_presence.human_should_answer(ctx.state, team=team)):
             # Human is present — ask them directly, record observation
             bridge_text = bridge_override or self._generate_bridge(
                 artifact_path, ctx.state, ctx.task,
                 session_worktree=ctx.session_worktree, infra_dir=ctx.infra_dir,
+                actor_message=actor_message,
             )
             await ctx.event_bus.publish(Event(
                 type=EventType.INPUT_REQUESTED,
@@ -1005,11 +1100,19 @@ class ApprovalGate:
         # re-publishing it here would be a duplicate with a confusing label.
         first_turn = not bridge_override
 
+        def _gate_bridge() -> str:
+            return self._generate_bridge(
+                artifact_path, ctx.state, ctx.task,
+                session_worktree=ctx.session_worktree,
+                infra_dir=ctx.infra_dir,
+                actor_message=actor_message,
+            )
+
         if proxy_confident:
             if first_turn:
                 self._publish_to_job_conversation(
                     ctx, project_slug, 'gate',
-                    f'[{ctx.state}] {self._generate_bridge(artifact_path, ctx.state, ctx.task, session_worktree=ctx.session_worktree, infra_dir=ctx.infra_dir)}',
+                    f'[{ctx.state}] {_gate_bridge()}',
                 )
             self._publish_to_job_conversation(
                 ctx, project_slug, 'proxy', proxy_result.text,
@@ -1024,7 +1127,7 @@ class ApprovalGate:
             if first_turn:
                 self._publish_to_job_conversation(
                     ctx, project_slug, 'gate',
-                    f'[{ctx.state}] {self._generate_bridge(artifact_path, ctx.state, ctx.task, session_worktree=ctx.session_worktree, infra_dir=ctx.infra_dir)}',
+                    f'[{ctx.state}] {_gate_bridge()}',
                 )
             self._publish_to_job_conversation(
                 ctx, project_slug, 'proxy', proxy_result.text,
@@ -1033,11 +1136,8 @@ class ApprovalGate:
 
         # Proxy can't answer — escalate to the actual human.
         # If there's a bridge override (e.g., the agent's reply to a prior
-        # question), show that instead of the generic gate question.
-        bridge_text = bridge_override or self._generate_bridge(
-            artifact_path, ctx.state, ctx.task,
-            session_worktree=ctx.session_worktree, infra_dir=ctx.infra_dir,
-        )
+        # question), show that instead of the composed gate bridge.
+        bridge_text = bridge_override or _gate_bridge()
         # Surface the proxy's low-confidence attempt (if any) before the
         # human is asked, so their dialog is preserved in the accordion.
         self._publish_to_job_conversation(
@@ -1295,20 +1395,47 @@ class ApprovalGate:
     def _generate_bridge(
         self, artifact_path: str, state: str, task: str,
         session_worktree: str = '', infra_dir: str = '',
+        actor_message: str = '',
     ) -> str:
-        """Generate alignment validation bridge for review.
+        """Compose the gate's bridge — a self-contained Send to the reviewer.
 
-        Reads upstream context files (INTENT.md, PLAN.md) so the reviewer
-        can compare the artifact under review against its source of truth.
+        Three slots, same across every gate:
+          1. ``Decide: <decision>`` — what the reviewer is being asked to do.
+          2. ``Available:`` — a list of files that may help, with a one-line
+             purpose for each. Files that don't exist right now are skipped.
+          3. The actor's own triggering message — what the agent wrote as
+             they hit the gate. The gate never fabricates a substitute.
+
+        Slot 1 and slot 2 come from the per-state ``_GATE_TEMPLATES`` table;
+        slot 3 comes from the caller (plumbed from the previous actor's
+        ``ActorResult.data['actor_message']``).
         """
-        if not artifact_path or not os.path.exists(artifact_path):
-            return f'Ready for review at {state}.'
+        template = _GATE_TEMPLATES.get(state)
+        if template is None:
+            parts = [f'Decide: review state {state}.']
+            if actor_message:
+                parts.extend(['', actor_message.strip()])
+            return '\n'.join(parts)
 
-        # Use canonical gate question if one exists for this state.
-        if state in _GATE_QUESTIONS:
-            return _GATE_QUESTIONS[state]
+        decision, doc_specs = template
+        lines = [f'Decide: {decision}', '', 'Available:']
 
-        return f'Please review: {artifact_path}'
+        if artifact_path and os.path.isfile(artifact_path):
+            lines.append(f'  {artifact_path} — the artifact under review')
+
+        for filename, desc in doc_specs:
+            for search_dir in (session_worktree, infra_dir):
+                if not search_dir:
+                    continue
+                candidate = os.path.join(search_dir, filename)
+                if os.path.isfile(candidate):
+                    lines.append(f'  {candidate} — {desc}')
+                    break
+
+        if actor_message:
+            lines.extend(['', actor_message.strip()])
+
+        return '\n'.join(lines)
 
     def _generate_dialog_response(
         self, state: str, question: str, artifact_path: str,

@@ -114,6 +114,9 @@ async def _write_artifact_gitignore(worktree_path: str) -> None:
     visibility (reviewer can navigate to them) but must never reach main — they
     are planning scaffolding, not deliverables.  The .gitignore is the belt;
     _MERGE_EXCLUDE in merge.py is the suspenders.
+
+    .scratch/ holds inter-agent working notes referenced from Send/Reply/
+    AskQuestion messages — ephemeral, never committed, never merged.
     """
     gitignore_path = os.path.join(worktree_path, '.gitignore')
     with open(gitignore_path, 'a') as f:
@@ -126,6 +129,8 @@ async def _write_artifact_gitignore(worktree_path: str) -> None:
             '.mcp.json\n'
             '.claude/\n'
             'stream.jsonl\n'
+            '# Inter-agent scratch — copied at spawn, never committed\n'
+            '.scratch/\n'
         )
     await _run_git(worktree_path, 'add', '.gitignore')
     proc = await asyncio.create_subprocess_exec(
@@ -135,6 +140,9 @@ async def _write_artifact_gitignore(worktree_path: str) -> None:
         stderr=asyncio.subprocess.DEVNULL,
     )
     await proc.wait()
+    # Ensure the scratch dir always exists so agents can reference
+    # `.scratch/<name>.md` without having to create it.
+    os.makedirs(os.path.join(worktree_path, '.scratch'), exist_ok=True)
 
 
 # ── Job operations ───────────────────────────────────────────────────────────

@@ -1281,7 +1281,6 @@ PROJECT_LEAD_TOOLS = [
     'Bash',
     # Team communication primitives
     'mcp__teaparty-config__Send',
-    'mcp__teaparty-config__Reply',
     'mcp__teaparty-config__CloseConversation',
     'mcp__teaparty-config__AskQuestion',
     # Config inspection
@@ -1376,7 +1375,6 @@ def scaffold_project_lead(
         frontmatter = {
             'name': lead_name,
             'description': description,
-            'tools': ', '.join(PROJECT_LEAD_TOOLS),
             'model': 'sonnet',
             'maxTurns': 30,
         }

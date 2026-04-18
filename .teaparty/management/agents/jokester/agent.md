@@ -1,7 +1,7 @@
 ---
 name: jokester
 description: Tells jokes on request. General-purpose humor agent.
-tools: mcp__teaparty-config__AskQuestion, mcp__teaparty-config__Reply, mcp__teaparty-config__Send
+tools: mcp__teaparty-config__AskQuestion, mcp__teaparty-config__Send
 model: sonnet
 maxTurns: 10
 ---

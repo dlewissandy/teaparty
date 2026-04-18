@@ -15,7 +15,6 @@ from teaparty.mcp.tools.escalation import (
 )
 
 SendPostFn = Callable[[str, str, str], Awaitable[str]]
-ReplyPostFn = Callable[[str], Awaitable[str]]
 CloseConvPostFn = Callable[[str], Awaitable[str]]
 InjectFn = Callable[[str, str, str, str], Awaitable[None]]
 SessionLookupFn = Callable[[str, str], tuple[str, str, str] | None]
@@ -145,70 +144,6 @@ async def _default_send_post(member: str, composite: str, context_id: str) -> st
         response = json.loads(response_line.decode())
         _send_log.info('send_socket: member=%r total=%.2fs',
                        member, _time.monotonic() - t0)
-        return json.dumps(response)
-    finally:
-        writer.close()
-        await writer.wait_closed()
-
-
-async def reply_handler(
-    message: str,
-    *,
-    post_fn: ReplyPostFn | None = None,
-) -> str:
-    """Core handler logic for Reply."""
-    if not message or not message.strip():
-        raise ValueError('Reply requires a non-empty message')
-
-    if post_fn is None:
-        post_fn = _default_reply_post
-    return await post_fn(message)
-
-
-async def _default_reply_post(message: str) -> str:
-    """Default Reply transport: bus message or REPLY_SOCKET fallback."""
-    bus_path = os.environ.get('DISPATCH_BUS_PATH', '')
-    dispatch_conv = os.environ.get('DISPATCH_CONV_ID', '')
-
-    if bus_path and dispatch_conv:
-        from teaparty.messaging.conversations import SqliteMessageBus
-        bus = SqliteMessageBus(bus_path)
-        context_id = os.environ.get('CONTEXT_ID', '')
-        request_id = str(__import__('uuid').uuid4())
-        request = json.dumps({
-            'type': 'reply', 'message': message,
-            'context_id': context_id,
-            'request_id': request_id,
-        })
-        bus.send(dispatch_conv, 'agent', request)
-
-        import time as _time
-        since = _time.time()
-        while True:
-            messages = bus.receive(dispatch_conv, since_timestamp=since)
-            for msg in messages:
-                if msg.sender == 'orchestrator':
-                    try:
-                        resp = json.loads(msg.content)
-                        if resp.get('request_id') == request_id:
-                            return json.dumps(resp)
-                    except (json.JSONDecodeError, ValueError):
-                        pass
-            await asyncio.sleep(0.1)
-
-    socket_path = os.environ.get('REPLY_SOCKET', '')
-    if not socket_path:
-        raise RuntimeError(
-            'Neither DISPATCH_BUS_PATH nor REPLY_SOCKET set — cannot reply',
-        )
-    reader, writer = await asyncio.open_unix_connection(socket_path)
-    try:
-        context_id = os.environ.get('CONTEXT_ID', '')
-        request = json.dumps({'type': 'reply', 'message': message, 'context_id': context_id})
-        writer.write(request.encode() + b'\n')
-        await writer.drain()
-        response_line = await reader.readline()
-        response = json.loads(response_line.decode())
         return json.dumps(response)
     finally:
         writer.close()

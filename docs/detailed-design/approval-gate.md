@@ -92,11 +92,22 @@ The caller (`ApprovalGate._ask_human_through_proxy`) decides based on confidence
 
 ONE loop. Every turn: ask the human through the proxy. Classify the response. If terminal, done. If dialog, loop.
 
-**Gate questions** (`_GATE_QUESTIONS`):
-- INTENT_ASSERT: "Do you recognize this as your idea, completely and accurately articulated?"
-- PLAN_ASSERT: "Do you recognize this as a strategic plan to operationalize your idea well?"
-- TASK_ASSERT: "Does this work look like your task, correctly executed?"
-- WORK_ASSERT: "Do you recognize the deliverables and project files as your idea, completely and well implemented?"
+**Gate bridge composition** (`_GATE_TEMPLATES` + `_generate_bridge`):
+
+The gate sends a self-contained message to the reviewer — same discipline as the Send tool. Three slots, consistent across every gate:
+
+1. `Decide: <decision>` — what decision is being requested (verb + object).
+2. `Available:` — the files that may help, each with a one-line purpose.
+3. The actor's own triggering message — what the agent wrote as they hit the gate. The gate does not fabricate a substitute.
+
+Slots 1 and 2 come from `_GATE_TEMPLATES`; slot 3 comes from the previous actor's last assistant text, plumbed via `ActorResult.data['actor_message']`.
+
+Per-gate decisions:
+- INTENT_ASSERT: "Approve or revise the proposed intent."
+- PLAN_ASSERT: "Approve or revise the proposed plan."
+- TASK_ASSERT: "Accept or correct this sub-task output."
+- TASK_ESCALATE: "Resolve the worker's escalation."
+- WORK_ASSERT: "Approve or revise the overall deliverable."
 
 **Decision flow:**
 

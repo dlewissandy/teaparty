@@ -649,7 +649,7 @@ class TestSpawnFnDispatchesAtProjectRepo(unittest.TestCase):
             with patch(
                 'teaparty.messaging.listener.BusEventListener.start',
                 new_callable=AsyncMock,
-                return_value=('/tmp/s', '/tmp/r', '/tmp/c'),
+                return_value=('/tmp/s', '/tmp/c'),
             ), patch(
                 'teaparty.messaging.listener.BusEventListener.stop',
                 new_callable=AsyncMock,

@@ -250,10 +250,9 @@ class AgentSession:
     async def _ensure_bus_listener(self, cwd: str) -> dict:
         """Start the BusEventListener for agents that dispatch via Send."""
         if self._bus_listener is not None:
-            send, reply, close = self._bus_listener_sockets
+            send, close = self._bus_listener_sockets
             return {
                 'SEND_SOCKET': send,
-                'REPLY_SOCKET': reply,
                 'CLOSE_CONV_SOCKET': close,
                 'AGENT_ID': self.agent_name,
                 'PYTHONPATH': cwd,
@@ -423,6 +422,7 @@ class AgentSession:
                         source_ref=source_ref,
                         dest_path=worktree_path,
                         branch_name=session_branch,
+                        parent_worktree=dispatcher_worktree,
                     )
                 except Exception:
                     _log.exception(
@@ -695,10 +695,9 @@ class AgentSession:
 
         register_close_fn(self.agent_name, close_fn)
 
-        send, reply, close = sockets
+        send, close = sockets
         return {
             'SEND_SOCKET': send,
-            'REPLY_SOCKET': reply,
             'CLOSE_CONV_SOCKET': close,
             'AGENT_ID': self.agent_name,
             'PYTHONPATH': cwd,
