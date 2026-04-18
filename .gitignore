@@ -120,3 +120,11 @@ refinement/
 .mcp.json
 .claude/
 stream.jsonl
+# Process artifacts — planning scaffolding, not deliverables
+INTENT.md
+PLAN.md
+WORK_SUMMARY.md
+# Per-launch infrastructure
+.mcp.json
+.claude/
+stream.jsonl
