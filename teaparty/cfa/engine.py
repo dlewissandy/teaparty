@@ -2290,7 +2290,7 @@ class Orchestrator:
             except OSError:
                 pass
             if parts:
-                return '\n\n'.join(parts)
+                base_task = '\n\n'.join(parts)
         elif phase_name == 'planning':
             intent_path = os.path.join(self.session_worktree, 'INTENT.md')
             try:
@@ -2303,13 +2303,36 @@ class Orchestrator:
             # Intent phase, or artifacts not yet written
             base_task = self.task or self.project_slug
 
-        # Prepend CFA role framing for the intent phase so the agent knows
-        # its deliverable is INTENT.md, not the work itself.
+        # Prepend CfA phase framing so the agent knows what its deliverable
+        # is for this phase, and what NOT to produce.  This layer keeps the
+        # agent.md static (role-only) and lets the engine supply the
+        # protocol-specific bits per phase.  Existing-artifact reconciliation
+        # is universal: on-disk files from prior passes may not reflect the
+        # current intent or feedback.
         if phase_name == 'intent':
             base_task = (
                 '--- CfA: Intent Alignment Phase ---\n'
                 'Your deliverable is INTENT.md. Do not do the work described below.\n'
                 'Capture what the human wants, success criteria, constraints, and open questions.\n'
+                'Always end with a Write of INTENT.md — even on re-entry, even if the existing file still captures the current request (re-writing verbatim is the signal that you verified it).\n'
+                '--- end ---\n\n'
+                + base_task
+            )
+        elif phase_name == 'planning':
+            base_task = (
+                '--- CfA: Planning Phase ---\n'
+                'Your deliverable is PLAN.md at the worktree root. Do not produce the execution artifact — that belongs to the teams in the next phase. Skipping planning because the task feels small is a protocol violation.\n'
+                'On re-entry after a backtrack, reconcile any existing files in the worktree against the current INTENT.md and any human feedback in this conversation — prior-pass files may be stale.\n'
+                'Every invocation ends with a Write of PLAN.md.\n'
+                '--- end ---\n\n'
+                + base_task
+            )
+        elif phase_name == 'execution':
+            base_task = (
+                '--- CfA: Execution Phase ---\n'
+                'Dispatch work to the teams named in PLAN.md. Do not produce deliverables yourself — delegate.\n'
+                'Verify each team\'s output against PLAN.md and INTENT.md before accepting. On a subteam backtrack or review request, act per your role as project lead (review, route, or escalate — do not guess).\n'
+                'Your deliverable is WORK_SUMMARY.md once the plan\'s steps are complete and verified.\n'
                 '--- end ---\n\n'
                 + base_task
             )
