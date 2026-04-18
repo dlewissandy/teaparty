@@ -48,9 +48,9 @@ Context isolation via process boundaries is the key structural insight: each tea
 
 Complex work requires complex team structures. A single flat team trying to plan a project and write every file hits context limits and loses coherence. The fix is structural: separate strategic coordination from tactical execution.
 
-TeaParty organizes agent teams in a hierarchy that mirrors how real organizations operate. An uber team (the strategic coordinator) manages strategy while subteams execute tactics. Each level runs as a separate process with its own context window. Liaison agents — lightweight teammates in the upper team whose sole function is communication relay — bridge levels, relaying tasks downward and results upward, compressing context at each boundary. The uber lead never sees raw file content; subteam workers never see cross-team coordination.
+TeaParty organizes agent teams in a hierarchy that mirrors how real organizations operate — an office manager coordinates across projects, project leads coordinate within projects, workgroup agents execute. Every agent is an independent `claude -p` process with its own context window; coordination happens exclusively through a persistent message bus. When a lead dispatches work via `Send`, it composes the recipient's context at the boundary — that is where compression happens. No intermediary agent reformulates messages; the sender's composition is the contract. The office manager never sees raw file content; workgroup agents never see cross-team coordination. Each hop through the hierarchy narrows context to what the next level needs.
 
-Agents serve as context boundaries. The hierarchy provides scoping — each agent sees only what is relevant to its role and level. Reducing the scope of what each agent works on mitigates context rot within each scoped conversation.
+This is also why hierarchical teams are not a single module in the code — the shape emerges from three pieces composed together: the message bus (persistent Send/Reply, scoped routing), the workspace layer (each session gets its own git worktree branched from its parent), and the team-configuration tree in `.teaparty/` (who can reach whom). See the [organizational model](overview.md) for how the pieces compose into the team hierarchy.
 
 [Organizational Model →](overview.md) · [Messaging →](systems/messaging/index.md) · [Workspace →](systems/workspace/index.md)
 
@@ -68,7 +68,7 @@ The human proxy agent's single job is to learn to stand in for the human. It ans
 
 TeaParty eats its own dogfood. The platform's documentation, design artifacts, and implementation are produced by hierarchical agent teams running the TeaParty POC — the same coordination patterns we're researching are the ones we use to build.
 
-The POC runs on Claude Code CLI with minimal scaffolding: a dispatch script for inter-process communication, a plan-execute lifecycle script implementing the CfA state machine, and git worktree isolation for safe concurrent execution. An uber team decomposes work and coordinates strategy; subteams of specialized agents (writers, coders, artists, researchers) execute in parallel, each in their own process with their own context window. Learning extraction runs after every session, feeding validated insights back into the memory hierarchy that informs the next round of work.
+The platform runs on Claude Code CLI: a persistent message bus for inter-process communication, a CfA state machine that drives each session through Intent → Planning → Execution with approval gates and backtracks, git worktree isolation per session so concurrent dispatches cannot race each other, a team-configuration tree that scopes which agents can reach which others, and post-session learning extraction that feeds validated insights into the scoped memory hierarchy. The *mechanisms* that make multi-tier, multi-agent orchestration possible are in place. Getting the composed system to exercise those mechanisms cleanly in a single end-to-end run — multiple independent workgroup agents collaborating under an office manager across a recursive dispatch chain — is on the list of next validations.
 
 This is bootstrapping in progress. Every page in this documentation, every architectural decision, and every line of application code has been produced or reviewed by agent teams operating under the protocols described above. The result is a tight feedback loop: the system we're building is also the system we're testing, and the failures we encounter are the failures we're designing solutions for.
 
@@ -93,17 +93,13 @@ The full research bibliography is in [Research Library →](research/INDEX.md).
 
 The six systems that realize the four pillars above are documented in [**Architecture**](systems/index.md) — one system per folder, with a landing page that describes what, why, how, and current status. The [organizational model](overview.md) describes the team hierarchy (office manager → project lead → workgroup) that emerges when those systems compose.
 
-## Experimental Results
+## Validation
 
-The architectural claims above are testable. The [Experimental Results](experimental-results/index.md) section defines ablative experiments for each pillar — isolating individual design choices and measuring their impact on quality, cost, and human time.
+The architectural claims above need two kinds of evidence: demonstrations that the system composed works at all, and ablations that isolate the contribution of each design choice.
 
-- [CfA Backtrack Effectiveness →](experimental-results/cfa-backtrack-effectiveness.md)
-- [Hierarchical vs. Flat Coordination →](experimental-results/hierarchical-vs-flat-coordination.md)
-- [Liaison Context Compression →](experimental-results/liaison-context-compression.md)
-- [Proxy Convergence →](experimental-results/proxy-convergence.md)
-- [Asymmetric Regret Calibration →](experimental-results/asymmetric-regret-calibration.md)
-- [Scoped vs. Flat Retrieval →](experimental-results/scoped-vs-flat-retrieval.md)
-- [Cost-Quality Frontier →](experimental-results/cost-quality-frontier.md)
+**What we have today.** The [Humor Book case study](case-study/index.md) is the current end-to-end demonstration. A four-sentence prompt was lifted through intent and planning dialogs, carried through five execution phases, and produced a complete manuscript with preserved artifacts — proxy-interaction logs, drafts, specs, editorial reports, verification reports. This shows the composed system producing substantive output under the CfA protocol, with real proxy participation at gates and real learning signal captured. It is not itself a controlled ablation.
+
+**What's planned but not yet run.** The [Planned Validation](experimental-results/index.md) section specifies seven ablative experiments — one per pillar claim — with methodology, evaluation criteria, and task corpus. The harness and instrumentation infrastructure are in place. The experiments have not been executed yet; individual experiment pages currently carry their design, not their results. That gap is the honest statement of where the research is: claims are specified and testable, one end-to-end demonstration exists, ablative measurement is the next step.
 
 ## Contributing
 

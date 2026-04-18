@@ -8,11 +8,11 @@ What the session demonstrates about the four pillars, where the opportunities li
 
 ### CfA Protocol
 
-The state machine guided the session through intent → plan → execution without prescriptive prompts. The agents chose their own transitions: the intent agent decided when it had enough information to write the intent, the planning agent decided how to decompose open questions, the uber team decided how to phase and parallelize execution. The protocol provided *structure* (you must have an approved intent before you plan, you must have an approved plan before you execute) without providing *scripts* (what to ask, what to write, how to organize the work).
+The state machine guided the session through intent → plan → execution without prescriptive prompts. The agents chose their own transitions: the intent agent decided when it had enough information to write the intent, the planning agent decided how to decompose open questions, the project lead decided how to phase and sequence execution. The protocol provided *structure* (you must have an approved intent before you plan, you must have an approved plan before you execute) without providing *scripts* (what to ask, what to write, how to organize the work).
 
-### Hierarchical Teams
+### Hierarchical Teams — *partial*
 
-Eight parallel research teams worked independently in worktrees, coordinated by the uber team, with context compression at hierarchy boundaries. Each sub-team received a scoped brief — not the full session context — and ran its own CfA cycle within that scope. The uber team monitored completion and advanced phases. The same pattern repeated for specification, production, editorial, and verification. The hierarchy scaled to 8+ concurrent dispatches without the uber team becoming a bottleneck.
+This is the pillar where the session's evidence is weakest. Per-task worktrees *were* created for each unit of work across the five phases; context-compressed briefs *were* composed at each boundary; the workspace layer's session-per-worktree invariant held. What this session did *not* cleanly demonstrate is independent sub-agents running their own CfA cycles in parallel — the substantive work at each phase was driven primarily by the project lead rather than by a proper three-tier OM → project-lead → workgroup-agent chain. Recursive multi-tier dispatch is tracked in the [recursive-dispatch proposal](../proposals/recursive-dispatch/proposal.md) and remains the subject of a future case study. Treat this session as evidence for the workspace-isolation and context-compression *mechanisms*, not for the hierarchical-teams *pattern* operating at full scale.
 
 ### Human Proxy
 
@@ -42,10 +42,12 @@ The learning system extracted seven procedural observations, built a per-gate-ty
 
 ## Assessment
 
-The session demonstrated that the TeaParty orchestrator can take a short natural-language prompt and produce a complex, multi-phase creative artifact with genuine intellectual substance — not a summary, not a skeleton, but a manuscript that editorial reviewers engaged with as a manuscript. The CfA protocol maintained coherence from a four-sentence prompt through five execution phases without losing the thread. The hierarchical dispatch model scaled to eight parallel tracks. The revision loop from editorial finding to gate feedback to targeted revision to verification worked end to end.
+The session demonstrated that the TeaParty orchestrator can take a short natural-language prompt and produce a complex, multi-phase creative artifact with genuine intellectual substance — not a summary, not a skeleton, but a manuscript that editorial reviewers engaged with as a manuscript. The CfA protocol maintained coherence from a four-sentence prompt through five execution phases without losing the thread. The revision loop from editorial finding to gate feedback to targeted revision to verification worked end to end.
 
 The weaknesses are real but tractable: proxy dialog handling at gates, phase-boundary flexibility, rate-limit-aware scheduling, and cross-chapter consistency enforcement. None of these are architectural — they are refinements to a pipeline that functionally worked.
 
+What this session did *not* demonstrate: the hierarchical-dispatch pattern at full scale. The project lead carried the substantive authorship across phases rather than delegating to independent workgroup-level sub-agents. The artifacts are real and the per-phase volume is real, but the "eight independent parallel teams" claim that earlier versions of this writeup made does not hold up. Recursive multi-tier dispatch is the next demonstration to pursue — see the [recursive-dispatch proposal](../proposals/recursive-dispatch/proposal.md).
+
 The manuscript itself is not a published book. It is a first draft that two independent editorial passes rated as ready for final edits, with specific, actionable revision notes. For a system that started with four sentences and no human involvement beyond six brief dialog turns and a handful of gate approvals, that is a meaningful result.
 
-The places where it stumbled — the proxy deflection loops, the restart friction, the rate-limit collisions — are the places where the design meets the real world. Those are the next things to fix.
+The places where it stumbled — the proxy deflection loops, the restart friction, the rate-limit collisions, the gap between dispatch *mechanism* and dispatch *pattern* — are the places where the design meets the real world. Those are the next things to fix.

@@ -1,17 +1,20 @@
 # Execution
 
-With the plan approved, the state machine transitioned to PLAN → TASK via `delegate`, triggering hierarchical dispatch. The uber team decomposed Phase 1 (Research) into eight parallel research tracks — one per chapter including the prologue — and dispatched each to its own worktree.
+With the plan approved, the state machine transitioned to PLAN → TASK via `delegate`. The project lead worked through Phase 1 (Research) chapter by chapter, producing a brief per chapter including the prologue. Per-task worktrees were created by the workspace layer for each unit of work the lead opened.
+
+!!! note "Honest framing"
+    The artifact record below is factual — eight research briefs were produced, each structured to the plan's brief template. What this session did *not* cleanly demonstrate is the Hierarchical Teams pillar's multi-tier, independent-sub-agent dispatch pattern. The substantive authorship of each brief was primarily the project lead's work; dispatched sub-agents did not run the full independent CfA cycles described in the original framing. See the [case-study overview](index.md#scope-of-what-this-session-demonstrates) for the full scope statement.
 
 ---
 
-## How Dispatches Worked
+## How the phase worked
 
-Each research dispatch:
+For each unit of work in Phase 1 (Research):
 
-- Created an isolated git worktree for its work
-- Ran its own CfA cycle (intent → plan → execute) within that worktree
-- Used the proxy for all assert gates (`never_escalate=True`) — no human involvement
-- Received a scoped task brief from the uber team (context compression at the hierarchy boundary)
+- A worktree was created by the workspace layer so the work had isolated storage
+- A scoped brief was composed by the project lead (context compression at the boundary)
+- The project lead drove authorship of the brief, using the proxy for assert gates (`never_escalate=True` at the task level, so the proxy's guess runs without human interruption)
+- The brief was checked back into the session and surfaced in the artifact stream
 
 ---
 
@@ -42,9 +45,9 @@ All eight briefs were delivered to disk. The prologue brief was the most unrelia
 
 ## Phases 2–5
 
-The uber team advanced through the remaining phases with the same parallel-dispatch pattern:
+The project lead advanced through the remaining phases with the same per-unit worktree pattern:
 
-**Phase 2 (Specification):** Eight spec agents, one per chapter, each reading all research briefs and producing a per-chapter spec with throughline argument, opening hook, narrative arc, counterexample placement, and register notes. Title alternatives developed in parallel.
+**Phase 2 (Specification):** Eight specs produced, one per chapter, each drawing on all research briefs and containing a throughline argument, opening hook, narrative arc, counterexample placement, and register notes. Title alternatives developed alongside.
 
 | Chapter | Spec |
 |---|---|
@@ -58,7 +61,7 @@ The uber team advanced through the remaining phases with the same parallel-dispa
 | Ch 7: Spam Spam Spam | [ch7_spec.md](./artifacts/specs/ch7_spec.md) |
 | Title Alternatives | [title_alternatives.md](./artifacts/specs/title_alternatives.md) |
 
-**Phase 3 (Production):** Seven chapter drafts plus prologue produced in parallel. Ch7 was sequenced last within its track so its synthesis could reference the other six drafts. See [The Manuscript](results.md) for the full chapter table with links.
+**Phase 3 (Production):** Seven chapter drafts plus prologue produced across the phase. Ch7 was sequenced last so its synthesis could reference the other six drafts. See [The Manuscript](results.md) for the full chapter table with links.
 
 **Phase 4 (Editorial):** Two independent editorial reports — each reading the full manuscript as a single document and auditing voice consistency, thesis coherence, boundary coverage, and per-chapter invariants.
 
