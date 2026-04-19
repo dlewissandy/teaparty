@@ -29,18 +29,8 @@ _STATE_TO_LEVEL: dict[str, PresenceLevel] = {
     'PLAN_ASSERT': PresenceLevel.PROJECT,
     'PLANNING_ESCALATE': PresenceLevel.PROJECT,
     'WORK_ASSERT': PresenceLevel.PROJECT,
-    'WORK_ESCALATE': PresenceLevel.PROJECT,
-    'TASK_ASSERT': PresenceLevel.SUBTEAM,
-    'TASK_ESCALATE': PresenceLevel.SUBTEAM,
     'OFFICE_MANAGER': PresenceLevel.OFFICE_MANAGER,
 }
-
-# States where the proxy never escalates BY DEFAULT (when human is absent).
-# This is the original static set from actors.py.
-_DEFAULT_NEVER_ESCALATE: frozenset[str] = frozenset({
-    'TASK_ASSERT',
-    'TASK_ESCALATE',
-})
 
 
 @dataclass
@@ -165,28 +155,3 @@ class HumanPresence:
             return list(entry.observations) if entry else []
 
 
-def should_never_escalate(
-    state: str,
-    presence: HumanPresence | None,
-    *,
-    team: str = '',
-) -> bool:
-    """Should this state never escalate to the human?
-
-    When presence is None (no tracking configured), uses the original
-    static set for backward compatibility.
-
-    When presence is provided and the human is present at the level
-    corresponding to the state, the state becomes escalatable (returns False).
-    """
-    if presence is None:
-        return state in _DEFAULT_NEVER_ESCALATE
-
-    if state not in _DEFAULT_NEVER_ESCALATE:
-        return False
-
-    # Human present at the relevant level → allow escalation
-    if presence.human_should_answer(state, team=team):
-        return False
-
-    return True

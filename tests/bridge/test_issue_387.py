@@ -4,7 +4,7 @@ Tests that:
 1. Legacy .sessions/ data is migrated to .teaparty/jobs/ format
 2. Stats summary computes non-zero totals from job data
 3. Jobs done counts COMPLETED_WORK sessions
-4. Tasks done counts individual task completions (TASK_ASSERT→approve)
+4. Tasks done counts completed-work transitions (WORK_ASSERT→approve)
 5. Backtracks counts CfA state machine reversals
 6. Withdrawals counts cancelled sessions
 7. Escalations counts historical human-contact events (not point-in-time)
@@ -226,11 +226,11 @@ class TestStatsFromJobs(unittest.TestCase):
         stats = compute_stats(teaparty_home='', projects_dir=self._tmpdir)
         self.assertEqual(stats['summary']['backtracks'], 7)
 
-    def test_tasks_done_counts_task_assert_approve(self):
+    def test_tasks_done_counts_work_assert_approve(self):
         history = [
-            {'state': 'TASK_ASSERT', 'action': 'approve',
+            {'state': 'WORK_ASSERT', 'action': 'approve',
              'timestamp': '2026-04-01T12:00:00+00:00'},
-            {'state': 'TASK_ASSERT', 'action': 'approve',
+            {'state': 'WORK_ASSERT', 'action': 'approve',
              'timestamp': '2026-04-01T13:00:00+00:00'},
             {'state': 'PLAN_ASSERT', 'action': 'approve',
              'timestamp': '2026-04-01T11:00:00+00:00'},
@@ -260,7 +260,7 @@ class TestHistoricalEscalations(unittest.TestCase):
              'timestamp': '2026-04-01T13:00:00+00:00'},
             {'state': 'INTENT_QUESTION', 'action': 'respond',
              'timestamp': '2026-04-01T14:00:00+00:00'},
-            {'state': 'TASK_ASSERT', 'action': 'approve',
+            {'state': 'WORK_ASSERT', 'action': 'approve',
              'timestamp': '2026-04-01T15:00:00+00:00'},
         ]
         _make_job(self.project_dir, '20260401-120000',
@@ -307,7 +307,7 @@ class TestDailyCharts(unittest.TestCase):
                                        tzinfo=datetime.timezone.utc)
         today_ts = local_noon.isoformat()
         history = [
-            {'state': 'TASK_ASSERT', 'action': 'approve', 'timestamp': today_ts},
+            {'state': 'WORK_ASSERT', 'action': 'approve', 'timestamp': today_ts},
         ]
         session_id = today.strftime('%Y%m%d') + '-120000'
         _make_job(self.project_dir, session_id,
@@ -382,8 +382,6 @@ class TestRegistryModeStats(unittest.TestCase):
              'timestamp': '2026-04-01T12:00:00+00:00'},
             {'state': 'PLANNING_QUESTION', 'action': 'respond',
              'timestamp': '2026-04-01T13:00:00+00:00'},
-            {'state': 'TASK_ESCALATE', 'action': 'respond',
-             'timestamp': '2026-04-01T14:00:00+00:00'},
         ]
         _make_job(self.project_dir, '20260401-120000',
                   cfa_state='COMPLETED_WORK', history=history)
@@ -393,8 +391,9 @@ class TestRegistryModeStats(unittest.TestCase):
 
         chart_total = sum(e['count'] for e in stats['phase_escalations'])
         self.assertEqual(stats['summary']['escalations'], chart_total)
-        # Verify phase breakdown
+        # Verify phase breakdown — execution phase has no escalation states
+        # after the task-level state machine was removed (#418).
         by_phase = {e['phase']: e['count'] for e in stats['phase_escalations']}
         self.assertEqual(by_phase.get('intent', 0), 1)
         self.assertEqual(by_phase.get('planning', 0), 1)
-        self.assertEqual(by_phase.get('execution', 0), 1)
+        self.assertEqual(by_phase.get('execution', 0), 0)

@@ -844,9 +844,9 @@ def _build_artifact_context(
 
     # PROMPT.txt is the initial seed — the user's first-turn wording.
     # INTENT.md may have been refined since, and IS the authoritative spec
-    # at PLAN_ASSERT / WORK_ASSERT / TASK_ASSERT.  Label accordingly so
-    # the proxy doesn't treat a stale PROMPT as ground truth and flag
-    # approved refinements as "over-scoped" contradictions.
+    # at PLAN_ASSERT / WORK_ASSERT.  Label accordingly so the proxy doesn't
+    # treat a stale PROMPT as ground truth and flag approved refinements as
+    # "over-scoped" contradictions.
     if infra_dir:
         prompt_path = os.path.join(infra_dir, 'PROMPT.txt')
         if os.path.isfile(prompt_path):
@@ -866,14 +866,8 @@ def _build_artifact_context(
 
     if artifact_path and os.path.isfile(artifact_path):
         context_parts.append(f'Artifact under review: {artifact_path}')
-    elif not artifact_path and session_worktree and state in ('TASK_ASSERT', 'TASK_ESCALATE'):
-        context_parts.append(
-            f'No specific artifact to review. The task deliverables are in '
-            f'the session worktree at {session_worktree}. Use your Read, '
-            f'Glob, and Grep tools to find and review the deliverables.'
-        )
 
-    if state in ('PLAN_ASSERT', 'WORK_ASSERT', 'TASK_ASSERT', 'TASK_ESCALATE'):
+    if state in ('PLAN_ASSERT', 'WORK_ASSERT'):
         for name in ('INTENT.md',):
             for search_dir in (session_worktree, infra_dir):
                 if not search_dir:
@@ -885,7 +879,7 @@ def _build_artifact_context(
                         f'what the artifact must fulfill): {path}'
                     )
                     break
-    if state in ('WORK_ASSERT', 'TASK_ASSERT', 'TASK_ESCALATE'):
+    if state == 'WORK_ASSERT':
         for name in ('PLAN.md', 'WORK_SUMMARY.md'):
             for search_dir in (session_worktree, infra_dir):
                 if not search_dir:

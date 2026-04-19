@@ -10,8 +10,8 @@
       "states": ["DRAFT", "PLANNING_QUESTION", "PLANNING_ESCALATE", "PLAN_ASSERT", "PLANNING_RESPONSE", "PLAN"]
     },
     "execution": {
-      "description": "Execution: PLAN → COMPLETED_WORK. Execute the plan and deliver completed work.",
-      "states": ["TASK", "TASK_IN_PROGRESS", "TASK_QUESTION", "TASK_ESCALATE", "TASK_ASSERT", "TASK_RESPONSE", "FAILED_TASK", "COMPLETED_TASK", "WORK_IN_PROGRESS", "WORK_ASSERT", "AWAITING_REPLIES", "COMPLETED_WORK", "WITHDRAWN"]
+      "description": "Execution: PLAN → COMPLETED_WORK. The project lead runs normal agent turns, dispatching workgroups via Send as needed, until WORK_SUMMARY.md is produced. The framework does not model task-level substates; subteam coordination happens over the message bus, not in the state machine.",
+      "states": ["WORK_IN_PROGRESS", "WORK_ASSERT", "COMPLETED_WORK", "WITHDRAWN"]
     }
   },
   "terminal_states": ["COMPLETED_WORK", "WITHDRAWN"],
@@ -72,63 +72,17 @@
       { "action": "synthesize", "to": "DRAFT", "actor": "planning_team" }
     ],
     "PLAN": [
-      { "action": "delegate", "to": "TASK", "actor": "execution_lead" }
-    ],
-    "TASK": [
-      { "action": "accept", "to": "TASK_IN_PROGRESS", "actor": "execution_worker" },
-      { "action": "escalate", "to": "TASK_ESCALATE", "actor": "execution_worker" },
-      { "action": "failed", "to": "FAILED_TASK", "actor": "execution_worker" }
-    ],
-    "TASK_IN_PROGRESS": [
-      { "action": "assert", "to": "TASK_ASSERT", "actor": "execution_worker" },
-      { "action": "question", "to": "TASK_QUESTION", "actor": "execution_worker" },
-      { "action": "escalate", "to": "TASK_ESCALATE", "actor": "execution_worker" },
-      { "action": "failed", "to": "FAILED_TASK", "actor": "execution_worker" },
-      { "action": "send-and-wait", "to": "AWAITING_REPLIES", "actor": "execution_lead" },
-      { "action": "withdraw", "to": "WITHDRAWN", "actor": "approval_gate" }
-    ],
-    "AWAITING_REPLIES": [
-      { "action": "resume", "to": "TASK_IN_PROGRESS", "actor": "system" }
-    ],
-    "TASK_QUESTION": [
-      { "action": "answer", "to": "TASK_RESPONSE", "actor": "research_team" },
-      { "action": "backtrack", "to": "PLANNING_QUESTION", "actor": "research_team", "backtrack": true }
-    ],
-    "TASK_ESCALATE": [
-      { "action": "clarify", "to": "TASK_RESPONSE", "actor": "approval_gate" },
-      { "action": "complete", "to": "COMPLETED_WORK", "actor": "approval_gate" },
-      { "action": "withdraw", "to": "WITHDRAWN", "actor": "approval_gate" }
-    ],
-    "TASK_ASSERT": [
-      { "action": "approve", "to": "COMPLETED_TASK", "actor": "approval_gate" },
-      { "action": "correct", "to": "TASK_RESPONSE", "actor": "approval_gate" },
-      { "action": "reject", "to": "FAILED_TASK", "actor": "approval_gate" },
-      { "action": "revise-plan", "to": "PLANNING_RESPONSE", "actor": "approval_gate", "backtrack": true },
-      { "action": "refine-intent", "to": "INTENT_RESPONSE", "actor": "approval_gate", "backtrack": true },
-      { "action": "withdraw", "to": "WITHDRAWN", "actor": "approval_gate" }
-    ],
-    "TASK_RESPONSE": [
-      { "action": "synthesize", "to": "TASK_IN_PROGRESS", "actor": "execution_worker" }
-    ],
-    "FAILED_TASK": [
-      { "action": "retry", "to": "TASK", "actor": "execution_worker" },
-      { "action": "escalate", "to": "TASK_ESCALATE", "actor": "execution_worker" },
-      { "action": "backtrack", "to": "PLANNING_QUESTION", "actor": "execution_lead", "backtrack": true },
-      { "action": "withdraw", "to": "WITHDRAWN", "actor": "approval_gate" }
-    ],
-    "COMPLETED_TASK": [
-      { "action": "synthesize", "to": "WORK_IN_PROGRESS", "actor": "execution_lead" }
+      { "action": "delegate", "to": "WORK_IN_PROGRESS", "actor": "project_lead" }
     ],
     "WORK_IN_PROGRESS": [
-      { "action": "delegate", "to": "TASK", "actor": "execution_lead" },
-      { "action": "assert", "to": "WORK_ASSERT", "actor": "execution_lead" },
-      { "action": "auto-approve", "to": "COMPLETED_WORK", "actor": "execution_lead" },
-      { "action": "backtrack", "to": "PLANNING_QUESTION", "actor": "execution_lead", "backtrack": true },
+      { "action": "assert", "to": "WORK_ASSERT", "actor": "project_lead" },
+      { "action": "auto-approve", "to": "COMPLETED_WORK", "actor": "project_lead" },
+      { "action": "backtrack", "to": "PLANNING_QUESTION", "actor": "project_lead", "backtrack": true },
       { "action": "withdraw", "to": "WITHDRAWN", "actor": "approval_gate" }
     ],
     "WORK_ASSERT": [
       { "action": "approve", "to": "COMPLETED_WORK", "actor": "approval_gate" },
-      { "action": "correct", "to": "TASK_RESPONSE", "actor": "approval_gate" },
+      { "action": "correct", "to": "WORK_IN_PROGRESS", "actor": "approval_gate" },
       { "action": "revise-plan", "to": "PLANNING_RESPONSE", "actor": "approval_gate", "backtrack": true },
       { "action": "refine-intent", "to": "INTENT_RESPONSE", "actor": "approval_gate", "backtrack": true },
       { "action": "withdraw", "to": "WITHDRAWN", "actor": "approval_gate" }

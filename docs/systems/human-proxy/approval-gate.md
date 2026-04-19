@@ -14,9 +14,9 @@ The proxy agent always runs. Statistics never gate whether the agent is consulte
 
 This is implemented in `proxy_agent.py:consult_proxy()`, the single entry point for all proxy decisions. `ApprovalGate` (artifact review at ASSERT states) and `EscalationListener` (agent questions via AskQuestion MCP tool) both use it.
 
-### Never-escalate states
+### Escalation modes
 
-TASK_ASSERT and TASK_ESCALATE are marked as **never-escalate**: the proxy runs through the full path (context gathering, two-pass prediction, confidence calibration), but if it isn't confident, it goes with its best guess rather than bothering the human. If the proxy returned nothing, it defaults to approval. Interrupting the human for task-level review during execution would defeat the purpose of hierarchical delegation.
+There are no default never-escalate states. Every remaining gate (INTENT_ASSERT, PLAN_ASSERT, WORK_ASSERT) can escalate to the human when the proxy is not confident. A specific project can still force a gate into `never` mode via the per-gate escalation configuration (`escalation_modes`) if it wants uninterrupted execution at a cost of losing that gate's learning signal.
 
 ---
 
@@ -80,14 +80,14 @@ Specifically:
 
 The caller (`ApprovalGate._ask_human_through_proxy`) decides based on confidence:
 - confidence >= `PROXY_AGENT_CONFIDENCE_THRESHOLD` (0.8) → agent's text is the answer
-- confidence < threshold AND state in `_NEVER_ESCALATE_STATES` → agent's text is still the answer (or 'Approved.' if empty)
+- confidence < threshold AND the gate is in `never` escalation mode → agent's text is still the answer (or 'Approved.' if empty)
 - confidence < threshold → escalate to the actual human
 
 ---
 
 ## ApprovalGate (ASSERT states)
 
-`ApprovalGate.run()` in `actors.py`. Invoked by `engine.py` at states where all outgoing CfA transitions have actor `human` or `approval_gate`: INTENT_ASSERT, PLAN_ASSERT, TASK_ASSERT, TASK_ESCALATE, and WORK_ASSERT.
+`ApprovalGate.run()` in `actors.py`. Invoked by `engine.py` at states where all outgoing CfA transitions have actor `human` or `approval_gate`: INTENT_ASSERT, PLAN_ASSERT, and WORK_ASSERT.
 
 ONE loop. Every turn: ask the human through the proxy. Classify the response. If terminal, done. If dialog, loop.
 
@@ -104,8 +104,6 @@ Slots 1 and 2 come from `_GATE_TEMPLATES`; slot 3 comes from the previous actor'
 Per-gate decisions:
 - INTENT_ASSERT: "Approve or revise the proposed intent."
 - PLAN_ASSERT: "Approve or revise the proposed plan."
-- TASK_ASSERT: "Accept or correct this sub-task output."
-- TASK_ESCALATE: "Resolve the worker's escalation."
 - WORK_ASSERT: "Approve or revise the overall deliverable."
 
 **INTENT_ASSERT-specific probe override.** At INTENT_ASSERT (and only INTENT_ASSERT), the proxy's prior and posterior prompts carry an extra instruction: if there's no dialog history yet, "probe with one specific question that targets a concrete claim or framing choice in the proposal: scope, assumptions, or anything that seems underspecified. Do not rubber-stamp." If there's already dialog history, the instruction pivots to "evaluate whether the agent's reply resolves your concern; once your questions are answered, approve." This counteracts a rubber-stamp failure mode in which the proxy approved intent too readily without probing whether the stated intent actually matched what was requested. No other gate state receives this override.
@@ -113,7 +111,7 @@ Per-gate decisions:
 **Decision flow:**
 
 ```
-if state in NEVER_ESCALATE_STATES:
+if gate escalation mode is 'never':
   if proxy_returned_text:
     use text as answer (even if low confidence)
   else:
@@ -130,23 +128,21 @@ else:
 1. Call `_ask_human_through_proxy()` with the gate question
 2. `consult_proxy()` runs the full path (context gathering → two-pass prediction → calibration → maybe human)
 3. Classify the response via `_classify_review()` (Haiku LLM call). Valid actions derived from CfA state machine per state.
-4. If `dialog` or `__fallback__` → generate contextual reply via `_generate_dialog_response()` (Haiku), append to dialog history, loop back to step 1
+4. If `dialog` → generate contextual reply via `_generate_dialog_response()` (Haiku), append to dialog history, loop back to step 1
 5. If dialog occurred and final action is `approve` → convert to `correct` with the dialog as feedback, so the agent gets another pass with the human's context
 6. Record outcome via `_proxy_record()` + `_log_interaction()`, return
 
 ---
 
-## Never-Escalate Tradeoff
+## Per-gate escalation modes
 
-The never-escalate states (TASK_ASSERT, TASK_ESCALATE) implement a deliberate architectural choice:
+The framework supports three modes per gate, configured via the project's `escalation_modes`:
 
-**Goal:** Uninterrupted execution. The human is not bothered with task-level review questions during execution; they approved the plan, and the agents should execute it without interruption.
+- `when_unsure` (default): use the proxy if confident, escalate to the human otherwise.
+- `always`: skip the confidence check and route directly to the human.
+- `never`: accept the proxy's answer regardless of confidence; default to `'Approved.'` on empty.
 
-**Cost:** Silent learning gaps. When the proxy is not confident but escalation is suppressed, the human never sees the decision, so no differential is recorded. This silence means the learning system misses high-value signals (misaligned responses are the most valuable for learning, per Salemi & Zamani).
-
-**Consequence:** Proxy improvement at task level depends on escalations at ASSERT states (intent, plan, work), not task-level corrections. Task-level corrections are invisible to the learning system.
-
-**Design question for future:** Can task-level learnings be extracted from agent self-assessment instead of human correction? This would preserve the uninterrupted execution goal while capturing learning signals.
+Choosing `never` trades that gate's learning signal (no differential is recorded when the proxy is wrong) for uninterrupted execution. The framework does not default any gate to `never`; that is a per-project choice.
 
 ---
 
@@ -176,7 +172,7 @@ The proxy agent's self-assessed confidence (from two-pass prediction) is the dec
 
 **EMA tracking:** EMA is tracked separately as a system health monitor via `_proxy_record()` in `actors.py`. It does not influence the confidence returned by `consult_proxy()`; it is observational only. EMA uses alpha=0.3 with asymmetric regret (REGRET_WEIGHT=3: corrections count 3x as much as approvals).
 
-**Threshold:** The caller (`ApprovalGate._ask_human_through_proxy`) compares the calibrated confidence against `PROXY_AGENT_CONFIDENCE_THRESHOLD` (0.8). Above threshold → agent's text is the answer. Below threshold at never-escalate states → agent's text is still the answer. Below threshold otherwise → escalate to human.
+**Threshold:** The caller (`ApprovalGate._ask_human_through_proxy`) compares the calibrated confidence against `PROXY_AGENT_CONFIDENCE_THRESHOLD` (0.8). Above threshold → agent's text is the answer. Below threshold with gate mode `never` → agent's text is still the answer. Below threshold otherwise → escalate to human.
 
 ### CLI Monitoring Tool
 
@@ -249,7 +245,7 @@ The proxy writes three runtime artifacts that the [case study](../../case-study/
 | Alignment validation questions at gates | Done |
 | Cold-start intake dialog (Phase 1) | Done |
 | Retrieval-backed prediction (tier 1 patterns + tier 2 interactions) | Done |
-| Never-escalate for task-level gates (TASK_ASSERT, TASK_ESCALATE) | Done |
+| Per-gate escalation modes (`always` / `when_unsure` / `never`) | Done |
 | Unified proxy path (consult_proxy for all entry points) | Done |
 | Two-pass prediction (prior/posterior) | Done |
 | ACT-R memory retrieval in proxy flow | Done |

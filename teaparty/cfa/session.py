@@ -329,8 +329,8 @@ class Session:
             cfa = make_initial_state(task_id=self.session_id)
 
             if self.execute_only or self.plan_file:
-                # Skip intent + planning: jump directly to TASK (execution start)
-                cfa = set_state_direct(cfa, 'TASK')
+                # Skip intent + planning: jump directly to execution start
+                cfa = set_state_direct(cfa, 'WORK_IN_PROGRESS')
             elif self.intent_file or self.skip_intent:
                 # Skip intent: set state to INTENT (planning entry point)
                 # _auto_bridge() in Orchestrator will apply INTENT → DRAFT

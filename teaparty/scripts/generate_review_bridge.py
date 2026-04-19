@@ -41,10 +41,6 @@ STATE_CONFIG = {
         "template": "escalate",
         "noun": "plan",
     },
-    "TASK_ESCALATE": {
-        "template": "escalate",
-        "noun": "task",
-    },
     "WORK_ASSERT": {
         "template": "work_assert",
         "noun": "deliverables",

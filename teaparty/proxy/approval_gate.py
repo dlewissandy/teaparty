@@ -61,7 +61,6 @@ REGRET_WEIGHT = 3
 BINARY_STATES = frozenset([
     'INTENT_ASSERT',
     'PLAN_ASSERT',
-    'TASK_ASSERT',
     'WORK_ASSERT',
 ])
 
@@ -70,7 +69,6 @@ BINARY_STATES = frozenset([
 GENERATIVE_STATES = frozenset([
     'INTENT_ESCALATE',
     'PLANNING_ESCALATE',
-    'TASK_ESCALATE',
 ])
 
 # All valid outcomes that can be recorded after a human decision.
@@ -441,9 +439,9 @@ def _check_content(artifact_text: str, entry: ConfidenceEntry) -> tuple:
 def is_generative_state(state: str) -> bool:
     """Return True for states that require the proxy to generate a response.
 
-    Generative states (INTENT_ESCALATE, PLANNING_ESCALATE, TASK_ESCALATE) need
-    the proxy to produce a clarifying answer, not just approve or reject.  A
-    higher confidence threshold applies because generating the wrong content is
+    Generative states (INTENT_ESCALATE, PLANNING_ESCALATE) need the proxy
+    to produce a clarifying answer, not just approve or reject.  A higher
+    confidence threshold applies because generating the wrong content is
     worse than approving the wrong artifact.
     """
     return state in GENERATIVE_STATES

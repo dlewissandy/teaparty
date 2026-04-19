@@ -74,7 +74,7 @@ class PhaseResult:
 
 
 PLAN_ESCALATION_STATES = frozenset({'INTENT_ESCALATE', 'PLANNING_ESCALATE'})
-WORK_ESCALATION_STATES = frozenset({'TASK_ESCALATE'})
+WORK_ESCALATION_STATES: frozenset[str] = frozenset()
 
 
 def _make_stream_event_handler(bus: Any, conv_id: str, agent_sender: str = 'agent'):
@@ -993,52 +993,20 @@ class Orchestrator:
         phase_name: str,
         phase_start_time: float,
     ) -> 'ActorResult':
-        """Advance to AWAITING_REPLIES, block until all workers reply, then resume the lead.
+        """Block the lead until all dispatched workers reply, then resume it.
 
-        Called when the lead's turn completes but dispatched workers are still in
-        flight.  Transitions the CfA state machine through the write-then-exit-then-
-        resume cycle (Issue #358):
-
-          TASK_IN_PROGRESS → send-and-wait → AWAITING_REPLIES
-          (block: waiting for all workers to reply via Reply socket)
-          _bus_reinvoke_agent injects each reply into the lead's history file
-          AWAITING_REPLIES → resume → TASK_IN_PROGRESS
-          (lead re-invoked via --resume, picking up injected messages from history)
-
-        Returns the synthesis actor_result; the caller's _transition call then
-        advances the CfA normally from TASK_IN_PROGRESS.
+        Fan-in is a framework-level turn-boundary concern, not a state-machine
+        transition.  When the lead's turn completes with open worker contexts
+        on the bus, this coroutine waits for BusEventListener.trigger_reply
+        to signal _fan_in_event (fired when every open child context has
+        replied), then re-invokes the lead via --resume so it can synthesize
+        the workers' replies before advancing the CfA.
         """
-        # TASK_IN_PROGRESS → send-and-wait → AWAITING_REPLIES
-        try:
-            self.cfa = transition(self.cfa, 'send-and-wait')
-            save_state(self.cfa, os.path.join(self.infra_dir, '.cfa-state.json'))
-        except InvalidTransition:
-            _log.warning(
-                'send-and-wait transition failed from state=%s — skipping fan-in',
-                self.cfa.state,
-            )
-            # Invalid transition means we're not in a dispatch state.
-            # Skip the fan-in wait — there's nothing to wait for.
-            return await self._invoke_actor(spec, phase_name, phase_start_time)
-
         self._fan_in_event = asyncio.Event()
-        _log.info(
-            'Fan-in wait: AWAITING_REPLIES — blocking until all dispatched workers reply',
-        )
+        _log.info('Fan-in wait: blocking until all dispatched workers reply')
         await self._fan_in_event.wait()
         self._fan_in_event = None
         _log.info('Fan-in complete: resuming lead via --resume for synthesis')
-
-        # AWAITING_REPLIES → resume → TASK_IN_PROGRESS
-        try:
-            self.cfa = transition(self.cfa, 'resume')
-            save_state(self.cfa, os.path.join(self.infra_dir, '.cfa-state.json'))
-        except InvalidTransition:
-            _log.warning(
-                'resume transition failed from state=%s — continuing',
-                self.cfa.state,
-            )
-
         return await self._invoke_actor(spec, phase_name, phase_start_time)
 
     async def _run_loop(self) -> OrchestratorResult:
@@ -1122,12 +1090,12 @@ class Orchestrator:
                 if self.plan_only:
                     return self._make_result('COMPLETED_WORK')
 
-                # Bridge planning → execution (PLAN has one edge: delegate → TASK)
+                # Bridge planning → execution (PLAN has one edge: delegate → WORK_IN_PROGRESS)
                 await self._auto_bridge()
 
                 # Prospective learning: generate premortem before execution (Issue #199)
                 self._write_premortem()
-            # else: CfA is already at TASK (set_state_direct in Session.run)
+            # else: CfA is already at WORK_IN_PROGRESS (set_state_direct in Session.run)
 
             # Phase 3: Execution
             result = await self._run_phase('execution')
@@ -1175,9 +1143,9 @@ class Orchestrator:
         """Apply deterministic transition at a phase-terminal state to enter the next phase.
 
         Phase-terminal states with exactly one outgoing edge (INTENT → DRAFT,
-        PLAN → TASK) are structural bridges, not agent decisions.  Apply them
-        automatically so _run_phase for the next phase starts inside its own
-        phase's state space.
+        PLAN → WORK_IN_PROGRESS) are structural bridges, not agent decisions.
+        Apply them automatically so _run_phase for the next phase starts
+        inside its own phase's state space.
         """
         edges = TRANSITIONS.get(self.cfa.state, [])
         if len(edges) == 1:
@@ -1370,7 +1338,7 @@ class Orchestrator:
             # Check for phase exit (e.g., INTENT → planning, PLAN → execution)
             current_phase = phase_for_state(self.cfa.state)
             if current_phase != phase_name and self.cfa.state not in (
-                'INTENT_RESPONSE', 'PLANNING_RESPONSE', 'TASK_RESPONSE',
+                'INTENT_RESPONSE', 'PLANNING_RESPONSE',
             ):
                 # We've transitioned out of this phase
                 await self.event_bus.publish(Event(
@@ -2050,9 +2018,13 @@ class Orchestrator:
     async def _commit_artifacts(self, old_state: str, action: str) -> None:
         """Auto-commit deliverables to the session worktree after writes.
 
-        Only execution deliverables are committed (TASK_ASSERT).  INTENT.md,
-        PLAN.md, and WORK_SUMMARY.md live in the worktree root but are
-        gitignored so they never reach main.
+        Commits at two points during execution:
+          - After each project-lead turn in WORK_IN_PROGRESS (checkpointing
+            per-dispatch deliverables as they land).
+          - On entry to WORK_ASSERT (final assembled deliverable before the
+            project-level gate reviews it).
+        INTENT.md, PLAN.md, and WORK_SUMMARY.md live in the worktree root but
+        are gitignored so they never reach main.
         """
         wt = self.session_worktree
         if not wt:
@@ -2060,7 +2032,7 @@ class Orchestrator:
 
         new_state = self.cfa.state
         try:
-            if new_state == 'TASK_ASSERT':
+            if old_state == 'WORK_IN_PROGRESS' or new_state == 'WORK_ASSERT':
                 await commit_artifact(wt, ['.'], f'Execution: {action}')
         except Exception as exc:
             _log.warning('Artifact commit failed (non-fatal): %s', exc)

@@ -14,9 +14,9 @@ import teaparty.scripts.generate_review_bridge as mod
 class TestStateConfig(unittest.TestCase):
     """STATE_CONFIG covers all documented CfA review states."""
 
-    def test_all_six_states_present(self):
+    def test_all_five_states_present(self):
         expected = {"INTENT_ASSERT", "PLAN_ASSERT", "WORK_ASSERT",
-                    "INTENT_ESCALATE", "PLANNING_ESCALATE", "TASK_ESCALATE"}
+                    "INTENT_ESCALATE", "PLANNING_ESCALATE"}
         self.assertEqual(set(mod.STATE_CONFIG.keys()), expected)
 
     def test_each_config_has_template_and_noun(self):
@@ -96,7 +96,7 @@ class TestFallbackBridge(unittest.TestCase):
             os.unlink(path)
 
     def test_missing_file_returns_path_only(self):
-        result = mod.fallback_bridge("/no/such/file.md", "TASK_ESCALATE")
+        result = mod.fallback_bridge("/no/such/file.md", "PLANNING_ESCALATE")
         self.assertIn("/no/such/file.md", result)
         self.assertNotIn("\n", result)  # No preview lines
 

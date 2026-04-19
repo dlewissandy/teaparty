@@ -262,11 +262,11 @@ class TestLowConfidenceEscalates(DeterministicProxyTestCase):
 class TestGenerativeStates(DeterministicProxyTestCase):
 
     def test_is_generative_state_returns_true_for_escalate_states(self):
-        for state in ('INTENT_ESCALATE', 'PLANNING_ESCALATE', 'TASK_ESCALATE'):
+        for state in ('INTENT_ESCALATE', 'PLANNING_ESCALATE'):
             self.assertTrue(is_generative_state(state), f"{state} should be generative")
 
     def test_is_generative_state_returns_false_for_binary_states(self):
-        for state in ('INTENT_ASSERT', 'PLAN_ASSERT', 'TASK_ASSERT', 'WORK_ASSERT'):
+        for state in ('INTENT_ASSERT', 'PLAN_ASSERT', 'WORK_ASSERT'):
             self.assertFalse(is_generative_state(state), f"{state} should be binary")
 
     def test_generative_threshold_higher_than_binary(self):
@@ -1025,7 +1025,7 @@ class TestEscalationRecording(unittest.TestCase):
 
     def test_escalation_states_use_generative_threshold(self):
         """All ESCALATE states use the higher generative threshold."""
-        for state in ('INTENT_ESCALATE', 'PLANNING_ESCALATE', 'TASK_ESCALATE'):
+        for state in ('INTENT_ESCALATE', 'PLANNING_ESCALATE'):
             self.assertTrue(is_generative_state(state),
                             f"{state} should use generative threshold")
 

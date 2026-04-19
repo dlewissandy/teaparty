@@ -19,7 +19,6 @@ _TERMINAL_STATES = frozenset({'COMPLETED_WORK', 'WITHDRAWN'})
 _ESCALATION_STATES = frozenset({
     'INTENT_ESCALATE', 'INTENT_QUESTION',
     'PLANNING_ESCALATE', 'PLANNING_QUESTION',
-    'TASK_ESCALATE', 'TASK_QUESTION',
 })
 
 
@@ -83,11 +82,12 @@ def _count_skills(project_dirs: list[str]) -> int:
 
 
 def _count_completed_tasks(sessions: list) -> int:
-    """Count COMPLETED_TASK transitions across all CfA state history files.
+    """Count completed-work transitions across all CfA state history files.
 
-    A task completes when the state machine transitions FROM 'TASK_ASSERT'
-    via action 'approve'.  This is the canonical history marker for a single
-    completed task within a job.
+    A job completes when the state machine transitions FROM 'WORK_ASSERT'
+    via action 'approve'.  Subteam work is coordinated via messaging and
+    is not represented in the state machine, so the analogous metric is
+    at the job level.
     """
     count = 0
     for session in sessions:
@@ -100,7 +100,7 @@ def _count_completed_tasks(sessions: list) -> int:
             with open(cfa_path) as f:
                 data = json.load(f)
             for entry in data.get('history', []):
-                if entry.get('state') == 'TASK_ASSERT' and entry.get('action') == 'approve':
+                if entry.get('state') == 'WORK_ASSERT' and entry.get('action') == 'approve':
                     count += 1
         except (OSError, ValueError):
             pass
@@ -108,13 +108,7 @@ def _count_completed_tasks(sessions: list) -> int:
 
 
 def _tasks_by_day(sessions: list, day_labels: list[str]) -> dict[str, int]:
-    """Count COMPLETED_TASK transitions (TASK_ASSERT→approve) per day.
-
-    Uses the timestamp recorded in each CfA history entry, matching the
-    same transitions counted by _count_completed_tasks() for the summary
-    scalar.  This ensures the daily chart and summary use the same unit:
-    individual tasks, not jobs.
-    """
+    """Count completed-work transitions (WORK_ASSERT→approve) per day."""
     counts: dict[str, int] = {}
     for session in sessions:
         if not session.infra_dir:
@@ -126,7 +120,7 @@ def _tasks_by_day(sessions: list, day_labels: list[str]) -> dict[str, int]:
             with open(cfa_path) as f:
                 data = json.load(f)
             for entry in data.get('history', []):
-                if entry.get('state') == 'TASK_ASSERT' and entry.get('action') == 'approve':
+                if entry.get('state') == 'WORK_ASSERT' and entry.get('action') == 'approve':
                     ts = entry.get('timestamp', '')
                     if not ts:
                         continue
@@ -191,7 +185,6 @@ def _count_historical_escalations(sessions: list) -> int:
 _ESCALATION_PHASE = {
     'INTENT_ESCALATE': 'intent', 'INTENT_QUESTION': 'intent',
     'PLANNING_ESCALATE': 'planning', 'PLANNING_QUESTION': 'planning',
-    'TASK_ESCALATE': 'execution', 'TASK_QUESTION': 'execution',
 }
 
 

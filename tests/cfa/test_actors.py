@@ -630,10 +630,10 @@ class TestEscalationGenerativeResponse(unittest.TestCase):
 # ── Regression tests for #120: approval gate classification failures ──────────
 
 class TestClassifyReviewFallbackOnException(unittest.TestCase):
-    """_classify_review must return __fallback__, never approve, on exception.
-
-    Root cause of #120: the old code caught all exceptions and returned
-    ('approve', ''), silently auto-approving when classification crashed.
+    """_classify_review must never return 'approve' on exception.  It
+    returns 'dialog' so the gate loop re-prompts instead of silently
+    auto-approving (regression from #120 — the old code caught all
+    exceptions and returned ('approve', '')).
     """
 
     def setUp(self):
@@ -656,7 +656,7 @@ class TestClassifyReviewFallbackOnException(unittest.TestCase):
         with patch('teaparty.scripts.classify_review.classify',
                    side_effect=ImportError('module not found')):
             action, feedback = gate._classify_review('PLAN_ASSERT', 'looks good')
-        self.assertEqual(action, '__fallback__')
+        self.assertEqual(action, 'dialog')
         self.assertNotEqual(action, 'approve')
 
     def test_runtime_error_returns_fallback_not_approve(self):
@@ -665,7 +665,7 @@ class TestClassifyReviewFallbackOnException(unittest.TestCase):
         with patch('teaparty.scripts.classify_review.classify',
                    side_effect=RuntimeError('subprocess crashed')):
             action, feedback = gate._classify_review('PLAN_ASSERT', 'the plan is great')
-        self.assertEqual(action, '__fallback__')
+        self.assertEqual(action, 'dialog')
 
     def test_timeout_error_returns_fallback_not_approve(self):
         """If classify() times out, must NOT auto-approve."""
@@ -674,7 +674,7 @@ class TestClassifyReviewFallbackOnException(unittest.TestCase):
         with patch('teaparty.scripts.classify_review.classify',
                    side_effect=subprocess.TimeoutExpired('claude', 30)):
             action, feedback = gate._classify_review('WORK_ASSERT', 'approve this')
-        self.assertEqual(action, '__fallback__')
+        self.assertEqual(action, 'dialog')
 
     def test_normal_classification_still_works(self):
         """Sanity check: normal classify output is parsed correctly."""
