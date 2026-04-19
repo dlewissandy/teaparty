@@ -267,10 +267,10 @@ Job status:
   [withdrawn]  -> gray background
 
 CfA state:
-  [INTENT]        [PROPOSAL]      [INTENT_ASSERT]
-  [PLANNING]      [DRAFT]         [PLAN_ASSERT]
-  [TASK]          [TASK_ASSERT]   [WORK_ASSERT]
-  [WITHDRAWN]     [COMPLETED_WORK]
+  [INTENT]          [PROPOSAL]          [INTENT_ASSERT]
+  [PLANNING]        [DRAFT]             [PLAN_ASSERT]
+  [WORK_IN_PROGRESS][WORK_ASSERT]
+  [WITHDRAWN]       [COMPLETED_WORK]
 
 Agent activity:
   [thinking]   -> pulsing amber dot + "Analyzing..."
@@ -297,14 +297,14 @@ Expanded (click to toggle):
   |  [✓] Planning   INTENT → DRAFT → PLAN_ASSERT      |
   |       PLAN.md approved by proxy at 09:33           |
   |                                                   |
-  |  [▶] Execution  TASK → TASK_ASSERT (in progress)  |
-  |       3 tasks dispatched, 1 completed              |
+  |  [▶] Execution  WORK_IN_PROGRESS (in progress)     |
+  |       project-lead dispatching to 3 workgroups     |
   |                                                   |
   |  [ ] Done       WORK_ASSERT pending                |
   +--------------------------------------------------+
 ```
 
-Backtracks render as visible loops (e.g. `[↺ TASK → PLANNING]`) so rework is never hidden in the UI.
+Backtracks render as visible loops (e.g. `[↺ EXECUTION → PLANNING]`) so rework is never hidden in the UI.
 
 ### Context-remaining indicator
 

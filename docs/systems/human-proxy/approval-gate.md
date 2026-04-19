@@ -40,7 +40,7 @@ This explains the priority ordering:
 
 The approval gate's capabilities stack across three tiers:
 
-**Tier 1 (Operational now):** Two-pass prediction + cold-start calibration via ACT-R memory depth. The proxy agent always runs. The memory-depth cold-start mechanism caps confidence at 0.5 when ACT-R memory depth falls below `MEMORY_DEPTH_THRESHOLD`; the threshold is currently set to `0`. The mechanism is in place and will be re-tuned in the milestone-4 skill-graph rewrite. The per-gate confidence check (confidence < 0.8 → escalate at ASSERT states; use best guess at never-escalate states) runs unchanged.
+**Tier 1 (Operational now):** Two-pass prediction + cold-start calibration via ACT-R memory depth. The proxy agent always runs. The memory-depth cold-start mechanism caps confidence at 0.5 when ACT-R memory depth falls below `MEMORY_DEPTH_THRESHOLD`; the threshold is currently set to `0`. The mechanism is in place and will be re-tuned in the milestone-4 skill-graph rewrite. The per-gate confidence check (confidence < 0.8 → escalate; use the proxy's best guess when the gate is configured with `escalation_mode: never`) runs unchanged.
 
 **Tier 2 (Operational now):** Retrieval-backed patterns from `.proxy-interactions.jsonl` (legacy similar interactions) and `proxy-patterns.md` (flat behavioral patterns). These are loaded as context for the proxy agent's two-pass prediction. ACT-R memory chunks (Tier 3) supplement these with structured retrieval.
 

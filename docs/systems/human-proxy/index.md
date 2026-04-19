@@ -58,7 +58,7 @@ All three feed into the proxy agent's context before it reasons about the decisi
 
 ## Deeper topics
 
-- [approval-gate](approval-gate.md) — proxy decision model, consult_proxy invocation path, confidence calibration gates, never-escalate tradeoffs
+- [approval-gate](approval-gate.md) — proxy decision model, consult_proxy invocation path, confidence calibration gates, per-gate escalation modes
 - [act-r overview](act-r/overview.md) — how ACT-R declarative memory is adapted for gate decisions
 - [act-r mapping](act-r/mapping.md) — chunks, traces, retrieval implementation
 - [act-r memory](act-r/memory.md) — ACT-R memory store implementation

@@ -105,35 +105,37 @@ class TestNewDelegatePath(unittest.TestCase):
         )
 
     def test_work_in_progress_outgoing_edges_are_exact(self):
-        """WORK_IN_PROGRESS retains only: assert, auto-approve, backtrack, withdraw."""
+        """WORK_IN_PROGRESS has exactly four outgoing actions:
+        assert, auto-approve, backtrack, withdraw."""
         edges = TRANSITIONS.get('WORK_IN_PROGRESS', [])
         action_to_target = {action: target for action, target, _actor in edges}
 
         self.assertEqual(
-            action_to_target.get('assert'), 'WORK_ASSERT',
+            set(action_to_target.keys()),
+            {'assert', 'auto-approve', 'backtrack', 'withdraw'},
+            f'WORK_IN_PROGRESS must have exactly these four actions; '
+            f'got {sorted(action_to_target.keys())}',
+        )
+        self.assertEqual(
+            action_to_target['assert'], 'WORK_ASSERT',
             f'WORK_IN_PROGRESS --assert--> must go to WORK_ASSERT, got '
-            f'{action_to_target.get("assert")}',
+            f'{action_to_target["assert"]}',
         )
         self.assertEqual(
-            action_to_target.get('auto-approve'), 'COMPLETED_WORK',
+            action_to_target['auto-approve'], 'COMPLETED_WORK',
             f'WORK_IN_PROGRESS --auto-approve--> must go to COMPLETED_WORK, '
-            f'got {action_to_target.get("auto-approve")}',
+            f'got {action_to_target["auto-approve"]}',
         )
         self.assertEqual(
-            action_to_target.get('withdraw'), 'WITHDRAWN',
+            action_to_target['backtrack'], 'PLANNING_QUESTION',
+            f'WORK_IN_PROGRESS --backtrack--> must go to PLANNING_QUESTION '
+            f'(project-level backtrack to planning phase), got '
+            f'{action_to_target["backtrack"]}',
+        )
+        self.assertEqual(
+            action_to_target['withdraw'], 'WITHDRAWN',
             f'WORK_IN_PROGRESS --withdraw--> must go to WITHDRAWN, got '
-            f'{action_to_target.get("withdraw")}',
-        )
-
-        self.assertNotIn(
-            'delegate', action_to_target,
-            'WORK_IN_PROGRESS --delegate--> edge (to removed TASK state) '
-            'must be gone',
-        )
-        self.assertNotIn(
-            'send-and-wait', action_to_target,
-            'WORK_IN_PROGRESS --send-and-wait--> edge must be gone; '
-            'fan-in happens at the turn boundary, not via state transitions',
+            f'{action_to_target["withdraw"]}',
         )
 
 
@@ -336,6 +338,43 @@ class TestApprovalGateMachineryRemoved(unittest.TestCase):
                 f'_CFA_STATE_TO_PHASE entry for {banned} must be removed',
             )
 
+    def test_classifier_fallback_sentinel_is_coerced_to_dialog(self):
+        """classify_review.py still emits '__fallback__' when it cannot
+        parse its own output.  The gate loop treats any non-'dialog' action
+        as terminal, so returning that sentinel as the CfA action would
+        crash the engine on ``transition(cfa, '__fallback__')``.
+        _classify_review must map '__fallback__' to ('dialog', '') so the
+        gate re-prompts instead.
+        """
+        import tempfile
+        from unittest.mock import AsyncMock, patch
+        from teaparty.cfa.actors import ApprovalGate
+
+        tmp = tempfile.mkdtemp()
+        try:
+            gate = ApprovalGate(
+                proxy_model_path=os.path.join(tmp, '.proxy.json'),
+                input_provider=AsyncMock(),
+                poc_root=tmp,
+            )
+            with patch('teaparty.scripts.classify_review.classify',
+                       return_value='__fallback__\t'):
+                action, feedback = gate._classify_review(
+                    'PLAN_ASSERT', 'unparseable response',
+                )
+            self.assertEqual(
+                action, 'dialog',
+                "classify_review's '__fallback__' sentinel must be coerced "
+                "to 'dialog'; got {!r}".format(action),
+            )
+            self.assertEqual(
+                feedback, '',
+                "coerced fallback must carry no feedback; got {!r}".format(feedback),
+            )
+        finally:
+            import shutil
+            shutil.rmtree(tmp, ignore_errors=True)
+
 
 # ── Engine machinery removal ───────────────────────────────────────────────
 
@@ -389,6 +428,80 @@ class TestEngineCommitsArtifactsDuringExecution(unittest.TestCase):
             'commits must fire while the CfA is in WORK_IN_PROGRESS or upon '
             'entering WORK_ASSERT',
         )
+
+    def test_commit_artifacts_fires_on_work_in_progress_turns(self):
+        """Per-turn commit on the lead's WORK_IN_PROGRESS turns is the
+        replacement for the old TASK_ASSERT-keyed commit.  Verify the
+        predicate fires on a WORK_IN_PROGRESS → <anything> transition.
+        """
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from teaparty.cfa.engine import Orchestrator
+
+        orch = Orchestrator.__new__(Orchestrator)
+        orch.session_worktree = '/tmp/does-not-matter'
+        orch.cfa = MagicMock(state='WORK_IN_PROGRESS')
+
+        with patch('teaparty.cfa.engine.commit_artifact',
+                   new=AsyncMock()) as mock_commit:
+            # old_state=WORK_IN_PROGRESS, new_state=anything → commit must fire
+            asyncio.run(
+                orch._commit_artifacts('WORK_IN_PROGRESS', 'assert')
+            )
+            self.assertEqual(
+                mock_commit.call_count, 1,
+                "commit_artifact must fire exactly once on a "
+                "WORK_IN_PROGRESS turn; got {} calls".format(
+                    mock_commit.call_count),
+            )
+
+    def test_commit_artifacts_fires_on_work_assert_entry(self):
+        """Entering WORK_ASSERT (new_state) must trigger a final commit
+        of the assembled deliverable before the project-level gate
+        reviews it — regardless of which state we came from.
+        """
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from teaparty.cfa.engine import Orchestrator
+
+        orch = Orchestrator.__new__(Orchestrator)
+        orch.session_worktree = '/tmp/does-not-matter'
+        orch.cfa = MagicMock(state='WORK_ASSERT')
+
+        with patch('teaparty.cfa.engine.commit_artifact',
+                   new=AsyncMock()) as mock_commit:
+            # old_state=WORK_IN_PROGRESS, new_state=WORK_ASSERT is the
+            # real path; predicate matches either condition.
+            asyncio.run(
+                orch._commit_artifacts('WORK_IN_PROGRESS', 'assert')
+            )
+            self.assertEqual(
+                mock_commit.call_count, 1,
+                "commit must fire on WORK_IN_PROGRESS → WORK_ASSERT; "
+                "got {} calls".format(mock_commit.call_count),
+            )
+
+    def test_commit_artifacts_does_not_fire_on_unrelated_states(self):
+        """Changes outside the execution phase must not trigger the
+        execution-commit path."""
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from teaparty.cfa.engine import Orchestrator
+
+        orch = Orchestrator.__new__(Orchestrator)
+        orch.session_worktree = '/tmp/does-not-matter'
+        orch.cfa = MagicMock(state='PLAN_ASSERT')
+
+        with patch('teaparty.cfa.engine.commit_artifact',
+                   new=AsyncMock()) as mock_commit:
+            asyncio.run(
+                orch._commit_artifacts('DRAFT', 'assert')
+            )
+            self.assertEqual(
+                mock_commit.call_count, 0,
+                "commit_artifact must not fire outside execution; got "
+                "{} calls for DRAFT → PLAN_ASSERT".format(mock_commit.call_count),
+            )
 
 
 class TestSessionExecuteOnlyUsesNewStartState(unittest.TestCase):
