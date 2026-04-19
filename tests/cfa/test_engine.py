@@ -57,7 +57,6 @@ def _make_phase_spec(
         stream_file='.intent-stream.jsonl',
         artifact=artifact,
         approval_state='INTENT_ASSERT',
-        settings_overlay={},
     )
 
 

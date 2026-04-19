@@ -40,7 +40,7 @@ from teaparty.proxy.agent import ProxyResult
 
 def _install_jail_hook(worktree: str) -> None:
     """Create a stub worktree_hook.py so AgentRunner validation passes in tests."""
-    hook_dir = os.path.join(worktree, 'teaparty', 'workspace')
+    hook_dir = os.path.join(worktree, '.claude', 'hooks')
     os.makedirs(hook_dir, exist_ok=True)
     open(os.path.join(hook_dir, 'worktree_hook.py'), 'w').close()
 
@@ -62,7 +62,6 @@ def _make_phase_spec(
         stream_file='.intent-stream.jsonl',
         artifact=artifact,
         approval_state='INTENT_ASSERT',
-        settings_overlay={},
     )
 
 
@@ -284,7 +283,6 @@ class TestInterpretOutputPlanningPhaseRouting(unittest.TestCase):
             stream_file='.plan-stream.jsonl',
             artifact='PLAN.md',
             approval_state='PLAN_ASSERT',
-            settings_overlay={},
         )
 
     def test_planning_present_artifact_goes_to_assert(self):
@@ -588,7 +586,7 @@ class TestEscalationGenerativeResponse(unittest.TestCase):
             name='planning', agent_file='agents/uber-team.json',
             lead='project-lead', permission_mode='plan',
             stream_file='.plan-stream.jsonl', artifact='PLAN.md',
-            approval_state='PLAN_ASSERT', settings_overlay={},
+            approval_state='PLAN_ASSERT',
         )
         ctx = _make_ctx(state='DRAFT', session_worktree=self.tmpdir, infra_dir=self.tmpdir, phase_spec=spec)
         runner = AgentRunner()
@@ -610,7 +608,7 @@ class TestEscalationGenerativeResponse(unittest.TestCase):
             name='planning', agent_file='agents/uber-team.json',
             lead='project-lead', permission_mode='plan',
             stream_file='.plan-stream.jsonl', artifact='PLAN.md',
-            approval_state='PLAN_ASSERT', settings_overlay={},
+            approval_state='PLAN_ASSERT',
         )
         ctx = _make_ctx(state='DRAFT', session_worktree=self.tmpdir, phase_spec=spec)
 
@@ -858,7 +856,6 @@ class TestInterpretOutputExecutionArtifact(unittest.TestCase):
             stream_file='.exec-stream.jsonl',
             artifact='WORK_SUMMARY.md',
             approval_state='WORK_ASSERT',
-            settings_overlay={},
         )
 
     def test_work_summary_present_routes_to_assert(self):

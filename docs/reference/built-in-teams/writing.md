@@ -8,7 +8,7 @@ Dispatch here when the task is to produce original written content from scratch.
 
 The writing-lead breaks the content brief into distinct artifacts or sections, assigns each to the appropriate writer, reviews drafts for coherence and completeness, stitches the pieces together, and delivers the final artifact. It requests clarification when the brief lacks format, audience, or scope definition, and declares completion when the artifact is whole, coherent, and matches the brief.
 
-**Tools:** Read, Write, Edit, Glob, Grep, mcp__teaparty-config__AskQuestion
+**Tools:** [standard workgroup-lead tools](index.md#standard-workgroup-lead-tools)
 **Skills:** digest
 
 ---

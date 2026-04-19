@@ -39,7 +39,6 @@ from teaparty.cfa.actors import (
     InputProvider,
 )
 from teaparty.cfa.gates.queue import GateQueue
-from teaparty.proxy.presence import HumanPresence
 from teaparty.cfa.gates.escalation import EscalationListener
 from teaparty.cfa.gates.intervention_listener import InterventionListener
 from teaparty.workspace.worktree import commit_artifact
@@ -236,7 +235,6 @@ class Orchestrator:
         project_dir: str = '',
         intervention_queue: InterventionQueue | None = None,
         role_enforcer: RoleEnforcer | None = None,
-        human_presence: HumanPresence | None = None,
         escalation_modes: dict[str, str] | None = None,
         gate_queue: GateQueue | None = None,
         cost_tracker: CostTracker | None = None,
@@ -272,7 +270,6 @@ class Orchestrator:
             intervention_queue.role_enforcer = role_enforcer
         self._pending_intervention: str = ''  # Prompt to inject at next agent turn
         self._intervention_active: bool = False  # True after intervention delivery (Issue #247)
-        self.human_presence = human_presence
         self._cost_tracker = cost_tracker
         self._cost_warning_emitted = False  # Only emit once per job
         self._project_cost_warning_emitted = False
@@ -314,7 +311,6 @@ class Orchestrator:
             poc_root=poc_root,
             proxy_enabled=proxy_enabled,
             never_escalate=never_escalate,
-            human_presence=human_presence,
             escalation_modes=escalation_modes,
             gate_queue=gate_queue,
         )
@@ -2190,7 +2186,6 @@ class Orchestrator:
                 stream_file=base.stream_file,
                 artifact=base.artifact,
                 approval_state=base.approval_state,
-                settings_overlay=base.settings_overlay,
             )
 
         base = self.config.resolve_phase(phase_name)
@@ -2210,7 +2205,6 @@ class Orchestrator:
                 stream_file=base.stream_file,
                 artifact=base.artifact,
                 approval_state=base.approval_state,
-                settings_overlay=base.settings_overlay,
             )
 
         return base

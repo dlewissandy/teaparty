@@ -726,37 +726,20 @@ def create_agent_handler(
     body_text = body if body.startswith('\n') else f'\n{body}'
     _write_agent_file(path, fm, body_text)
 
-    # Write default settings.yaml with message bus dispatch permissions.
-    agent_dir = os.path.dirname(path)
-    settings_path = os.path.join(agent_dir, 'settings.yaml')
-    if not os.path.exists(settings_path):
-        import yaml as _yaml
-        default_settings = {
-            'permissions': {
-                'allow': [
-                    'mcp__teaparty-config__Send',
-                    'mcp__teaparty-config__ListAgents',
-                    'mcp__teaparty-config__GetAgent',
-                    'mcp__teaparty-config__ListSkills',
-                    'mcp__teaparty-config__GetSkill',
-                    'mcp__teaparty-config__ListWorkgroups',
-                    'mcp__teaparty-config__GetWorkgroup',
-                    'mcp__teaparty-config__ListProjects',
-                    'mcp__teaparty-config__GetProject',
-                ],
-            },
-        }
-        with open(settings_path, 'w') as f:
-            _yaml.dump(default_settings, f, default_flow_style=False)
+    # settings.yaml is reserved for folder permissions — the tool and skill
+    # whitelists live in the agent.md frontmatter (read by the config UI
+    # and by claude -p at sub-agent spawn time). We do not stamp a default
+    # settings.yaml here.
 
-    # Write default pins.yaml so every agent has prompt and settings pinned.
+    agent_dir = os.path.dirname(path)
+
+    # Write default pins.yaml so every agent has its prompt pinned.
     from teaparty.config.config_reader import write_pins
     pins_dir = agent_dir
     pins_path = os.path.join(pins_dir, 'pins.yaml')
     if not os.path.exists(pins_path):
         write_pins(pins_dir, [
             {'path': 'agent.md', 'label': 'Prompt & Identity'},
-            {'path': 'settings.yaml', 'label': 'Tool & File Permissions'},
         ])
 
     _emit_config_event('config_agent_created', name=name, path=path)
@@ -905,6 +888,109 @@ def remove_skill_handler(name: str, project_root: str = '', scope: str = '') -> 
 
 # ── Workgroup tools ───────────────────────────────────────────────────────────
 
+# The unified workgroup-lead toolset. Every lead has the same function
+# (decompose, delegate, consolidate, reconcile, relay, decide done) and
+# therefore the same tool whitelist. Specialization lives in the
+# description and team-scope blurb, not in the tool set.
+_WORKGROUP_LEAD_TOOLS = (
+    'Read, Glob, Grep, Write, Edit, '
+    'mcp__teaparty-config__Send, '
+    'mcp__teaparty-config__CloseConversation, '
+    'mcp__teaparty-config__AskQuestion'
+)
+
+
+def _workgroup_lead_body(team_name: str, team_description: str) -> str:
+    """Return the canonical lead prompt body for *team_name*.
+
+    The body is identical across all workgroup leads except for the
+    Team scope blurb. This mirrors the project-lead template — same
+    six-step coordination pattern, substituting "workgroup" for
+    "project" and naming the dispatching lead as the originator.
+    """
+    team_title = team_name.replace('-', ' ').title() if team_name else 'workgroup'
+    scope_section = (
+        f'\n## Team scope\n\n{team_description.strip()}\n'
+        if team_description and team_description.strip() else ''
+    )
+    return (
+        f"\nYou are the lead of the **{team_title}** workgroup — root of your "
+        "team tree. Lead; don't execute. Delegate whenever you could.\n"
+        f"{scope_section}"
+        "\n## What you do\n\n"
+        "**0. Strategic plan.** Decide the steps, owners, and invariants; "
+        "drive the plan through completion.\n\n"
+        "**1. Delegate.** `Send` a task: reference the spec, define done.\n\n"
+        "**2. Consolidate.** Members `Reply` to signal done. Verify against "
+        "plan and spec; accept, or `Send` a correction.\n\n"
+        "**3. Mediate.** The team is a tree — members don't address each "
+        "other. When A Asks for B, route through you: shape, forward, relay "
+        "the Reply.\n\n"
+        "**4. Reconcile.** Members share one worktree. When outputs disagree, "
+        "an invariant breaks, or an error spans members, untangle and "
+        "re-dispatch.\n\n"
+        "**5. Decide done.** When a step's outputs are complete and coherent, "
+        "advance — next step, or delivery.\n\n"
+        "**6. Interface externally.** Originators (the dispatching lead or "
+        "human) — all via you. Members `Send` to you to route when they need "
+        "external reach.\n\n"
+        "## Tools\n\n"
+        "`Send` and `Reply` are the team-comm primitives — see tool docstrings "
+        "for thread semantics. Four intents ride on them: Request, Ask, "
+        "Answer, Deliver — in the message content, not the tool. `AskQuestion` "
+        "routes to proxy or human. `CloseConversation` tears down a thread "
+        "you opened.\n\n"
+        "Independent tracks: `Send` to each in the same turn; threads run in "
+        "parallel.\n\n"
+        "## Escalation\n\n"
+        "Escalate upward by `Send`ing an Ask to the originator when:\n"
+        "- only the originator can decide,\n"
+        "- the intent is inadequate,\n"
+        "- an interpretation change is non-trivial or irreversible,\n"
+        "- a blocker can't be untangled.\n\n"
+        "Silent adaptation is wrong when the originator might want to decide.\n"
+    )
+
+
+def _stamp_workgroup_lead(
+    workgroup_name: str,
+    workgroup_description: str,
+    lead_name: str,
+    project_root: str,
+    scope: str,
+) -> None:
+    """Stamp ``{lead_name}`` with the unified workgroup-lead template.
+
+    Idempotent: if ``{lead_name}/agent.md`` already exists, returns without
+    overwriting — the user's customizations win after creation.
+    """
+    agents_dir = _scoped_agents_dir(scope) if scope else _mgmt_agents_dir(
+        os.path.join(_project_root(project_root), '.teaparty'))
+    lead_path = os.path.join(agents_dir, lead_name, 'agent.md')
+    if os.path.exists(lead_path):
+        return
+
+    team_title = workgroup_name.replace('-', ' ').title() or 'Workgroup'
+    description = (
+        f"{team_title} workgroup lead — decomposes the request, delegates to "
+        f"members, consolidates results, and declares completion."
+    )
+    if workgroup_description and workgroup_description.strip():
+        description += f' Dispatch here when: {workgroup_description.strip()}'
+
+    create_agent_handler(
+        name=lead_name,
+        description=description,
+        model='sonnet',
+        tools=_WORKGROUP_LEAD_TOOLS,
+        body=_workgroup_lead_body(workgroup_name, workgroup_description),
+        skills='digest',
+        max_turns=20,
+        project_root=project_root,
+        scope=scope,
+    )
+
+
 def create_workgroup_handler(
     name: str,
     description: str = '',
@@ -914,8 +1000,17 @@ def create_workgroup_handler(
     norms_yaml: str = '',
     teaparty_home: str = '',
     scope: str = '',
+    project_root: str = '',
 ) -> str:
-    """Create a workgroup YAML in workgroups/{name}.yaml."""
+    """Create a workgroup YAML in workgroups/{name}.yaml and stamp its lead.
+
+    If *lead* is the conventional ``{name}-lead`` and that agent does not
+    yet exist, the lead is created from the unified workgroup-lead
+    template (same six-step coordination body, same tool whitelist).
+    Callers that specify a non-default lead, or whose default lead has
+    already been customized, get the legacy behaviour: YAML only, no
+    stamping.
+    """
     if not name or not name.strip():
         return _err('CreateWorkgroup requires a non-empty name')
 
@@ -942,10 +1037,11 @@ def create_workgroup_handler(
         except yaml.YAMLError:
             norms_dict = {}
 
+    effective_lead = lead.strip() if lead else f'{name}-lead'
     data = {
         'name': name,
         'description': description,
-        'lead': lead,
+        'lead': effective_lead,
         'agents': agents_list,
         'skills': skills_list,
         'norms': norms_dict,
@@ -953,6 +1049,16 @@ def create_workgroup_handler(
     with open(path, 'w') as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
     _emit_config_event('config_workgroup_created', name=name, path=path)
+
+    if effective_lead == f'{name}-lead':
+        _stamp_workgroup_lead(
+            workgroup_name=name,
+            workgroup_description=description,
+            lead_name=effective_lead,
+            project_root=project_root,
+            scope=scope,
+        )
+
     return _ok(f"Workgroup '{name}' created at {path}", path=path)
 
 

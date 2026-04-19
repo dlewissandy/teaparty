@@ -6,12 +6,7 @@
       "permission_mode": "acceptEdits",
       "stream_file": ".intent-stream.jsonl",
       "artifact": "INTENT.md",
-      "approval_state": "INTENT_ASSERT",
-      "settings_overlay": {
-        "permissions": {
-          "allow": ["Write", "Edit", "WebFetch", "WebSearch", "mcp__teaparty-config__AskQuestion"]
-        }
-      }
+      "approval_state": "INTENT_ASSERT"
     },
     "planning": {
       "agent_file": "uber",
@@ -19,13 +14,7 @@
       "permission_mode": "acceptEdits",
       "stream_file": ".plan-stream.jsonl",
       "artifact": "PLAN.md",
-      "approval_state": "PLAN_ASSERT",
-      "settings_overlay": {
-        "permissions": {
-          "allow": ["Write", "Edit", "WebFetch", "WebSearch", "mcp__teaparty-config__AskQuestion"],
-          "deny": ["Task", "TaskOutput", "TaskStop", "SendMessage", "Agent"]
-        }
-      }
+      "approval_state": "PLAN_ASSERT"
     },
     "execution": {
       "agent_file": "uber",
@@ -33,13 +22,7 @@
       "permission_mode": "acceptEdits",
       "stream_file": ".exec-stream.jsonl",
       "artifact": "WORK_SUMMARY.md",
-      "approval_state": "WORK_ASSERT",
-      "settings_overlay": {
-        "permissions": {
-          "allow": ["Write", "Edit", "Bash", "mcp__teaparty-config__AskQuestion"],
-          "deny": ["Task", "TaskOutput", "TaskStop", "SendMessage", "Agent"]
-        }
-      }
+      "approval_state": "WORK_ASSERT"
     }
   },
   "teams": {

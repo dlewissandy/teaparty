@@ -234,6 +234,21 @@ def compose_launch_worktree(
     with open(settings_path, 'w') as f:
         json.dump(settings, f, indent=2)
 
+    # ── Hooks (stage scripts into worktree) ──────────────────────────────
+    # Hook declarations in settings.yaml reference scripts by relative path
+    # (e.g. ".claude/hooks/enforce-ownership.sh"). For external-project
+    # worktrees those scripts are not present in the git checkout, so copy
+    # them from the config-source repos. Also stage the CfA jail hook
+    # (teaparty/workspace/worktree_hook.py) at .claude/hooks/ so runtime-
+    # injected hook declarations in actors.py resolve without the script
+    # having to live in every project's git tree.
+    _stage_hook_scripts(
+        worktree=worktree,
+        settings=settings,
+        teaparty_home=teaparty_home,
+        org_home=org_home,
+    )
+
     # ── MCP config ───────────────────────────────────────────────────────
     if mcp_port:
         if session_id:
@@ -251,6 +266,91 @@ def compose_launch_worktree(
         mcp_path = os.path.join(worktree, '.mcp.json')
         with open(mcp_path, 'w') as f:
             json.dump(mcp_data, f, indent=2)
+
+
+def _stage_hook_scripts(
+    *,
+    worktree: str,
+    settings: dict,
+    teaparty_home: str,
+    org_home: str | None,
+) -> None:
+    """Copy hook scripts referenced by the composed settings into the worktree.
+
+    Two sources contribute scripts:
+
+    1. **Declared hooks.** Every ``command`` in ``settings['hooks']`` is
+       shlex-split; any token that resolves to an existing file under the
+       project source repo (``dirname(teaparty_home)``) or the org source
+       repo (``dirname(org_home)``) is copied to the same relative path
+       in the worktree. This lets projects declare hooks whose scripts
+       live in ``.claude/hooks/`` of the config-source repo and have them
+       appear in the worktree without being checked into git.
+
+    2. **Jail hook.** ``teaparty/workspace/worktree_hook.py`` ships with
+       the teaparty package and must be available as
+       ``.claude/hooks/worktree_hook.py`` in every CfA job worktree —
+       ``AgentRunner`` runtime-injects a ``PreToolUse`` hook pointing
+       there. We always stage it so external projects work too.
+    """
+    import shlex
+
+    # 1. Declared hook scripts from settings.
+    source_roots: list[str] = []
+    if teaparty_home:
+        source_roots.append(os.path.dirname(teaparty_home.rstrip('/')))
+    if org_home:
+        source_roots.append(os.path.dirname(org_home.rstrip('/')))
+
+    hooks_section = settings.get('hooks') or {}
+    if isinstance(hooks_section, dict):
+        for _event, entries in hooks_section.items():
+            if not isinstance(entries, list):
+                continue
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                for hook in entry.get('hooks') or []:
+                    if not isinstance(hook, dict):
+                        continue
+                    command = hook.get('command') or ''
+                    if not command:
+                        continue
+                    try:
+                        tokens = shlex.split(command)
+                    except ValueError:
+                        continue
+                    for token in tokens:
+                        if os.path.isabs(token):
+                            continue
+                        for root in source_roots:
+                            src = os.path.join(root, token)
+                            if os.path.isfile(src):
+                                dst = os.path.join(worktree, token)
+                                os.makedirs(
+                                    os.path.dirname(dst), exist_ok=True,
+                                )
+                                shutil.copy2(src, dst)
+                                break
+
+    # 2. Package-infrastructure hooks — ship with the teaparty package and
+    #    are always staged so that any `hooks:` declaration referencing them
+    #    at ``.claude/hooks/{name}`` resolves without the script needing to
+    #    live in every project's git tree.
+    package_hooks_dir = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        'workspace',
+    )
+    package_hooks = [
+        'worktree_hook.py',    # Read/Edit/Write/Glob/Grep jail
+        'bash_jail_hook.py',   # Bash jail: absolute paths + repo internals
+    ]
+    for hook_name in package_hooks:
+        src = os.path.join(package_hooks_dir, hook_name)
+        if os.path.isfile(src):
+            dst = os.path.join(worktree, '.claude', 'hooks', hook_name)
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copy2(src, dst)
 
 
 def chat_config_dir(

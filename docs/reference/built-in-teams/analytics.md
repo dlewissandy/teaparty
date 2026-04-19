@@ -8,7 +8,7 @@ Dispatch here when the task is to extract insight from data. The team analyzes d
 
 The analytics-lead frames the analytical question, decides which analysis is needed, dispatches to the data-scientist or data-visualizer as appropriate, reviews findings for correctness and clarity, and delivers a summary with supporting artifacts. It requests clarification when the question is ambiguous or the data source is unspecified, and declares completion when the analytical question is answered with evidence.
 
-**Tools:** Read, Write, Glob, Grep, Bash, mcp__teaparty-config__AskQuestion
+**Tools:** [standard workgroup-lead tools](index.md#standard-workgroup-lead-tools)
 **Skills:** digest
 
 ---

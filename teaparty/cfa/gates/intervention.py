@@ -52,13 +52,22 @@ class InterventionQueue:
         self._conversation_id = conversation_id
         self.role_enforcer = None
 
-    def enqueue(self, content: str, *, sender: str = 'human') -> None:
+    def enqueue(
+        self,
+        content: str,
+        *,
+        sender: str = 'human',
+        persist: bool = True,
+    ) -> None:
         """Add an intervention message to the queue.
 
         If a role enforcer is configured, checks the sender's D-A-I role
         first (informed members are blocked).
-        If a message bus is configured, the message is also persisted
-        there for audit trail.
+        If a message bus is configured and ``persist`` is True (the
+        default), the message is also written to the bus for audit trail.
+        Callers that are seeding the queue *from* the bus (e.g. resume
+        replaying trailing human messages) must pass ``persist=False``
+        to avoid a write-back duplicate.
         """
         if self.role_enforcer is not None:
             self.role_enforcer.check_send(sender)
@@ -70,7 +79,7 @@ class InterventionQueue:
         with self._lock:
             self._messages.append(msg)
 
-        if self._message_bus and self._conversation_id:
+        if persist and self._message_bus and self._conversation_id:
             self._message_bus.send(self._conversation_id, sender, content)
 
     def has_pending(self) -> bool:

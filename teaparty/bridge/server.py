@@ -271,6 +271,13 @@ class TeaPartyBridge:
         self._agent_locks: dict[str, asyncio.Lock] = {}
         self._agent_sessions: dict[str, AgentSession] = {}
         self._active_job_tasks: dict[str, asyncio.Task] = {}
+        # Level-triggered auto-resume (follow-up to #383): when a job task
+        # dies with unconsumed human input on the bus, the status callback
+        # kicks off one auto-resume to pick up the waiting message.  This
+        # dict tracks the last attempt per session so a crash-loop doesn't
+        # hammer resume indefinitely — a second auto-resume is suppressed
+        # for ``_AUTO_RESUME_COOLDOWN_SECONDS`` after the previous attempt.
+        self._last_auto_resume: dict[str, float] = {}
         # Per-project paused flag (issue #403). When a project slug is in
         # this set, new dispatches for it are refused and sending a
         # message to any of its agents implicitly triggers a resume.
@@ -3147,6 +3154,11 @@ class TeaPartyBridge:
     _ESCALATION_VALID_MODES: frozenset[str] = frozenset(
         {'always', 'when_unsure', 'never'}
     )
+    # Minimum gap between successive auto-resume attempts on the same
+    # session (seconds). Prevents a crash loop from hammering resume
+    # indefinitely; if the session dies again within this window, it
+    # flips to sleeping and the human must wake it explicitly.
+    _AUTO_RESUME_COOLDOWN_SECONDS: float = 30.0
 
     def _load_escalation_modes(self, project_slug: str) -> dict[str, str]:
         """Read per-gate escalation modes from the project's project.yaml.
@@ -3255,6 +3267,14 @@ class TeaPartyBridge:
         'sleeping' is only emitted if the CfA state is non-terminal when
         the task finishes — a clean completion reports via
         session_completed already, and we don't want to race with that.
+
+        If the task dies (normally or with exception) and the bus has
+        trailing unconsumed human messages, auto-fire a single resume
+        via ``_resume_job_session``. This is level-triggered recovery
+        for the POST-arrives-before-crash race: the human's input is
+        already on the bus; we shouldn't require them to click Wake.
+        Subject to ``_AUTO_RESUME_COOLDOWN_SECONDS`` to prevent a crash
+        loop from re-triggering resume indefinitely.
         """
         self._broadcast_session_status(project_slug, session_id, 'running')
 
@@ -3264,20 +3284,73 @@ class TeaPartyBridge:
                     load_state as _load_cfa, is_globally_terminal,
                 )
                 infra_dir = self._resolve_session_infra(session_id)
+                cfa_state = ''
                 if infra_dir:
                     cfa_path = os.path.join(infra_dir, '.cfa-state.json')
                     if os.path.isfile(cfa_path):
                         cfa = _load_cfa(cfa_path)
-                        if is_globally_terminal(cfa.state):
+                        cfa_state = cfa.state
+                        if is_globally_terminal(cfa_state):
                             return  # session_completed handles this
                 self._broadcast_session_status(
                     project_slug, session_id, 'sleeping')
+                self._maybe_auto_resume(project_slug, session_id)
             except Exception:
                 _log.debug(
                     'session_status done-callback failed for %s:%s',
                     project_slug, session_id, exc_info=True)
 
         task.add_done_callback(_on_done)
+
+    def _maybe_auto_resume(
+        self, project_slug: str, session_id: str,
+    ) -> None:
+        """Trigger an auto-resume if unconsumed human input is waiting.
+
+        Called from the job task's done-callback. Reads the session's
+        message bus; if there are trailing ``human`` messages after the
+        last non-human message, kicks ``_resume_job_session``. Honours
+        ``_AUTO_RESUME_COOLDOWN_SECONDS`` so a session that crashes on
+        every resume doesn't loop — after the first attempt fails the
+        user must wake manually.
+        """
+        import time
+        key = f'{project_slug}:{session_id}'
+        now = time.time()
+        last = self._last_auto_resume.get(key, 0.0)
+        if now - last < self._AUTO_RESUME_COOLDOWN_SECONDS:
+            return
+        if not self._has_trailing_human_messages(project_slug, session_id):
+            return
+        self._last_auto_resume[key] = now
+        _log.info(
+            'auto-resume: unconsumed human input on %s — '
+            'restarting session without explicit Wake', key,
+        )
+        asyncio.create_task(
+            self._resume_job_session(project_slug, session_id),
+        )
+
+    def _has_trailing_human_messages(
+        self, project_slug: str, session_id: str,
+    ) -> bool:
+        """True iff the last message in the session's bus is from a human.
+
+        A trailing human message means the user's input was posted but
+        the session died (or never got) around to consuming it. Used by
+        the auto-resume path to distinguish "session just finished its
+        turn" from "session crashed with user input unread."
+        """
+        bus = self._bus_for_conversation(f'job:{project_slug}:{session_id}')
+        if bus is None:
+            return False
+        try:
+            msgs = bus.receive(f'job:{project_slug}:{session_id}')
+        except Exception:
+            return False
+        if not msgs:
+            return False
+        return msgs[-1].sender == 'human'
 
     def _broadcast_dispatch(self, event: dict) -> None:
         """Broadcast dispatch lifecycle events to WebSocket clients."""

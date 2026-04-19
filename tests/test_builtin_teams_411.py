@@ -79,10 +79,27 @@ _TEAM_SPEC: dict[str, dict] = {
     },
 }
 
+# All workgroup leads share a single function — decompose, delegate,
+# consolidate, reconcile, relay, declare done — and therefore share a
+# single tool allowlist. The lead's specialization is in the description
+# and team-scope blurb, not in the tools it carries.
+#
+# The list is deliberately lean: leads inspect and author coordination
+# artifacts (Read/Glob/Grep/Write/Edit), delegate (Send), tear down
+# threads they opened (CloseConversation), and escalate (AskQuestion).
+# Research and catalog-discovery tools are intentionally absent — the
+# lead's member roster arrives via --agents; research is a team's job.
+_UNIFIED_LEAD_TOOLS: set[str] = {
+    'Read', 'Glob', 'Grep', 'Write', 'Edit',
+    'mcp__teaparty-config__Send',
+    'mcp__teaparty-config__CloseConversation',
+    'mcp__teaparty-config__AskQuestion',
+}
+
 # Required tools per agent per design doc.
 _AGENT_TOOLS: dict[str, set[str]] = {
     # Research
-    'research-lead':        {'Read', 'Write', 'Glob', 'Grep', 'mcp__teaparty-config__AskQuestion'},
+    'research-lead':        _UNIFIED_LEAD_TOOLS,
     'web-researcher':       {'Read', 'Write', 'Glob', 'WebSearch', 'WebFetch'},
     'literature-researcher':{'Read', 'Write', 'Glob', 'WebSearch', 'WebFetch',
                              'mcp__teaparty-config__arxiv_search',
@@ -95,20 +112,20 @@ _AGENT_TOOLS: dict[str, set[str]] = {
                              'mcp__teaparty-config__youtube_transcript'},
     'image-analyst':        {'Read', 'Write', 'WebFetch'},
     # Writing
-    'writing-lead':         {'Read', 'Write', 'Edit', 'Glob', 'Grep', 'mcp__teaparty-config__AskQuestion'},
+    'writing-lead':         _UNIFIED_LEAD_TOOLS,
     'markdown-writer':      {'Read', 'Write', 'Edit', 'Glob', 'Grep'},
     'latex-writer':         {'Read', 'Write', 'Edit', 'Bash'},
     'blog-writer':          {'Read', 'Write', 'Edit'},
     'pdf-writer':           {'Read', 'Write', 'Bash'},
     'specification-writer': {'Read', 'Write', 'Edit', 'Glob', 'Grep', 'mcp__teaparty-config__AskQuestion'},
     # Editorial
-    'editorial-lead':       {'Read', 'Write', 'Edit', 'Glob', 'Grep', 'mcp__teaparty-config__AskQuestion'},
+    'editorial-lead':       _UNIFIED_LEAD_TOOLS,
     'copy-editor':          {'Read', 'Write', 'Edit'},
     'fact-checker':         {'Read', 'Write', 'WebSearch', 'WebFetch'},
     'style-reviewer':       {'Read', 'Write', 'Edit', 'Glob', 'Grep'},
     'voice-editor':         {'Read', 'Write', 'Edit'},
     # Quality-control
-    'quality-control-lead': {'Read', 'Write', 'Glob', 'Grep', 'Bash', 'mcp__teaparty-config__AskQuestion'},
+    'quality-control-lead': _UNIFIED_LEAD_TOOLS,
     'qa-reviewer':          {'Read', 'Write', 'Glob', 'Grep'},
     'test-reviewer':        {'Read', 'Glob', 'Grep', 'Bash'},
     'regression-tester':    {'Bash', 'Read', 'Glob', 'Grep'},
@@ -116,7 +133,7 @@ _AGENT_TOOLS: dict[str, set[str]] = {
     'performance-analyst':  {'Bash', 'Read', 'Write', 'Glob', 'Grep'},
     'ai-smell':             {'Read', 'Write'},
     # Art
-    'art-lead':             {'Read', 'Write', 'Glob', 'Grep', 'mcp__teaparty-config__AskQuestion'},
+    'art-lead':             _UNIFIED_LEAD_TOOLS,
     'svg-artist':           {'Write', 'Read'},
     'graphviz-artist':      {'Write', 'Read', 'Bash'},
     'tikz-artist':          {'Write', 'Read', 'Bash'},
@@ -125,17 +142,17 @@ _AGENT_TOOLS: dict[str, set[str]] = {
                              'mcp__teaparty-config__image_gen_flux',
                              'mcp__teaparty-config__image_gen_stability'},
     # Analytics
-    'analytics-lead':       {'Read', 'Write', 'Glob', 'Grep', 'Bash', 'mcp__teaparty-config__AskQuestion'},
+    'analytics-lead':       _UNIFIED_LEAD_TOOLS,
     'data-scientist':       {'Bash', 'Read', 'Write', 'Glob'},
     'data-visualizer':      {'Bash', 'Write', 'Read'},
     # Planning
-    'planning-lead':        {'Read', 'Write', 'Glob', 'Grep', 'mcp__teaparty-config__AskQuestion'},
+    'planning-lead':        _UNIFIED_LEAD_TOOLS,
     'strategist':           {'Read', 'Write', 'WebSearch', 'WebFetch'},
     'risk-analyst':         {'Read', 'Write', 'Glob', 'Grep'},
     'milestone-planner':    {'Read', 'Write'},
     'dependency-mapper':    {'Read', 'Write', 'Glob', 'Grep'},
     # Intake
-    'intake-lead':          {'Read', 'Write', 'Glob', 'Grep', 'mcp__teaparty-config__AskQuestion'},
+    'intake-lead':          _UNIFIED_LEAD_TOOLS,
     'intent-specialist':    {'Read', 'Write', 'mcp__teaparty-config__AskQuestion'},
     'scope-analyst':        {'Read', 'Write', 'Glob', 'Grep'},
     'stakeholder-interviewer': {'Read', 'Write', 'mcp__teaparty-config__AskQuestion'},
@@ -146,11 +163,11 @@ _AGENT_TOOLS: dict[str, set[str]] = {
 _MISSING_TOOL_AGENTS: set[str] = set()
 
 # Tool allowlists for pre-existing leads — AC7 reconciliation baseline.
-# These reflect the tools after reconciliation with design docs for those teams.
+# Unified with all other workgroup leads (same decompose/delegate/consolidate
+# role, same toolset).
 _EXISTING_AGENT_TOOLS: dict[str, set[str]] = {
-    'coding-lead': {'mcp__teaparty-config__Send',
-                    'mcp__teaparty-config__AskQuestion', 'Read', 'ListFiles'},
-    'configuration-lead': {'Read', 'Glob', 'Grep', 'Bash', 'mcp__teaparty-config__Send'},
+    'coding-lead': _UNIFIED_LEAD_TOOLS,
+    'configuration-lead': _UNIFIED_LEAD_TOOLS,
 }
 
 
@@ -159,7 +176,13 @@ def _agent_md_path(name: str) -> str:
 
 
 def _agent_tools(name: str) -> set[str]:
-    """Return the tool set from an agent's frontmatter."""
+    """Return the tool whitelist for an agent.
+
+    Source of truth is the ``tools:`` field in the agent.md frontmatter
+    — the same value the config UI reads and the same value
+    ``claude -p`` sees at sub-agent spawn time. ``settings.yaml`` is
+    for folder permissions, not tools.
+    """
     fm = read_agent_frontmatter(_agent_md_path(name))
     tools_str = fm.get('tools', '')
     if not tools_str:

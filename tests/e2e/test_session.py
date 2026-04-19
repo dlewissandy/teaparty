@@ -38,7 +38,6 @@ from unittest.mock import patch
 
 from teaparty.runners.claude import ClaudeResult
 from teaparty.messaging.bus import EventBus, EventType
-from teaparty.proxy.presence import HumanPresence, PresenceLevel
 
 
 # ── Ollama detection ─────────────────────────────────────────────────────────
@@ -265,16 +264,10 @@ def _init_git_repo(path: str) -> None:
     subprocess.run(['git', 'config', 'user.name', 'Test'],
                    cwd=path, check=True, capture_output=True)
     Path(path, 'README.md').write_text('# e2e test repo\n')
-    # Copy the jail hook script so AgentRunner._check_jail_hook passes.
-    # Tests mock the LLM, so the hook never actually executes — but the
-    # runner requires the file's presence before launching the agent.
-    import shutil as _shutil
-    import teaparty.workspace.worktree_hook as _hook_module
-    hook_src = _hook_module.__file__
-    hook_dst = Path(path, 'teaparty', 'workspace', 'worktree_hook.py')
-    hook_dst.parent.mkdir(parents=True, exist_ok=True)
-    _shutil.copy2(hook_src, hook_dst)
-    subprocess.run(['git', 'add', 'README.md', 'teaparty'], cwd=path, check=True,
+    # The jail hook script is staged into each worktree by
+    # AgentRunner._stage_jail_hook from the installed teaparty package;
+    # tests don't need to pre-populate it in the repo.
+    subprocess.run(['git', 'add', 'README.md'], cwd=path, check=True,
                    capture_output=True)
     subprocess.run(['git', 'commit', '-m', 'init'], cwd=path, check=True,
                    capture_output=True)
@@ -282,19 +275,6 @@ def _init_git_repo(path: str) -> None:
 
 def _run(coro):
     return asyncio.run(coro)
-
-
-def _make_human_presence() -> HumanPresence:
-    """Human present at all gate levels so input_provider is always called.
-
-    Without this, TASK_ASSERT is in _DEFAULT_NEVER_ESCALATE and the gate
-    never routes to input_provider — it relies on the proxy agent instead.
-    Proxy tests that need the proxy path pass human_presence=None explicitly.
-    """
-    p = HumanPresence()
-    p.arrive(PresenceLevel.PROJECT)
-    p.arrive(PresenceLevel.SUBTEAM)
-    return p
 
 
 # ── Base test class ───────────────────────────────────────────────────────────
@@ -308,8 +288,6 @@ class _SessionTestBase(unittest.TestCase):
         _init_git_repo(self.poc_root)
         self.projects_dir = os.path.join(self._tmp, 'projects')
         os.makedirs(self.projects_dir)
-        # Pre-init the project repo so AgentRunner._check_jail_hook finds
-        # the worktree_hook.py in every worktree spawned from it.
         project_dir = os.path.join(self.projects_dir, 'e2e-test')
         os.makedirs(project_dir)
         _init_git_repo(project_dir)
@@ -334,11 +312,17 @@ class _SessionTestBase(unittest.TestCase):
             input_provider=gate_script,
             event_bus=transcript._bus,
             proxy_enabled=False,
-            # Human present at all levels → gate always calls input_provider.
-            # TASK_ASSERT is in _DEFAULT_NEVER_ESCALATE (proxy-only by default);
-            # human_presence overrides that so gate_script controls everything.
-            # Proxy tests that need real proxy routing pass human_presence=None.
-            human_presence=_make_human_presence(),
+            # Force every gate to the human so ``gate_script`` controls
+            # the whole session.  The routing decision is now purely
+            # (escalation_mode, proxy_confidence) — no presence override.
+            # Proxy tests that want the proxy path override this with
+            # ``escalation_modes={}`` (or a more targeted dict) in kwargs.
+            escalation_modes={
+                'INTENT_ASSERT': 'always',
+                'PLAN_ASSERT':   'always',
+                'TASK_ASSERT':   'always',
+                'WORK_ASSERT':   'always',
+            },
         )
         defaults.update(kwargs)
         return Session(**defaults)
@@ -698,11 +682,12 @@ class TestSessionProxyPaths(_SessionTestBase):
         return p
 
     def test_proxy_escalates_calls_input_provider(self):
-        """Human presence overrides proxy — input_provider IS called at every gate.
+        """escalation: always at every gate routes to input_provider.
 
-        With human_presence set (the default), the gate routes directly to
-        input_provider regardless of proxy confidence.  This verifies that
-        the input_provider is the decision-maker when the human is present.
+        With the default ``escalation_modes`` (``always`` at every gate
+        from the test helper), the gate skips the proxy and calls
+        ``input_provider`` directly.  This verifies input_provider is
+        the decision-maker when the project config sets ``always``.
         """
         t, bus = self._make_transcript_and_bus()
         gate = _GateScript('approve')
@@ -726,9 +711,10 @@ class TestSessionProxyPaths(_SessionTestBase):
     def test_proxy_auto_approves_skips_input_provider(self):
         """High-confidence proxy answers at every gate — input_provider is NOT called.
 
-        human_presence=None removes the "human present" override so the proxy
-        path is active.  consult_proxy patched to return confident 'approve'.
-        TASK_ASSERT is in _DEFAULT_NEVER_ESCALATE — also handled by proxy.
+        ``escalation_modes={}`` overrides the test-helper default of
+        ``always`` at every gate so the proxy path becomes active.
+        ``consult_proxy`` is patched to return a confident 'approve'.
+        TASK_ASSERT is in the built-in never-escalate set — also proxy.
         """
         from teaparty.proxy.agent import ProxyResult
 
@@ -754,7 +740,7 @@ class TestSessionProxyPaths(_SessionTestBase):
                     plan_file=self._plan_file(),
                     llm_caller=_make_phase_aware_caller(t),
                     proxy_enabled=True,
-                    human_presence=None,  # proxy path — no direct human override
+                    escalation_modes={},  # proxy path — default when_unsure
                 )
                 result = self._run_session(session, t)
 

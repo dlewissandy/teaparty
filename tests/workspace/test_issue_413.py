@@ -68,21 +68,41 @@ class ActorsJailHookPathTest(unittest.TestCase):
             '_JAIL_HOOK_SCRIPT constant containing worktree_hook.py not found in actors.py — '
             'the hook setup may have been removed or restructured',
         )
-        return m.group(1)  # e.g. 'teaparty/workspace/worktree_hook.py'
+        return m.group(1)  # e.g. '.claude/hooks/worktree_hook.py'
 
-    def test_actors_jail_hook_script_path_exists_on_disk(self):
-        """The path in actors.py _JAIL_HOOK_SCRIPT must resolve to a real file.
+    def test_stage_jail_hook_produces_file_at_script_path(self):
+        """After _stage_jail_hook runs, the file must exist at _JAIL_HOOK_SCRIPT.
 
-        If this test fails, actors.py references a worktree_hook.py path that does
-        not exist in the repo — the hook is inactive and agents can write anywhere.
+        The hook script is copied out of the teaparty package into each
+        worktree at launch time. If staging does not land the file where
+        the command reference expects it, agents launch without
+        filesystem restriction.
         """
+        from teaparty.cfa.actors import _stage_jail_hook
+
         script_rel = self._jail_hook_script()
-        full_path = os.path.join(_REPO_ROOT, script_rel)
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(lambda: __import__('shutil').rmtree(tmp, ignore_errors=True))
+        _stage_jail_hook(tmp, script_rel)
+        staged_path = os.path.join(tmp, script_rel)
         self.assertTrue(
-            os.path.isfile(full_path),
-            f'Jail hook file does not exist at {full_path}. '
-            f'actors.py _JAIL_HOOK_SCRIPT={script_rel!r} but that path does not exist. '
-            f'The hook is inactive — agents can write anywhere.',
+            os.path.isfile(staged_path),
+            f'Jail hook file not staged at {staged_path}. '
+            f'_stage_jail_hook must place the script at {script_rel!r} '
+            f'relative to the worktree — otherwise the hook is inactive.',
+        )
+
+    def test_jail_hook_package_source_exists(self):
+        """The package-internal source for the jail hook must exist.
+
+        _stage_jail_hook copies from teaparty/workspace/worktree_hook.py
+        inside the installed teaparty package. If the source is missing,
+        every CfA session fails at launch.
+        """
+        self.assertTrue(
+            os.path.isfile(_HOOK_PATH),
+            f'Jail hook package source missing: {_HOOK_PATH}. '
+            f'The teaparty install is broken — CfA cannot launch any agent.',
         )
 
     def test_actors_jail_hook_does_not_reference_deleted_orchestrator_path(self):
@@ -286,7 +306,7 @@ class JailHookValidationTest(unittest.TestCase):
         """
         from teaparty.cfa.actors import _check_jail_hook
 
-        hook_script = 'teaparty/workspace/worktree_hook.py'
+        hook_script = '.claude/hooks/worktree_hook.py'
         # worktree has no hook script
         with self.assertRaises(RuntimeError) as cm:
             _check_jail_hook(self.worktree, hook_script)
@@ -310,8 +330,8 @@ class JailHookValidationTest(unittest.TestCase):
         """
         from teaparty.cfa.actors import _check_jail_hook
 
-        hook_script = 'teaparty/workspace/worktree_hook.py'
-        hook_dir = os.path.join(self.worktree, 'teaparty', 'workspace')
+        hook_script = '.claude/hooks/worktree_hook.py'
+        hook_dir = os.path.join(self.worktree, '.claude', 'hooks')
         os.makedirs(hook_dir)
         import shutil
         shutil.copy(_HOOK_PATH, os.path.join(hook_dir, 'worktree_hook.py'))

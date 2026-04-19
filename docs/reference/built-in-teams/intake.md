@@ -8,7 +8,7 @@ Dispatch here when requirements are unclear and work cannot begin responsibly wi
 
 The intake-lead facilitates the requirements gathering process, dispatches clarification work to specialists, synthesizes findings into a requirements artifact, and delivers it to the requestor for approval. Requesting clarification is the core of this role — the lead escalates early and often rather than assuming. It declares completion when the requirements artifact is approved and execution teams have what they need to begin.
 
-**Tools:** Read, Write, Glob, Grep, mcp__teaparty-config__AskQuestion
+**Tools:** [standard workgroup-lead tools](index.md#standard-workgroup-lead-tools)
 **Skills:** digest
 
 ---
