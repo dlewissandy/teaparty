@@ -20,7 +20,7 @@ Three subcommands against the Semantic Scholar Graph API:
 - `references` — papers cited by a given paper
 - `citations` — papers that cite a given paper
 
-Reference and citation traversal is what makes Semantic Scholar complementary to arXiv: once a seed paper is found, its local graph can be expanded in either direction to surface related work that keyword search would miss.
+Reference and citation traversal complements arXiv: once a seed paper is found, its local graph can be expanded in either direction to surface related work that keyword search would miss.
 
 Authenticated access via `S2_API_KEY` raises rate limits above the unauthenticated ~100 req / 5 min.
 

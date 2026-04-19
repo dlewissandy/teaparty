@@ -1,6 +1,6 @@
 # ACT-R Memory Model for the Human Proxy
 
-This document describes the proxy agent's memory architecture: an activation-based memory system derived from ACT-R that models what the human would retrieve and attend to, combined with EMA as a system health monitor.
+The proxy agent's memory architecture: an activation-based memory system derived from ACT-R that models what the human would retrieve and attend to, combined with EMA as a system health monitor.
 
 For the theory and equations, see [overview.md](overview.md).
 For the concrete proxy mapping, see [mapping.md](mapping.md).
@@ -10,7 +10,7 @@ For the two-pass prediction model and learned attention, see [sensorium.md](sens
 
 ## The Proxy's Job
 
-The proxy's job is not to approve or reject. It is to **proxy the behavior of the human** — ask the questions the human would ask, probe the reasoning the human would probe, raise the concerns the human would raise, and reach a decision only after the kind of dialog the human would have conducted. Approval or rejection is the final act of a rich conversation, not a binary gate.
+The proxy's job is not to approve or reject. It is to **proxy the behavior of the human**: ask the questions the human would ask, probe the reasoning the human would probe, raise the concerns the human would raise, and reach a decision only after the kind of dialog the human would have conducted. Approval or rejection is the final act of a rich conversation, not a binary gate.
 
 This requires modeling what the human would retrieve and attend to in a given context. The LLM then reasons over those retrieved memories to generate contextually appropriate questions and concerns. ACT-R models memory accessibility, not thinking. What the proxy retrieves shapes what the LLM reasons about. This selection mechanism is how past interactions influence current behavior.
 
@@ -36,7 +36,7 @@ It cannot distinguish habitual from episodic patterns. A human's stable preferen
 
 It has no connection to discovery mode. The proxy's between-session reviews produce richer interactions than a scalar can represent. See [autodiscovery.md](../../../reference/autodiscovery.md) for details.
 
-ACT-R activation memory solves these problems. EMA stays, reframed as monitoring. This transition is complete — EMA is decoupled from confidence scoring and ACT-R memory drives retrieval and prediction.
+ACT-R activation memory solves these problems. EMA stays, reframed as monitoring. This transition is complete: EMA is decoupled from confidence scoring and ACT-R memory drives retrieval and prediction.
 
 Note: the design does permit autonomous proxy action (without escalation to the human) when the proxy has demonstrably inspected the artifact via two-pass prediction and its predictions consistently match the human's patterns. This is earned through consistent inspection, not inferred from a scalar. See [sensorium.md](sensorium.md) for how this differs from EMA-based auto-approval.
 
@@ -84,31 +84,26 @@ Phase 0 design decisions have been resolved:
 
 1. **Embedding model:** OpenAI `text-embedding-3-small` (primary), Gemini `embedding-001` (fallback). Configured in `memory_indexer.py`.
 2. **Chunk serialization:** `blended_text_from_fields()` in `proxy_memory.py` concatenates state, task_type, content, human_response, and prediction_delta into a single string for blended embedding.
-3. **Prompt templates:** Two-pass prediction prompts implemented in `proxy_agent.py` — prior (without artifact), posterior (with artifact + prior).
-4. **Output parsing:** ACTION and CONFIDENCE parsed from final lines of LLM output via regex. Parse failures default to confidence 0.0.
-5. **Confidence:** 0.0–1.0 probability scale. Post-hoc calibration via `_calibrate_confidence()` caps at 0.5 when ACT-R memory depth is below threshold.
+3. **Prompt templates:** Two-pass prediction prompts implemented in `proxy/agent.py`: prior (without artifact), posterior (with artifact + prior). Both passes generate free human-voice text plus a `CONFIDENCE: <float>` line.
+4. **Output parsing:** `CONFIDENCE` parsed from the final line of LLM output via regex. Parse failures default to confidence 0.0. Per-pass categorical action parsing was retired in 583cccd8; action classification now runs downstream from the final response via `_classify_review` in `teaparty/cfa/actors.py`.
+5. **Confidence:** 0.0–1.0 probability scale. Post-hoc calibration via `_calibrate_confidence()` is currently a passthrough; `MEMORY_DEPTH_THRESHOLD = 0` in `teaparty/proxy/agent.py` (set in 4f9d16ea), and the original cold-start cap is deferred to the milestone-4 calibration-stack rewrite.
 6. **Concurrency:** SQLite with WAL mode for multi-process access to `proxy_memory.db`.
 
 ### Phase 1: Integration — Complete
 
 ACT-R memory system and two-pass prediction are operational on the develop branch. EMA is decoupled from the decision gate and serves as a system health monitor only.
 
-**Evaluation metrics** — implemented in `evaluate_proxy.py` and `proxy_metrics.py`:
-- Action match rate: did the proxy's posterior action match the human's actual decision?
-- Prior calibration: how often did the prior match the posterior?
+**Evaluation metrics** — implemented in `teaparty/proxy/evaluate.py` and `teaparty/proxy/metrics.py`:
 - Surprise calibration: when surprise was detected, did the human's response confirm that the salient percepts were relevant?
 - Retrieval relevance: human spot-checks of retrieved memory sets for qualitative assessment
+- (Pre-583cccd8 the module also computed `action_match_rate`, `prior_calibration`, and a `go_no_go_assessment`; those were retired when per-pass action classification was removed and are slated for redesign in the milestone-4 calibration-stack rewrite.)
 
-**Go/no-go criteria for Phase 2 transition:**
-- Minimum sample: 50 gate interactions spanning at least 3 task types and 4 CfA states before any evaluation is meaningful.
-- Action match rate: >= 70% agreement between proxy posterior action and human actual decision.
-- Multi-dimensional embedding ablation: if single-embedding retrieval achieves >= 95% of multi-dimensional retrieval's match rate, simplify to single embedding.
-- ACT-R decay vs. simple recency ablation: if most-recent-N retrieval achieves >= 95% of ACT-R decay's match rate, the activation machinery is not earning its complexity.
+**Go/no-go criteria for Phase 2 transition** are deferred to the milestone-4 rewrite. The Phase 1 minimum-sample requirement (≥50 gate interactions across multiple task types and CfA states) still stands as the precondition for any evaluation.
 
-**Ablations — implemented** in `proxy_ablation.py`:
+**Ablations — implemented** in `teaparty/proxy/ablation.py`:
 - Multi-dimensional embeddings (5 vectors) vs. single blended embedding — scoring is swappable via `retrieve_chunks()` mode parameter
-- ACT-R decay vs. simple recency (most-recent-N)
-- Composite score vs. activation-only and similarity-only retrieval — leave-one-out ablation with action match rate metric
+- ACT-R decay vs. simple recency (most-recent-N) — `actr_match_rate` vs `recency_match_rate` reported per epoch
+- Composite score vs. activation-only and similarity-only retrieval — leave-one-out ablation
 - Two-pass prediction vs. single-pass (posterior only) — built into the two-pass architecture
 
 Additional Phase 1 capabilities implemented:
@@ -248,7 +243,7 @@ The Anthropic Messages API supports prompt caching via `cache_control` blocks. W
 - **1-hour TTL option**: Anthropic also offers a 1-hour TTL at 2x write premium, which may be more cost-effective for sessions where gates are spaced more than 5 minutes apart
 - **Cache matching is workspace-level** (as of February 2026; previously organization-level), not session-level. Two separate API calls with the same prefix hit the cache, even from different processes.
 
-This last point is critical. The proxy invokes Claude as a subprocess (`subprocess.run(['claude', '-p', ...])`) — one process per pass. There is no shared state between processes. But prompt caching operates at the API backend, not the client. If the system prompt plus memories are identical across calls, the second call gets the cache hit regardless of process isolation.
+This last point is critical. The proxy invokes Claude as a subprocess (`subprocess.run(['claude', '-p', ...])`), one process per pass. There is no shared state between processes. But prompt caching operates at the API backend, not the client. If the system prompt plus memories are identical across calls, the second call gets the cache hit regardless of process isolation.
 
 #### Prompt Structure for Caching
 

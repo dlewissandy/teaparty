@@ -1,14 +1,14 @@
 # Intent & Planning
 
-The first 21 minutes of the session produced two documents — [INTENT.md](./artifacts/INTENT.md) and [PLAN.md](./artifacts/PLAN.md) — from six human dialog turns. The transcripts below show how the agents worked: bringing proposals rather than open-ended questions, recognizing creative direction embedded in brief replies, and deferring decisions they didn't need to make.
+The first 21 minutes of the session produced two documents ([INTENT.md](./artifacts/INTENT.md) and [PLAN.md](./artifacts/PLAN.md)) from six human dialog turns. The transcripts below show how the agents worked: bringing proposals rather than open-ended questions, recognizing creative direction embedded in brief replies, and deferring decisions they didn't need to make.
 
 ---
 
 ## Phase 1: Intent Capture
 
-The CfA state machine began at **IDEA** and the intent team's job was to turn the prompt into a complete intent document — precise enough that a planning team could work from it without guessing, but scoped only to *what* and *why*, never *how*.
+The CfA state machine began at **IDEA** and the intent team's job was to turn the prompt into a complete intent document: precise enough that a planning team could work from it without guessing, but scoped only to *what* and *why*, never *how*.
 
-The intent agent checked for prior work (none — clean slate), then engaged the human with two targeted questions via `AskQuestion`. It does not ask a battery of questions. It identifies the two most consequential structural ambiguities in the prompt, asks them one at a time, and writes the intent as soon as it has what it needs.
+The intent agent checked for prior work (none — clean slate), then engaged the human with two targeted questions via [`AskQuestion`](../systems/human-proxy/approval-gate.md#escalationlistener-askquestion-mcp-tool) (the MCP tool that routes an agent's question through the proxy to the human). It does not ask a battery of questions. It identifies the two most consequential structural ambiguities in the prompt, asks them one at a time, and writes the intent as soon as it has what it needs.
 
 ### Dialog
 
@@ -51,7 +51,7 @@ From a four-sentence prompt, the intent team produced a [complete intent documen
 - **Success criteria:** Each chapter must include a non-Western example, a pre-20th-century example, and a counterexample that challenges its own premise.
 - **Five open questions** surfaced for the planning team to resolve: chapter lineup, prologue structure, word count, title, and visuals.
 
-The intent phase took approximately 5 minutes. Both questions were *consequential* — they resolved ambiguities that would have produced fundamentally different books. The remaining decisions were correctly deferred to the planning team as open questions.
+The intent phase took approximately 5 minutes. Both questions were *consequential*: they resolved ambiguities that would have produced fundamentally different books. The remaining decisions were correctly deferred to the planning team as open questions.
 
 **CfA transitions:** IDEA → PROPOSAL → INTENT_ASSERT (approved) → INTENT
 
@@ -61,7 +61,7 @@ The intent phase took approximately 5 minutes. Both questions were *consequentia
 
 With the intent approved, the planning team produced a [PLAN.md](./artifacts/PLAN.md) that resolved all five open questions and defined a five-phase execution strategy.
 
-The planning agent brought proposals — not open-ended questions. Each question presented the agent's analysis and recommendation, asking the human to confirm or redirect.
+The planning agent brought proposals rather than open-ended questions. Each question presented the agent's analysis and recommendation, asking the human to confirm or redirect.
 
 ### Dialog
 
@@ -94,7 +94,7 @@ The human pushed back on the bundled question. The agent unbundled and asked the
 
 **Human:** Yes. Knock, knock...
 
-The human's "knock, knock..." was both an approval and a creative direction — the prologue opens mid-joke, and the knock-knock format is itself a universal joke structure. The agent recognized both signals.
+The human's "knock, knock..." was both an approval and a creative direction: the prologue opens mid-joke, and the knock-knock format is itself a universal joke structure. The agent recognized both signals.
 
 ### What the planning team produced
 

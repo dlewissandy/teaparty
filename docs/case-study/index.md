@@ -78,8 +78,8 @@ There was no context-switching between tools, no manual file management, no copy
 | 00:15:59 | INTENT | plan | planning_team |
 | 00:29:27 | DRAFT | assert | planning_team |
 | 00:31:51 | PLAN_ASSERT | approve | proxy |
-| 00:31:51 | PLAN | delegate | uber_team |
-| 00:32–05:35 | TASK | execute | uber_team (5 phases) |
+| 00:31:51 | PLAN | delegate | project_lead |
+| 00:32–05:35 | TASK | execute | project_lead (5 phases) |
 | 05:35:21 | TASK_ASSERT | correct | proxy (3 revision notes) |
 | 05:40–05:56 | TASK_ASSERT | correct ×6 | proxy (confirmation loop) |
 | 05:56:10 | TASK_ASSERT | approve | proxy |

@@ -84,7 +84,7 @@ Documentation follows an academic paper structure. The mkdocs site (`uv run mkdo
 | Guides | How-to content (project onboarding, etc.) | `docs/guides/` |
 | Reference | Folder structure, team configuration, built-in teams, dashboard, UX, autodiscovery | `docs/reference/` |
 | Evaluation | Experimental results and ablations | `docs/experimental-results/` |
-| Future Work | Proposals and research directions | `docs/proposals/`, `docs/reference/research-directions.md` |
+| Future Work | Proposals | `docs/proposals/` |
 
 **Each system folder has a progressive `index.md`.** Concepts, mechanism, status, and links to deeper topics in one page. Detail lives in sibling files within the same folder. See `docs/systems/cfa-orchestration/index.md` for the shape.
 

@@ -2,7 +2,7 @@
 
 Where episodic learning captures knowledge as text — facts, norms, preferences — procedural learning captures knowledge as executable structure. The core refinement pipeline lives in `teaparty/learning/procedural/`; skill lookup at planning time lives in `teaparty/util/skill_lookup.py`.
 
-A single successful plan is an anecdote. Three successful plans with the same shape are a candidate skill. Procedural memory is what lets the organization's skills evolve: failure points get patched, unnecessary steps get pruned, missing gates get added — not by a human editing a template, but by the system observing where its own plans break and repairing them.
+A single successful plan is an anecdote. Three successful plans with the same shape are a candidate skill. Procedural memory lets the organization's skills evolve: failure points get patched, unnecessary steps get pruned, missing gates get added — not by a human editing a template, but by the system observing where its own plans break and repairing them.
 
 ## Skill crystallization
 
@@ -16,9 +16,45 @@ The pipeline:
 
 See [strategic planning — warm start](../cfa-orchestration/planning.md) for how skills participate in the planning phase.
 
+### SKILL.md format
+
+A crystallized skill lives at `{scope}/.teaparty/.../skills/{name}/SKILL.md`. The file is YAML frontmatter plus a Markdown body:
+
+```markdown
+---
+name: edit-hook
+description: Modify an existing hook in .claude/settings.json — change the matcher, handler command, or handler type.
+argument-hint: <hook-description>
+user-invocable: false
+allowed-tools: Read, Glob, Grep, Bash
+---
+
+# Edit Hook
+
+Modify the hook for `$ARGUMENTS`.
+
+## Steps
+
+1. Read `.claude/settings.json` (and `.claude/settings.local.json` if local hooks are in scope).
+2. Locate the hook entry by event and matcher.
+3. ...
+```
+
+Frontmatter fields:
+
+| Field | Purpose |
+|---|---|
+| `name` | Slug; matches the directory name |
+| `description` | One-sentence trigger description used by skill matching |
+| `argument-hint` | Placeholder for the parameterized argument (replaces `$ARGUMENTS` in the body) |
+| `user-invocable` | `true` exposes as a slash command; `false` restricts to lookup-time invocation |
+| `allowed-tools` | Comma-separated tool allowlist for the agent invoking the skill |
+
+The body is a numbered procedure that operates on `$ARGUMENTS`. Continuous refinement (below) edits the body in place when execution friction is detected.
+
 ## Continuous refinement
 
-Skills are not frozen once crystallized. When execution under a skill fails at a specific point — a contingency the skill didn't anticipate, a gate that consistently triggers escalation, a decomposition step that produces work requiring rework — the corrective learning targets the skill itself, not just the session.
+Skills are not frozen once crystallized. When execution under a skill fails at a specific point — a contingency the skill didn't anticipate, a gate that consistently triggers escalation, a decomposition step that produces work requiring rework — the corrective learning targets the skill itself rather than only the session.
 
 Three refinement signals are operational:
 
@@ -32,4 +68,4 @@ Gate correction refinement is also operational: when the human corrects a gate d
 
 Without procedural learning, each session's plan is informed by declarative learnings ("this approach didn't work last time") but not by structural corrections to the workflow itself. A team that learns "always back up before migrating" is better prepared; a team whose *migration skill* now has a backup step is structurally improved — the correction survives personnel turnover, context loss, and the next round of context compaction.
 
-Procedural learning is what makes the organization durable across sessions, not just the individual learnings.
+Procedural learning carries durability across sessions, where individual declarative learnings cannot.

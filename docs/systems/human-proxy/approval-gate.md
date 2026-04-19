@@ -10,27 +10,27 @@ Every question that needs a human decision follows one path:
 6. **If not confident** → the same question goes to the human
 7. **Both predicted text and actual text feed into learning** (ACT-R memory chunks)
 
-The proxy agent always runs. Statistics never gate whether the agent is consulted — they are tracked for monitoring only. Confidence calibration happens post-hoc, after the agent has responded.
+The proxy agent always runs. Statistics never gate whether the agent is consulted; they are tracked for monitoring only. Confidence calibration happens post-hoc, after the agent has responded.
 
-This is implemented in `proxy_agent.py:consult_proxy()` — the single entry point for all proxy decisions. `ApprovalGate` (artifact review at ASSERT states) and `EscalationListener` (agent questions via AskQuestion MCP tool) both use it.
+This is implemented in `proxy_agent.py:consult_proxy()`, the single entry point for all proxy decisions. `ApprovalGate` (artifact review at ASSERT states) and `EscalationListener` (agent questions via AskQuestion MCP tool) both use it.
 
 ### Never-escalate states
 
-TASK_ASSERT and TASK_ESCALATE are marked as **never-escalate**: the proxy runs through the full path (context gathering, two-pass prediction, confidence calibration) but if it's not confident, it goes with its best guess rather than bothering the human. If the proxy returned nothing, it defaults to approval. The human should never be interrupted for task-level review during execution — that would defeat the purpose of hierarchical delegation.
+TASK_ASSERT and TASK_ESCALATE are marked as **never-escalate**: the proxy runs through the full path (context gathering, two-pass prediction, confidence calibration), but if it isn't confident, it goes with its best guess rather than bothering the human. If the proxy returned nothing, it defaults to approval. Interrupting the human for task-level review during execution would defeat the purpose of hierarchical delegation.
 
 ---
 
 ## Why Retrieval-Backed Question Answering Is the Priority
 
-Park et al. (2024) built AI agents representing 1,052 real people from two-hour qualitative interviews. Those agents replicated individual survey responses with **85% accuracy** using LLM in-context reasoning over interview transcripts — no explicit ML model, no fine-tuning, just retrieval + reasoning.
+Park et al. (2024) built AI agents representing 1,052 real people from two-hour qualitative interviews. Those agents replicated individual survey responses with **85% accuracy** using LLM in-context reasoning over interview transcripts: no explicit ML model, no fine-tuning, just retrieval + reasoning.
 
-This result is **motivating evidence** for the proxy's architecture, not a performance target for this system. The proxy accumulates conversational data about the human — differential corrections, question patterns, behavioral rituals, gate decisions — and uses retrieval to surface relevant history when answering a new question. By contextualizing retrieval by CfA phase, task type, project, and concern category, the proxy can achieve reasonable prediction accuracy at low cost — without fine-tuning, without a separate ML model, just scoped retrieval and LLM reasoning over accumulated interactions.
+This result is **motivating evidence** for the proxy's architecture, not a performance target for this system. The proxy accumulates conversational data about the human — differential corrections, question patterns, behavioral rituals, gate decisions — and uses retrieval to surface relevant history when answering a new question. By contextualizing retrieval by CfA phase, task type, project, and concern category, the proxy can achieve reasonable prediction accuracy at low cost: no fine-tuning, no separate ML model, just scoped retrieval and LLM reasoning over accumulated interactions.
 
 Measuring actual proxy accuracy on real escalations remains a critical validation gap.
 
 This explains the priority ordering:
 
-1. **Retrieval-backed prediction is the path to autonomy.** A proxy that predicts correctly most of the time handles most human involvement automatically. Each escalation produces a new differential that improves future predictions — the system can get better with use.
+1. **Retrieval-backed prediction is the path to autonomy.** A proxy that predicts correctly most of the time handles most human involvement automatically. Each escalation produces a new differential that improves future predictions; the system can get better with use.
 
 2. **The differential is the highest-value learning signal.** Salemi & Zamani (2024, Fermi) showed that misaligned responses — where the model predicted incorrectly — are more valuable for learning than correct predictions. Every proxy prediction that diverges from the human's actual answer tells the system exactly where its model is wrong.
 
@@ -75,7 +75,7 @@ The proxy agent receives file-read tools and artifact paths relative to the sess
 Specifically:
 - Artifact paths (INTENT.md, PLAN.md) are resolved relative to the session worktree root
 - The agent has file-read tools and can fetch these at runtime
-- Proxy patterns (`proxy-patterns.md`) and interactions (`.proxy-interactions.jsonl`) are loaded from the approval gate store (not from the main learning system — this is a design debt noted in learning-system.md)
+- Proxy patterns (`proxy-patterns.md`) and interactions (`.proxy-interactions.jsonl`) are loaded from the approval gate store (not from the main learning system; this is a design debt noted in learning-system.md)
 - The proxy agent prompt includes references to these file paths; the agent uses Read/Grep tools to access content
 
 The caller (`ApprovalGate._ask_human_through_proxy`) decides based on confidence:
@@ -93,11 +93,11 @@ ONE loop. Every turn: ask the human through the proxy. Classify the response. If
 
 **Gate bridge composition** (`_GATE_TEMPLATES` + `_generate_bridge`):
 
-The gate sends a self-contained message to the reviewer — same discipline as the Send tool. Three slots, consistent across every gate:
+The gate sends a self-contained message to the reviewer (same discipline as the Send tool). Three slots, consistent across every gate:
 
-1. `Decide: <decision>` — what decision is being requested (verb + object).
-2. `Available:` — the files that may help, each with a one-line purpose.
-3. The actor's own triggering message — what the agent wrote as they hit the gate. The gate does not fabricate a substitute.
+1. `Decide: <decision>`: what decision is being requested (verb + object).
+2. `Available:`: the files that may help, each with a one-line purpose.
+3. The actor's own triggering message: what the agent wrote as they hit the gate. The gate does not fabricate a substitute.
 
 Slots 1 and 2 come from `_GATE_TEMPLATES`; slot 3 comes from the previous actor's last assistant text, plumbed via `ActorResult.data['actor_message']`.
 
@@ -108,7 +108,7 @@ Per-gate decisions:
 - TASK_ESCALATE: "Resolve the worker's escalation."
 - WORK_ASSERT: "Approve or revise the overall deliverable."
 
-**INTENT_ASSERT-specific probe override.** At INTENT_ASSERT (and only INTENT_ASSERT), the proxy's prior and posterior prompts carry an extra instruction: if there's no dialog history yet, "probe with one specific question that targets a concrete claim or framing choice in the proposal — scope, assumptions, or anything that seems underspecified. Do not rubber-stamp." If there's already dialog history, the instruction pivots to "evaluate whether the agent's reply resolves your concern; once your questions are answered, approve." This counteracts a rubber-stamp failure mode in which the proxy approved intent too readily without probing whether the stated intent actually matched what was requested. No other gate state receives this override.
+**INTENT_ASSERT-specific probe override.** At INTENT_ASSERT (and only INTENT_ASSERT), the proxy's prior and posterior prompts carry an extra instruction: if there's no dialog history yet, "probe with one specific question that targets a concrete claim or framing choice in the proposal: scope, assumptions, or anything that seems underspecified. Do not rubber-stamp." If there's already dialog history, the instruction pivots to "evaluate whether the agent's reply resolves your concern; once your questions are answered, approve." This counteracts a rubber-stamp failure mode in which the proxy approved intent too readily without probing whether the stated intent actually matched what was requested. No other gate state receives this override.
 
 **Decision flow:**
 
@@ -140,9 +140,9 @@ else:
 
 The never-escalate states (TASK_ASSERT, TASK_ESCALATE) implement a deliberate architectural choice:
 
-**Goal:** Uninterrupted execution. The human is not bothered with task-level review questions during execution — they approved the plan; the agents should execute it without interruption.
+**Goal:** Uninterrupted execution. The human is not bothered with task-level review questions during execution; they approved the plan, and the agents should execute it without interruption.
 
-**Cost:** Silent learning gaps. When the proxy is not confident but escalation is suppressed, the human never sees the decision, so no differential is recorded. This silence means the learning system misses high-value signals — misaligned responses are the most valuable for learning (Salemi & Zamani).
+**Cost:** Silent learning gaps. When the proxy is not confident but escalation is suppressed, the human never sees the decision, so no differential is recorded. This silence means the learning system misses high-value signals (misaligned responses are the most valuable for learning, per Salemi & Zamani).
 
 **Consequence:** Proxy improvement at task level depends on escalations at ASSERT states (intent, plan, work), not task-level corrections. Task-level corrections are invisible to the learning system.
 
@@ -152,7 +152,7 @@ The never-escalate states (TASK_ASSERT, TASK_ESCALATE) implement a deliberate ar
 
 ## EscalationListener (AskQuestion MCP tool)
 
-`EscalationListener._route_through_proxy()` in `escalation_listener.py`. Invoked when an agent calls the `AskQuestion` MCP tool during its turn. The agent is still running — the answer returns as a tool result in the same turn.
+`EscalationListener._route_through_proxy()` in `escalation_listener.py`. Invoked when an agent calls the `AskQuestion` MCP tool during its turn. The agent is still running; the answer returns as a tool result in the same turn.
 
 Uses the same `consult_proxy()` path as ApprovalGate.
 
@@ -162,7 +162,7 @@ Uses the same `consult_proxy()` path as ApprovalGate.
 
 The proxy agent's self-assessed confidence (from two-pass prediction) is the decision signal. `_calibrate_confidence()` applies six gates in order:
 
-**Cold-start guard:** Checks the ACT-R memory store for experience diversity — the number of distinct (state, task_type) pairs. If memory depth is below `MEMORY_DEPTH_THRESHOLD`, confidence is capped at 0.5 regardless of the agent's self-assessment. The mechanism is operational but the threshold is currently set to `0` (effectively disabled on fresh projects). It was relaxed because the old `3` threshold caused every fresh-project gate to escalate, forcing humans into rubber-stamping. With the improved conversational prompts, probe-or-paraphrase gate instructions, and classifier, the proxy's self-reported confidence is trustworthy enough to drive clear-cut gates from turn one; the other guards in this section still run. The threshold — and the whole calibration stack — is slated for re-tuning in the milestone-4 skill-graph rewrite.
+**Cold-start guard:** Checks the ACT-R memory store for experience diversity (the number of distinct (state, task_type) pairs). If memory depth is below `MEMORY_DEPTH_THRESHOLD`, confidence is capped at 0.5 regardless of the agent's self-assessment. The mechanism is operational but the threshold is currently set to `0` (effectively disabled on fresh projects). It was relaxed because the old `3` threshold caused every fresh-project gate to escalate, forcing humans into rubber-stamping. With the improved conversational prompts, probe-or-paraphrase gate instructions, and classifier, the proxy's self-reported confidence is trustworthy enough to drive clear-cut gates from turn one; the other guards in this section still run. The threshold — and the whole calibration stack — is slated for re-tuning in the milestone-4 skill-graph rewrite.
 
 **Genuine tension guard:** If retrieved memories contain a genuine unresolved tension (`has_genuine_tension` from conflict classification), confidence is capped at 0.5 to force escalation. The proxy cannot resolve a genuine tension without human input.
 
@@ -174,7 +174,7 @@ The proxy agent's self-assessed confidence (from two-pass prediction) is the dec
 
 **Passthrough:** If none of the above gates fire, the agent's self-assessed confidence is returned unchanged.
 
-**EMA tracking:** EMA is tracked separately as a system health monitor via `_proxy_record()` in `actors.py`. It does not influence the confidence returned by `consult_proxy()` — it is observational only. EMA uses alpha=0.3 with asymmetric regret (REGRET_WEIGHT=3: corrections count 3x as much as approvals).
+**EMA tracking:** EMA is tracked separately as a system health monitor via `_proxy_record()` in `actors.py`. It does not influence the confidence returned by `consult_proxy()`; it is observational only. EMA uses alpha=0.3 with asymmetric regret (REGRET_WEIGHT=3: corrections count 3x as much as approvals).
 
 **Threshold:** The caller (`ApprovalGate._ask_human_through_proxy`) compares the calibrated confidence against `PROXY_AGENT_CONFIDENCE_THRESHOLD` (0.8). Above threshold → agent's text is the answer. Below threshold at never-escalate states → agent's text is still the answer. Below threshold otherwise → escalate to human.
 
@@ -196,6 +196,46 @@ The proxy agent's self-assessed confidence (from two-pass prediction) is the dec
 - **Prediction accuracy**: `prediction_correct_count` / `prediction_total_count`
 
 Concern vocabulary: error_handling, rollback, security, idempotency, testing, documentation, sequencing, external_dependencies.
+
+### Persisted artifact formats
+
+The proxy writes three runtime artifacts that the [case study](../../case-study/learnings.md) references and the dashboard reads:
+
+**`proxy-confidence.json`** — per-(state | task_type) entry, keyed by `"{STATE}|{task_type}"`:
+
+```json
+{
+  "global_threshold": 0.8,
+  "generative_threshold": 0.95,
+  "entries": {
+    "PLAN_ASSERT|humor-book": {
+      "state": "PLAN_ASSERT",
+      "task_type": "humor-book",
+      "approve_count": 1,
+      "correct_count": 0,
+      "reject_count": 0,
+      "total_count": 1,
+      "last_updated": "2026-03-15",
+      "differentials": [
+        {"outcome": "approve|correct|reject|clarify",
+         "summary": "<actual human response>",
+         "reasoning": "<the question that was asked>",
+         "predicted_response": "<proxy prediction>",
+         "timestamp": "2026-03-15"}
+      ],
+      "ema_approval_rate": 0.65,
+      "artifact_lengths": [1234, 1450, ...],
+      "question_patterns": [...],
+      "prediction_correct_count": 1,
+      "prediction_total_count": 1
+    }
+  }
+}
+```
+
+**`proxy-interactions.jsonl`** — append-only JSONL, one record per gate interaction. Each line carries the full `record_outcome()` payload (state, task_type, prior/posterior predictions, human response, timestamp). Used by the ACT-R memory system as raw chunk material.
+
+**`proxy-patterns.md`** — Markdown transcript of agent ↔ proxy dialog at gates, with `AGENT:` and `HUMAN:` markers (the `HUMAN:` slot is filled by the proxy when it acts on the human's behalf). Empty `HUMAN:` entries are timeouts, not silent approvals — see the [case-study learnings note](../../case-study/learnings.md#proxy-behavioral-patterns-proxy-patternsmd) on the deflection loop this can produce.
 
 ---
 
@@ -234,5 +274,5 @@ Concern vocabulary: error_handling, rollback, security, idempotency, testing, do
 
 ### References
 
-- Park, J. S. et al. (2024). Generative agent simulations of 1,000 people. *arXiv:2411.10109*. 85% accuracy from conversational data + LLM reasoning — motivating evidence for retrieval-backed prediction.
-- Salemi, A. & Zamani, H. (2024). Few-shot personalization of LLMs with mis-aligned responses — Fermi. *arXiv:2406.18678*. Misaligned responses are the highest-value learning signal.
+- Park, J. S. et al. (2024). Generative agent simulations of 1,000 people. *arXiv:2411.10109*. 85% accuracy from conversational data + LLM reasoning; motivating evidence for retrieval-backed prediction.
+- Salemi, A. & Zamani, H. (2024). Few-shot personalization of LLMs with mis-aligned responses (Fermi). *arXiv:2406.18678*. Misaligned responses are the highest-value learning signal.

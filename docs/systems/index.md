@@ -9,7 +9,7 @@ TeaParty's runtime is composed of six systems. Four of them realize the research
 | [CfA Orchestration](cfa-orchestration/index.md) | State-machine engine driving every session through Intent → Planning → Execution with approval gates and backtracks. | `teaparty/cfa/` |
 | [Human Proxy](human-proxy/index.md) | Learned agent that stands in for the human at approval gates and escalations. | `teaparty/proxy/` |
 | [Learning & Memory](learning/index.md) | Hierarchical memory (episodic / procedural / research) with a promotion chain, temporal decay, and continuous skill refinement. | `teaparty/learning/` |
-| [Messaging](messaging/index.md) | Two buses — an async event bus (orchestrator ↔ bridge) and a SQLite-backed conversation bus (inter-agent Send/Reply). | `teaparty/messaging/` |
+| [Messaging](messaging/index.md) | Two buses — an async event bus (orchestrator ↔ bridge) and a SQLite-backed conversation bus (inter-agent Send; reply is the recipient's turn-end output). | `teaparty/messaging/` |
 | [Workspace](workspace/index.md) | Git worktree isolation, job and task lifecycle, and the unified agent launcher. Session = worktree = branch, unconditionally. | `teaparty/workspace/` |
 | [Bridge (Dashboard)](bridge/index.md) | HTML dashboard + bridge server. Human-facing reflection and interaction surface at `localhost:8081`. | `teaparty/bridge/` |
 
@@ -25,7 +25,7 @@ TeaParty's runtime is composed of six systems. Four of them realize the research
             ▼              ▼                      ▼              ▼
      ┌────────────┐  ┌────────────┐        ┌────────────┐  ┌────────────┐
      │ Human Proxy│  │ Learning   │        │ Workspace  │  │ Messaging  │
-     │ (gates,    │◄─┤ (retrieval,│        │ (worktrees,│  │ (Send/Reply│
+     │ (gates,    │◄─┤ (retrieval,│        │ (worktrees,│  │ (Send +    │
      │  presence) │  │ promotion) │        │  jobs)     │  │  event bus)│
      └────────────┘  └────────────┘        └────────────┘  └────────────┘
             ▲              ▲                      │              │
@@ -44,7 +44,7 @@ Work that spans agents is dispatched through Messaging. Each dispatched unit get
 
 ## Pillars vs. infrastructure
 
-The [home page](../index.md) frames TeaParty as four research pillars — Conversation for Action, Hierarchical Memory and Learning, Hierarchical Teams, and Human Proxy Agents. Three pillars map 1:1 to a system (CfA Orchestration, Learning & Memory, Human Proxy). The fourth pillar — Hierarchical Teams — is an **emergent property** of composing Messaging, Workspace, and the team-configuration tree in `.teaparty/`. There is no single "hierarchical teams" module in the code; hierarchy comes from the *shape* of Send/Reply routing, worktree nesting, and roster scoping applied at each level. See the [organizational model](../overview.md) for the conceptual story.
+The [home page](../index.md) frames TeaParty as four research pillars — Conversation for Action, Hierarchical Memory and Learning, Hierarchical Teams, and Human Proxy Agents. Three pillars map 1:1 to a system (CfA Orchestration, Learning & Memory, Human Proxy). The fourth pillar — Hierarchical Teams — is an **emergent property** of composing Messaging, Workspace, and the team-configuration tree in `.teaparty/`. There is no single "hierarchical teams" module in the code; hierarchy comes from the *shape* of Send routing (the recipient's turn-end is the reply), worktree nesting, and roster scoping applied at each level. The mechanisms are operational; the multi-tier OM → project-lead → workgroup-agent dispatch *pattern* has not yet been cleanly demonstrated end-to-end (see the [case study scope statement](../case-study/index.md#scope-of-what-this-session-demonstrates) and the [recursive-dispatch proposal](../proposals/recursive-dispatch/proposal.md)). See the [organizational model](../overview.md) for the conceptual story.
 
 Messaging, Workspace, and Bridge are infrastructure. They exist because the pillars need them, not because they make independent research claims.
 

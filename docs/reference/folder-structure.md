@@ -1,6 +1,6 @@
 # Folder Structure
 
-This document describes TeaParty's directory layout on disk: the source package, the configuration tree, and the runtime session hierarchy.
+TeaParty's on-disk layout: the source package, the configuration tree, and the runtime session hierarchy.
 
 ---
 
@@ -28,10 +28,15 @@ teaparty/                           # top-level package
       intervention_listener.py      # intervention socket
   proxy/                            # human proxy system (independent of CfA)
     agent.py                        # proxy agent, consult_proxy()
-    approval_gate.py                # confidence-based gate decisions (pre-ACT-R stack; now monitoring-only)
+    approval_gate.py                # confidence-based gate decisions (monitoring-only)
     memory.py                       # ACT-R memory retrieval
     metrics.py                      # prediction tracking
     hooks.py                        # proxy hook handlers
+    presence.py                     # proxy presence tracking
+    record_approval.py              # approval outcome recording
+    ablation.py                     # ablation harness
+    evaluate.py                     # evaluation harness
+    merge_model.py                  # cross-session model merge
   learning/                         # hierarchical memory & learning (independent of CfA)
     extract.py                      # post-session learning extraction
     consolidation.py                # learning consolidation
@@ -112,11 +117,9 @@ The `.teaparty/` directory holds all agent, workgroup, and project configuration
     workgroups/{name}.yaml          # workgroup definitions
     skills/{name}/                  # skill definitions
       SKILL.md                      # skill entry point
-    sessions/                       # runtime: management sessions
-      {session-id}/
-        worktree/                   # git worktree
+    sessions/                       # runtime: chat-tier sessions
+      {session-id}/                 # one per chat conversation
         metadata.json               # session state, conversation map
-    metrics.db                      # session metrics (cost, tokens, duration)
 
 {project_root}/.teaparty/
   project.yaml                      # project-level config
@@ -125,25 +128,23 @@ The `.teaparty/` directory holds all agent, workgroup, and project configuration
     workgroups/{name}.yaml          # project-scoped workgroups
     skills/{name}/                  # project-scoped skills
     settings.yaml                   # base settings for project agents
-    sessions/                       # runtime: project sessions
-      {session-id}/
-        worktree/                   # git worktree
+    sessions/                       # runtime: chat-tier sessions
+      {conversation-id}/            # one per chat conversation
         metadata.json               # session state
-    metrics.db                      # project metrics
 ```
 
-Config (agents, skills, workgroups, settings) is checked into git. Sessions are ephemeral.
+Config (agents, skills, workgroups, settings) is checked into git. Sessions and jobs are ephemeral (gitignored under `.teaparty/jobs/` and the `sessions/` directories).
 
 ### Agent definition resolution
 
 The launcher resolves agent definitions by looking in the invocation scope first, then falling back to management scope. A project can override any management-level agent definition by providing its own version.
 
-### Session placement
+### Session vs. job placement
 
-Sessions live where the work lives, not where the agent is defined:
+There are two runtime tiers with separate on-disk layouts:
 
-- Management sessions (OM conversations, management config work) → `.teaparty/management/sessions/`
-- Project sessions (project work, project config, job tasks) → `{project}/.teaparty/project/sessions/`
+- **Chat-tier sessions** (OM conversations, project-lead conversations, configuration interactions) → `.teaparty/{scope}/sessions/{conversation-id}/`. No worktree — chat does not produce file artifacts.
+- **Job-tier worktrees** (CfA-driven work) → `{project}/.teaparty/jobs/job-{id}--{slug}/worktree/`. Every job and every dispatched task gets its own git worktree (see Job Worktrees below).
 
 ---
 

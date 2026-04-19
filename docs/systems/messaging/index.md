@@ -6,7 +6,7 @@ The two buses serve different purposes and have different lifetimes. Readers oft
 
 ## Why it exists
 
-Agents are one-shot processes. A lead dispatches work to a worker, then exits. The worker runs, replies, then exits. Neither process is alive when the other needs to send or receive. Communication must therefore be **durable** — messages persist across process restarts, and an agent re-invoked via `--resume` finds its conversation history intact. This is what makes the write-then-exit-then-resume execution model viable: agent state lives on the bus, not in process memory.
+Agents are one-shot processes. A lead dispatches work to a worker, then exits. The worker runs, replies, then exits. Neither process is alive when the other needs to send or receive. Communication must therefore be **durable**: messages persist across process restarts, and an agent re-invoked via `--resume` finds its conversation history intact. The write-then-exit-then-resume execution model relies on this — agent state lives on the bus, not in process memory.
 
 Durability is only one reason the messaging layer is load-bearing. The others:
 

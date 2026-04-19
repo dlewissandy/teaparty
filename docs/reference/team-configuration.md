@@ -185,8 +185,7 @@ types with full create/read/list/edit/delete operations:
 ### Other MCP tools (non-CRUD)
 - `ListTeamMembers` -- enumerate team membership
 - `AskQuestion` -- proxy question to human
-- `Send` -- agent-to-agent messaging
-- `Reply` -- reply in agent-to-agent conversation
+- `Send` -- agent-to-agent messaging (the recipient's turn-end output is the reply; there is no agent-facing `Reply` tool)
 - `CloseConversation` -- close an agent conversation
 - `WithdrawSession` -- cancel a running session
 - `PauseDispatch` / `ResumeDispatch` -- dispatch flow control

@@ -68,7 +68,7 @@ breadcrumb navigation:
 4. **Agent** — individual agent definition (model, tools, maxTurns, role).
 
 Each level displays the full catalog of available items (agents, skills, hooks)
-with active/assigned items highlighted. Toggle switches control membership — for
+with active/assigned items highlighted. Toggle switches control membership; for
 example, toggling an agent into or out of a workgroup roster. An edit mode
 (activated by the Edit button in the page header) enables mutation controls that
 are hidden during read-only browsing.

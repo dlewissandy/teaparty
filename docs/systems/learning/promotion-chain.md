@@ -21,9 +21,9 @@ Team tasks/            ──promotes──>  Project tasks/            ──pr
 
 ### Session → Project
 
-`find_recurring_learnings()` walks `.sessions/*/tasks/` across all sessions for the project, clusters entries by similarity (pluggable: embedding-based with exact-match fallback), and promotes entries that recur in **3 or more distinct sessions**.
+`find_recurring_learnings()` walks `.teaparty/jobs/*/tasks/*.md` and `.teaparty/jobs/*/institutional.md` across all jobs for the project, clusters entries by similarity (pluggable: embedding-based with exact-match fallback), and promotes entries that recur in **`min_recurrences=3`** distinct sessions. Two entries are considered the same when their similarity exceeds `RECURRENCE_SIMILARITY_THRESHOLD = 0.8`.
 
-Three is the threshold where a pattern has survived enough independent evidence to be worth carrying forward. Entries already promoted are detected via similarity against `project/tasks/` and skipped — the chain is idempotent.
+Three is the threshold where a pattern has survived enough independent evidence to be worth carrying forward. Entries already promoted are detected via similarity against `project/tasks/` and `project/institutional.md` and skipped — the chain is idempotent. Matching entries reinforce the existing project-scope entry (bumping `reinforcement_count`) instead of being re-promoted.
 
 ### Proxy exclusion
 

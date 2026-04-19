@@ -19,7 +19,19 @@ Each phase produces one artifact through a synthesis loop that refines it until 
 
 - **Intent.** The intent lead transforms a raw idea into an approved `INTENT.md`. The proxy frames the final review as alignment validation: *Do you recognize this as your idea, completely and accurately articulated?*
 - **Planning.** The project lead transforms approved intent into a strategic `PLAN.md` — a reusable workflow shape, not task-specific details. The proxy asks: *Do you recognize this as a strategic plan to operationalize your idea well?*
-- **Execution.** The project lead dispatches tasks to workgroup agents (coding, research, writing, and others), each running in its own process and git worktree. Two nested loops govern the phase: an inner loop refines individual tasks, an outer loop assembles completed work. The proxy's final review compares deliverables against both intent and plan, so alignment failures are attributed to the correct phase.
+- **Execution.** The project lead dispatches tasks to workgroup agents (coding, research, writing, and others), each running in its own process and git worktree. Two nested loops govern the phase: an inner loop refines individual tasks, an outer loop assembles completed work. The proxy's final review compares deliverables against both intent and plan, so alignment failures are attributed to the correct phase. Execution produces `WORK_SUMMARY.md` as its convergence artifact.
+
+### Phase artifacts
+
+The phase configuration is `teaparty/cfa/phase-config.json`. Each phase declares the artifact it produces and the gate it advances through:
+
+| Phase | Lead agent | Stream file | Artifact | Approval state |
+|---|---|---|---|---|
+| Intent | `intent-lead` | `.intent-stream.jsonl` | `INTENT.md` | `INTENT_ASSERT` |
+| Planning | `project-lead` (using `uber.md`) | `.plan-stream.jsonl` | `PLAN.md` | `PLAN_ASSERT` |
+| Execution | `project-lead` (using `uber.md`) | `.exec-stream.jsonl` | `WORK_SUMMARY.md` | `WORK_ASSERT` |
+
+The artifacts are free-form Markdown — no enforced schema — but a usable `INTENT.md` reads as something the human would have written if they had time and discipline to make every implicit assumption explicit. The [case study INTENT.md](../../case-study/artifacts/INTENT.md) is a representative example: Objective, Structure, Voice & Tone, Success Criteria, Constraints, Open Questions. `PLAN.md` is similarly free-form but is expected to operationalize the intent — phasing, success conditions per phase, dispatch decomposition. `WORK_SUMMARY.md` reports outcomes against both prior artifacts. All three live at the worktree root and persist with the session; INTENT.md and PLAN.md are propagated into per-task worktrees by `session.py`.
 
 Between phases, approval gates involve the human proxy — a learned model of the human's preferences that decides whether to approve on the human's behalf or escalate. Backtracks cross phase boundaries in either direction: planning can return to intent when the specification turns out to be flawed; execution can return to planning (or all the way to intent) when reality contradicts what was approved earlier. Each backtrack increments a counter on the state, so rework is measurable, not hidden.
 

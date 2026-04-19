@@ -6,7 +6,7 @@ TeaParty organizes work the way organizations do: a management team coordinates 
 
 A single flat team — one agent planning a project and writing every file — eventually loses coherence. The twentieth revision of the plan buries the original intent. Cross-workgroup coordination crowds out the task at hand. File contents from one workstream dilute the context needed for another. This is *context rot*: not a prompting failure but a structural one. No instruction can prevent a context window from filling up, and once it does, the model's attention drifts toward whatever is most recent, not whatever is most important.
 
-Summarization, truncation, and retrieval each trade one problem for another. The structural fix is to scope each agent's responsibility so its context window contains only what is relevant to its work — and to enforce that scope with a process boundary, not a prompt instruction. Hierarchical teams are TeaParty's answer.
+Summarization, truncation, and retrieval each trade one problem for another. The structural fix is to scope each agent's responsibility so its context window contains only what is relevant to its work, and to enforce that scope with a process boundary rather than a prompt instruction. Hierarchical teams are TeaParty's answer.
 
 ## Corporate hierarchy
 
@@ -83,7 +83,7 @@ A top-level unit of work within a project, typically tied to a GitHub issue.
 A sub-unit of work within a job, dispatched by the project lead to a specific workgroup agent. Leads routinely dispatch multiple tasks in parallel.
 
 - **Created by** the project lead, via `Send` to the target agent.
-- **Workspace**: each task gets its own worktree branched from the job's worktree. Parallel tasks on a shared checkout would corrupt each other — task worktrees are unconditional.
+- **Workspace**: each task gets its own worktree branched from the job's worktree. Parallel tasks on a shared checkout would corrupt each other; task worktrees are unconditional.
 - **Merge**: completed task branches are merged back into the job branch by the project lead. The job branch is merged to the integration branch on job completion.
 
 ### Cross-project coordination
@@ -95,7 +95,7 @@ Cross-project communication is always mediated by the office manager. Project-sc
 When an agent `Send`s a message to another agent, the sender composes what the recipient will see. This is where context compression happens: the sender decides what information the recipient needs, stripping away internal deliberation, coordination history, and irrelevant detail.
 
 - **Downward**, a lead agent translates high-level coordination into a scoped task description. The recipient sees the task, not the planning discussion that produced it.
-- **Upward**, the result flows back via `Reply`. The reply contains the outcome, not the recipient's reasoning.
+- **Upward**, the result is the recipient's turn-end output. There is no agent-facing `Reply` tool. The reply contains the outcome, not the recipient's reasoning.
 
 Each hop compresses. The OM sees project-level status summaries, not job-level agent discussions. The project lead sees workgroup results, not internal file churn. The workgroup agent sees its task, not cross-workgroup coordination.
 
@@ -105,7 +105,7 @@ Each hop compresses. The OM sees project-level status summaries, not job-level a
 | Project Lead | Project scope, workgroup dispatch, task results | Management coordination, other projects |
 | Workgroup agent | Task description, workgroup files | Project-level coordination, other workgroups' work |
 
-## Scoping creates a blindness — Learning fixes it
+## Scoping creates a blindness, and Learning fixes it
 
 Context isolation solves rot but creates its own problem: a scoped agent cannot see the organizational knowledge — values, conventions, norms — that should inform its work. This is the gap the [Learning & Memory system](systems/learning/index.md) exists to bridge. Institutional learnings are injected into each agent's context at the appropriate scope; task learnings from prior work are fuzzy-retrieved. Neither mechanism works without the other: scoping without retrieval creates drift, retrieval without scoping creates rot.
 
@@ -128,15 +128,15 @@ Multiple conversations can be active simultaneously. All persist on the bus and 
 ### Agent model
 
 - **Agents are autonomous**, not scripted. They decide what to do based on conversation context, workflow state, and their own judgment. No prescriptive prompts or retry loops.
-- **Agent output is never truncated.** Output rules are minimal — no format constraints, length limits, or plain-text-only directives.
+- **Agent output is never truncated.** Output rules are minimal: no format constraints, length limits, or plain-text-only directives.
 - **Workflows are advisory, not mandatory.** Agents follow them by choice, not enforcement.
-- **Every agent is an independent process.** Each runs as a standalone `claude -p` invocation with `--resume` for multi-turn conversations. Agents communicate via the message bus using `Send` and `Reply`, not by holding teammates in context.
+- **Every agent is an independent process.** Each runs as a standalone `claude -p` invocation with `--resume` for multi-turn conversations. Agents communicate via the message bus using `Send` (the recipient's turn-end output is the reply), not by holding teammates in context.
 - **Lead agents coordinate.** The OM across projects, project leads within a project, workgroup leads within a workgroup. Leads decompose work, send requests to named roster members, and synthesize responses.
 - **Bus routing enforces boundaries.** Routing policy derives from workgroup membership. Cross-team requests go through the project lead. Cross-project requests go through the OM.
 
 ### Execution model
 
-Agents use the write-then-exit-then-resume pattern. A lead that dispatches parallel requests records outstanding threads in its conversation history before exiting. Workers call `Reply` when done. The lead is re-invoked when all threads close. State lives on the bus, not in process memory — durability across restarts follows from that.
+Agents use the write-then-exit-then-resume pattern. A lead that dispatches parallel requests records outstanding threads in its conversation history before exiting. The recipient subprocess's output when its turn completes is, by convention, the reply to the opening Send. The lead is re-invoked when all threads close. State lives on the bus rather than in process memory; durability across restarts follows from that.
 
 The `Send` tool flushes current state to a scratch file before posting, assembling a composite message with the task and current job context. The recipient gets a self-contained brief.
 
@@ -154,11 +154,11 @@ Every team has exactly one **Decider**. The decider has final authority at gates
 
 ### Human Proxy
 
-The [Human Proxy](systems/human-proxy/index.md) is a learned agent that stands in for the human at gates and escalations, earning autonomy through demonstrated alignment. The proxy operates at each level of the hierarchy, differentiated by D-A-I role — the decider at the project level may be a different human than the decider at the workgroup level.
+The [Human Proxy](systems/human-proxy/index.md) is a learned agent that stands in for the human at gates and escalations, earning autonomy through demonstrated alignment. The proxy operates at each level of the hierarchy, differentiated by D-A-I role: the decider at the project level may be a different human than the decider at the workgroup level.
 
 ## When the hierarchy flattens
 
-Not every task needs the full structure. Simple work dispatched by the OM may go directly to a single agent. Multiple sequential tasks from one workgroup need only the project lead dispatching them one at a time. The overhead of hierarchical dispatch is justified by the context isolation it provides — for work that fits in a single context window, skip it.
+Not every task needs the full structure. Simple work dispatched by the OM may go directly to a single agent. Multiple sequential tasks from one workgroup need only the project lead dispatching them one at a time. The overhead of hierarchical dispatch is justified by the context isolation it provides; for work that fits in a single context window, skip it.
 
 ## Further reading
 

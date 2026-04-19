@@ -1,8 +1,11 @@
 # TeaParty Code Collaborator: Autonomous Discovery
 
+!!! note "Status: Prior-art / aspirational"
+    Allen AI's AutoDiscovery and Karpathy's AutoResearch are the prior art that motivates this design. **TeaParty has not built any of it.** This document captures what a Code Collaborator built on the same proxy substrate *would* look like — chunk schema, lifecycle, integration points — so the design is in place when we choose to take it on. None of the slash commands (`/autodiscovery`, `/discuss`), the `discussions/` directory, or the `intake/` pipeline referenced below exist in the running system.
+
 TeaParty is a research platform for agent coordination built almost entirely by AI agents. This produces a codebase with inconsistencies against its specification, internal contradictions, and potential bugs — problems that humans miss under deadline pressure and code review fatigue.
 
-The **Code Collaborator** is an autonomous system that reviews the codebase with opinions, alternatives, and suggestions. It is not a linter, not a passive scanner, and not an optimization loop. It is a peer reviewer with a point of view that runs alongside the existing `/intake` research pipeline, producing discussion topics and defect reports that challenge the status quo while remaining grounded in evidence.
+The **Code Collaborator** would be an autonomous system that reviews the codebase with opinions, alternatives, and suggestions — not a linter, not a passive scanner, not an optimization loop, but a peer reviewer with a point of view, producing discussion topics and defect reports grounded in evidence.
 
 The Code Collaborator thinks like a **cognitive scientist, developmental psychologist, and neurologist** — not a code jockey. It asks whether the system is actually learning from its experiences, whether the agent teams are hitting cognitive bottlenecks that the architecture doesn't account for, whether behaviors are emergent or designed, and whether the system is deceiving itself with silent fallbacks and rubber-stamp approvals. The engineering concerns (bugs, security, consistency) are the floor. The cognitive concerns are the ceiling.
 
@@ -351,7 +354,9 @@ The Code Collaborator runs once per night alongside the `/intake` research pipel
 
 ## Integration with /intake
 
-Both pipelines generate actionable findings from different sources. The `/intake` pipeline triages external research (RSS, web, YouTube); the Code Collaborator reviews internal code. Both feed through a **shared dedup gate**.
+(The `/intake` pipeline referenced here does not currently exist; this section describes how the Code Collaborator would coexist with an external-research triage pipeline if one were built.)
+
+Both pipelines generate actionable findings from different sources. The `/intake` pipeline would triage external research (RSS, web, YouTube); the Code Collaborator reviews internal code. Both feed through a **shared dedup gate**.
 
 ```
 ┌─────────────┐     ┌──────────────────┐
@@ -431,5 +436,4 @@ The Code Collaborator has clear boundaries:
 - [Karpathy's AutoResearch](https://github.com/karpathy/autoresearch)
 - [TeaParty Learning System](../systems/learning/index.md) — Vector store, proxy model, learning moments
 - [TeaParty Human Proxies](../systems/human-proxy/index.md) — Proxy confidence model, intake dialog
-- [TeaParty /intake Pipeline](../intake/create_issues.py) — Bigram dedup, issue creation
-- [TeaParty Detailed Design](../systems/index.md) — Approval gates, proxy state, confidence tracking
+- [TeaParty Architecture](../systems/index.md) — Approval gates, proxy state, confidence tracking

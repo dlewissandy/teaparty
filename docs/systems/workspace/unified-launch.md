@@ -11,7 +11,7 @@ TeaParty launches agents in two distinct tiers that share the same
 | Tier | Used by | cwd | Per-launch config | Worktree |
 |------|---------|-----|-------------------|----------|
 | **chat** | Management chat, OM, project leads, workgroup leads, and any agent dispatched through `teaparty/teams/session.py::AgentSession` | **The real repo** — teaparty for management agents, `<project>` for project leads, inherited from the dispatcher otherwise | Written to the session directory under `.teaparty/{scope}/sessions/{id}/` and passed to `claude` via `--settings`, `--mcp-config --strict-mcp-config`, `--setting-sources user`, `--agents <inline JSON>` | **None** — the real repo is never mutated |
-| **job**  | CfA jobs/tasks (`teaparty/cfa/`), where the agent's turn mutates code | A detached git worktree at `.teaparty/{scope}/sessions/{id}/worktree/` | Composed into the worktree's `.claude/` and `.mcp.json` by `compose_launch_worktree` | **Yes** — filesystem isolation for concurrent code mutations |
+| **job**  | CfA jobs/tasks (`teaparty/cfa/`), where the agent's turn mutates code | A detached git worktree at `{project}/.teaparty/jobs/job-{id}--{slug}/worktree/` (and per-task worktrees at `tasks/task-{id}--{slug}/worktree/` underneath) | Composed into the worktree's `.claude/` and `.mcp.json` by `compose_launch_worktree` | **Yes** — filesystem isolation for concurrent code mutations |
 
 Chat-tier agents read, reason, and dispatch — they do not mutate code,
 so a worktree per conversation is pure churn and produces two concrete
@@ -84,9 +84,9 @@ The repo checkout gives the worktree the project's files, including `.claude/CLA
 
 ## Directory Structure
 
-### Two scopes
+### Two scopes, two tiers
 
-Every project repo has `.teaparty/project/` — the project-level configuration. The teaparty repo additionally has `.teaparty/management/` — the cross-project management configuration. Both scopes have the same internal structure:
+Every project repo has `.teaparty/project/` — the project-level configuration. The teaparty repo additionally has `.teaparty/management/` — the cross-project management configuration. Within each scope there are two runtime tiers with separate on-disk layouts:
 
 ```
 .teaparty/{scope}/
@@ -96,34 +96,39 @@ Every project repo has `.teaparty/project/` — the project-level configuration.
   skills/{name}/             # skill definitions (catalog)
   workgroups/{name}.yaml     # workgroup definitions (catalog)
   settings.yaml              # base settings for this scope
-  sessions/                  # runtime: session storage
+  sessions/                  # runtime: chat-tier sessions
     {session-id}/
-      worktree/              # git worktree (checkout of the scope's repo)
-      learnings.db           # session learning database
       metadata.json          # session state (claude session id, agent name,
                              #   conversation map: request id → child session id)
+
+{project}/.teaparty/jobs/    # runtime: job-tier worktrees
+  jobs.json                  # job index (derived)
+  job-{id}--{slug}/
+    worktree/                # git worktree for the job
+    job.json                 # job state
+    tasks/
+      tasks.json             # task index
+      task-{id}--{slug}/
+        worktree/            # per-task worktree (forked from job branch)
+        task.json
 ```
 
-Config (agents, skills, workgroups, settings) is separate from runtime (sessions). Config is checked into git. Sessions are ephemeral.
+Config (agents, skills, workgroups, settings) is separate from runtime. Config is checked into git. Sessions and jobs are ephemeral.
 
-### Session placement rule
+### Tier placement rule
 
-Sessions live where the work lives, not where the agent is defined:
+- **Chat-tier sessions** (OM conversations, project-lead chat, configuration interactions) → `.teaparty/{scope}/sessions/{id}/`. No worktree — chat does not mutate code.
+- **Job-tier worktrees** (CfA-driven work that mutates code) → `{project}/.teaparty/jobs/job-{id}--{slug}/worktree/`. Each dispatched task gets its own per-task worktree forked from the job branch.
 
-- Management sessions (OM conversations, management configuration work) → `.teaparty/management/sessions/`
-- Project sessions (project work, project configuration, job tasks) → `{project}/.teaparty/project/sessions/`
-
-Agent definitions may be shared (e.g., the auditor definition lives in `.teaparty/management/agents/`), but the session and its learnings live with the project the agent is working on.
+Agent definitions may be shared (e.g., the auditor definition lives in `.teaparty/management/agents/`), but each session/job lives with the project the agent is working on.
 
 ### Agent definition resolution
 
-The launcher resolves agent definitions by looking in the invocation scope first, then falling back to management scope. A project can override any management-level agent definition by providing its own version in `.teaparty/project/agents/`. The definition source is independent of session placement.
+The launcher resolves agent definitions by looking in the invocation scope first, then falling back to management scope. A project can override any management-level agent definition by providing its own version in `.teaparty/project/agents/`. The definition source is independent of placement.
 
 ### Job catalog
 
-The job catalog maps user requests to the sessions working on them. It is an index, not a container — sessions live in the sessions folder, and the catalog points to them.
-
-Jobs are user-initiated work requests that go directly to the project lead, bypassing the PM. The PM exists for management-initiated coordination (OM dispatches to PM).
+`jobs.json` indexes user-initiated work requests under `.teaparty/jobs/`. It is an index, not a container — the worktrees live in `job-{id}--{slug}/worktree/`, and the catalog points to them. Jobs go directly to the project lead.
 
 ---
 
@@ -135,16 +140,17 @@ Three things matter for each agent: who dispatches it, where its definition come
 
 ```
 OM
-├── PM (one per project)
-│   ├── project lead
-│   │   ├── workgroups
-│   │   └── proxies
+├── project lead (one per project)
+│   ├── workgroup leads
+│   │   └── workgroup agents
 │   └── configuration lead (project)
 │       └── CRUD specialists
 ├── configuration lead (management)
 │   └── project-specialist
 └── proxy
 ```
+
+`PROJECT_MANAGER` exists as a *conversation kind* in `ConversationType` — the human's dedicated chat thread with a project — but there is no intermediate project-manager *agent tier* between OM and project lead. Recursive multi-tier dispatch is tracked in the [recursive-dispatch proposal](../../proposals/recursive-dispatch/proposal.md).
 
 ### Where each agent works
 
@@ -153,19 +159,18 @@ OM
 | OM | teaparty | `.teaparty/management/sessions/` |
 | Configuration lead (mgmt) | teaparty | `.teaparty/management/sessions/` |
 | Project-specialist | teaparty | `.teaparty/management/sessions/` |
-| PM | project | `{project}/.teaparty/project/sessions/` |
-| Project lead | project | `{project}/.teaparty/project/sessions/` |
+| Project lead | project | `{project}/.teaparty/project/sessions/` (chat) or `{project}/.teaparty/jobs/` (job tier) |
 | Configuration lead (project) | project | `{project}/.teaparty/project/sessions/` |
 | CRUD specialists (project) | project | `{project}/.teaparty/project/sessions/` |
-| Workgroup agents | project | `{project}/.teaparty/project/sessions/` |
+| Workgroup agents | project | `{project}/.teaparty/jobs/.../tasks/` |
 | Proxy | depends | session lives with the scope of the conversation |
 
 ### Roster derivation
 
 | Agent role | Roster source |
 |------------|---------------|
-| Office manager | `teaparty.yaml` → PMs from `members.projects`, management config lead from `members.workgroups`, proxy from `humans:` |
-| Project manager | Project team config → project lead, project config lead |
+| Office manager | `teaparty.yaml` → project leads from `members.projects`, management config lead from `members.workgroups`, proxy from `humans:` |
+| Project lead | Project team config → workgroup leads, project config lead |
 | Workgroup lead | Workgroup YAML `members.agents` |
 | Leaf agent | No roster |
 
@@ -178,7 +183,7 @@ OM
 There are four ways a conversation is initiated. All communication goes through the bus.
 
 - **OM chat.** Human interacts with the office manager in the management chat blade.
-- **PM chat.** Human interacts with a project manager in a project chat blade.
+- **Project chat.** Human interacts with a project lead in a project chat blade (the `PROJECT_MANAGER` conversation kind).
 - **Proxy 1:1.** Human interacts with the proxy on any screen.
 - **New job.** Human launches a job, which goes directly to the project lead.
 

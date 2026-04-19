@@ -1,6 +1,7 @@
 # Bidirectional Heartbeat Liveness
 
-**Status:** Draft
+!!! note "Status: Proposed design"
+    This document is a forward-looking design for replacing the current `.running` sentinel with a hierarchy-aware bidirectional heartbeat. **It is not implemented.** The running system still uses the simpler `.running`/`has_running_agents` mechanism described under "Context" below. Paths shown in examples (`.sessions/...`) reflect the proposed layout, not the current `.teaparty/jobs/` runtime tree.
 
 ## Context
 
@@ -39,7 +40,7 @@ The `started` field stores `psutil.Process(os.getpid()).create_time()`, not `tim
 
 ### Child heartbeat discovery
 
-At dispatch time, the parent records each child in a `.children` file in its own infra directory, using JSONL format (one JSON object per line). Each entry includes the heartbeat path, team name, and for liaison dispatches, the liaison's `task_id` from the lead's stream.
+At dispatch time, the parent records each child in a `.children` file in its own infra directory, using JSONL format (one JSON object per line). Each entry includes the heartbeat path, team name, and for cross-process dispatches, the originating `task_id` from the lead's stream.
 
 ```jsonl
 {"heartbeat": "/abs/path/.heartbeat", "team": "coding", "task_id": null, "status": "active"}
@@ -48,7 +49,7 @@ At dispatch time, the parent records each child in a `.children` file in its own
 
 The parent writes an entry before starting the dispatch (optimistic registration) and updates it with the actual heartbeat path once the child is running. A stale optimistic entry with no heartbeat file on disk is detectable and cleanable by the recovery scan.
 
-This last field, `task_id`, matters because a liaison is a background agent in the lead's own process that blocks on an MCP call while its dispatch runs as a separate process. The liaison is not a child in the heartbeat hierarchy; it has no heartbeat file of its own. But the `.children` entry links the stream-visible liaison to the disk-visible dispatch. The watchdog monitors the liaison through the lead's own stream (checking for open tool calls and task_id events). The `.children` fallback lets the watchdog say: the liaison's stream activity stopped, but the dispatch it spawned is still alive on disk, so the system is making progress.
+The `task_id` field links a stream-visible MCP `Send` (which appears in the lead's event stream as a tool call) to the disk-visible dispatch process it triggered. The watchdog monitors the in-process Send through the lead's own stream; the `.children` fallback lets it say: the Send's stream activity stopped, but the dispatch it spawned is still alive on disk, so the system is making progress.
 
 Appends to a JSONL file are atomic on local filesystems for writes under the pipe buffer size (4KB on most systems; these entries are under 200 bytes). Entry "removal" is a status field update, not line deletion. The watchdog reads `.children` on each cycle. Compaction (rewriting the file to remove completed entries) happens during the recovery scan, when no concurrent writes are in flight.
 
@@ -66,11 +67,11 @@ The current watchdog uses raw stdout timing. The stream file is richer: it conta
 
 ![Watchdog decision cascade](img/watchdog-flowchart.svg)
 
-The watchdog runs a priority cascade every 30 seconds. First it checks whether the lead is mid-tool-call. The watchdog maintains a `dict[str, float]` mapping open `tool_use_id`s to their start timestamps. An open `tool_use` with no `tool_result` means the agent is working, even if it has been silent for minutes. A tool call open for longer than the stale threshold (120s) is treated as stale, not as proof of activity; this catches the case where a subprocess crashes mid-tool-call and the `tool_result` never arrives. The mid-tool-call check also covers spoke-and-wheel communication: `AskQuestion`, `Send`, and `Reply` MCP calls appear as tool calls in the stream, so an agent blocked on a proxy response or a dispatch has an open tool call the watchdog can see.
+The watchdog runs a priority cascade every 30 seconds. First it checks whether the lead is mid-tool-call. The watchdog maintains a `dict[str, float]` mapping open `tool_use_id`s to their start timestamps. An open `tool_use` with no `tool_result` means the agent is working, even if it has been silent for minutes. A tool call open for longer than the stale threshold (120s) is treated as stale, not as proof of activity; this catches the case where a subprocess crashes mid-tool-call and the `tool_result` never arrives. The mid-tool-call check also covers spoke-and-wheel communication: `AskQuestion` and `Send` MCP calls appear as tool calls in the stream, so an agent blocked on a proxy response or a dispatch (the recipient's turn-end is the reply) has an open tool call the watchdog can see.
 
-If no active (non-stale) tool call, the watchdog checks for recent lead events (within 120s), then recent child stream events (also within 120s). If the stream shows nothing, it falls back to the `.children` heartbeat check on disk. This catches the liaison case: a liaison's `task_id` has gone silent in the stream, but its linked dispatch heartbeat (recorded in `.children`) is still fresh.
+If no active (non-stale) tool call, the watchdog checks for recent lead events (within 120s), then recent child stream events (also within 120s). If the stream shows nothing, it falls back to the `.children` heartbeat check on disk. This catches the dispatched-task case: a dispatched task's `task_id` has gone silent in the stream, but its linked dispatch heartbeat (recorded in `.children`) is still fresh.
 
-Only when all four checks fail does the watchdog take action: it kills children whose heartbeats have been stale for more than 300 seconds (10 missed beats), then checks if anything remains alive. If not, the agent is truly stalled.
+Only when all four checks fail does the watchdog take action: it kills children whose heartbeats have been stale for more than 300 seconds (10 missed beats), then checks if anything remains alive. If not, the agent is stalled.
 
 ### How children detect a dead parent
 

@@ -1,6 +1,6 @@
 # Proxy Sensorium: Two-Pass Prediction and Learned Attention
 
-The proxy agent does not just predict what the human will decide. It predicts what the human will **attend to** before deciding. This document describes how the proxy's sensorium works. What does it sense, how does it determine salience, and how does it learn to focus on the percepts that matter.
+The proxy agent predicts both what the human will decide *and* what the human will **attend to** before deciding. This page describes how the proxy's sensorium works: what it senses, how it determines salience, and how it learns to focus on the percepts that matter.
 
 For the memory model underlying this, see [overview.md](overview.md). For the chunk structure and retrieval, see [mapping.md](mapping.md). For the overall motivation, see [memory.md](memory.md). For autodiscovery, see [../reference/autodiscovery.md](../../../reference/autodiscovery.md).
 
@@ -160,7 +160,7 @@ A new interaction can match on:
 - Situation plus artifact: "What happens at PLAN_ASSERT when the plan has gaps?" (lower fan, stronger signal)
 - Salience (independent query): "When has the proxy been surprised by missing safety mechanisms?" (specific, cross-cutting)
 
-For experience retrieval, cosine similarity across the 4 experience dimensions is summed and divided by 4, not just populated ones. See [mapping.md](mapping.md). This rewards breadth of matching: chunks matching across more experience dimensions score higher than chunks matching narrowly on fewer.
+For experience retrieval, cosine similarity across the 4 experience dimensions is summed and divided by 4 (the full count, not the populated count). See [mapping.md](mapping.md). This rewards breadth of matching: chunks matching across more experience dimensions score higher than chunks matching narrowly on fewer.
 
 ---
 
@@ -180,7 +180,7 @@ The next time the proxy reaches PLAN_ASSERT, its **Pass 1 prior** already reflec
 
 The criteria for granting and revoking autonomy (how low the surprise rate must be, over how many interactions, and what triggers re-escalation) are not specified here. These are the highest-stakes design decisions in the system and require operational specification before Phase 3 implementation. The Phase 1 metrics provide the evaluation framework; the autonomy thresholds must be derived from that data.
 
-This is fundamentally different from the auto-approval that the root document criticizes. EMA-based auto-approval skips inspection entirely. It never reads the artifact, never asks questions, just checks a scalar and waves things through. Two-pass auto-approval completes the full inspection: the proxy runs both passes, examines the artifact, confirms that its model of the human's attention patterns predicts approval, and the posterior agrees. The dialog happened inside the proxy's reasoning. The proxy earned its autonomy by demonstrating consistent inspection with accurate predictions, not by demonstrating "understanding."
+This differs from the auto-approval that the root document criticizes. EMA-based auto-approval skips inspection entirely. It never reads the artifact, never asks questions, just checks a scalar and waves things through. Two-pass auto-approval completes the full inspection: the proxy runs both passes, examines the artifact, confirms that its model of the human's attention patterns predicts approval, and the posterior agrees. The dialog happened inside the proxy's reasoning. The proxy earned its autonomy by demonstrating consistent inspection with accurate predictions, not by demonstrating "understanding."
 
 ---
 

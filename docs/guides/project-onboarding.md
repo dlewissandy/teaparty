@@ -1,6 +1,6 @@
 # Project Onboarding
 
-Detailed design for what happens when a project is added to TeaParty — the
+Detailed design for what happens when a project is added to TeaParty: the
 operations performed, the files created, and the resulting state.
 
 Source files:
@@ -75,7 +75,7 @@ enforces two invariants on this value:
    modal and the MCP `CreateProject` / `AddProject` tools do not require
    callers to pass a decider; when omitted, the project inherits the
    decider from `{teaparty_home}/management/teaparty.yaml`. That human is,
-   by construction, the user running this TeaParty instance — the only
+   by construction, the user running this TeaParty instance: the only
    party who could have initiated the creation.
 
 If no decider can be resolved (none supplied and the management team has
@@ -84,7 +84,7 @@ without a decider is not valid.
 
 ### Name normalization
 
-The `name` parameter is normalized before it is used anywhere — as a registry
+The `name` parameter is normalized before it is used anywhere: as a registry
 key, a directory name, a lead agent name, or a value written into `project.yaml`.
 Normalization: lowercase, whitespace collapsed and replaced with hyphens.
 
@@ -105,7 +105,7 @@ When `description` is not provided, `project.yaml` is written with:
 ⚠ No description — ask the project lead
 ```
 
-This sentinel appears wherever the description is displayed — the dashboard
+This sentinel appears wherever the description is displayed: the dashboard
 project card, the project config pane, and in the project lead's context when
 it reads `project.yaml`. It reads as an instruction to both the human and the
 agent: the right way to set it is to ask the project lead, who will engage the
@@ -208,8 +208,8 @@ The template covers TeaParty runtime state that must not be committed:
 *.db-journal
 ```
 
-The `.teaparty/project/` configuration tree is intentionally **not** ignored —
-it is source-controlled project configuration, not runtime state.
+The `.teaparty/project/` configuration tree is intentionally **not** ignored.
+It is source-controlled project configuration, not runtime state.
 
 ### Step 7 — Register in `external-projects.yaml`
 
@@ -317,7 +317,7 @@ commit on whatever branch is currently checked out. For `CreateProject`, it is
 the repository's first commit.
 
 The files in the management catalog (`agent.md`, `settings.yaml`, `pins.yaml`
-for the project lead) live in the TeaParty repo, not the project repo — they
+for the project lead) live in the TeaParty repo, not the project repo. They
 are committed separately as part of normal TeaParty configuration management.
 
 ### Step 10 — Emit telemetry event
@@ -327,7 +327,7 @@ _emit_config_event('config_project_added', project=name, path=path)
 # CreateProject also passes: created=True
 ```
 
-Best-effort — failures are swallowed so config CRUD is never blocked by
+Best-effort: failures are swallowed so config CRUD is never blocked by
 telemetry. Unknown event type constants raise `AssertionError` at development
 time (no silent fallbacks).
 
@@ -336,8 +336,8 @@ time (no silent fallbacks).
 ## Database initialization
 
 No database initialization is required at project registration time. Every
-database in the system — telemetry, agent message stores, proxy memory,
-episodic index — auto-initializes on first use via `CREATE TABLE IF NOT EXISTS`
+database in the system (telemetry, agent message stores, proxy memory,
+episodic index) auto-initializes on first use via `CREATE TABLE IF NOT EXISTS`
 on first connection.
 
 ---
@@ -351,8 +351,8 @@ and available to all projects through catalog merging.
 
 `project.yaml` lists `Configuration` explicitly in its `workgroups` field so
 the team's membership is visible in the project's own configuration, not just
-inherited silently. When the project lead needs configuration work done —
-including setting the project description — it routes through the Office Manager
+inherited silently. When the project lead needs configuration work done
+(including setting the project description), it routes through the Office Manager
 to the Configuration Lead, which delegates to the appropriate specialist.
 
 ---

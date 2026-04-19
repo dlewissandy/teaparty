@@ -4,7 +4,7 @@ Episodic memory is session-derived knowledge: what happened, what was learned, a
 
 ## Design choices
 
-**Markdown as source of truth, SQLite as derived index.** Learnings are authored and stored as markdown files with YAML frontmatter at each scope level. A SQLite FTS5 database (`.memory.db`) is built as a derived index over these files — it can be rebuilt from the markdown at any time. Agents read and write markdown natively with the tools they already have, learnings persist in git alongside the work they describe, and retrieval gets BM25 ranking and optional vector search without agents needing to speak SQL.
+**Markdown as source of truth, SQLite as derived index.** Learnings are authored and stored as markdown files with YAML frontmatter at each scope level. A SQLite FTS5 database (`.memory.db`) is built as a derived index over these files; it can be rebuilt from the markdown at any time. Agents read and write markdown natively with the tools they already have, learnings persist in git alongside the work they describe, and retrieval gets BM25 ranking and optional vector search without agents needing to speak SQL.
 
 **Structured entries with YAML frontmatter.** Each learning entry carries typed metadata:
 
@@ -20,9 +20,9 @@ status: active|retired|compacted
 ---
 ```
 
-This is not undifferentiated prose. The metadata enables prominence scoring, temporal decay, and type-aware retrieval — a corrective learning with high reinforcement count surfaces ahead of a single-observation declarative one.
+This is not undifferentiated prose. The metadata enables prominence scoring, temporal decay, and type-aware retrieval: a corrective learning with high reinforcement count surfaces ahead of a single-observation declarative one.
 
-**Post-session extraction, not online learning.** Extraction runs after session completion, not during execution. Online learning would require interrupting agent execution to reflect, and the signal quality from a single in-progress interaction is low. Post-session extraction can see the full arc of the work — what was attempted, what succeeded, what the human corrected.
+**Post-session extraction, not online learning.** Extraction runs after session completion, not during execution. Online learning would require interrupting agent execution to reflect, and the signal quality from a single in-progress interaction is low. Post-session extraction can see the full arc of the work: what was attempted, what succeeded, what the human corrected.
 
 **LLM as the extraction engine.** Extraction calls Claude Haiku to analyze conversation streams and produce structured entries across ten extraction scopes. There is no separate ML pipeline.
 
@@ -47,11 +47,11 @@ projects/<project>/.sessions/<ts>/...                                # legacy te
 
 ## Extraction dimensions
 
-- **Temporal (WHEN).** Extraction runs at four moments — prospective (before execution, `.premortem.md`), in-flight (at phase milestones, `.assumptions.jsonl`), corrective (at gate mismatches), and retrospective (post-session LLM pass). All four are wired end-to-end; retrospective produces the richest signal, prospective and in-flight currently emit weaker heuristics that will be tuned in the milestone-4 rewrite.
+- **Temporal (WHEN).** Extraction runs at four moments: prospective (before execution, `.premortem.md`), in-flight (at phase milestones, `.assumptions.jsonl`), corrective (at gate mismatches), and retrospective (post-session LLM pass). Corrective and retrospective are operational and feed promotion; prospective and in-flight are designed but not yet implemented (see [learning index status](index.md#status)).
 - **Spatial (WHERE).** Entries are labeled by scope where they apply: team, session, project, global, dispatch.
 - **Type (WHAT).** Entries are labeled by type/domain: observations, escalation, intent-alignment, corrective, procedural, directive.
 
-The "ten extraction scopes" refers to entries that can be labeled as belonging to these categories — the labels describe what the entries are about, not when they were extracted.
+The "ten extraction scopes" refers to entries that can be labeled as belonging to these categories. The labels describe what the entries are about, not when they were extracted.
 
 ## Retrieval
 
@@ -82,7 +82,7 @@ scope multipliers: team=1.5, project=1.2, global=1.0
 
 The decay floor is applied to `recency_decay`, not to final prominence. Time alone cannot make an entry invisible (decay bottoms out at 10%), but importance and reinforcement still differentiate entries at the floor. An ancient high-importance entry (0.9 × 0.1 = 0.09) still ranks above an ancient low-importance entry (0.2 × 0.1 = 0.02). Retired entries return prominence 0.0 regardless.
 
-**Reinforcement tracking** is wired into the post-session pipeline. `extract_learnings()` calls `reinforce_entries()` at session end: when a retrieved learning was used by an agent, its `reinforcement_count` is incremented, raising its future prominence and resetting its decay clock.
+**Reinforcement tracking** is wired into the post-session pipeline. `extract_learnings()` calls `reinforce_entries()` at session end. The trigger is *retrieval*: when an entry's id appears in the session's `retrieved_ids` list (collected at session start by `memory_indexer.py`), its `reinforcement_count` is incremented by 1 and `last_reinforced` is set to today's date. Retrieval is a frequency-of-access signal, not a quality-of-use signal — even retrieved entries that the agent ignored count, on the grounds that retrieval reflects ongoing topical relevance.
 
 **Compaction** (`compact.py`) deduplicates by ID, merges near-duplicates (Jaccard > 0.8), and removes retired entries. It runs post-write for session, project, and global scopes.
 

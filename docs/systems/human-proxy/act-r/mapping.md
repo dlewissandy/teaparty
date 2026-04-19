@@ -1,6 +1,6 @@
 # ACT-R Proxy Mapping: Chunks, Traces, and Retrieval
 
-This document maps ACT-R's declarative memory concepts to concrete proxy agent structures. For the theory and equations, see [overview.md](overview.md). For the motivation and migration plan, see [memory.md](memory.md). For two-pass prediction and learned attention, see [sensorium.md](sensorium.md).
+ACT-R's declarative memory concepts mapped to the proxy agent's concrete structures. For the theory and equations, see [overview.md](overview.md). For the motivation and migration plan, see [memory.md](memory.md). For two-pass prediction and learned attention, see [sensorium.md](sensorium.md).
 
 ---
 
@@ -83,7 +83,7 @@ These two rules match standard ACT-R. Chunks are reinforced only when specifical
 
 ## How Does an Interaction Become a Chunk?
 
-Every gate interaction produces a chunk. Chunks always include structural fields, prediction fields, and outcome. The salience fields (`prediction_delta`, `salient_percepts`, `embedding_salience`) are populated only when surprise occurs — the confidence delta between Pass 1 and Pass 2 exceeds the surprise threshold (0.3). See [sensorium.md](sensorium.md). Non-surprise chunks have empty salience fields but are still stored and contribute to the memory through their other dimensions.
+Every gate interaction produces a chunk. Chunks always include structural fields, prediction fields, and outcome. The salience fields (`prediction_delta`, `salient_percepts`, `embedding_salience`) are populated only when surprise occurs (the confidence delta between Pass 1 and Pass 2 exceeds the surprise threshold of 0.3). See [sensorium.md](sensorium.md). Non-surprise chunks have empty salience fields but are still stored and contribute to the memory through their other dimensions.
 
 ### Gate Mode (During Sessions)
 
@@ -143,7 +143,7 @@ Where:
 - `noise` is logistic noise (see [overview.md](overview.md))
 - `activation_weight` and `semantic_weight` control the balance (starting point: 0.5 / 0.5)
 
-**Why tanh(B - τ).** Cosine similarity already lives on a natural scale: 0 = orthogonal (no contribution), +1 = perfect match, -1 = antithesis. No normalization needed. Raw activation B is on a log scale with no natural upper bound. To make the two components commensurable, we need a monotonic map from ℝ → (-1, 1). Shifting by τ grounds the zero point: a chunk at exactly the retrieval threshold contributes nothing to the composite, mirroring the cosine semantics. The tradeoff between recency and frequency in B is ACT-R's design — `tanh` is a monotonic transform and preserves it exactly.
+**Why tanh(B - τ).** Cosine similarity already lives on a natural scale: 0 = orthogonal (no contribution), +1 = perfect match, -1 = antithesis. No normalization needed. Raw activation B is on a log scale with no natural upper bound. To make the two components commensurable, we need a monotonic map from ℝ → (-1, 1). Shifting by τ grounds the zero point: a chunk at exactly the retrieval threshold contributes nothing to the composite, mirroring the cosine semantics. The tradeoff between recency and frequency in B is ACT-R's design; `tanh` is a monotonic transform and preserves it exactly.
 
 **Cosine averaging.** The semantic score is computed by summing cosine similarities across the 4 experience dimensions (situation, artifact, stimulus, response) and dividing by 4, not just the number of populated ones. This means a chunk with high similarity on 2 populated dimensions out of 4 gets `(sim1 + sim2 + 0 + 0) / 4`, while a chunk with moderate similarity across all 4 gets `(sim1 + sim2 + sim3 + sim4) / 4`. This rewards breadth of matching: chunks that match across more dimensions score higher than chunks that match narrowly on fewer dimensions, all else being equal. Salience is excluded from composite scoring and retrieved independently via `retrieve_salience()`.
 

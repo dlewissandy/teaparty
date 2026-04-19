@@ -4,7 +4,7 @@ TeaParty's learning system is hierarchical memory across three kinds of knowledg
 
 ## Why it exists
 
-Hierarchical teams bound each agent's context by role. That scoping is what makes agent coordination durable — but it also means a scoped agent cannot see the organizational knowledge it needs to stay aligned with values, conventions, and prior lessons. Without a memory system, scoped agents drift. With the wrong kind of memory system, they drown.
+Hierarchical teams bound each agent's context by role. That scoping carries the durability of agent coordination — but it also means a scoped agent cannot see the organizational knowledge it needs to stay aligned with values, conventions, and prior lessons. Without a memory system, scoped agents drift. With the wrong kind of memory system, they drown.
 
 The wrong kind is flat, undifferentiated prose, retrieved indiscriminately. We observed both failure modes directly in the POC:
 
@@ -21,7 +21,7 @@ The deeper framing: memory is a retrieval problem, not a storage problem. And re
 
 **Temporal decay and retirement.** Prominence combines importance, reinforcement count, and a 90-day exponential half-life with a 10% decay floor. Old entries fade but never become invisible. Entries that survive reinforcement and avoid contradiction accumulate weight; stale or disproven ones are retired.
 
-**Four learning moments.** The design defines four moments where signal is captured: prospective (before execution), in-flight (at milestones), corrective (at mismatch), and retrospective (after completion). The extraction plumbing for all four is wired — prospective writes `.premortem.md` at intent→planning, in-flight writes `.assumptions.jsonl` checkpoints from `engine.py`, corrective captures gate mismatches, retrospective runs a post-session LLM pass. Signal quality currently varies: retrospective produces the richest entries, prospective mostly mirrors the PLAN, in-flight assumptions are heuristically inferred. All four feed the promotion chain.
+**Four learning moments.** The design defines four moments where signal is captured: prospective (before execution), in-flight (at milestones), corrective (at mismatch), and retrospective (after completion). Corrective and retrospective extraction are operational today — corrective captures gate mismatches, retrospective runs a post-session LLM pass and produces the richest entries. Prospective and in-flight extraction are designed but not yet implemented (see Status below). The corrective and retrospective signal feeds the promotion chain.
 
 **Continuous skill refinement.** Beyond text learnings, the system crystallizes successful plans into reusable skills — parameterized workflows with fixed structure and variable parameters. When execution under a skill hits friction (permission denials, fallback retries, gate corrections), the refinement pipeline traces the failure back to the skill itself and patches its structure.
 

@@ -1,4 +1,4 @@
-"""Send, Reply, and CloseConversation handlers."""
+"""Send and CloseConversation handlers."""
 from __future__ import annotations
 
 import asyncio
