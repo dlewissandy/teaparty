@@ -1304,8 +1304,10 @@ class ApprovalGate:
     ) -> tuple[str, str]:
         """Classify human review response into (action, feedback).
 
-        On classifier failure, returns ('dialog', '') so the gate loop
-        re-prompts rather than silently committing to an action.
+        On classifier failure or an unparseable response, returns
+        ('dialog', '') so the gate loop re-prompts rather than silently
+        committing to an action.  'dialog' is not a CfA state-machine
+        edge; it is the gate's internal signal to loop back and ask again.
         """
         try:
             from teaparty.scripts.classify_review import classify
@@ -1318,6 +1320,11 @@ class ApprovalGate:
             parts = raw.split('\t', 1)
             action = parts[0]
             feedback = parts[1] if len(parts) > 1 else ''
+            # classify_review emits '__fallback__' when it can't parse its
+            # own output — map to 'dialog' so the gate re-prompts instead
+            # of driving the CfA with a sentinel that is not a valid edge.
+            if action == '__fallback__':
+                return 'dialog', ''
             return action, feedback
         except Exception:
             _actor_log.warning('Classification failed — re-prompting', exc_info=True)
