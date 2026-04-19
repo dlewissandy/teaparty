@@ -331,13 +331,20 @@ class AgentRunner:
     def _no_artifact_action_for_state(state: str) -> str:
         """Return the action to take when the expected artifact was not produced.
 
-        Prefers 'question' (loops through human input before the agent retries),
-        then 'escalate', then 'backtrack' — whichever is valid from the current
-        state.  Never returns 'assert', which requires the artifact to exist.
+        For WORK_IN_PROGRESS, this is the common case: the project-lead
+        is working and hasn't written WORK_SUMMARY.md yet.  Prefer the
+        ``continue`` self-loop so the engine re-invokes the lead on the
+        same state instead of phase-backtracking.
+
+        For gate-bearing phases (intent / planning), prefer 'question'
+        (loops through human input before the agent retries), then
+        'escalate', then 'backtrack' — whichever is valid from the
+        current state.  Never returns 'assert', which requires the
+        artifact to exist.
         """
         edges = TRANSITIONS.get(state, [])
         valid = {a for a, _, _ in edges}
-        for candidate in ('question', 'escalate', 'backtrack'):
+        for candidate in ('continue', 'question', 'escalate', 'backtrack'):
             if candidate in valid:
                 return candidate
         return edges[0][0] if edges else 'question'

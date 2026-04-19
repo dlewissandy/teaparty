@@ -75,6 +75,7 @@
       { "action": "delegate", "to": "WORK_IN_PROGRESS", "actor": "project_lead" }
     ],
     "WORK_IN_PROGRESS": [
+      { "action": "continue", "to": "WORK_IN_PROGRESS", "actor": "project_lead" },
       { "action": "assert", "to": "WORK_ASSERT", "actor": "project_lead" },
       { "action": "auto-approve", "to": "COMPLETED_WORK", "actor": "project_lead" },
       { "action": "backtrack", "to": "PLANNING_QUESTION", "actor": "project_lead", "backtrack": true },

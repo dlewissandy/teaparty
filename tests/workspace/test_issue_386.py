@@ -44,7 +44,7 @@ def _make_git_repo(path: str) -> str:
 
 
 def _make_job_with_worktree(repo_root: str, session_id: str, *,
-                            cfa_state: str = 'TASK_IN_PROGRESS') -> dict:
+                            cfa_state: str = 'WORK_IN_PROGRESS') -> dict:
     """Create a job with a real git worktree and CfA state."""
     from teaparty.workspace.job_store import create_job
     result = _run(create_job(
@@ -140,7 +140,7 @@ class TestWithdrawJob(unittest.TestCase):
     def test_withdraw_sets_cfa_to_withdrawn(self):
         """CfA state is set to WITHDRAWN with history entry."""
         result = _make_job_with_worktree(self.repo_root, 'test-001',
-                                         cfa_state='TASK_IN_PROGRESS')
+                                         cfa_state='WORK_IN_PROGRESS')
 
         from teaparty.workspace.job_store import withdraw_job
         _run(withdraw_job(project_root=self.repo_root,

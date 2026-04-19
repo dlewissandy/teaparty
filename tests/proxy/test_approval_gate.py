@@ -378,9 +378,9 @@ class TestRecordOutcome(unittest.TestCase):
     def test_creates_new_entry_for_unseen_pair(self):
         """record_outcome creates a new ConfidenceEntry if the pair is new."""
         model = _make_model()
-        self.assertNotIn('TASK_ASSERT|brand-new', model.entries)
-        model = record_outcome(model, 'TASK_ASSERT', 'brand-new', 'approve')
-        self.assertIn('TASK_ASSERT|brand-new', model.entries)
+        self.assertNotIn('WORK_ASSERT|brand-new', model.entries)
+        model = record_outcome(model, 'WORK_ASSERT', 'brand-new', 'approve')
+        self.assertIn('WORK_ASSERT|brand-new', model.entries)
 
     def test_invalid_outcome_raises_value_error(self):
         model = _make_model()
@@ -531,12 +531,12 @@ class TestPersistence(DeterministicProxyTestCase):
     def test_loaded_model_gives_same_decision(self):
         """A model round-tripped through disk produces the same decision."""
         model = _make_model()
-        model = _record_n(model, 'TASK_ASSERT', 'stable-proj', 'approve', 15)
+        model = _record_n(model, 'WORK_ASSERT', 'stable-proj', 'approve', 15)
 
-        decision_before = should_escalate(model, 'TASK_ASSERT', 'stable-proj')
+        decision_before = should_escalate(model, 'WORK_ASSERT', 'stable-proj')
         save_model(model, self.model_path)
         loaded = load_model(self.model_path)
-        decision_after = should_escalate(loaded, 'TASK_ASSERT', 'stable-proj')
+        decision_after = should_escalate(loaded, 'WORK_ASSERT', 'stable-proj')
 
         self.assertEqual(decision_before.action, decision_after.action)
         self.assertAlmostEqual(decision_before.confidence, decision_after.confidence, places=6)
@@ -983,7 +983,7 @@ class TestTextDifferentials(unittest.TestCase):
 
 class TestEscalationRecording(unittest.TestCase):
     """Verify proxy_record works for ESCALATE states (INTENT_ESCALATE,
-    PLANNING_ESCALATE, TASK_ESCALATE) with differentials."""
+    PLANNING_ESCALATE) with differentials."""
 
     def test_record_clarify_on_intent_escalate(self):
         """Clarify on INTENT_ESCALATE records correctly."""
@@ -1010,14 +1010,14 @@ class TestEscalationRecording(unittest.TestCase):
         self.assertEqual(entry.reject_count, 1)
         self.assertEqual(entry.total_count, 1)
 
-    def test_record_clarify_on_task_escalate(self):
-        """Clarify on TASK_ESCALATE records correctly with differential."""
+    def test_record_clarify_on_planning_escalate_with_differential(self):
+        """Clarify on PLANNING_ESCALATE records correctly with differential."""
         model = _make_model()
         model = record_outcome(
-            model, 'TASK_ESCALATE', 'proj', 'clarify',
+            model, 'PLANNING_ESCALATE', 'proj2', 'clarify',
             differential_summary='Use the REST API not GraphQL',
         )
-        key = 'TASK_ESCALATE|proj'
+        key = 'PLANNING_ESCALATE|proj2'
         entry = ConfidenceEntry(**model.entries[key])
         self.assertEqual(entry.total_count, 1)
         self.assertEqual(len(entry.differentials), 1)
@@ -1138,7 +1138,7 @@ class TestGenerativeResponse(unittest.TestCase):
         """generate_response returns a low-confidence response for a state with no history."""
         from teaparty.proxy.approval_gate import generate_response, GenerativeResponse
         model = _make_model()
-        result = generate_response(model, 'TASK_ESCALATE', 'proj')
+        result = generate_response(model, 'PLANNING_ESCALATE', 'proj')
         self.assertIsInstance(result, GenerativeResponse)
         self.assertEqual(result.confidence, 0.0)
 

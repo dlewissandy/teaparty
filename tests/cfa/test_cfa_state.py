@@ -1168,10 +1168,12 @@ class TestTransitionCLI(unittest.TestCase):
 class TestEscalationPaths(unittest.TestCase):
     """Verify the full escalation paths through the CfA state machine.
 
-    These are the paths that the new shell orchestration code drives:
+    These are the project-level escalation loops the orchestrator drives:
       PROPOSAL → escalate → INTENT_ESCALATE → clarify → INTENT_RESPONSE → synthesize → PROPOSAL
       DRAFT → escalate → PLANNING_ESCALATE → clarify → PLANNING_RESPONSE → synthesize → DRAFT
-      TASK_IN_PROGRESS → escalate → TASK_ESCALATE → clarify → TASK_RESPONSE → synthesize → TASK_IN_PROGRESS
+
+    Execution-phase subteam coordination no longer uses state-machine
+    edges — it flows over the message bus via Send / AskQuestion.
     """
 
     def test_intent_escalation_full_path(self):

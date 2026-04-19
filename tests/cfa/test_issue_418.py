@@ -105,16 +105,22 @@ class TestNewDelegatePath(unittest.TestCase):
         )
 
     def test_work_in_progress_outgoing_edges_are_exact(self):
-        """WORK_IN_PROGRESS has exactly four outgoing actions:
-        assert, auto-approve, backtrack, withdraw."""
+        """WORK_IN_PROGRESS has exactly five outgoing actions:
+        continue (self-loop), assert, auto-approve, backtrack, withdraw."""
         edges = TRANSITIONS.get('WORK_IN_PROGRESS', [])
         action_to_target = {action: target for action, target, _actor in edges}
 
         self.assertEqual(
             set(action_to_target.keys()),
-            {'assert', 'auto-approve', 'backtrack', 'withdraw'},
-            f'WORK_IN_PROGRESS must have exactly these four actions; '
+            {'continue', 'assert', 'auto-approve', 'backtrack', 'withdraw'},
+            f'WORK_IN_PROGRESS must have exactly these five actions; '
             f'got {sorted(action_to_target.keys())}',
+        )
+        self.assertEqual(
+            action_to_target['continue'], 'WORK_IN_PROGRESS',
+            f'WORK_IN_PROGRESS --continue--> must self-loop to '
+            f'WORK_IN_PROGRESS so intermediate lead turns do not '
+            f'phase-backtrack; got {action_to_target["continue"]}',
         )
         self.assertEqual(
             action_to_target['assert'], 'WORK_ASSERT',
@@ -136,6 +142,30 @@ class TestNewDelegatePath(unittest.TestCase):
             action_to_target['withdraw'], 'WITHDRAWN',
             f'WORK_IN_PROGRESS --withdraw--> must go to WITHDRAWN, got '
             f'{action_to_target["withdraw"]}',
+        )
+
+    def test_intermediate_work_turn_does_not_phase_backtrack(self):
+        """An intermediate project-lead turn (no WORK_SUMMARY.md yet,
+        no open worker contexts — e.g., first thinking turn before
+        dispatching) must NOT phase-backtrack to PLANNING_QUESTION.  The
+        engine must re-invoke the lead on WORK_IN_PROGRESS instead.
+
+        This is verified via AgentRunner._no_artifact_action_for_state,
+        which the engine calls when the lead's turn ends without the
+        expected artifact.
+        """
+        from teaparty.cfa.actors import AgentRunner
+        action = AgentRunner._no_artifact_action_for_state('WORK_IN_PROGRESS')
+        self.assertEqual(
+            action, 'continue',
+            "when the project-lead ends a turn in WORK_IN_PROGRESS without "
+            "writing WORK_SUMMARY.md, _no_artifact_action_for_state must "
+            f"return 'continue' to self-loop the state, not {action!r}.  "
+            "Any other action triggers an unintended phase transition — "
+            "'backtrack' (→ PLANNING_QUESTION) is the specific regression "
+            "this test guards against: the issue says 'run project-lead "
+            "until WORK_SUMMARY.md exists', not 'backtrack on any "
+            "intermediate turn'.",
         )
 
 
