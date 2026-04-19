@@ -285,12 +285,7 @@ def _run(coro):
 
 
 def _make_human_presence() -> HumanPresence:
-    """Human present at all gate levels so input_provider is always called.
-
-    Without this, TASK_ASSERT is in _DEFAULT_NEVER_ESCALATE and the gate
-    never routes to input_provider — it relies on the proxy agent instead.
-    Proxy tests that need the proxy path pass human_presence=None explicitly.
-    """
+    """Human present at all gate levels so input_provider is always called."""
     p = HumanPresence()
     p.arrive(PresenceLevel.PROJECT)
     p.arrive(PresenceLevel.SUBTEAM)
@@ -335,8 +330,6 @@ class _SessionTestBase(unittest.TestCase):
             event_bus=transcript._bus,
             proxy_enabled=False,
             # Human present at all levels → gate always calls input_provider.
-            # TASK_ASSERT is in _DEFAULT_NEVER_ESCALATE (proxy-only by default);
-            # human_presence overrides that so gate_script controls everything.
             # Proxy tests that need real proxy routing pass human_presence=None.
             human_presence=_make_human_presence(),
         )
@@ -716,7 +709,6 @@ class TestSessionProxyPaths(_SessionTestBase):
 
         human_presence=None removes the "human present" override so the proxy
         path is active.  consult_proxy patched to return confident 'approve'.
-        TASK_ASSERT is in _DEFAULT_NEVER_ESCALATE — also handled by proxy.
         """
         from teaparty.proxy.agent import ProxyResult
 
