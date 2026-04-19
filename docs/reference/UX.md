@@ -163,7 +163,7 @@ The core experience. One job, its conversation, its artifacts, and the workflow 
 ```
 +----------------------------------------------------------------------+
 |  Fix login bug                                       [Withdraw]      |
-|  humor-book > job-20260315-171017               State: TASK          |
+|  humor-book > job-20260315-171017       State: WORK_IN_PROGRESS      |
 +--------------------------------------------------------+-------------+
 |  Phase Stepper                                          | Project    |
 |  [✓] Intent  [✓] Planning  [▶] Execution  [ ] Done    | Lead chat   |
