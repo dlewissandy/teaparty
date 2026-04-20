@@ -77,7 +77,7 @@ class InvalidTransition(Exception):
 class CfaState:
     """Full state of a Conversation for Action instance."""
     phase: str           # 'intent' | 'planning' | 'execution'
-    state: str           # e.g. 'PROPOSAL', 'DRAFT', 'TASK_IN_PROGRESS'
+    state: str           # e.g. 'PROPOSAL', 'DRAFT', 'WORK_IN_PROGRESS'
     actor: str           # who should act next (from transition table)
     history: list = field(default_factory=list)  # list of dicts: {state, action, actor, timestamp}
     backtrack_count: int = 0  # how many cross-phase backtracks have occurred
@@ -369,16 +369,10 @@ def _cli_test() -> None:
     assert cfa.state == 'PLAN'
     assert is_phase_terminal('PLAN')
     cfa = transition(cfa, 'delegate')
-    assert cfa.state == 'TASK'
-    cfa = transition(cfa, 'accept')
-    assert cfa.state == 'TASK_IN_PROGRESS'
-    cfa = transition(cfa, 'assert')
-    assert cfa.state == 'TASK_ASSERT'
-    cfa = transition(cfa, 'approve')
-    assert cfa.state == 'COMPLETED_TASK'
-    cfa = transition(cfa, 'synthesize')
     assert cfa.state == 'WORK_IN_PROGRESS'
-    cfa = transition(cfa, 'auto-approve')
+    cfa = transition(cfa, 'assert')
+    assert cfa.state == 'WORK_ASSERT'
+    cfa = transition(cfa, 'approve')
     assert cfa.state == 'COMPLETED_WORK'
     assert is_globally_terminal('COMPLETED_WORK')
     print("  [OK] Happy path: IDEA → COMPLETED_WORK")
@@ -409,7 +403,7 @@ def _cli_test() -> None:
     # phase_for_state
     assert phase_for_state('IDEA') == 'intent'
     assert phase_for_state('DRAFT') == 'planning'
-    assert phase_for_state('TASK_IN_PROGRESS') == 'execution'
+    assert phase_for_state('WORK_IN_PROGRESS') == 'execution'
     assert phase_for_state('COMPLETED_WORK') == 'execution'
     print("  [OK] phase_for_state")
 
@@ -446,7 +440,7 @@ def _cli_test() -> None:
     parent = transition(parent, 'plan')
     parent = transition(parent, 'auto-approve')
     parent = transition(parent, 'delegate')
-    assert parent.state == 'TASK'
+    assert parent.state == 'WORK_IN_PROGRESS'
 
     child = make_child_state(parent, 'coding')
     assert child.parent_id == 'uber-001'

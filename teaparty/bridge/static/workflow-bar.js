@@ -20,9 +20,7 @@
     // Plan gate (circle 3)
     'PLAN_ASSERT': 3,
     // Execution phase (bar 4)
-    'PLAN': 4, 'TASK': 4, 'TASK_IN_PROGRESS': 4, 'TASK_QUESTION': 4, 'TASK_ESCALATE': 4,
-    'TASK_RESPONSE': 4, 'FAILED_TASK': 4, 'COMPLETED_TASK': 4, 'WORK_IN_PROGRESS': 4,
-    'AWAITING_REPLIES': 4,
+    'PLAN': 4, 'WORK_IN_PROGRESS': 4,
     // Work gate (circle 5)
     'WORK_ASSERT': 5,
     // Done (bar 6)

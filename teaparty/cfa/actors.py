@@ -37,20 +37,6 @@ if TYPE_CHECKING:
     from teaparty.cfa.phase_config import PhaseConfig, PhaseSpec
 
 
-# ── Constants ────────────────────────────────────────────────────────────────
-
-# Gate states that default to "never escalate" when the project's
-# ``escalation:`` config is silent on them.  These are intra-task gates
-# between dispatched workers and their workgroup lead; routing every
-# one of them to the human would flood the chat with routine yes/no
-# approvals.  Projects that want a human in the loop at these states
-# set ``TASK_ASSERT: always`` (or similar) in ``project.yaml``.
-_DEFAULT_NEVER_ESCALATE: frozenset[str] = frozenset({
-    'TASK_ASSERT',
-    'TASK_ESCALATE',
-})
-
-
 # ── Protocols ────────────────────────────────────────────────────────────────
 
 class InputProvider(Protocol):
@@ -385,13 +371,19 @@ class AgentRunner:
     def _no_artifact_action_for_state(state: str) -> str:
         """Return the action to take when the expected artifact was not produced.
 
-        Prefers 'question' (loops through human input before the agent retries),
-        then 'escalate', then 'backtrack' — whichever is valid from the current
+        For WORK_IN_PROGRESS, this is the common case: the project-lead is
+        working and hasn't written WORK_SUMMARY.md yet.  Prefer the
+        ``continue`` self-loop so the engine re-invokes the lead on the
+        same state instead of phase-backtracking.
+
+        For gate-bearing phases (intent / planning), prefer 'question'
+        (loops through human input before the agent retries), then
+        'escalate', then 'backtrack' — whichever is valid from the current
         state.  Never returns 'assert', which requires the artifact to exist.
         """
         edges = TRANSITIONS.get(state, [])
         valid = {a for a, _, _ in edges}
-        for candidate in ('question', 'escalate', 'backtrack'):
+        for candidate in ('continue', 'question', 'escalate', 'backtrack'):
             if candidate in valid:
                 return candidate
         return edges[0][0] if edges else 'question'
@@ -631,10 +623,7 @@ _CFA_STATE_TO_PHASE: dict[str, str] = {
     'INTENT_ESCALATE': 'specification',
     'PLAN_ASSERT': 'planning',
     'PLANNING_ESCALATE': 'planning',
-    'TASK_ASSERT': 'implementation',
-    'TASK_ESCALATE': 'implementation',
     'WORK_ASSERT': 'implementation',
-    'WORK_ESCALATE': 'implementation',
 }
 
 
@@ -666,20 +655,6 @@ _GATE_TEMPLATES: dict[str, tuple[str, list[tuple[str, str]]]] = {
             ('PROMPT.txt', "the user's original request"),
         ],
     ),
-    'TASK_ASSERT': (
-        'Accept or correct this sub-task output.',
-        [
-            ('PLAN.md', 'the approved plan'),
-            ('INTENT.md', 'the approved intent'),
-        ],
-    ),
-    'TASK_ESCALATE': (
-        "Resolve the worker's escalation.",
-        [
-            ('PLAN.md', 'the approved plan'),
-            ('INTENT.md', 'the approved intent'),
-        ],
-    ),
     'WORK_ASSERT': (
         'Approve or revise the overall deliverable.',
         [
@@ -689,25 +664,6 @@ _GATE_TEMPLATES: dict[str, tuple[str, list[tuple[str, str]]]] = {
         ],
     ),
 }
-
-# States where the proxy runs but never escalates to the human.
-# The proxy still reads deliverables, asks questions, and uses learned
-# patterns — but if it's not confident, it goes with its best guess.
-_NEVER_ESCALATE_STATES: frozenset[str] = frozenset({
-    'TASK_ASSERT',
-    'TASK_ESCALATE',
-})
-
-# Max consecutive __fallback__ retries at _NEVER_ESCALATE states before
-# auto-approving.  At these states the proxy is the sole decision-maker;
-# retrying the same empty proxy call is pointless.  WORK_ASSERT downstream
-# will catch real problems.  Issue #155.
-_MAX_FALLBACK_RETRIES = 3
-
-# Upper bound on dialog turns within a single gate review.  Prevents a naive
-# or misbehaving proxy from probing indefinitely.  Hitting the cap auto-
-# approves with a warning so forward progress isn't blocked.
-_MAX_DIALOG_TURNS = 5
 
 
 class ApprovalGate:
@@ -784,8 +740,6 @@ class ApprovalGate:
         )
         dialog_history = ''
         next_bridge = ''  # set after dialog turns to show the agent's reply
-        fallback_count = 0
-        dialog_turns = 0
 
         # NOTE on gate-question publishing:  Do NOT publish the gate question
         # up front.  Publishing before we're ready to listen creates a race:
@@ -831,27 +785,8 @@ class ApprovalGate:
                 session_id=ctx.session_id,
             ))
 
-            # At never-escalate states the proxy is the sole decision-maker.
-            # If it consistently fails (returns empty → __fallback__), retrying
-            # is pointless.  Auto-approve so WORK_ASSERT can catch real problems
-            # downstream.  Issue #155.  Dynamic via human presence (#202).
             team = ctx.env_vars.get('POC_TEAM', '')
-            if action == '__fallback__' and ctx.state in _DEFAULT_NEVER_ESCALATE:
-                fallback_count += 1
-                if fallback_count >= _MAX_FALLBACK_RETRIES:
-                    _actor_log.warning(
-                        'Proxy failed %d times at %s — auto-approving',
-                        fallback_count, ctx.state,
-                    )
-                    action = 'approve'
-                    feedback = ''
-                    # Clear dialog_history — the "dialog" entries are just
-                    # empty proxy responses, not real human conversation.
-                    # Without this, the approve→correct conversion below
-                    # would fire and send stale empty text as feedback.
-                    dialog_history = ''
-
-            if action not in ('dialog', '__fallback__'):
+            if action != 'dialog':
                 # Terminal action.  But if there was dialog, the human was
                 # providing clarification — feed that back to the agent phase
                 # as "correct" so the agent gets another pass with context.
@@ -905,17 +840,6 @@ class ApprovalGate:
 
             # Dialog — generate a reply, then loop back.  The reply becomes
             # the bridge text for the next turn so the human sees the answer.
-            dialog_turns += 1
-            if dialog_turns >= _MAX_DIALOG_TURNS:
-                _actor_log.warning(
-                    'Max dialog turns (%d) reached at %s — auto-approving '
-                    'to prevent probe loop', _MAX_DIALOG_TURNS, ctx.state,
-                )
-                dialog_history += f'{speaker}: {response_text}\n'
-                return ActorResult(
-                    action='approve', feedback='',
-                    dialog_history=dialog_history,
-                )
             dialog_history += f'{speaker}: {response_text}\n'
             stream_path = (
                 os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file)
@@ -1169,12 +1093,11 @@ class ApprovalGate:
             )
             return proxy_result.text, True
 
-        # Never-escalate: per-gate mode, ApprovalGate flag, or the
-        # built-in defaults for states that are proxy-only by design
-        # (TASK_ASSERT, TASK_ESCALATE).  Projects can override any of
-        # these via the ``escalation:`` block in ``project.yaml``.
-        if (force_proxy or self.never_escalate
-                or ctx.state in _DEFAULT_NEVER_ESCALATE):
+        # Never-escalate: per-gate mode or ApprovalGate flag.  With
+        # task-level gates gone, the only sources of never-escalate are
+        # explicit config ('never' in escalation_modes) or the
+        # engine-level flag.
+        if force_proxy or self.never_escalate:
             if first_turn:
                 self._publish_to_job_conversation(
                     ctx, project_slug, 'gate',
@@ -1425,7 +1348,13 @@ class ApprovalGate:
         self, state: str, response: str, dialog_history: str = '',
         intent_summary: str = '', plan_summary: str = '',
     ) -> tuple[str, str]:
-        """Classify human review response into (action, feedback)."""
+        """Classify human review response into (action, feedback).
+
+        On classifier failure or an unparseable response, returns
+        ('dialog', '') so the gate loop re-prompts rather than silently
+        committing to an action.  'dialog' is not a CfA state-machine
+        edge; it is the gate's internal signal to loop back and ask again.
+        """
         try:
             from teaparty.scripts.classify_review import classify
             raw = classify(
@@ -1437,10 +1366,15 @@ class ApprovalGate:
             parts = raw.split('\t', 1)
             action = parts[0]
             feedback = parts[1] if len(parts) > 1 else ''
+            # classify_review emits '__fallback__' when it can't parse its
+            # own output — map to 'dialog' so the gate re-prompts instead
+            # of driving the CfA with a sentinel that is not a valid edge.
+            if action == '__fallback__':
+                return 'dialog', ''
             return action, feedback
         except Exception:
-            _actor_log.warning('Classification failed — falling back to re-prompt', exc_info=True)
-            return '__fallback__', ''
+            _actor_log.warning('Classification failed — re-prompting', exc_info=True)
+            return 'dialog', ''
 
     def _generate_bridge(
         self, artifact_path: str, state: str, task: str,

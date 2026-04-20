@@ -52,7 +52,7 @@ Operational:
 
 In progress / designed:
 
-- Task-level learning signal. TASK_ASSERT and TASK_ESCALATE are currently marked never-escalate — the proxy's guess runs unreviewed, so no differential is recorded when the guess is wrong. This is a deliberate uninterrupted-execution tradeoff whose cost is being tracked.
+- Subteam observability in the dashboard. Now that the state machine has no task-level substates, the visible unit during execution is the message flow between the project-lead and its workgroups rather than a per-task state.
 - Intent re-validation at narrower scope for deep subteams.
 - Engagement orchestration (org-lead negotiation, decomposition of engagements into jobs, feedback bubble-up) — partial; single-level dispatch is operational, recursive spawn tracked separately in the `recursive-dispatch` proposal.
 

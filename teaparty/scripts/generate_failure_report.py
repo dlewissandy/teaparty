@@ -118,7 +118,8 @@ def _select_pointers(
 
 _FAILURE_KEYWORDS = frozenset(
     ("failure", "failed", "error", "blocked", "withdrawn", "backtrack",
-     "denied", "infrastructure", "permission", "TASK_ESCALATE"))
+     "denied", "infrastructure", "permission",
+     "INTENT_ESCALATE", "PLANNING_ESCALATE"))
 
 
 def _scan_session_log(session_dir: Path) -> Optional[EvidencePointer]:

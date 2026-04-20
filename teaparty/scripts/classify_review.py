@@ -80,9 +80,8 @@ CfA state: {state}
    - At PLAN_ASSERT: edits to the plan ("add error handling to step 3", "remove the caching layer", "change the success metric").
    - At WORK_ASSERT: fixes to the delivered work ("fix the bug in the output", "the formatting is wrong", "add tests").
    - At INTENT_ASSERT: edits to the intent document ("add a constraint about latency", "clarify the success criteria").
-   - At TASK_ASSERT: fixes to the task deliverables ("the output is incomplete", "fix the test failures", "clean up the formatting").
 
-4. REVISE-PLAN (WORK_ASSERT and TASK_ASSERT): the PLAN was wrong, not just the execution. Signals: "the approach is wrong", "we should have used X instead of Y", "rethink the architecture", "the design doesn't work".
+4. REVISE-PLAN (WORK_ASSERT only): the PLAN was wrong, not just the execution. Signals: "the approach is wrong", "we should have used X instead of Y", "rethink the architecture", "the design doesn't work".
 
 5. REFINE-INTENT: the OBJECTIVE or PURPOSE needs changing. This can occur at ANY assert state. Signals: "actually, let's build X instead", "the goal should be Y", "change the objective", "on second thought the problem is really Z". This is a scope-level change to WHAT we're doing, not HOW.
 

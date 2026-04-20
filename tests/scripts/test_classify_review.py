@@ -14,12 +14,18 @@ class TestStateActions(unittest.TestCase):
     """STATE_ACTIONS covers all documented CfA review states."""
 
     def test_all_assert_states_present(self):
-        for state in ["INTENT_ASSERT", "PLAN_ASSERT", "TASK_ASSERT", "WORK_ASSERT"]:
+        for state in ["INTENT_ASSERT", "PLAN_ASSERT", "WORK_ASSERT"]:
             self.assertIn(state, mod.STATE_ACTIONS)
 
     def test_all_escalate_states_present(self):
-        for state in ["INTENT_ESCALATE", "PLANNING_ESCALATE", "TASK_ESCALATE"]:
+        for state in ["INTENT_ESCALATE", "PLANNING_ESCALATE"]:
             self.assertIn(state, mod.STATE_ACTIONS)
+
+    def test_task_level_states_absent(self):
+        """Task-level states are no longer in the state machine."""
+        for state in ["TASK_ASSERT", "TASK_ESCALATE", "TASK_IN_PROGRESS"]:
+            self.assertNotIn(state, mod.STATE_ACTIONS,
+                             f"{state} must not appear in STATE_ACTIONS")
 
     def test_intent_assert_actions(self):
         self.assertEqual(
@@ -47,19 +53,9 @@ class TestStateActions(unittest.TestCase):
         self.assertIn("refine-intent", actions)
         self.assertIn("withdraw", actions)
 
-    def test_task_assert_has_reject_and_backtrack(self):
-        actions = mod.STATE_ACTIONS["TASK_ASSERT"]
-        self.assertIn("dialog", actions)
-        self.assertIn("approve", actions)
-        self.assertIn("correct", actions)
-        self.assertIn("reject", actions)
-        self.assertIn("revise-plan", actions)
-        self.assertIn("refine-intent", actions)
-        self.assertIn("withdraw", actions)
-
     def test_escalate_states_no_approve(self):
         """ESCALATE states use 'complete' not 'approve' — approve has no state machine edge."""
-        for state in ["INTENT_ESCALATE", "PLANNING_ESCALATE", "TASK_ESCALATE"]:
+        for state in ["INTENT_ESCALATE", "PLANNING_ESCALATE"]:
             self.assertNotIn("approve", mod.STATE_ACTIONS[state],
                              f"approve should not be in {state}")
 
@@ -83,7 +79,7 @@ class TestStateActions(unittest.TestCase):
                               f"{action} in STATE_ACTIONS[{state}] but not in state machine")
 
     def test_escalate_states_have_dialog_clarify_complete_withdraw(self):
-        for state in ["INTENT_ESCALATE", "PLANNING_ESCALATE", "TASK_ESCALATE"]:
+        for state in ["INTENT_ESCALATE", "PLANNING_ESCALATE"]:
             self.assertEqual(
                 mod.STATE_ACTIONS[state],
                 ["dialog", "clarify", "complete", "withdraw"])
@@ -333,7 +329,7 @@ class TestDialogAction(unittest.TestCase):
         self.assertEqual(feedback, "Have you tested it?")
 
     def test_parse_output_dialog_at_escalate(self):
-        valid = set(mod.STATE_ACTIONS["TASK_ESCALATE"])
+        valid = set(mod.STATE_ACTIONS["PLANNING_ESCALATE"])
         action, feedback = mod.parse_output(
             "dialog\tWhat do you mean by that?", valid)
         self.assertEqual(action, "dialog")
@@ -408,9 +404,6 @@ class TestEscalateCompleteAction(unittest.TestCase):
 
     # ── STATE_ACTIONS ──────────────────────────────────────────────────────────
 
-    def test_complete_in_task_escalate_actions(self):
-        self.assertIn("complete", mod.STATE_ACTIONS["TASK_ESCALATE"])
-
     def test_complete_in_intent_escalate_actions(self):
         self.assertIn("complete", mod.STATE_ACTIONS["INTENT_ESCALATE"])
 
@@ -418,7 +411,7 @@ class TestEscalateCompleteAction(unittest.TestCase):
         self.assertIn("complete", mod.STATE_ACTIONS["PLANNING_ESCALATE"])
 
     def test_escalate_states_now_have_four_actions(self):
-        for state in ("INTENT_ESCALATE", "PLANNING_ESCALATE", "TASK_ESCALATE"):
+        for state in ("INTENT_ESCALATE", "PLANNING_ESCALATE"):
             with self.subTest(state=state):
                 actions = mod.STATE_ACTIONS[state]
                 self.assertIn("dialog", actions)
@@ -428,8 +421,8 @@ class TestEscalateCompleteAction(unittest.TestCase):
 
     # ── parse_output ───────────────────────────────────────────────────────────
 
-    def test_parse_complete_valid_at_task_escalate(self):
-        valid = set(mod.STATE_ACTIONS["TASK_ESCALATE"])
+    def test_parse_complete_valid_at_planning_escalate(self):
+        valid = set(mod.STATE_ACTIONS["PLANNING_ESCALATE"])
         action, feedback = mod.parse_output("complete\t", valid)
         self.assertEqual(action, "complete")
         self.assertEqual(feedback, "")
@@ -449,12 +442,6 @@ class TestEscalateCompleteAction(unittest.TestCase):
 
     # ── classify ───────────────────────────────────────────────────────────────
 
-    def test_classify_complete_at_task_escalate(self):
-        with patch('subprocess.run',
-                   return_value=self._mock_llm("complete\t")):
-            result = mod.classify("TASK_ESCALATE", "the work is complete")
-        self.assertEqual(result, "complete\t")
-
     def test_classify_complete_at_intent_escalate(self):
         with patch('subprocess.run',
                    return_value=self._mock_llm("complete\t")):
@@ -467,26 +454,26 @@ class TestEscalateCompleteAction(unittest.TestCase):
             result = mod.classify("PLANNING_ESCALATE", "looks good, proceed")
         self.assertEqual(result, "complete\t")
 
-    def test_classify_clarify_still_works_at_task_escalate(self):
+    def test_classify_clarify_still_works_at_planning_escalate(self):
         """Existing clarify path must not be broken."""
         with patch('subprocess.run',
                    return_value=self._mock_llm("clarify\tUse PostgreSQL")):
-            result = mod.classify("TASK_ESCALATE", "Use PostgreSQL")
+            result = mod.classify("PLANNING_ESCALATE", "Use PostgreSQL")
         self.assertTrue(result.startswith("clarify\t"))
 
     # ── build_prompt ───────────────────────────────────────────────────────────
 
     def test_escalate_prompt_mentions_complete(self):
-        prompt = mod.build_prompt("TASK_ESCALATE", "the work is complete")
+        prompt = mod.build_prompt("PLANNING_ESCALATE", "the work is complete")
         self.assertIn("complete", prompt.lower())
 
     def test_escalate_prompt_has_complete_signals(self):
-        prompt = mod.build_prompt("TASK_ESCALATE", "done")
+        prompt = mod.build_prompt("PLANNING_ESCALATE", "done")
         self.assertIn("work is complete", prompt.lower())
 
     def test_escalate_prompt_distinguishes_complete_from_clarify(self):
         """The prompt should explain the COMPLETE vs CLARIFY distinction."""
-        prompt = mod.build_prompt("TASK_ESCALATE", "done")
+        prompt = mod.build_prompt("PLANNING_ESCALATE", "done")
         self.assertIn("CLARIFY", prompt.upper())
         self.assertIn("COMPLETE", prompt.upper())
 

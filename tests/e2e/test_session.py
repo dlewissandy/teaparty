@@ -314,13 +314,12 @@ class _SessionTestBase(unittest.TestCase):
             proxy_enabled=False,
             # Force every gate to the human so ``gate_script`` controls
             # the whole session.  The routing decision is now purely
-            # (escalation_mode, proxy_confidence) — no presence override.
-            # Proxy tests that want the proxy path override this with
-            # ``escalation_modes={}`` (or a more targeted dict) in kwargs.
+            # (escalation_mode, proxy_confidence).  Proxy tests that want
+            # the proxy path override this with ``escalation_modes={}``
+            # (or a more targeted dict) in kwargs.
             escalation_modes={
                 'INTENT_ASSERT': 'always',
                 'PLAN_ASSERT':   'always',
-                'TASK_ASSERT':   'always',
                 'WORK_ASSERT':   'always',
             },
         )
@@ -516,19 +515,15 @@ class TestSessionBacktrackPaths(_SessionTestBase):
     def test_work_assert_revise_plan_backtrack(self):
         """WORK_ASSERT → revise-plan → re-runs planning → re-runs execution → COMPLETED_WORK.
 
-        Gate call sequence (execute_only — starts at TASK, so TASK_ASSERT fires first):
-          1. TASK_ASSERT:   approve        (first execution pass)
-          2. WORK_ASSERT:   revise-plan    (backtrack to planning)
-          3. PLAN_ASSERT:   approve        (re-planning)
-          4. TASK_ASSERT:   approve        (re-execution)
-          5. WORK_ASSERT:   approve
+        Gate call sequence (execute_only starts at WORK_IN_PROGRESS):
+          1. WORK_ASSERT:   revise-plan    (backtrack to planning)
+          2. PLAN_ASSERT:   approve        (re-planning)
+          3. WORK_ASSERT:   approve
         """
         t, bus = self._make_transcript_and_bus()
         gate = _GateScript(
-            'approve',                                                     # TASK_ASSERT
             'revise-plan\tthe approach was wrong, use a different architecture',  # WORK_ASSERT
             'approve',                                                     # PLAN_ASSERT
-            'approve',                                                     # TASK_ASSERT (2nd)
             # WORK_ASSERT (2nd) → fallback 'approve'
         )
 
@@ -556,21 +551,17 @@ class TestSessionBacktrackPaths(_SessionTestBase):
     def test_work_assert_refine_intent_backtrack(self):
         """WORK_ASSERT → refine-intent → re-runs intent+planning+execution → COMPLETED_WORK.
 
-        Gate call sequence (execute_only — starts at TASK, so TASK_ASSERT fires first):
-          1. TASK_ASSERT:   approve        (first execution pass)
-          2. WORK_ASSERT:   refine-intent  (backtrack all the way to intent)
-          3. INTENT_ASSERT: approve
-          4. PLAN_ASSERT:   approve
-          5. TASK_ASSERT:   approve        (second execution pass)
-          6. WORK_ASSERT:   approve        (fallback)
+        Gate call sequence (execute_only starts at WORK_IN_PROGRESS):
+          1. WORK_ASSERT:   refine-intent  (backtrack all the way to intent)
+          2. INTENT_ASSERT: approve
+          3. PLAN_ASSERT:   approve
+          4. WORK_ASSERT:   approve        (fallback)
         """
         t, bus = self._make_transcript_and_bus()
         gate = _GateScript(
-            'approve',                                               # TASK_ASSERT
             'refine-intent\tactually the goal should be different',  # WORK_ASSERT
             'approve',                                               # INTENT_ASSERT
             'approve',                                               # PLAN_ASSERT
-            'approve',                                               # TASK_ASSERT (2nd)
             # WORK_ASSERT (2nd) → fallback 'approve'
         )
 
@@ -604,17 +595,13 @@ class TestSessionGateDialog(_SessionTestBase):
     def test_work_assert_correct_then_approve(self):
         """WORK_ASSERT → correct (re-run execution) → WORK_ASSERT → approve.
 
-        Gate call sequence (execute_only — starts at TASK, so TASK_ASSERT fires first):
-          1. TASK_ASSERT:   approve        (first execution pass)
-          2. WORK_ASSERT:   correct        (re-run execution)
-          3. TASK_ASSERT:   approve        (after re-run)
-          4. WORK_ASSERT:   approve
+        Gate call sequence (execute_only starts at WORK_IN_PROGRESS):
+          1. WORK_ASSERT:   correct        (re-run execution)
+          2. WORK_ASSERT:   approve
         """
         t, bus = self._make_transcript_and_bus()
         gate = _GateScript(
-            'approve',                          # TASK_ASSERT (first pass)
             'correct\tthe summary needs more detail',  # WORK_ASSERT
-            'approve',                          # TASK_ASSERT (after re-run)
             # WORK_ASSERT second visit → fallback 'approve'
         )
 
@@ -630,8 +617,8 @@ class TestSessionGateDialog(_SessionTestBase):
             result = self._run_session(session, t)
 
         self._assert_completed(result, t)
-        # TASK_RESPONSE must appear (correct action routes there)
-        self._assert_path_includes(t, 'TASK_RESPONSE', 'WORK_ASSERT', 'COMPLETED_WORK')
+        # WORK_IN_PROGRESS must be re-entered after correct
+        self._assert_path_includes(t, 'WORK_IN_PROGRESS', 'WORK_ASSERT', 'COMPLETED_WORK')
         work_assert_visits = sum(1 for _, _, nxt in t.transitions
                                  if nxt == 'WORK_ASSERT')
         self.assertGreaterEqual(work_assert_visits, 2,
@@ -714,7 +701,6 @@ class TestSessionProxyPaths(_SessionTestBase):
         ``escalation_modes={}`` overrides the test-helper default of
         ``always`` at every gate so the proxy path becomes active.
         ``consult_proxy`` is patched to return a confident 'approve'.
-        TASK_ASSERT is in the built-in never-escalate set — also proxy.
         """
         from teaparty.proxy.agent import ProxyResult
 
@@ -816,10 +802,17 @@ class TestSessionEvents(_SessionTestBase):
         final_states = [nxt for _, _, nxt in t.transitions]
         self.assertIn('COMPLETED_WORK', final_states,
                       f'COMPLETED_WORK never reached{t.render()}')
-        visited = {nxt for _, _, nxt in t.transitions}
-        self.assertTrue(
-            visited & {'TASK', 'TASK_IN_PROGRESS', 'WORK_IN_PROGRESS'},
-            f'No execution-phase states in transitions{t.render()}',
+        # WORK_IN_PROGRESS is entered via set_state_direct in execute_only
+        # mode, so it appears as the source of the first transition rather
+        # than as a target.  Cover both sides of each edge.
+        visited = {s for edge in t.transitions for s in (edge[0], edge[2])}
+        self.assertIn(
+            'WORK_IN_PROGRESS', visited,
+            f'WORK_IN_PROGRESS must appear in the execution path{t.render()}',
+        )
+        self.assertIn(
+            'WORK_ASSERT', visited,
+            f'WORK_ASSERT must appear in the execution path{t.render()}',
         )
 
 

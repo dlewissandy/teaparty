@@ -16,7 +16,7 @@
 //     jobId:           'job-20260412-abc123',
 //     originalRequest: '"Add a new strip..."',
 //     workflowPhase:   'EXEC',
-//     workflowState:   'TASK_IN_PROGRESS',
+//     workflowState:   'WORK_IN_PROGRESS',
 //     needsInput:      false,
 //   });
 

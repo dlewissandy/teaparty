@@ -21,7 +21,7 @@ The CfA state machine (`teaparty/cfa/statemachine/cfa_state.py`) implements the 
 ```python
 class CfaState:
     phase: str              # 'intent' | 'planning' | 'execution'
-    state: str              # e.g., 'PROPOSAL', 'DRAFT', 'TASK_IN_PROGRESS'
+    state: str              # e.g., 'PROPOSAL', 'DRAFT', 'WORK_IN_PROGRESS'
     actor: str              # who should act next
     history: list           # [{state, action, actor, timestamp}, ...]
     backtrack_count: int    # cross-phase backtracks
@@ -56,14 +56,10 @@ There is no dedicated `on_agent_failure()` method — the engine routes all fail
 
 ---
 
-## Never-Escalate Design Pattern and Learning Tradeoff
+## No task-level state machine
 
-The orchestrator marks certain states (TASK_ASSERT, TASK_ESCALATE) as **never-escalate** in the approval gate configuration. This means:
+The execution phase keeps one non-gate non-terminal state: `WORK_IN_PROGRESS`. The project-lead runs normal agent turns inside it, dispatching workgroups over the message bus via `Send` and synthesizing their replies at the turn boundary. Subteam coordination — questions, escalations, retries, revisions — flows through the bus and the proxy escalation chain, not through state-machine edges.
 
-1. The state machine allows transition through these states legally.
-2. The approval gate is invoked but suppresses human escalation if confidence is low.
-3. The proxy's best guess is used instead, even if uncertain.
+The framework does not model task-level substates. A single scalar state cannot coherently represent concurrent dispatches anyway, and encoding delegation patterns in the graph is prescriptive orchestration — agents are agents, and the framework's job is to give the project-lead the right tools and stay out of its way. Fan-in of parallel worker replies happens at the engine turn boundary (driven by open bus contexts), not via `send-and-wait` / `resume` edges.
 
-**Consequence for learning:** When the proxy's guess is wrong at a never-escalate state, no human sees the decision, so no differential is recorded. This silence means high-value learning signals are lost at the task level. The proxy can only learn from escalations at ASSERT states (intent, plan, work).
-
-This is a deliberate tradeoff: uninterrupted execution (goal) vs. task-level learning (cost). See [approval-gate.md](../human-proxy/approval-gate.md) for the full discussion of never-escalate states.
+Every gate the state machine still carries is project-level: `INTENT_ASSERT`, `PLAN_ASSERT`, `WORK_ASSERT`. All three can escalate to the human when the proxy is not confident, so proxy learning is driven entirely by project-level differentials.
