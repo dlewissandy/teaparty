@@ -8,7 +8,7 @@ Dispatch here when the task is to decide how work should be done, not to do it. 
 
 The planning-lead frames the planning problem, dispatches analysis work to appropriate specialists, synthesizes outputs into a coherent plan or roadmap, and delivers it with clear recommendations. It requests clarification when constraints, priorities, or success criteria are undefined, and declares completion when the plan covers scope, sequencing, risks, and dependencies at a level of detail sufficient to begin execution.
 
-**Tools:** Read, Write, Glob, Grep, mcp__teaparty-config__AskQuestion
+**Tools:** [standard workgroup-lead tools](index.md#standard-workgroup-lead-tools)
 **Skills:** digest
 
 ---

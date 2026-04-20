@@ -18,6 +18,25 @@ not added to a project's active team unless explicitly opted in.
 | [coding](coding.md) | coding-lead | Implementation, testing, and code review *(existing)* |
 | [configuration](configuration.md) | configuration-lead | Agent, workgroup, and skills configuration *(existing)* |
 
+## Standard workgroup-lead tools
+
+Every workgroup lead has the same function — decompose a task, delegate to
+members, consolidate the results, reconcile conflicts, relay between
+members and external callers, and decide when the work is done. The
+specialization is in the lead's description and team scope, not in its
+tool set. All leads carry the following allowlist:
+
+| Category | Tools |
+|----------|-------|
+| Inspection | `Read`, `Glob`, `Grep` |
+| Authoring  | `Write`, `Edit` |
+| External   | `WebSearch`, `WebFetch` |
+| Dispatch   | `mcp__teaparty-config__Send`, `mcp__teaparty-config__Reply` (implicit), `mcp__teaparty-config__AskQuestion`, `mcp__teaparty-config__CloseConversation` |
+| Discovery  | `mcp__teaparty-config__GetAgent`, `mcp__teaparty-config__ListAgents`, `mcp__teaparty-config__GetWorkgroup`, `mcp__teaparty-config__ListWorkgroups` |
+
+Each lead's design-doc entry below refers back to this allowlist rather
+than restating it.
+
 ## Skills
 
 Skills carried by all team members.

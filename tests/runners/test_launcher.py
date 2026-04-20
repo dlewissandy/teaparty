@@ -336,6 +336,86 @@ class TestWorktreeComposition(_TempDirMixin, unittest.TestCase):
         url = mcp['mcpServers']['teaparty-config']['url']
         self.assertIn('/mcp/management/test-agent', url)
 
+    def test_jail_hook_staged_for_external_project(self):
+        """The CfA jail hook must be staged into every worktree.
+
+        External-project worktrees (anything but the teaparty repo itself)
+        do not contain teaparty source, so the jail hook script must be
+        copied out of the installed package into .claude/hooks/. Without
+        this the runtime-injected PreToolUse hook in AgentRunner has no
+        script to invoke and agents launch unrestricted.
+        """
+        from teaparty.runners.launcher import compose_launch_worktree
+        compose_launch_worktree(
+            worktree=self._worktree,
+            agent_name='test-agent',
+            scope='management',
+            teaparty_home=self._tp,
+        )
+        staged = os.path.join(
+            self._worktree, '.claude', 'hooks', 'worktree_hook.py',
+        )
+        self.assertTrue(
+            os.path.isfile(staged),
+            f'Jail hook not staged at {staged} — external-project CfA launches '
+            f'will fail _check_jail_hook and die before first turn.',
+        )
+
+    def test_declared_hook_script_staged_from_source_repo(self):
+        """Hook scripts referenced by merged settings must be copied into the worktree.
+
+        Scripts like .claude/hooks/enforce-ownership.sh live in the
+        config-source repo (next to .teaparty/) and are referenced from
+        settings.yaml by relative path. For worktrees that aren't
+        checkouts of that repo, the script must be copied in or the
+        hook silently fails when Claude tries to invoke it.
+        """
+        # Add a hook declaration to the scope settings pointing at a real
+        # script file in the source repo (where .teaparty/ lives).
+        source_repo = os.path.dirname(self._tp.rstrip('/'))
+        hooks_src_dir = os.path.join(source_repo, '.claude', 'hooks')
+        os.makedirs(hooks_src_dir, exist_ok=True)
+        script_path = os.path.join(hooks_src_dir, 'example-hook.sh')
+        with open(script_path, 'w') as f:
+            f.write('#!/bin/sh\nexit 0\n')
+
+        settings_path = os.path.join(self._tp, 'management', 'settings.yaml')
+        with open(settings_path, 'w') as f:
+            yaml.dump({
+                'base_setting': True,
+                'hooks': {
+                    'PreToolUse': [
+                        {
+                            'matcher': 'Edit|Write',
+                            'hooks': [
+                                {
+                                    'type': 'command',
+                                    'command': '.claude/hooks/example-hook.sh',
+                                },
+                            ],
+                        },
+                    ],
+                },
+            }, f)
+
+        from teaparty.runners.launcher import compose_launch_worktree
+        compose_launch_worktree(
+            worktree=self._worktree,
+            agent_name='test-agent',
+            scope='management',
+            teaparty_home=self._tp,
+        )
+        staged = os.path.join(
+            self._worktree, '.claude', 'hooks', 'example-hook.sh',
+        )
+        self.assertTrue(
+            os.path.isfile(staged),
+            f'Declared hook script not staged at {staged} — hook declarations '
+            f'that reference a script by path must copy the script into the worktree.',
+        )
+        with open(staged) as f:
+            self.assertIn('exit 0', f.read())
+
 
 # ── 4. Agent definition resolution ──────────────────────────────────────────
 

@@ -23,9 +23,6 @@ from teaparty.runners.claude import ClaudeResult
 from teaparty.messaging.bus import (
     Event, EventBus, EventType, InputRequest,
 )
-from teaparty.proxy.presence import (
-    HumanPresence, PresenceLevel, _STATE_TO_LEVEL,
-)
 from teaparty.cfa.gates.queue import GateQueue
 from teaparty.cfa.statemachine.cfa_state import TRANSITIONS
 from teaparty.proxy.approval_gate import (
@@ -86,6 +83,31 @@ class ActorContext:
 
 
 _actor_log = _logging.getLogger('teaparty.cfa.actors')
+
+
+def _stage_jail_hook(session_worktree: str, hook_script: str) -> None:
+    """Copy the CfA jail hook script into the worktree at *hook_script*.
+
+    The hook script lives in the teaparty package at
+    ``teaparty/workspace/worktree_hook.py``.  It is copied into the
+    worktree so the PreToolUse ``command`` (which references the path
+    relative to cwd) resolves without requiring the external project's
+    git tree to contain teaparty source.
+
+    Idempotent — overwrites any existing copy.
+    """
+    src = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        'workspace', 'worktree_hook.py',
+    )
+    if not os.path.isfile(src):
+        raise RuntimeError(
+            f'Jail hook source missing from teaparty package: {src}. '
+            f'Install is broken.'
+        )
+    dst = os.path.join(session_worktree, hook_script)
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    shutil.copy2(src, dst)
 
 
 def _check_jail_hook(session_worktree: str, hook_script: str) -> None:
@@ -171,16 +193,26 @@ class AgentRunner:
         if not agents_json:
             agents_path = os.path.join(ctx.poc_root, ctx.phase_spec.agent_file)
 
-        # Build settings — do NOT inject env_vars into settings env.
-        # Issue #150: absolute paths in settings leak into agent context,
-        # causing agents to write to wrong locations.  Env vars are still
-        # available to subprocesses (dispatch_cli.py) via ClaudeRunner._build_env().
-        settings = dict(ctx.phase_spec.settings_overlay)
+        # Build settings from the agent's own configuration.  No hidden
+        # per-phase overlay — the agent's ``settings.yaml`` (folder
+        # permissions) plus its frontmatter ``tools:`` whitelist (what
+        # the config UI writes) are the complete source of truth.
+        # Issue #150: absolute paths in settings leak into agent context;
+        # env vars reach subprocesses via ClaudeRunner._build_env().
+        from teaparty.runners.launcher import _merge_settings as _lm
+        _teaparty_home_for_agent = os.path.join(ctx.project_workdir, '.teaparty')
+        try:
+            settings = _lm(ctx.phase_spec.lead, 'project', _teaparty_home_for_agent)
+        except Exception:
+            settings = {}
 
         # Issue #150: worktree jail hook — reject Read/Edit/Write calls
         # that use absolute paths or target files outside the worktree.
-        # Path is relative to cwd (the worktree), which is a full repo checkout.
-        _JAIL_HOOK_SCRIPT = 'teaparty/workspace/worktree_hook.py'
+        # The hook script is staged into the worktree by
+        # compose_launch_worktree (runners/launcher.py); the path here
+        # must match the staged destination.
+        _JAIL_HOOK_SCRIPT = '.claude/hooks/worktree_hook.py'
+        _stage_jail_hook(ctx.session_worktree, _JAIL_HOOK_SCRIPT)
         _check_jail_hook(ctx.session_worktree, _JAIL_HOOK_SCRIPT)
         jail_hook = {
             'type': 'command',
@@ -201,11 +233,19 @@ class AgentRunner:
         launch_kwargs: dict = {}
         if _caller is not None:
             launch_kwargs['llm_caller'] = _caller
+        # Point the agent's claude -p at the bridge's MCP HTTP endpoint
+        # so ``mcp__teaparty-config__*`` tools (Send, CloseConversation,
+        # AskQuestion, ...) are actually reachable.  Without this the
+        # allowlist still contains them but claude -p sees no such server
+        # and the agent cannot delegate.  Env var matches the dispatch
+        # paths in engine.py.
+        _mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
         result = await launch(
             agent_name=ctx.phase_spec.lead,
             message=prompt,
             scope='project',
             telemetry_scope=ctx.env_vars.get('POC_PROJECT', 'project'),
+            mcp_port=_mcp_port,
             # Agent definitions live in the project's own .teaparty/project/agents/
             # directory; the org management catalog is the fallback (Issue #408).
             teaparty_home=os.path.join(ctx.project_workdir, '.teaparty'),
@@ -331,16 +371,15 @@ class AgentRunner:
     def _no_artifact_action_for_state(state: str) -> str:
         """Return the action to take when the expected artifact was not produced.
 
-        For WORK_IN_PROGRESS, this is the common case: the project-lead
-        is working and hasn't written WORK_SUMMARY.md yet.  Prefer the
+        For WORK_IN_PROGRESS, this is the common case: the project-lead is
+        working and hasn't written WORK_SUMMARY.md yet.  Prefer the
         ``continue`` self-loop so the engine re-invokes the lead on the
         same state instead of phase-backtracking.
 
         For gate-bearing phases (intent / planning), prefer 'question'
         (loops through human input before the agent retries), then
-        'escalate', then 'backtrack' — whichever is valid from the
-        current state.  Never returns 'assert', which requires the
-        artifact to exist.
+        'escalate', then 'backtrack' — whichever is valid from the current
+        state.  Never returns 'assert', which requires the artifact to exist.
         """
         edges = TRANSITIONS.get(state, [])
         valid = {a for a, _, _ in edges}
@@ -644,7 +683,6 @@ class ApprovalGate:
         poc_root: str,
         proxy_enabled: bool = True,
         never_escalate: bool = False,
-        human_presence: HumanPresence | None = None,
         escalation_modes: dict[str, str] | None = None,
         gate_queue: GateQueue | None = None,
     ):
@@ -653,7 +691,6 @@ class ApprovalGate:
         self.poc_root = poc_root
         self.proxy_enabled = proxy_enabled
         self.never_escalate = never_escalate
-        self.human_presence = human_presence
         # Per-state override of the escalation decision.  Keys are CfA state
         # names; values are 'always' (force human escalation), 'when_unsure'
         # (default; use proxy's confidence), or 'never' (force proxy answer).
@@ -748,6 +785,7 @@ class ApprovalGate:
                 session_id=ctx.session_id,
             ))
 
+            team = ctx.env_vars.get('POC_TEAM', '')
             if action != 'dialog':
                 # Terminal action.  But if there was dialog, the human was
                 # providing clarification — feed that back to the agent phase
@@ -836,9 +874,16 @@ class ApprovalGate:
             # appears in the accordion alongside the proxy's probe.  This
             # response is generated by a blocking LLM call (not streamed
             # through the Claude CLI handler), so it would otherwise be
-            # invisible.
+            # invisible.  Use the phase's configured lead (e.g.
+            # ``joke-book-lead``) so the chat attribution matches the
+            # streamed agent text; a hardcoded ``'agent'`` would produce
+            # a second persona for the same speaker.
+            lead_sender = (
+                ctx.phase_spec.lead if ctx.phase_spec and ctx.phase_spec.lead
+                else 'agent'
+            )
             self._publish_to_job_conversation(
-                ctx, project_slug, 'agent', agent_reply,
+                ctx, project_slug, lead_sender, agent_reply,
             )
 
     async def _ask_human_through_proxy(
@@ -960,23 +1005,22 @@ class ApprovalGate:
         if pending:
             return pending, False
 
-        # Per-gate escalation mode override.  'always' forces the human-
-        # present branch regardless of HumanPresence config (proxy still
-        # ran for observation/learning).  'never' forces the proxy-answer
-        # branch regardless of confidence.  'when_unsure' (or unset) falls
-        # through to the default logic below.
+        # Per-gate escalation mode.  Inputs to the decision are exactly
+        # (gate_mode, proxy_confidence) — no presence check.
+        #
+        #   always        → skip proxy, ask the human.
+        #   never         → proxy answers unconditionally.
+        #   when_unsure   → proxy answers if confident, else escalate
+        #                    to the human.
         gate_mode = self.escalation_modes.get(ctx.state, 'when_unsure')
         force_human = (gate_mode == 'always')
         force_proxy = (gate_mode == 'never')
 
-        # Issue #202: When the human is present at this gate's level,
-        # route directly to the human.  The proxy still ran (for observation
-        # and learning) but doesn't answer — the human does.
         team = ctx.env_vars.get('POC_TEAM', '')
         actor_message = ctx.data.get('actor_message', '')
-        if force_human or (self.human_presence is not None
-                and self.human_presence.human_should_answer(ctx.state, team=team)):
-            # Human is present — ask them directly, record observation
+        if force_human:
+            # Skip the proxy entirely — escalation config says this gate
+            # always goes to the human.
             bridge_text = bridge_override or self._generate_bridge(
                 artifact_path, ctx.state, ctx.task,
                 session_worktree=ctx.session_worktree, infra_dir=ctx.infra_dir,
@@ -997,14 +1041,8 @@ class ApprovalGate:
                 data={'response': response_text, 'human_present': True},
                 session_id=ctx.session_id,
             ))
-            # Record observation for proxy learning
-            level = _STATE_TO_LEVEL.get(ctx.state, PresenceLevel.PROJECT)
-            self.human_presence.record_observation(
-                level=level, team=team, state=ctx.state,
-                human_response=response_text,
-                context=f'Gate {ctx.state} artifact={artifact_path}',
-            )
-            # Persist to ACT-R memory so cross-level learning flows (#202)
+            # Learning signal: the delta between what the proxy would
+            # have said and what the human actually said.
             pr = self._last_proxy_result
             self._proxy_record(
                 ctx.state, project_slug, 'approve',
@@ -1032,8 +1070,8 @@ class ApprovalGate:
         # first turn of this gate — the first time the proxy is being asked
         # about the current artifact.  On subsequent turns, bridge_override
         # carries the agent's reply to the proxy's prior probe, and that
-        # reply is already published as 'agent' by the outer loop — so
-        # re-publishing it here would be a duplicate with a confusing label.
+        # reply has already been published (by the dialog-reply write above)
+        # under the phase lead's name — re-publishing here would duplicate it.
         first_turn = not bridge_override
 
         def _gate_bridge() -> str:
@@ -1055,9 +1093,10 @@ class ApprovalGate:
             )
             return proxy_result.text, True
 
-        # Never-escalate: per-gate mode or ApprovalGate flag.  With task-level
-        # gates gone, the only sources of never-escalate are explicit config
-        # ('never' in escalation_modes) or the engine-level flag.
+        # Never-escalate: per-gate mode or ApprovalGate flag.  With
+        # task-level gates gone, the only sources of never-escalate are
+        # explicit config ('never' in escalation_modes) or the
+        # engine-level flag.
         if force_proxy or self.never_escalate:
             if first_turn:
                 self._publish_to_job_conversation(

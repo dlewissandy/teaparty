@@ -8,7 +8,7 @@ Dispatch here when the task requires writing, modifying, or reviewing code. The 
 
 The coding-lead breaks the implementation task into sub-tasks, assigns to architect, developer, or reviewer as appropriate, integrates the work, and delivers a working implementation with tests. It requests clarification when requirements are ambiguous or when a design decision requires the requestor's input — it does not make product decisions unilaterally. It declares completion when the implementation passes review and tests.
 
-**Tools:** Read, ListFiles, mcp__teaparty-config__Send, mcp__teaparty-config__AskQuestion
+**Tools:** [standard workgroup-lead tools](index.md#standard-workgroup-lead-tools)
 
 ---
 

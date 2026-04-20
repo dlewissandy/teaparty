@@ -224,7 +224,7 @@ class TestSkillLookupIntegrationWithEngine(unittest.TestCase):
             name='planning', agent_file='agents/uber-team.json',
             lead='project-lead', permission_mode='acceptEdits',
             stream_file='.plan-stream.jsonl', artifact='PLAN.md',
-            approval_state='PLAN_ASSERT', settings_overlay={},
+            approval_state='PLAN_ASSERT',
         )
 
         orch = Orchestrator(

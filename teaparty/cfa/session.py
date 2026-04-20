@@ -27,7 +27,6 @@ from teaparty.cfa.actors import InputProvider
 from teaparty.cfa.engine import Orchestrator, OrchestratorResult
 from teaparty.messaging.bus import Event, EventBus, EventType
 from teaparty.proxy.hooks import proxy_home
-from teaparty.proxy.presence import HumanPresence
 from teaparty.learning.extract import extract_learnings
 from teaparty.workspace.merge import (
     commit_deliverables, squash_merge, MergeConflictEscalation,
@@ -180,7 +179,6 @@ class Session:
         learning_retrieval_mode: str = 'flat',
         skip_learning_retrieval: bool = False,
         humans: list | None = None,
-        human_presence: HumanPresence | None = None,
         escalation_modes: dict[str, str] | None = None,
         llm_caller: Any = None,
     ):
@@ -208,7 +206,6 @@ class Session:
         self.learning_retrieval_mode = learning_retrieval_mode
         self.skip_learning_retrieval = skip_learning_retrieval
         self._role_enforcer = RoleEnforcer.from_humans(humans) if humans else None
-        self.human_presence = human_presence
         self.escalation_modes = escalation_modes or {}
         self._llm_caller = llm_caller
 
@@ -415,7 +412,6 @@ class Session:
                 proxy_enabled=self.proxy_enabled,
                 project_dir=project_dir,
                 role_enforcer=self._role_enforcer,
-                human_presence=self.human_presence,
                 escalation_modes=self.escalation_modes,
                 cost_tracker=self._resolve_cost_tracker(project_dir),
                 intervention_queue=self._intervention_queue,
@@ -793,7 +789,6 @@ class Session:
         event_bus: EventBus | None = None,
         input_provider: InputProvider | None = None,
         humans: list | None = None,
-        human_presence: HumanPresence | None = None,
         escalation_modes: dict[str, str] | None = None,
     ) -> SessionResult:
         """Reconstruct a session from persisted disk state and resume orchestration.
@@ -940,6 +935,8 @@ class Session:
             # Seed intervention queue with any human messages that arrived while
             # the session was dead.  These are trailing human messages in the bus
             # that no agent has responded to — the "kick" that triggered resume.
+            # ``persist=False`` because these messages are already on the bus;
+            # enqueueing them with persist=True would write duplicates back.
             try:
                 all_msgs = message_bus.receive(conversation_id)
                 # Find trailing human messages (after the last non-human message).
@@ -949,7 +946,9 @@ class Session:
                         last_agent_idx = i
                 for m in all_msgs[last_agent_idx + 1:]:
                     if m.sender == 'human':
-                        intervention_queue.enqueue(m.content, sender=m.sender)
+                        intervention_queue.enqueue(
+                            m.content, sender=m.sender, persist=False,
+                        )
             except Exception:
                 pass
 
@@ -971,7 +970,6 @@ class Session:
                 last_actor_data=last_actor_data,
                 project_dir=project_dir,
                 role_enforcer=role_enforcer,
-                human_presence=human_presence,
                 escalation_modes=escalation_modes,
                 cost_tracker=_resolve_cost_tracker_impl(project_dir),
                 intervention_queue=intervention_queue,

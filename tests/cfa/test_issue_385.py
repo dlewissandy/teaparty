@@ -182,8 +182,10 @@ class TestBehaviorUnchanged(unittest.TestCase):
         self.assertEqual(agents['developer']['model'], 'sonnet')
         self.assertEqual(agents['reviewer']['model'], 'sonnet')
 
-        # Prompts must contain key identity phrases
-        self.assertIn('coding team lead', agents['coding-lead']['prompt'].lower())
+        # Prompts must contain key identity phrases. The coding-lead prompt
+        # uses the unified workgroup-lead template; match its identity on the
+        # workgroup name rather than the legacy "coding team lead" phrase.
+        self.assertIn('**coding** workgroup', agents['coding-lead']['prompt'].lower())
         self.assertIn('software architect', agents['architect']['prompt'].lower())
         self.assertIn('software developer', agents['developer']['prompt'].lower())
         self.assertIn('code reviewer', agents['reviewer']['prompt'].lower())

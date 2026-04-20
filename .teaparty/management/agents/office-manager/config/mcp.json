@@ -2,7 +2,7 @@
   "mcpServers": {
     "teaparty-config": {
       "type": "http",
-      "url": "http://localhost:8081/mcp/management/office-manager/office-manager"
+      "url": "http://localhost:9000/mcp/management/office-manager/office-manager"
     }
   }
 }

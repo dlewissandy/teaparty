@@ -1282,7 +1282,6 @@ class TestSuppressBacktracks(unittest.TestCase):
             approval_state='INTENT_ASSERT',
             escalation_state='INTENT_ESCALATE',
             escalation_file='.intent-escalation.md',
-            settings_overlay={},
         )
 
         event_bus = MagicMock(spec=EventBus)
@@ -1395,7 +1394,6 @@ class TestProxyEnabled(unittest.TestCase):
             approval_state='INTENT_ASSERT',
             escalation_state='INTENT_ESCALATE',
             escalation_file='.intent-escalation.md',
-            settings_overlay={},
         )
 
         event_bus = MagicMock(spec=EventBus)

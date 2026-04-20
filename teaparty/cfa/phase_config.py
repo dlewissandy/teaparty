@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -21,7 +21,6 @@ class PhaseSpec:
     stream_file: str
     artifact: str | None
     approval_state: str
-    settings_overlay: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -81,7 +80,6 @@ class PhaseConfig:
                 stream_file=spec['stream_file'],
                 artifact=spec.get('artifact'),
                 approval_state=spec['approval_state'],
-                settings_overlay=spec.get('settings_overlay', {}),
             )
 
         for name, spec in raw.get('teams', {}).items():
@@ -340,7 +338,6 @@ class PhaseConfig:
                 stream_file=base.stream_file,
                 artifact=base.artifact,
                 approval_state=base.approval_state,
-                settings_overlay=overrides.get('settings_overlay', base.settings_overlay),
             )
 
         # Substitute project lead from project.yaml when the phase uses the generic
@@ -354,7 +351,6 @@ class PhaseConfig:
                 stream_file=base.stream_file,
                 artifact=base.artifact,
                 approval_state=base.approval_state,
-                settings_overlay=base.settings_overlay,
             )
 
         return base

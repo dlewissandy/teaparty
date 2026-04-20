@@ -8,7 +8,7 @@ Dispatch here when the task involves defining or modifying how agents, workgroup
 
 The configuration-lead scopes the configuration work, dispatches to appropriate specialists, reviews outputs for correctness and internal consistency, and delivers configuration artifacts. It requests clarification when the intended agent behavior, tool scope, or skill design is underspecified — configuration errors propagate silently and are hard to trace after the fact. It declares completion when the configuration is consistent, correct, and the affected agents or workgroups behave as intended.
 
-**Tools:** Read, Glob, Grep, Bash, mcp__teaparty-config__Send
+**Tools:** [standard workgroup-lead tools](index.md#standard-workgroup-lead-tools)
 
 ---
 

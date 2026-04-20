@@ -8,7 +8,7 @@ Dispatch here when the task requires a visual artifact — a diagram, illustrati
 
 The art-lead interprets the visual brief, decides which format and artist is appropriate for the content, dispatches work, reviews output for accuracy and clarity, and delivers the final artifact. It requests clarification when the intended audience, medium, or content is undefined, and declares completion when the artifact communicates its content accurately in the chosen format.
 
-**Tools:** Read, Write, Glob, Grep, mcp__teaparty-config__AskQuestion
+**Tools:** [standard workgroup-lead tools](index.md#standard-workgroup-lead-tools)
 **Skills:** digest
 
 ---

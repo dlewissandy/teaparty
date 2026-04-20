@@ -55,7 +55,7 @@ def _make_tmp(tc: unittest.TestCase) -> str:
 
 def _install_jail_hook(worktree: str) -> None:
     """Create a stub worktree_hook.py so AgentRunner validation passes in tests."""
-    hook_dir = os.path.join(worktree, 'teaparty', 'workspace')
+    hook_dir = os.path.join(worktree, '.claude', 'hooks')
     os.makedirs(hook_dir, exist_ok=True)
     with open(os.path.join(hook_dir, 'worktree_hook.py'), 'w') as f:
         f.write('# stub\n')
@@ -449,6 +449,93 @@ class TestStreamEventHandlerSender(unittest.TestCase):
                 sender, 'comics-lead',
                 f"all text blocks must use 'comics-lead' sender, got '{sender}'",
             )
+
+
+# ── Layer 3b: Dialog-reply publish sender ────────────────────────────────────
+#
+# The stream handler covers the `claude -p` stream path.  Gate review-
+# dialog replies are produced by a separate **blocking** LLM call
+# (``_generate_dialog_response``) and are written to the bus by
+# ``ApprovalGate._publish_to_job_conversation(...)`` so they show up in
+# the chat.  That write previously hardcoded ``sender='agent'``, which
+# produced a second persona ("agent") next to the streamed text ("
+# comics-lead") for the same speaker.  These tests lock in the fix:
+# the dialog-reply publish uses the phase's configured lead, and no
+# call site under ``actors.py`` passes the literal ``'agent'`` string
+# to ``_publish_to_job_conversation``.
+
+
+class TestDialogReplyPublishSender(unittest.TestCase):
+    """Dialog-reply publish must use the phase lead, not hardcoded 'agent'."""
+
+    def _actors_source(self) -> str:
+        path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+            'teaparty', 'cfa', 'actors.py',
+        )
+        with open(path) as f:
+            return f.read()
+
+    def test_no_hardcoded_agent_sender_in_publish_calls(self) -> None:
+        """No ``_publish_to_job_conversation(..., 'agent', ...)`` call survives.
+
+        Valid hardcoded senders for this helper are UI filter labels
+        like ``'gate'`` and ``'proxy'``.  ``'agent'`` must never appear
+        — the phase's configured lead is the correct sender for any
+        text produced by the agent itself.
+        """
+        import re
+        content = self._actors_source()
+        # Match _publish_to_job_conversation(...) call arguments; look for
+        # a literal 'agent' string as the sender.
+        calls = re.findall(
+            r'_publish_to_job_conversation\s*\(\s*[^,]+,\s*[^,]+,\s*'
+            r"('[^']*'|\"[^\"]*\"|[^,\s)]+)",
+            content,
+        )
+        for sender_arg in calls:
+            self.assertNotEqual(
+                sender_arg.strip(), "'agent'",
+                'actors.py: no _publish_to_job_conversation call may pass '
+                "the literal sender 'agent'.  Use the phase lead "
+                '(ctx.phase_spec.lead) so chat attribution matches the '
+                'streamed agent text.',
+            )
+            self.assertNotEqual(
+                sender_arg.strip(), '"agent"',
+                'actors.py: no _publish_to_job_conversation call may pass '
+                'the literal sender "agent".',
+            )
+
+    def test_dialog_reply_publish_uses_phase_lead(self) -> None:
+        """The dialog-reply publish site must derive its sender from ``ctx.phase_spec.lead``.
+
+        This is the specific call at the end of the review-dialog turn
+        that writes the agent's blocking-LLM response to the bus.
+        Without the phase lead as sender, the chat shows two personas
+        ("agent" and "{lead-name}") for the same speaker.
+        """
+        import re
+        content = self._actors_source()
+        # Locate the dialog-reply publish site by its explanatory
+        # comment ("Publish the agent's dialog reply ... not streamed")
+        # and confirm that the sender argument resolves to the phase
+        # lead rather than a hardcoded string.
+        block = re.search(
+            r"Publish the agent's dialog reply[\s\S]{0,800}?"
+            r'_publish_to_job_conversation\([^)]*\)',
+            content,
+        )
+        self.assertIsNotNone(
+            block,
+            "could not locate the dialog-reply publish site in actors.py",
+        )
+        self.assertIn(
+            'ctx.phase_spec.lead', block.group(),
+            'dialog-reply publish must derive its sender from '
+            '``ctx.phase_spec.lead`` so chat attribution matches the '
+            'configured project or workgroup lead.',
+        )
 
 
 # ── Layer 4: MessageBusInputProvider sender ───────────────────────────────────

@@ -8,7 +8,7 @@ Dispatch here when the task requires finding information that does not already e
 
 The research-lead breaks the brief into sub-questions, assigns each to the appropriate specialist, and synthesizes the findings into a coherent summary before reporting back. It decides when scope is too ambiguous to proceed without clarification — particularly when findings conflict in ways only the requestor can resolve — and declares completion when the brief is answered with sourced evidence.
 
-**Tools:** Read, Write, Glob, Grep, mcp__teaparty-config__AskQuestion
+**Tools:** [standard workgroup-lead tools](index.md#standard-workgroup-lead-tools)
 **Skills:** digest
 
 ---

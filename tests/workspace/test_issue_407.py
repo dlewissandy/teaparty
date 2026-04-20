@@ -352,7 +352,6 @@ class TestInterpretOutputFindsArtifactInWorktree(unittest.TestCase):
             stream_file='.exec-stream.jsonl',
             artifact=artifact,
             approval_state='WORK_ASSERT',
-            settings_overlay={},
         )
         return ActorContext(
             state='WORK_IN_PROGRESS',
@@ -428,7 +427,7 @@ class TestInterpretOutputFindsArtifactInWorktree(unittest.TestCase):
             name='intent', agent_file='agents/intent.json',
             lead='intent-lead', permission_mode='acceptEdits',
             stream_file='.intent-stream.jsonl', artifact='INTENT.md',
-            approval_state='INTENT_ASSERT', settings_overlay={},
+            approval_state='INTENT_ASSERT',
         )
         ctx = ActorContext(
             state='PROPOSAL', phase='intent', task='Build the feature',
@@ -478,7 +477,7 @@ class TestCheckSkillCorrectionReadsFromWorktree(unittest.TestCase):
             name='planning', agent_file='agents/uber-team.json',
             lead='project-lead', permission_mode='acceptEdits',
             stream_file='.plan-stream.jsonl', artifact='PLAN.md',
-            approval_state='PLAN_ASSERT', settings_overlay={},
+            approval_state='PLAN_ASSERT',
         )
 
         orch = Orchestrator(
