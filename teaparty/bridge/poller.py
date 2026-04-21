@@ -21,7 +21,7 @@ from typing import Awaitable, Callable
 
 _log = logging.getLogger('teaparty.bridge.poller')
 
-_TERMINAL_STATES = frozenset({'COMPLETED_WORK', 'WITHDRAWN'})
+_TERMINAL_STATES = frozenset({'DONE', 'WITHDRAWN'})
 
 
 class StatePoller:

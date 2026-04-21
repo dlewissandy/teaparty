@@ -246,7 +246,7 @@ class CronScheduler:
                 input_provider=None,
             )
             result = await session.run()
-            success = result.terminal_state == 'COMPLETED_WORK'
+            success = result.terminal_state == 'DONE'
             reason = '' if success else f'terminal_state={result.terminal_state}'
         except Exception as exc:
             success = False

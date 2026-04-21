@@ -69,23 +69,44 @@ async def _default_proxy(question: str, context: str) -> dict[str, Any]:
 
 
 async def _default_human(question: str) -> str:
-    """Default human input: communicate via the orchestrator socket."""
-    socket_path = os.environ.get('ASK_QUESTION_SOCKET', '')
-    if not socket_path:
+    """Default human input: communicate via the orchestrator over the message bus.
+
+    Posts an ``{"type":"ask_human","question":...}`` message from sender
+    ``agent`` onto ``ASK_QUESTION_CONV_ID`` in the bus at ``ASK_QUESTION_BUS_DB``,
+    then polls the same conversation for an ``{"answer":...}`` message from
+    sender ``orchestrator`` and returns its ``answer`` field.
+    """
+    bus_db = os.environ.get('ASK_QUESTION_BUS_DB', '')
+    conv_id = os.environ.get('ASK_QUESTION_CONV_ID', '')
+    if not bus_db or not conv_id:
         raise RuntimeError(
-            'ASK_QUESTION_SOCKET not set — cannot escalate to human'
+            'ASK_QUESTION_BUS_DB / ASK_QUESTION_CONV_ID not set — '
+            'cannot escalate to human'
         )
-    reader, writer = await asyncio.open_unix_connection(socket_path)
-    try:
-        request = json.dumps({'type': 'ask_human', 'question': question})
-        writer.write(request.encode() + b'\n')
-        await writer.drain()
-        response_line = await reader.readline()
-        response = json.loads(response_line.decode())
-        return response.get('answer', '')
-    finally:
-        writer.close()
-        await writer.wait_closed()
+
+    # Import lazily so the MCP tool module doesn't pull in the whole
+    # teaparty package at import time.
+    from teaparty.messaging.conversations import SqliteMessageBus  # noqa: PLC0415
+
+    import time as _time  # noqa: PLC0415
+
+    bus = SqliteMessageBus(bus_db)
+    since = _time.time()
+    bus.send(conv_id, 'agent', json.dumps({
+        'type': 'ask_human',
+        'question': question,
+    }))
+
+    while True:
+        messages = bus.receive(conv_id, since_timestamp=since)
+        for msg in messages:
+            if msg.sender == 'orchestrator':
+                try:
+                    payload = json.loads(msg.content)
+                except json.JSONDecodeError:
+                    return msg.content
+                return payload.get('answer', '')
+        await asyncio.sleep(0.1)
 
 
 # ── Scratch file helpers ────────────────────────────────────────────────

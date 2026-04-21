@@ -41,7 +41,7 @@ STATE_CONFIG = {
         "template": "escalate",
         "noun": "plan",
     },
-    "WORK_ASSERT": {
+    "EXECUTE": {
         "template": "work_assert",
         "noun": "deliverables",
     },
@@ -163,7 +163,7 @@ def read_file_content(file_path: str) -> str:
 _FALLBACK_QUESTIONS = {
     "INTENT_ASSERT": "Do you recognize this intent document as your idea, completely and accurately articulated?",
     "PLAN_ASSERT": "Do you recognize this plan as a strategic plan to operationalize your idea well?",
-    "WORK_ASSERT": "Do you recognize the deliverables as your idea, completely and well implemented?",
+    "EXECUTE": "Do you recognize the deliverables as your idea, completely and well implemented?",
 }
 
 

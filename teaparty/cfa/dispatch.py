@@ -386,7 +386,7 @@ async def dispatch(
 
     while retries <= max_retries:
         result = await orchestrator.run()
-        if result.terminal_state in ('COMPLETED_WORK', 'WITHDRAWN'):
+        if result.terminal_state in ('DONE', 'WITHDRAWN'):
             break
         if result.escalation_type:  # escalation — don't retry, surface it
             break
@@ -407,7 +407,7 @@ async def dispatch(
     # Direct-model teams (issue #240) already wrote to session_worktree — no merge needed.
     merge_failed = False
     merge_error = ''
-    if not direct_model and result and result.terminal_state == 'COMPLETED_WORK':
+    if not direct_model and result and result.terminal_state == 'DONE':
         # Generate commit message — failures fall back to a static message
         # so they never prevent the merge from being attempted.
         try:
@@ -436,7 +436,7 @@ async def dispatch(
 
     # Write dispatch MEMORY.md for the rollup chain — only if merge succeeded
     # (or direct model, where there's no merge step).
-    if result and result.terminal_state == 'COMPLETED_WORK' and not merge_failed:
+    if result and result.terminal_state == 'DONE' and not merge_failed:
         _write_dispatch_memory(dispatch_infra, team, task, result)
 
     # Release worktree — skip for direct model (no child worktree to remove)
@@ -446,7 +446,7 @@ async def dispatch(
     # Finalize heartbeat with terminal status (issue #149)
     from teaparty.bridge.state.heartbeat import finalize_heartbeat
     hb_path = os.path.join(dispatch_infra, '.heartbeat')
-    hb_status = 'completed' if (result and result.terminal_state == 'COMPLETED_WORK' and not merge_failed) else 'withdrawn'
+    hb_status = 'completed' if (result and result.terminal_state == 'DONE' and not merge_failed) else 'withdrawn'
     try:
         finalize_heartbeat(hb_path, hb_status)
     except FileNotFoundError:
@@ -470,7 +470,7 @@ async def dispatch(
     # the parent agent must know that deliverables did not land.
     if merge_failed:
         status = 'failed'
-    elif result and result.terminal_state == 'COMPLETED_WORK':
+    elif result and result.terminal_state == 'DONE':
         status = 'completed'
     else:
         status = 'failed'

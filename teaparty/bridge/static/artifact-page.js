@@ -15,8 +15,8 @@
 //     // Job-mode-only fields (undefined in browse mode):
 //     jobId:           'job-20260412-abc123',
 //     originalRequest: '"Add a new strip..."',
-//     workflowPhase:   'EXEC',
-//     workflowState:   'WORK_IN_PROGRESS',
+//     workflowPhase:   'execution',
+//     workflowState:   'EXECUTE',
 //     needsInput:      false,
 //   });
 

@@ -12,7 +12,7 @@ import json
 import os
 
 
-_TERMINAL_STATES = frozenset({'COMPLETED_WORK', 'WITHDRAWN'})
+_TERMINAL_STATES = frozenset({'DONE', 'WITHDRAWN'})
 
 # States where the agent escalated to a human (questions and escalations,
 # not approval gates which are scheduled checkpoints).
@@ -81,7 +81,7 @@ def _count_skills(project_dirs: list[str]) -> int:
 def _count_completed_tasks(sessions: list) -> int:
     """Count completed-work transitions across all CfA state history files.
 
-    A job completes when the state machine transitions FROM 'WORK_ASSERT'
+    A job completes when the state machine transitions FROM 'EXECUTE'
     via action 'approve'.  Subteam work is coordinated via messaging and
     is not represented in the state machine, so the analogous metric is
     at the job level.
@@ -97,7 +97,7 @@ def _count_completed_tasks(sessions: list) -> int:
             with open(cfa_path) as f:
                 data = json.load(f)
             for entry in data.get('history', []):
-                if entry.get('state') == 'WORK_ASSERT' and entry.get('action') == 'approve':
+                if entry.get('state') == 'EXECUTE' and entry.get('action') == 'approve':
                     count += 1
         except (OSError, ValueError):
             pass
@@ -117,7 +117,7 @@ def _tasks_by_day(sessions: list, day_labels: list[str]) -> dict[str, int]:
             with open(cfa_path) as f:
                 data = json.load(f)
             for entry in data.get('history', []):
-                if entry.get('state') == 'WORK_ASSERT' and entry.get('action') == 'approve':
+                if entry.get('state') == 'EXECUTE' and entry.get('action') == 'approve':
                     ts = entry.get('timestamp', '')
                     if not ts:
                         continue
@@ -264,7 +264,7 @@ def compute_stats(teaparty_home: str, projects_dir: str | None = None) -> dict:
     all_sessions = [s for p in all_projects for s in p.sessions]
 
     # ── Summary scalars ──────────────────────────────────────────────────────
-    jobs_done   = sum(1 for s in all_sessions if s.cfa_state == 'COMPLETED_WORK')
+    jobs_done   = sum(1 for s in all_sessions if s.cfa_state == 'DONE')
     withdrawals = sum(1 for s in all_sessions if s.cfa_state == 'WITHDRAWN')
     active_jobs = sum(1 for s in all_sessions if s.cfa_state not in _TERMINAL_STATES)
     backtracks  = sum(s.backtrack_count for s in all_sessions)

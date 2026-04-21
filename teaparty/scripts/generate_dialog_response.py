@@ -152,7 +152,7 @@ def build_context(state: str, artifact_path: str = "",
         artifact_content = "(no artifact content available)"
 
     extra_context = ""
-    if exec_stream_path and state == "WORK_ASSERT":
+    if exec_stream_path and state == "EXECUTE":
         stream_tail = read_exec_stream(exec_stream_path)
         if stream_tail:
             extra_context = (

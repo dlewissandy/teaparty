@@ -364,7 +364,7 @@ def _set_cfa_withdrawn(infra_dir: str) -> None:
     except (FileNotFoundError, json.JSONDecodeError):
         return
 
-    if cfa.get('state') in ('COMPLETED_WORK', 'WITHDRAWN'):
+    if cfa.get('state') in ('DONE', 'WITHDRAWN'):
         return
 
     cfa['state'] = 'WITHDRAWN'
@@ -616,7 +616,7 @@ def _migrate_one_session(project_root: str, sessions_dir: str,
         with open(cfa_path) as f:
             cfa = json.load(f)
         cfa_state = cfa.get('state', '')
-        if cfa_state in ('COMPLETED_WORK', 'WITHDRAWN'):
+        if cfa_state in ('DONE', 'WITHDRAWN'):
             status = 'complete'
     except (OSError, ValueError):
         pass

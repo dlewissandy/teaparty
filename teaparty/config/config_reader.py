@@ -1381,7 +1381,7 @@ def scaffold_project_lead(
             'description': description,
             'model': 'sonnet',
             'maxTurns': 30,
-            'skills': ['intent-alignment', 'planning'],
+            'skills': ['intent-alignment', 'planning', 'execute'],
         }
         body = PROJECT_LEAD_BODY_TEMPLATE.format(
             project_name=project_name, decider=decider,

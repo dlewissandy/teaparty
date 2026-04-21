@@ -36,7 +36,7 @@ def withdraw_session(infra_dir: str) -> dict:
         return {'status': 'error', 'reason': f'CfA state not found: {cfa_path}'}
 
     # Already terminal — no-op
-    if cfa.get('state') in ('COMPLETED_WORK', 'WITHDRAWN'):
+    if cfa.get('state') in ('DONE', 'WITHDRAWN'):
         return {'status': 'already_terminal', 'state': cfa['state']}
 
     # Record pre-transition state, then set to WITHDRAWN

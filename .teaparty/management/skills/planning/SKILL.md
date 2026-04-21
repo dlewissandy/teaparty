@@ -1,6 +1,6 @@
 ---
 name: planning
-description: Run the CfA planning phase to completion — produce or align PLAN.md, dialog with the human, and emit a terminal outcome (APPROVE, BACKTRACK, or WITHDRAW).
+description: Run the CfA planning phase to completion — produce or align PLAN.md, dialog with the human, and emit a terminal outcome (APPROVE, REALIGN, or WITHDRAW).
 user-invocable: false
 allowed-tools: Read, Write, Edit, Glob, Grep, mcp__teaparty-config__AskQuestion
 ---
@@ -38,7 +38,7 @@ Conduct a dialog with the human using `mcp__teaparty-config__AskQuestion`.
 
 Dialog purpose: you are not certain that you understand how the human wants to do things, and you are seeking guidance. Dialog is necessary because your expectations may not be aligned with the human's — the questions you are asking may not be the relevant ones, and the only way to ensure alignment is to dialogue. This discussion may uncover additional questions, or produce unexpected clarifications.
 
-- If the conversation confirms that the intent does not capture the human's idea, go to BACKTRACK.
+- If the conversation confirms that the intent does not capture the human's idea, go to REALIGN.
 - If the conversation confirms that the human no longer wants to continue this job, go to WITHDRAW.
 - Once your questions have been resolved (or the human deems them unnecessary), go to REVISE.
 
@@ -59,7 +59,7 @@ Dialog purpose: you expect that `PLAN.md` is complete, and you are confirming wi
 
 - If the human approves the plan, go to APPROVE.
 - If the dialog surfaces needed revisions, go to REVISE.
-- If the conversation confirms that the intent does not capture the human's idea, go to BACKTRACK.
+- If the conversation confirms that the intent does not capture the human's idea, go to REALIGN.
 - If the conversation confirms that the human no longer wants to continue this job, go to WITHDRAW.
 
 ## APPROVE
@@ -73,13 +73,13 @@ Terminal. Write `./.phase-outcome.json` and halt:
 }
 ```
 
-## BACKTRACK
+## REALIGN
 
 Terminal. Write `./.phase-outcome.json` and halt:
 
 ```json
 {
-  "outcome": "BACKTRACK",
+  "outcome": "REALIGN",
   "reason": "<short summary of how the intent failed to capture the human's actual idea, specific enough to inform the next intent revision>"
 }
 ```

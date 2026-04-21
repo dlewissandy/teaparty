@@ -411,44 +411,63 @@ class AgentRunner:
             pass
         outcome = str(payload.get('outcome', '')).upper()
         reason = str(payload.get('reason', ''))
-        mapping = {
-            'APPROVE':   'approve',
-            'BACKTRACK': 'backtrack',
-            'WITHDRAW':  'withdraw',
-        }
-        action = mapping.get(outcome)
+
+        # Each skill outcome names the *target state* the skill wants to
+        # advance or backtrack to.  Resolve to the actual state-machine
+        # action by finding the edge from the current state that leads
+        # there.  Returns None if the target isn't reachable from
+        # ctx.state — strict rejection, not silent misrouting.
+        edges = TRANSITIONS.get(ctx.state, [])
+        action: str | None = None
+        if outcome == 'APPROVE':
+            # Forward advance — 'approve' (intent/planning/WORK_ASSERT)
+            # or 'auto-approve' (WORK_IN_PROGRESS).
+            for a, _, _ in edges:
+                if a in ('approve', 'auto-approve'):
+                    action = a
+                    break
+        elif outcome == 'REALIGN':
+            for a, to, _ in edges:
+                if to == 'INTENT':
+                    action = a
+                    break
+        elif outcome == 'REPLAN':
+            for a, to, _ in edges:
+                if to == 'PLAN':
+                    action = a
+                    break
+        elif outcome == 'WITHDRAW':
+            for a, to, _ in edges:
+                if to == 'WITHDRAWN':
+                    action = a
+                    break
+
         if action is None:
             return None
-        return self._resolve_action(ctx.state, action), reason
+        return action, reason
 
     @staticmethod
     def _no_artifact_action_for_state(state: str) -> str:
         """Return the action to take when the expected artifact was not produced.
 
-        For WORK_IN_PROGRESS, this is the common case: the project-lead is
-        working and hasn't written WORK_SUMMARY.md yet.  Prefer the
-        ``continue`` self-loop so the engine re-invokes the lead on the
-        same state instead of phase-backtracking.
-
-        For gate-bearing phases (intent / planning), prefer 'question'
-        (loops through human input before the agent retries), then
-        'escalate', then 'backtrack' — whichever is valid from the current
-        state.  Never returns 'assert', which requires the artifact to exist.
+        Skills terminate by writing .phase-outcome.json; this fallback is
+        only reached when a skill exited without both the outcome and the
+        expected artifact. Withdraw is the safe terminal — anything else
+        would advance the phase without evidence the work was done.
         """
         edges = TRANSITIONS.get(state, [])
         valid = {a for a, _, _ in edges}
-        for candidate in ('continue', 'question', 'escalate', 'backtrack'):
-            if candidate in valid:
-                return candidate
-        return edges[0][0] if edges else 'question'
+        if 'withdraw' in valid:
+            return 'withdraw'
+        return edges[0][0] if edges else 'withdraw'
 
     @staticmethod
     def _resolve_action(state: str, tentative: str) -> str:
         """Validate tentative action against CfA transitions; map to a valid action if needed.
 
         When the agent returns a generic success signal (assert/auto-approve) but the
-        state expects a specific advancing action (accept, plan, synthesize, delegate),
-        pick the first non-negative valid action from the transition table.
+        state expects a specific advancing action, pick the first non-negative
+        valid action from the transition table.
         """
         edges = TRANSITIONS.get(state, [])
         valid = {a for a, _, _ in edges}
@@ -673,7 +692,7 @@ def _find_artifact(worktree: str, artifact_name: str) -> str:
 # ── CfA state → learning phase mapping ───────────────────────────────────────
 
 _CFA_STATE_TO_PHASE: dict[str, str] = {
-    'WORK_ASSERT': 'implementation',
+    'EXECUTE': 'implementation',
 }
 
 
@@ -690,7 +709,7 @@ _CFA_STATE_TO_PHASE: dict[str, str] = {
 # doc_specs is an ordered list of (filename, one-line-purpose) pairs.
 # Files that don't exist at review time are silently skipped.
 _GATE_TEMPLATES: dict[str, tuple[str, list[tuple[str, str]]]] = {
-    'WORK_ASSERT': (
+    'EXECUTE': (
         'Approve or revise the overall deliverable.',
         [
             ('WORK_SUMMARY.md', "the lead's completion summary"),

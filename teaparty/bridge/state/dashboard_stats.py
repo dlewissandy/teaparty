@@ -20,7 +20,7 @@ class CardItem:
     data: object = None  # arbitrary payload for click handling
 
 
-_TERMINAL_STATES = frozenset({'COMPLETED_WORK', 'WITHDRAWN'})
+_TERMINAL_STATES = frozenset({'DONE', 'WITHDRAWN'})
 
 
 # ── Display helpers ──────────────────────────────────────────────────────────
@@ -52,7 +52,7 @@ def _status_icon(status: str, needs_input: bool = False, is_orphaned: bool = Fal
 def _state_display(phase: str, state: str) -> str:
     if not phase and not state:
         return '\u2014'
-    if state in ('COMPLETED_WORK', 'WITHDRAWN'):
+    if state in ('DONE', 'WITHDRAWN'):
         return state
     if phase:
         return f'{phase}/{state}'
@@ -64,7 +64,7 @@ def _colored_state(session) -> str:
     state_text = _state_display(session.cfa_phase, session.cfa_state)
     if session.needs_input:
         return f'[dim red]{state_text}[/dim red]'
-    if session.cfa_state == 'COMPLETED_WORK':
+    if session.cfa_state == 'DONE':
         return f'[green]{state_text}[/green]'
     if session.cfa_state == 'WITHDRAWN':
         return f'[dim]{state_text}[/dim]'
@@ -75,7 +75,7 @@ def _colored_dispatch_state(dispatch) -> str:
     """Return the CFA state with color markup for a dispatch."""
     state_text = _state_display(dispatch.cfa_phase, dispatch.cfa_state)
     if dispatch.cfa_state in _TERMINAL_STATES:
-        if dispatch.cfa_state == 'COMPLETED_WORK':
+        if dispatch.cfa_state == 'DONE':
             return f'[green]{state_text}[/green]  {dispatch.team or "?"}'
         return f'[dim]{state_text}[/dim]  {dispatch.team or "?"}'
     if dispatch.status == 'active':
@@ -467,7 +467,7 @@ def _proxy_stats(project_paths: list[str]) -> tuple:
 
 def _aggregate_sessions(sessions: list, project_paths: list[str] | None = None) -> dict:
     """Compute common aggregated stats from a list of sessions."""
-    jobs_done = sum(1 for s in sessions if s.cfa_state == 'COMPLETED_WORK')
+    jobs_done = sum(1 for s in sessions if s.cfa_state == 'DONE')
     tasks_done = sum(
         1 for s in sessions
         for d in (s.dispatches or [])
@@ -476,7 +476,7 @@ def _aggregate_sessions(sessions: list, project_paths: list[str] | None = None) 
     active = sum(1 for s in sessions if s.status == 'active')
     one_shots = sum(
         1 for s in sessions
-        if s.cfa_state == 'COMPLETED_WORK' and s.backtrack_count == 0
+        if s.cfa_state == 'DONE' and s.backtrack_count == 0
     )
     backtracks = sum(s.backtrack_count for s in sessions)
     withdrawals = sum(1 for s in sessions if s.cfa_state == 'WITHDRAWN')

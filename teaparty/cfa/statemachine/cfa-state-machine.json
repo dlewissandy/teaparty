@@ -1,48 +1,37 @@
 {
-  "description": "Conversation for Action (CfA) state machine — a recursive 3-phase lifecycle for turning ideas into completed work.",
+  "description": "Conversation for Action (CfA) state machine — five states governing phase transitions. The work in each phase happens inside a skill (intent-alignment, planning, execute) that runs to completion in a single invocation and writes ./.phase-outcome.json with a terminal outcome (APPROVE, REALIGN, REPLAN, or WITHDRAW). The state machine only gates transitions between phases.",
   "phases": {
     "intent": {
-      "description": "Intent Alignment: IDEA → INTENT. The intent-lead runs the intent-alignment skill to completion in a single invocation — DRAFT/ALIGN/ASK/REVISE/ASSERT are internal steps of the skill, not first-class states. The skill emits a terminal outcome (approve, withdraw) via .phase-outcome.json.",
-      "states": ["IDEA", "INTENT"]
+      "description": "Intent Alignment. The intent-alignment skill runs to completion and emits APPROVE (advance to PLAN) or WITHDRAW.",
+      "states": ["INTENT"]
     },
     "planning": {
-      "description": "Planning: INTENT → WORK_IN_PROGRESS. The project lead runs the planning skill to completion in a single invocation — DRAFT/ALIGN/ASK/REVISE/ASSERT are internal steps of the skill, not first-class states. The skill emits a terminal outcome (approve, backtrack, withdraw) via .phase-outcome.json.",
-      "states": ["PLANNING"]
+      "description": "Planning. The planning skill runs to completion and emits APPROVE (advance to EXECUTE), REALIGN (backtrack to INTENT), or WITHDRAW.",
+      "states": ["PLAN"]
     },
     "execution": {
-      "description": "Execution: PLAN → COMPLETED_WORK. The project lead runs normal agent turns, dispatching workgroups via Send as needed, until WORK_SUMMARY.md is produced. The framework does not model task-level substates; subteam coordination happens over the message bus, not in the state machine.",
-      "states": ["WORK_IN_PROGRESS", "WORK_ASSERT", "COMPLETED_WORK", "WITHDRAWN"]
+      "description": "Execution. The execute skill runs to completion and emits APPROVE (advance to DONE), REPLAN (backtrack to PLAN), REALIGN (backtrack to INTENT), or WITHDRAW.",
+      "states": ["EXECUTE", "DONE", "WITHDRAWN"]
     }
   },
-  "terminal_states": ["COMPLETED_WORK", "WITHDRAWN"],
+  "terminal_states": ["DONE", "WITHDRAWN"],
   "transitions": {
-    "IDEA": [
-      { "action": "approve", "to": "INTENT", "actor": "intent_team" },
+    "INTENT": [
+      { "action": "approve", "to": "PLAN", "actor": "intent_team" },
       { "action": "withdraw", "to": "WITHDRAWN", "actor": "intent_team" }
     ],
-    "INTENT": [
-      { "action": "plan", "to": "PLANNING", "actor": "planning_team" }
+    "PLAN": [
+      { "action": "approve", "to": "EXECUTE", "actor": "planning_team" },
+      { "action": "realign", "to": "INTENT", "actor": "planning_team", "backtrack": true },
+      { "action": "withdraw", "to": "WITHDRAWN", "actor": "planning_team" }
     ],
-    "PLANNING": [
-      { "action": "approve", "to": "WORK_IN_PROGRESS", "actor": "project_lead" },
-      { "action": "backtrack", "to": "IDEA", "actor": "project_lead", "backtrack": true },
+    "EXECUTE": [
+      { "action": "approve", "to": "DONE", "actor": "project_lead" },
+      { "action": "replan", "to": "PLAN", "actor": "project_lead", "backtrack": true },
+      { "action": "realign", "to": "INTENT", "actor": "project_lead", "backtrack": true },
       { "action": "withdraw", "to": "WITHDRAWN", "actor": "project_lead" }
     ],
-    "WORK_IN_PROGRESS": [
-      { "action": "continue", "to": "WORK_IN_PROGRESS", "actor": "project_lead" },
-      { "action": "assert", "to": "WORK_ASSERT", "actor": "project_lead" },
-      { "action": "auto-approve", "to": "COMPLETED_WORK", "actor": "project_lead" },
-      { "action": "backtrack", "to": "PLANNING", "actor": "project_lead", "backtrack": true },
-      { "action": "withdraw", "to": "WITHDRAWN", "actor": "approval_gate" }
-    ],
-    "WORK_ASSERT": [
-      { "action": "approve", "to": "COMPLETED_WORK", "actor": "approval_gate" },
-      { "action": "correct", "to": "WORK_IN_PROGRESS", "actor": "approval_gate" },
-      { "action": "revise-plan", "to": "PLANNING", "actor": "approval_gate", "backtrack": true },
-      { "action": "refine-intent", "to": "IDEA", "actor": "approval_gate", "backtrack": true },
-      { "action": "withdraw", "to": "WITHDRAWN", "actor": "approval_gate" }
-    ],
-    "COMPLETED_WORK": [],
+    "DONE": [],
     "WITHDRAWN": []
   }
 }

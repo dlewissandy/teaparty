@@ -237,9 +237,9 @@ var pageState = { projects: [], configs: {}, omConvId: 'om', omSessionId: 'offic
 
 // Escalation gates and mode ordering shared with the backend.
 var ESCALATION_GATES = [
-  {state: 'INTENT_ASSERT', label: 'Intent'},
-  {state: 'PLAN_ASSERT',   label: 'Plan'},
-  {state: 'WORK_ASSERT',   label: 'Work'},
+  {state: 'INTENT',  label: 'Intent'},
+  {state: 'PLAN',    label: 'Plan'},
+  {state: 'EXECUTE', label: 'Work'},
 ];
 var ESCALATION_MODES = ['always', 'when_unsure', 'never'];
 var ESCALATION_LABELS = {

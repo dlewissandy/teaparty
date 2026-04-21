@@ -3206,7 +3206,7 @@ class TeaPartyBridge:
 
     # CfA gate states that accept a per-gate escalation mode.
     _ESCALATION_GATES: tuple[str, ...] = (
-        'WORK_ASSERT',
+        'EXECUTE',
     )
     _ESCALATION_VALID_MODES: frozenset[str] = frozenset(
         {'always', 'when_unsure', 'never'}

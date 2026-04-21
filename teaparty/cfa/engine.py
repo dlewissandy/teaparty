@@ -365,9 +365,13 @@ class Orchestrator:
 
         # Start the MCP escalation listener so agents can call AskQuestion
         if self.input_provider:
+            ask_question_bus_db = os.path.join(self.infra_dir, 'messages.db')
+            ask_question_conv_id = f'escalation:{self.session_id}'
             self._escalation_listener = EscalationListener(
                 event_bus=self.event_bus,
                 input_provider=self.input_provider,
+                bus_db_path=ask_question_bus_db,
+                conv_id=ask_question_conv_id,
                 session_id=self.session_id,
                 proxy_model_path=self.proxy_model_path,
                 project_slug=self.project_slug,
@@ -376,10 +380,11 @@ class Orchestrator:
                 infra_dir=self.infra_dir,
                 team=self.team_override,
             )
-            ask_question_socket = await self._escalation_listener.start()
+            await self._escalation_listener.start()
 
             mcp_env = {
-                'ASK_QUESTION_SOCKET': ask_question_socket,
+                'ASK_QUESTION_BUS_DB': ask_question_bus_db,
+                'ASK_QUESTION_CONV_ID': ask_question_conv_id,
                 'PYTHONPATH': repo_root,
             }
 
@@ -1032,18 +1037,19 @@ class Orchestrator:
 
             # Stop here if intent-only
             if self.intent_only:
-                return self._make_result('COMPLETED_WORK')
+                return self._make_result('DONE')
 
             # Phase 2: Planning (skip if execute-only)
             if not self.execute_only:
-                # Bridge intent → planning (INTENT has one edge: plan → DRAFT)
+                # Bridge intent → planning (INTENT has one forward edge: approve → PLAN)
                 await self._auto_bridge()
 
                 # System 1 fast path: if a learned skill covers this task,
-                # write it as PLAN.md and advance to PLAN_ASSERT.  The
-                # planning agent never runs — the skill IS the plan.
-                # _run_phase('planning') picks up at PLAN_ASSERT (human review).
-                # If the human corrects, it falls back to System 2 (planning agent).
+                # pre-seed PLAN.md with the skill template so the planning
+                # skill runs ALIGN instead of DRAFT on its first turn and
+                # proposes the skill-as-plan via its own ASSERT dialog.
+                # If the human corrects it during that dialog, the correction
+                # flows through the skill's REVISE step (System 2 fallback).
                 await self._try_skill_lookup()
 
                 result = await self._run_phase('planning')
@@ -1051,7 +1057,8 @@ class Orchestrator:
                 # Skill self-correction (Issue #142): after planning
                 # completes, check if the plan was corrected from the
                 # original skill template.  Handles both human correction
-                # at PLAN_ASSERT and System 2 fallback after backtrack.
+                # during the planning skill's ASSERT/REVISE dialog and
+                # System 2 fallback after backtrack.
                 if not result.terminal and not result.infrastructure_failure:
                     self._check_skill_correction()
 
@@ -1084,14 +1091,15 @@ class Orchestrator:
 
                 # Stop here if plan-only
                 if self.plan_only:
-                    return self._make_result('COMPLETED_WORK')
+                    return self._make_result('DONE')
 
-                # Bridge planning → execution (PLAN has one edge: delegate → WORK_IN_PROGRESS)
+                # Bridge planning → execution (no-op if planning already
+                # terminated at EXECUTE via the skill's APPROVE outcome)
                 await self._auto_bridge()
 
                 # Prospective learning: generate premortem before execution (Issue #199)
                 self._write_premortem()
-            # else: CfA is already at WORK_IN_PROGRESS (set_state_direct in Session.run)
+            # else: CfA is already at EXECUTE (set_state_direct in Session.run)
 
             # Phase 3: Execution
             result = await self._run_phase('execution')
@@ -1138,10 +1146,9 @@ class Orchestrator:
     async def _auto_bridge(self) -> None:
         """Apply deterministic transition at a phase-terminal state to enter the next phase.
 
-        Phase-terminal states with exactly one outgoing edge (INTENT → DRAFT,
-        PLAN → WORK_IN_PROGRESS) are structural bridges, not agent decisions.
-        Apply them automatically so _run_phase for the next phase starts
-        inside its own phase's state space.
+        Phase-terminal states with exactly one outgoing edge are structural
+        bridges, not agent decisions.  Apply them automatically so _run_phase
+        for the next phase starts inside its own phase's state space.
         """
         edges = TRANSITIONS.get(self.cfa.state, [])
         if len(edges) == 1:
@@ -1160,16 +1167,17 @@ class Orchestrator:
     async def _try_skill_lookup(self) -> bool:
         """System 1 fast path: check the skill library for a matching skill.
 
-        If a match is found:
-          1. Writes the skill template as PLAN.md (the skill IS the plan)
-          2. Advances CfA state to PLAN_ASSERT for human review
-          3. Returns True — the caller skips cold-start planning
+        If a match is found, pre-seeds PLAN.md with the skill template so
+        the planning skill runs ALIGN rather than DRAFT on its first turn
+        and proposes the skill-as-plan via its own ASSERT dialog with the
+        human (routed through the proxy). Returns True on match.
 
-        If no match or any error: returns False (fall through to System 2).
+        If no match or any error: returns False (the planning skill cold-
+        starts in DRAFT).
 
-        The human still reviews the skill-as-plan at PLAN_ASSERT.  If they
-        correct it, the correction goes to PLANNING_RESPONSE → DRAFT and the
-        planning agent runs (System 2 fallback).
+        If the human corrects the skill-as-plan during the skill's
+        ASSERT/REVISE dialog, _check_skill_correction archives the
+        correction as a candidate (Issue #142).
         """
         # Build scope-ordered skill directories: narrowest first (Issue #196).
         # Team scope (if team context exists) → project scope.
@@ -1227,8 +1235,9 @@ class Orchestrator:
         # Track which skill was used (Issue #142 — skill self-correction).
         # Store the original template so we can detect corrections later:
         # after planning completes, if PLAN.md differs from the template,
-        # the plan was corrected (by human at PLAN_ASSERT or by System 2
-        # after backtrack) and should be archived as a correction candidate.
+        # the plan was corrected (by the human during the planning skill's
+        # ASSERT/REVISE dialog, or by System 2 after backtrack) and should
+        # be archived as a correction candidate.
         self._active_skill = {
             'name': match.name,
             'path': match.path,
@@ -1327,7 +1336,7 @@ class Orchestrator:
                 self._write_assumption_checkpoint(phase_name)
                 return PhaseResult()
 
-            # Check for phase exit (e.g., INTENT → planning, PLANNING → execution)
+            # Check for phase exit (e.g., INTENT → PLAN, PLAN → EXECUTE)
             current_phase = phase_for_state(self.cfa.state)
             if current_phase != phase_name:
                 # We've transitioned out of this phase
@@ -2002,27 +2011,22 @@ class Orchestrator:
         await self._commit_artifacts(old_state, action)
 
         # Post-intent-approval: detect project stage and retire old-stage memory
-        if old_state == 'IDEA' and action == 'approve':
+        if old_state == 'INTENT' and action == 'approve':
             self._detect_and_retire_stage()
 
     async def _commit_artifacts(self, old_state: str, action: str) -> None:
         """Auto-commit deliverables to the session worktree after writes.
 
-        Commits at two points during execution:
-          - After each project-lead turn in WORK_IN_PROGRESS (checkpointing
-            per-dispatch deliverables as they land).
-          - On entry to WORK_ASSERT (final assembled deliverable before the
-            project-level gate reviews it).
-        INTENT.md, PLAN.md, and WORK_SUMMARY.md live in the worktree root but
-        are gitignored so they never reach main.
+        Commits on every EXECUTE transition so per-dispatch deliverables are
+        checkpointed as they land. INTENT.md and PLAN.md live in the worktree
+        root but are gitignored so they never reach main.
         """
         wt = self.session_worktree
         if not wt:
             return
 
-        new_state = self.cfa.state
         try:
-            if old_state == 'WORK_IN_PROGRESS' or new_state == 'WORK_ASSERT':
+            if old_state == 'EXECUTE':
                 await commit_artifact(wt, ['.'], f'Execution: {action}')
         except Exception as exc:
             _log.warning('Artifact commit failed (non-fatal): %s', exc)
@@ -2250,7 +2254,7 @@ class Orchestrator:
             base_task = (
                 scope
                 + '--- CfA: Planning Phase ---\n'
-                'Run the /planning skill to completion. Do not execute or dispatch — planning is a separate act from doing. The skill will traverse DRAFT/ALIGN/ASK/REVISE/ASSERT internally and terminate by writing ./.phase-outcome.json with APPROVE, BACKTRACK, or WITHDRAW.\n'
+                'Run the /planning skill to completion. Do not execute or dispatch — planning is a separate act from doing. The skill will traverse DRAFT/ALIGN/ASK/REVISE/ASSERT internally and terminate by writing ./.phase-outcome.json with APPROVE, REALIGN, or WITHDRAW.\n'
                 '--- end ---\n\n'
                 + base_task
             )
@@ -2258,8 +2262,7 @@ class Orchestrator:
             base_task = (
                 scope
                 + '--- CfA: Execution Phase ---\n'
-                'Dispatch to the teams named in ./PLAN.md. Verify each team\'s output against ./PLAN.md and ./INTENT.md before accepting. On a subteam backtrack or review request: review, route, or escalate. Do not guess.\n'
-                'Deliverable: ./WORK_SUMMARY.md once the plan\'s steps are complete and verified.\n'
+                'Run the /execute skill to completion. You are the manager — delegate to the teams named in ./PLAN.md via Send; inspect their output against ./PLAN.md and ./INTENT.md; CloseConversation only when satisfied. The skill will traverse START/EXECUTE/ASK/ASSERT internally and terminate by writing ./.phase-outcome.json with APPROVE, REALIGN, REPLAN, or WITHDRAW.\n'
                 '--- end ---\n\n'
                 + base_task
             )
@@ -2527,9 +2530,10 @@ class Orchestrator:
 
         Called after _run_phase('planning') completes normally.  Compares
         the current PLAN.md to the original skill template.  If they differ,
-        the plan was corrected — either by the human at PLAN_ASSERT or by
-        the planning agent (System 2 fallback after backtrack) — and the
-        corrected plan is archived as a skill correction candidate.
+        the plan was corrected — either by the human during the planning
+        skill's ASSERT/REVISE dialog, or by the planning skill's System 2
+        fallback after backtrack — and the corrected plan is archived as a
+        skill correction candidate.
 
         Issue #142: skill self-correction on backtrack.
         """
@@ -2592,9 +2596,10 @@ class Orchestrator:
     def _get_observation_count(self, phase_name: str = '') -> int:
         """Get the proxy model's observation count for the current phase's approval state.
 
-        Looks up the (approval_state, project_slug) pair — not the current CfA
-        state — because observations are recorded at approval gates (INTENT_ASSERT,
-        PLAN_ASSERT), not at agent-running states (PROPOSAL, DRAFT).
+        Looks up the (approval_state, project_slug) pair — one per phase
+        (INTENT, PLAN, EXECUTE) — so proxy observations cluster by phase
+        identity rather than by whichever internal state the skill happens
+        to be in.
 
         Returns 0 if the proxy model doesn't exist or the pair has no entries.
         """
@@ -2679,7 +2684,7 @@ class Orchestrator:
                 continue
 
             cfa_data = load_state(cfa_path)
-            if cfa_data.state != 'COMPLETED_WORK':
+            if cfa_data.state != 'DONE':
                 continue
 
             # Find the worktree path from the manifest

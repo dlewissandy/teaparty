@@ -465,11 +465,10 @@ function confirmWithdraw() {
     });
 }
 
-// ── Gate Review button (shown only at assertion phases) ───────────────────────
+// ── Phase artifact review button ──────────────────────────────────────────────
 var GATE_ARTIFACTS = {
-  'INTENT_ASSERT': { label: 'Review INTENT', file: 'INTENT.md' },
-  'PLAN_ASSERT':   { label: 'Review PLAN',   file: 'PLAN.md'   },
-  'WORK_ASSERT':   { label: 'Review WORK',   file: 'WORK_SUMMARY.md' },
+  'INTENT':  { label: 'Review INTENT', file: 'INTENT.md' },
+  'PLAN':    { label: 'Review PLAN',   file: 'PLAN.md'   },
 };
 
 function gateReviewButtonHtml() {

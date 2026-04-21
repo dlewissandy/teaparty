@@ -6,7 +6,7 @@
       "permission_mode": "acceptEdits",
       "stream_file": ".intent-stream.jsonl",
       "artifact": "INTENT.md",
-      "approval_state": "IDEA"
+      "approval_state": "INTENT"
     },
     "planning": {
       "agent_file": "uber",
@@ -14,15 +14,15 @@
       "permission_mode": "acceptEdits",
       "stream_file": ".plan-stream.jsonl",
       "artifact": "PLAN.md",
-      "approval_state": "PLANNING"
+      "approval_state": "PLAN"
     },
     "execution": {
       "agent_file": "uber",
       "lead": "project-lead",
       "permission_mode": "acceptEdits",
       "stream_file": ".exec-stream.jsonl",
-      "artifact": "WORK_SUMMARY.md",
-      "approval_state": "WORK_ASSERT"
+      "artifact": null,
+      "approval_state": "EXECUTE"
     }
   },
   "teams": {

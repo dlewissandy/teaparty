@@ -267,7 +267,7 @@ async def main() -> int:
             print(f'Error: {exc}', file=sys.stderr)
             return 1
 
-        return 0 if result.terminal_state == 'COMPLETED_WORK' else 1
+        return 0 if result.terminal_state == 'DONE' else 1
 
     # ── Normal mode ──
     task = args.idea or args.task
@@ -303,7 +303,7 @@ async def main() -> int:
 
     result = await session.run()
 
-    if result.terminal_state in ('COMPLETED_WORK', 'DRY_RUN'):
+    if result.terminal_state in ('DONE', 'DRY_RUN'):
         return 0
     return 1
 

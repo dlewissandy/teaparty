@@ -59,7 +59,7 @@ REGRET_WEIGHT = 3
 
 # States where the proxy only needs to produce a binary approve/reject signal.
 BINARY_STATES = frozenset([
-    'WORK_ASSERT',
+    'EXECUTE',
 ])
 
 # States where the proxy must generate a substantive response (clarify, correct,

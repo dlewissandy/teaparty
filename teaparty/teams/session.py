@@ -111,6 +111,9 @@ class AgentSession:
         self._bus_listener_sockets: tuple[str, str, str] | None = None
         self._bus_context_id: str | None = None
         self._dispatch_session = None
+        self._escalation_listener = None
+        self._ask_question_bus_db: str = ''
+        self._ask_question_conv_id: str = ''
 
         # Serialize concurrent invocations — only one claude process per
         # agent session at a time. When multiple children reply at once,
@@ -248,12 +251,14 @@ class AgentSession:
     # ── Dispatch (Send/Reply) ────────────────────────────────────────────
 
     async def _ensure_bus_listener(self, cwd: str) -> dict:
-        """Start the BusEventListener for agents that dispatch via Send."""
+        """Start the BusEventListener (dispatch) and EscalationListener (AskQuestion)."""
         if self._bus_listener is not None:
             send, close = self._bus_listener_sockets
             return {
                 'SEND_SOCKET': send,
                 'CLOSE_CONV_SOCKET': close,
+                'ASK_QUESTION_BUS_DB': self._ask_question_bus_db,
+                'ASK_QUESTION_CONV_ID': self._ask_question_conv_id,
                 'AGENT_ID': self.agent_name,
                 'PYTHONPATH': cwd,
             }
@@ -711,10 +716,44 @@ class AgentSession:
 
         register_close_fn(self.agent_name, close_fn)
 
+        # Start the EscalationListener for AskQuestion routing (issue #419).
+        # The listener watches `escalation:{session_key}` on the agent's own
+        # bus; its input_provider surfaces unresolved escalations into the
+        # agent's main chat so the human sees them in the dashboard.
+        #
+        # proxy_enabled=False: the bridge/teams path has no proxy model /
+        # cfa_state / project_slug to feed consult_proxy. Running the proxy
+        # agent with empty context spends an LLM call to produce a
+        # low-confidence answer that gets discarded — every question would
+        # fall through to the human anyway. Skip the round-trip.
+        from teaparty.cfa.gates.escalation import EscalationListener
+        from teaparty.messaging.conversations import MessageBusInputProvider
+        self._ask_question_bus_db = bus_db_path
+        self._ask_question_conv_id = f'escalation:{self._session_key()}'
+        input_provider = MessageBusInputProvider(
+            self._bus, conversation_id=self.conversation_id,
+        )
+        self._escalation_listener = EscalationListener(
+            event_bus=None,  # bridge path has no EventBus; will emit a warning
+            input_provider=input_provider,
+            bus_db_path=self._ask_question_bus_db,
+            conv_id=self._ask_question_conv_id,
+            session_id=self._session_key(),
+            project_slug='',
+            cfa_state='',
+            session_worktree='',
+            infra_dir=infra_dir,
+            team='',
+            proxy_enabled=False,
+        )
+        await self._escalation_listener.start()
+
         send, close = sockets
         return {
             'SEND_SOCKET': send,
             'CLOSE_CONV_SOCKET': close,
+            'ASK_QUESTION_BUS_DB': self._ask_question_bus_db,
+            'ASK_QUESTION_CONV_ID': self._ask_question_conv_id,
             'AGENT_ID': self.agent_name,
             'PYTHONPATH': cwd,
         }
@@ -1017,6 +1056,9 @@ class AgentSession:
             await self._bus_listener.stop()
             self._bus_listener = None
             self._bus_listener_sockets = None
+        if self._escalation_listener is not None:
+            await self._escalation_listener.stop()
+            self._escalation_listener = None
 
     # ── Subtree lifecycle loop (shared by spawn_fn and resume walker) ──
 

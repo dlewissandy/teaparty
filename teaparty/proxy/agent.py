@@ -841,7 +841,7 @@ def _build_artifact_context(
     if artifact_path and os.path.isfile(artifact_path):
         context_parts.append(f'Artifact under review: {artifact_path}')
 
-    if state == 'WORK_ASSERT':
+    if state == 'EXECUTE':
         for name in ('INTENT.md',):
             for search_dir in (session_worktree, infra_dir):
                 if not search_dir:
@@ -853,7 +853,7 @@ def _build_artifact_context(
                         f'what the artifact must fulfill): {path}'
                     )
                     break
-    if state == 'WORK_ASSERT':
+    if state == 'EXECUTE':
         for name in ('PLAN.md', 'WORK_SUMMARY.md'):
             for search_dir in (session_worktree, infra_dir):
                 if not search_dir:

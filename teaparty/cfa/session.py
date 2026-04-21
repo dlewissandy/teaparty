@@ -335,7 +335,7 @@ class Session:
 
             if self.execute_only or self.plan_file:
                 # Skip intent + planning: jump directly to execution start
-                cfa = set_state_direct(cfa, 'WORK_IN_PROGRESS')
+                cfa = set_state_direct(cfa, 'EXECUTE')
             elif self.intent_file or self.skip_intent:
                 # Skip intent: set state to INTENT (planning entry point)
                 # _auto_bridge() in Orchestrator will apply INTENT → PLANNING
@@ -434,7 +434,7 @@ class Session:
 
             # 12. Squash-merge session into main — the work is done, get it merged.
             merge_verification_failed = False
-            if result.terminal_state == 'COMPLETED_WORK':
+            if result.terminal_state == 'DONE':
                 callback = self._make_conflict_callback() if effective_input else None
                 try:
                     try:
@@ -470,7 +470,7 @@ class Session:
                     ))
 
             # 13. Extract learnings (skippable for test runs)
-            if result.terminal_state == 'COMPLETED_WORK' and not merge_verification_failed and not self.skip_learnings:
+            if result.terminal_state == 'DONE' and not merge_verification_failed and not self.skip_learnings:
                 await extract_learnings(
                     infra_dir=infra_dir,
                     project_dir=project_dir,
@@ -993,7 +993,7 @@ class Session:
                 )
 
             merge_verification_failed = False
-            if result.terminal_state == 'COMPLETED_WORK' and worktree_path:
+            if result.terminal_state == 'DONE' and worktree_path:
                 repo_root = _ensure_project_repo(project_dir)
                 conflict_cb = _make_conflict_callback_static(
                     effective_input, event_bus, session_id,
@@ -1030,7 +1030,7 @@ class Session:
                         session_id=session_id,
                     ))
 
-            if result.terminal_state == 'COMPLETED_WORK' and not merge_verification_failed and worktree_path:
+            if result.terminal_state == 'DONE' and not merge_verification_failed and worktree_path:
                 await extract_learnings(
                     infra_dir=infra_dir,
                     project_dir=project_dir,

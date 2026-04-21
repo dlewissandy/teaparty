@@ -293,21 +293,27 @@ class TestEscalationListener(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
-    def test_listener_starts_and_creates_socket(self):
-        """After start(), the socket path exists."""
+    def test_listener_starts_and_opens_bus(self):
+        """After start(), the listener has an open bus connection and
+        is polling the configured conversation."""
         from teaparty.cfa.gates.escalation import EscalationListener
 
         bus = _make_event_bus()
+        bus_db = os.path.join(self.tmpdir, 'bus.db')
         listener = EscalationListener(
-            bus, AsyncMock(return_value='answer'), session_id='test',
+            bus, AsyncMock(return_value='answer'),
+            bus_db_path=bus_db, conv_id='escalation:test',
+            session_id='test',
             proxy_model_path=os.path.join(self.tmpdir, '.proxy.json'),
-            project_slug='test', cfa_state='PROPOSAL',
+            project_slug='test', cfa_state='INTENT',
         )
 
         async def _test():
-            socket_path = await listener.start()
-            self.assertTrue(os.path.exists(socket_path))
+            await listener.start()
+            self.assertIsNotNone(listener._bus)
+            self.assertIsNotNone(listener._task)
             await listener.stop()
+            self.assertIsNone(listener._task)
 
         _run(_test())
 
@@ -316,43 +322,58 @@ class TestEscalationListener(unittest.TestCase):
         recorded for learning — regardless of whether the proxy answered
         or escalated to the human.
 
-        NOTE: earlier this test asserted that cold start always escalates to
-        the human.  That contract was rolled back: MEMORY_DEPTH_THRESHOLD
-        was dropped to 0 so the proxy's own confidence decides, not a
-        cold-start cap.  The "low confidence escalates" contract is still
-        tested by test_not_confident_proxy_escalates_to_human above.
+        Cold-start here means the proxy returns a non-confident
+        ProxyResult, which triggers the fallback to _ask_human via the
+        input_provider.
         """
         import json as _json
         from teaparty.cfa.gates.escalation import EscalationListener
+        from teaparty.messaging.conversations import SqliteMessageBus
+        from teaparty.proxy.agent import ProxyResult
 
         bus = _make_event_bus()
         proxy_path = os.path.join(self.tmpdir, '.proxy.json')
+        bus_db = os.path.join(self.tmpdir, 'bus.db')
+        conv_id = 'escalation:test'
 
         async def mock_input(req):
             return 'Ages 5-8'
 
         listener = EscalationListener(
-            bus, mock_input, session_id='test',
+            bus, mock_input,
+            bus_db_path=bus_db, conv_id=conv_id,
+            session_id='test',
             proxy_model_path=proxy_path,
-            project_slug='test', cfa_state='PROPOSAL',
+            project_slug='test', cfa_state='INTENT',
         )
 
         async def _test():
-            socket_path = await listener.start()
-            try:
-                reader, writer = await asyncio.open_unix_connection(socket_path)
-                request = _json.dumps({'type': 'ask_human', 'question': 'Who is the audience?'})
-                writer.write(request.encode() + b'\n')
-                await writer.drain()
-                response_line = await reader.readline()
-                response = _json.loads(response_line.decode())
-                writer.close()
-                await writer.wait_closed()
-                # Whoever answered (proxy or human), an answer came back.
-                self.assertIn('answer', response)
-                self.assertTrue(response['answer'])
-            finally:
-                await listener.stop()
+            with patch(
+                'teaparty.proxy.agent.consult_proxy',
+                new=AsyncMock(return_value=ProxyResult(
+                    text='', confidence=0.0, from_agent=False,
+                )),
+            ):
+                await listener.start()
+                try:
+                    msg_bus = SqliteMessageBus(bus_db)
+                    msg_bus.send(conv_id, 'agent', _json.dumps({
+                        'type': 'ask_human', 'question': 'Who is the audience?',
+                    }))
+                    import time as _time
+                    deadline = _time.time() + 10
+                    response = None
+                    while _time.time() < deadline:
+                        msgs = msg_bus.receive(conv_id, since_timestamp=0)
+                        replies = [m for m in msgs if m.sender == 'orchestrator']
+                        if replies:
+                            response = _json.loads(replies[0].content)
+                            break
+                        await asyncio.sleep(0.05)
+                    self.assertIsNotNone(response, 'orchestrator did not reply')
+                    self.assertEqual(response['answer'], 'Ages 5-8')
+                finally:
+                    await listener.stop()
 
         _run(_test())
 
@@ -371,6 +392,7 @@ class TestEscalationListener(unittest.TestCase):
         """When the proxy is confident, the human is never consulted."""
         import json as _json
         from teaparty.cfa.gates.escalation import EscalationListener
+        from teaparty.messaging.conversations import SqliteMessageBus
         from teaparty.proxy.agent import ProxyResult
 
         bus = _make_event_bus()
@@ -380,10 +402,14 @@ class TestEscalationListener(unittest.TestCase):
             human_called.append(req)
             return 'should not reach here'
 
+        bus_db = os.path.join(self.tmpdir, 'bus.db')
+        conv_id = 'escalation:test'
         listener = EscalationListener(
-            bus, mock_input, session_id='test',
+            bus, mock_input,
+            bus_db_path=bus_db, conv_id=conv_id,
+            session_id='test',
             proxy_model_path=os.path.join(self.tmpdir, '.proxy.json'),
-            project_slug='test', cfa_state='PROPOSAL',
+            project_slug='test', cfa_state='INTENT',
         )
 
         async def _test():
@@ -393,21 +419,78 @@ class TestEscalationListener(unittest.TestCase):
                     text='Use PostgreSQL', confidence=0.95, from_agent=True,
                 )),
             ):
-                socket_path = await listener.start()
+                await listener.start()
                 try:
-                    reader, writer = await asyncio.open_unix_connection(socket_path)
-                    request = _json.dumps({'type': 'ask_human', 'question': 'What database?'})
-                    writer.write(request.encode() + b'\n')
-                    await writer.drain()
-
-                    response_line = await reader.readline()
-                    response = _json.loads(response_line.decode())
-                    writer.close()
-                    await writer.wait_closed()
-
+                    msg_bus = SqliteMessageBus(bus_db)
+                    msg_bus.send(conv_id, 'agent', _json.dumps({
+                        'type': 'ask_human', 'question': 'What database?',
+                    }))
+                    import time as _time
+                    deadline = _time.time() + 10
+                    response = None
+                    while _time.time() < deadline:
+                        msgs = msg_bus.receive(conv_id, since_timestamp=0)
+                        replies = [m for m in msgs if m.sender == 'orchestrator']
+                        if replies:
+                            response = _json.loads(replies[0].content)
+                            break
+                        await asyncio.sleep(0.05)
+                    self.assertIsNotNone(response, 'orchestrator did not reply')
                     self.assertEqual(response['answer'], 'Use PostgreSQL')
                     self.assertEqual(len(human_called), 0,
                                      "Human must NOT be consulted when proxy is confident")
+                finally:
+                    await listener.stop()
+
+        _run(_test())
+
+    def test_proxy_disabled_skips_consult_proxy(self):
+        """When proxy_enabled=False (bridge path), the listener goes
+        straight to the human without invoking consult_proxy."""
+        import json as _json
+        from teaparty.cfa.gates.escalation import EscalationListener
+        from teaparty.messaging.conversations import SqliteMessageBus
+
+        bus = _make_event_bus()
+        bus_db = os.path.join(self.tmpdir, 'bus.db')
+        conv_id = 'escalation:test'
+
+        async def human(req):
+            return 'human-answer'
+
+        listener = EscalationListener(
+            bus, human,
+            bus_db_path=bus_db, conv_id=conv_id,
+            session_id='test',
+            proxy_enabled=False,
+        )
+
+        async def _test():
+            # Assert consult_proxy is never called by patching it to raise.
+            with patch(
+                'teaparty.proxy.agent.consult_proxy',
+                new=AsyncMock(side_effect=AssertionError(
+                    'consult_proxy must not be called when proxy_enabled=False'
+                )),
+            ):
+                await listener.start()
+                try:
+                    msg_bus = SqliteMessageBus(bus_db)
+                    msg_bus.send(conv_id, 'agent', _json.dumps({
+                        'type': 'ask_human', 'question': 'what?',
+                    }))
+                    import time as _time
+                    deadline = _time.time() + 5
+                    response = None
+                    while _time.time() < deadline:
+                        msgs = msg_bus.receive(conv_id, since_timestamp=0)
+                        replies = [m for m in msgs if m.sender == 'orchestrator']
+                        if replies:
+                            response = _json.loads(replies[0].content)
+                            break
+                        await asyncio.sleep(0.05)
+                    self.assertIsNotNone(response, 'orchestrator did not reply')
+                    self.assertEqual(response['answer'], 'human-answer')
                 finally:
                     await listener.stop()
 

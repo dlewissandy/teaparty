@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
 """Conversation for Action (CfA) state machine for multi-agent coordination.
 
-Implements the Agentic CfA framework — a recursive state machine with 3 phases:
-  Phase 1: Intent Alignment  (IDEA → INTENT)
-  Phase 2: Planning          (INTENT → PLAN)
-  Phase 3: Execution         (PLAN → COMPLETED_WORK)
+Five states — one working state per phase, plus two terminals:
+  INTENT  — intent-alignment skill runs here
+  PLAN    — planning skill runs here
+  EXECUTE — execute skill runs here
+  DONE    — terminal: work approved
+  WITHDRAWN — terminal: work abandoned
 
-Cross-phase backtracking is supported via special actions (refine-intent,
-backtrack, revise-plan) that re-enter earlier phases at RESPONSE or QUESTION
-states (the synthesis funnel), never at decision states.
+Each phase's skill runs to completion in a single invocation, writes
+./.phase-outcome.json, and the state machine transitions based on the
+outcome (APPROVE advances, REALIGN/REPLAN backtrack, WITHDRAW terminates).
 
-State machine structure is defined in cfa-state-machine.json (the single source
-of truth). This module loads from that file and provides the runtime API.
+State machine structure is defined in cfa-state-machine.json (the single
+source of truth). This module loads from that file and provides the
+runtime API.
 
 No external dependencies — uses stdlib only (json, datetime, dataclasses, os).
 """
@@ -77,7 +80,7 @@ class InvalidTransition(Exception):
 class CfaState:
     """Full state of a Conversation for Action instance."""
     phase: str           # 'intent' | 'planning' | 'execution'
-    state: str           # e.g. 'IDEA', 'PLANNING', 'WORK_IN_PROGRESS'
+    state: str           # 'INTENT', 'PLAN', 'EXECUTE', 'DONE', 'WITHDRAWN'
     actor: str           # who should act next (from transition table)
     history: list = field(default_factory=list)  # list of dicts: {state, action, actor, timestamp}
     backtrack_count: int = 0  # how many cross-phase backtracks have occurred
@@ -91,10 +94,10 @@ class CfaState:
 # ── Factory ─────────────────────────────────────────────────────────────────────
 
 def make_initial_state(task_id: str = '', team_id: str = '') -> CfaState:
-    """Create the initial CfaState at IDEA, ready for the intent team."""
+    """Create the initial CfaState at INTENT, ready for the intent team."""
     return CfaState(
         phase='intent',
-        state='IDEA',
+        state='INTENT',
         actor='intent_team',
         history=[],
         backtrack_count=0,
@@ -108,12 +111,10 @@ def make_initial_state(task_id: str = '', team_id: str = '') -> CfaState:
 def make_child_state(parent: CfaState, team_id: str, task_id: str = '') -> CfaState:
     """Create a child CfaState linked to a parent dispatch.
 
-    Per spec Section 7, the subteam does not re-derive intent — the delegated
-    TASK already carries the approved intent from the outer scope.  The child
-    still enters at the INTENT state (to acknowledge the inherited INTENT.md)
-    but passes through it quickly rather than running the full intent-alignment
-    phase.  ``phase`` matches ``phase_for_state(state)`` throughout the session;
-    the first real transition will advance into planning.
+    The subteam does not re-derive intent — the delegated TASK already
+    carries the approved intent from the outer scope.  The child enters
+    at INTENT to acknowledge the inherited INTENT.md and quickly approves
+    through it rather than running the full intent-alignment dialog.
 
     Linked to the parent via parent_id = parent.task_id, with
     depth = parent.depth + 1.
@@ -122,7 +123,7 @@ def make_child_state(parent: CfaState, team_id: str, task_id: str = '') -> CfaSt
     return CfaState(
         phase='intent',
         state='INTENT',
-        actor='planning_team',
+        actor='intent_team',
         history=[],
         backtrack_count=0,
         task_id=child_task_id,
@@ -159,18 +160,18 @@ def available_actions(state: str) -> list[tuple[str, str]]:
 
 
 def is_phase_terminal(state: str) -> bool:
-    """True for states that are terminal for their phase.
+    """True for states that are terminal for a phase.
 
-    INTENT — terminal for intent phase (also entry to planning).
-    COMPLETED_WORK — globally terminal.
-    WITHDRAWN — globally terminal.
+    In the five-state model every working state (INTENT, PLAN, EXECUTE)
+    terminates its phase via approve/realign/replan/withdraw; only the
+    globally terminal states (DONE, WITHDRAWN) have no further transitions.
     """
-    return state in ('INTENT', 'COMPLETED_WORK', 'WITHDRAWN')
+    return state in ('DONE', 'WITHDRAWN')
 
 
 def is_globally_terminal(state: str) -> bool:
-    """True only for COMPLETED_WORK and WITHDRAWN."""
-    return state in ('COMPLETED_WORK', 'WITHDRAWN')
+    """True only for DONE and WITHDRAWN."""
+    return state in ('DONE', 'WITHDRAWN')
 
 
 def is_root(cfa: CfaState) -> bool:
@@ -348,28 +349,22 @@ def _cli_test() -> None:
 
     # make_initial_state
     cfa = make_initial_state()
-    assert cfa.state == 'IDEA', f"Expected IDEA, got {cfa.state}"
+    assert cfa.state == 'INTENT', f"Expected INTENT, got {cfa.state}"
     assert cfa.phase == 'intent', f"Expected intent, got {cfa.phase}"
-    assert cfa.actor == 'human'
+    assert cfa.actor == 'intent_team'
     assert cfa.backtrack_count == 0
     assert cfa.history == []
     print("  [OK] make_initial_state")
 
-    # Happy path: IDEA → INTENT → PLANNING → WORK_IN_PROGRESS → COMPLETED_WORK
+    # Happy path: INTENT → PLAN → EXECUTE → DONE
     cfa = transition(cfa, 'approve')
-    assert cfa.state == 'INTENT'
-    assert is_phase_terminal('INTENT')
-    assert not is_globally_terminal('INTENT')
-    cfa = transition(cfa, 'plan')
-    assert cfa.state == 'PLANNING'
+    assert cfa.state == 'PLAN'
     cfa = transition(cfa, 'approve')
-    assert cfa.state == 'WORK_IN_PROGRESS'
-    cfa = transition(cfa, 'assert')
-    assert cfa.state == 'WORK_ASSERT'
+    assert cfa.state == 'EXECUTE'
     cfa = transition(cfa, 'approve')
-    assert cfa.state == 'COMPLETED_WORK'
-    assert is_globally_terminal('COMPLETED_WORK')
-    print("  [OK] Happy path: IDEA → COMPLETED_WORK")
+    assert cfa.state == 'DONE'
+    assert is_globally_terminal('DONE')
+    print("  [OK] Happy path: INTENT → DONE")
 
     # Invalid transition raises InvalidTransition
     try:
@@ -380,27 +375,28 @@ def _cli_test() -> None:
     print("  [OK] InvalidTransition raised for terminal state")
 
     # Backtrack detection
-    assert is_backtrack('PLANNING', 'backtrack'), "PLANNING→backtrack should be backtrack"
-    assert not is_backtrack('IDEA', 'approve'), "IDEA→approve is not a backtrack"
+    assert is_backtrack('PLAN', 'realign'), "PLAN→realign should be backtrack"
+    assert is_backtrack('EXECUTE', 'replan'), "EXECUTE→replan should be backtrack"
+    assert is_backtrack('EXECUTE', 'realign'), "EXECUTE→realign should be backtrack"
+    assert not is_backtrack('INTENT', 'approve'), "INTENT→approve is not a backtrack"
     print("  [OK] is_backtrack")
 
     # Backtrack count increment
     cfa2 = make_initial_state()
-    cfa2 = transition(cfa2, 'approve')  # INTENT
-    cfa2 = transition(cfa2, 'plan')     # PLANNING
-    cfa2 = transition(cfa2, 'backtrack')  # IDEA (backtrack)
+    cfa2 = transition(cfa2, 'approve')   # INTENT → PLAN
+    cfa2 = transition(cfa2, 'realign')   # PLAN → INTENT (backtrack)
     assert cfa2.backtrack_count == 1, f"Expected 1, got {cfa2.backtrack_count}"
     print("  [OK] backtrack_count increments on cross-phase backtrack")
 
     # phase_for_state
-    assert phase_for_state('IDEA') == 'intent'
-    assert phase_for_state('PLANNING') == 'planning'
-    assert phase_for_state('WORK_IN_PROGRESS') == 'execution'
-    assert phase_for_state('COMPLETED_WORK') == 'execution'
+    assert phase_for_state('INTENT') == 'intent'
+    assert phase_for_state('PLAN') == 'planning'
+    assert phase_for_state('EXECUTE') == 'execution'
+    assert phase_for_state('DONE') == 'execution'
     print("  [OK] phase_for_state")
 
     # available_actions
-    actions = dict(available_actions('IDEA'))
+    actions = dict(available_actions('INTENT'))
     assert 'approve' in actions
     assert 'withdraw' in actions
     print("  [OK] available_actions")
@@ -425,10 +421,9 @@ def _cli_test() -> None:
 
     # Hierarchy: make_child_state
     parent = make_initial_state(task_id='uber-001')
-    parent = transition(parent, 'approve')
-    parent = transition(parent, 'plan')
-    parent = transition(parent, 'approve')
-    assert parent.state == 'WORK_IN_PROGRESS'
+    parent = transition(parent, 'approve')  # INTENT → PLAN
+    parent = transition(parent, 'approve')  # PLAN → EXECUTE
+    assert parent.state == 'EXECUTE'
 
     child = make_child_state(parent, 'coding')
     assert child.parent_id == 'uber-001'
@@ -443,7 +438,7 @@ def _cli_test() -> None:
     print("  [OK] make_child_state + is_root")
 
     # Hierarchy: child transitions preserve hierarchy fields
-    child = transition(child, 'plan')  # INTENT → PLANNING
+    child = transition(child, 'approve')  # INTENT → PLAN
     assert child.parent_id == 'uber-001'
     assert child.team_id == 'coding'
     assert child.depth == 1
@@ -464,8 +459,8 @@ def _cli_test() -> None:
 
     # set_state_direct
     cfa4 = make_initial_state()
-    cfa4 = set_state_direct(cfa4, 'PLANNING')
-    assert cfa4.state == 'PLANNING'
+    cfa4 = set_state_direct(cfa4, 'PLAN')
+    assert cfa4.state == 'PLAN'
     assert cfa4.phase == 'planning'
     assert len(cfa4.history) == 1
     assert cfa4.history[0]['action'] == 'set-state'
@@ -493,8 +488,8 @@ def _cli_dot() -> None:
         'execution': 'lightgreen',
     }
     terminal_colors = {
-        'COMPLETED_WORK': 'palegreen',
-        'WITHDRAWN':      'lightsalmon',
+        'DONE':      'palegreen',
+        'WITHDRAWN': 'lightsalmon',
     }
 
     print('digraph CfA {')

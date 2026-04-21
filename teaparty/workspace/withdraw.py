@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from teaparty.messaging.bus import EventBus
 
 
-_TERMINAL_STATES = frozenset({'COMPLETED_WORK', 'WITHDRAWN'})
+_TERMINAL_STATES = frozenset({'DONE', 'WITHDRAWN'})
 
 def _dispatch_teams() -> tuple[str, ...]:
     """Team names from phase-config.json (cached in phase_config module)."""
