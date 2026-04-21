@@ -16,10 +16,7 @@ _TERMINAL_STATES = frozenset({'COMPLETED_WORK', 'WITHDRAWN'})
 
 # States where the agent escalated to a human (questions and escalations,
 # not approval gates which are scheduled checkpoints).
-_ESCALATION_STATES = frozenset({
-    'INTENT_ESCALATE', 'INTENT_QUESTION',
-    'PLANNING_ESCALATE', 'PLANNING_QUESTION',
-})
+_ESCALATION_STATES: frozenset[str] = frozenset()
 
 
 def _day_label(dt: datetime.date) -> str:
@@ -182,10 +179,7 @@ def _count_historical_escalations(sessions: list) -> int:
 
 
 # Map escalation states to their CfA phase.
-_ESCALATION_PHASE = {
-    'INTENT_ESCALATE': 'intent', 'INTENT_QUESTION': 'intent',
-    'PLANNING_ESCALATE': 'planning', 'PLANNING_QUESTION': 'planning',
-}
+_ESCALATION_PHASE: dict[str, str] = {}
 
 
 def _phase_escalations(sessions: list) -> list[dict]:

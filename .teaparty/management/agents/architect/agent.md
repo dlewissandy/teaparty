@@ -3,7 +3,6 @@ name: architect
 description: Designs system architecture, writes ADRs and design docs. Write access
   scoped to design documentation only (not production code). Uses bash/grep/glob for
   codebase exploration.
-tools: Read, Write, Bash, Grep, Glob
 model: sonnet
 maxTurns: 20
 ---

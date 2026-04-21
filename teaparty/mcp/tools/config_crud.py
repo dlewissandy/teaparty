@@ -714,7 +714,6 @@ def create_agent_handler(
     fm: dict[str, Any] = {
         'name': name,
         'description': description,
-        'tools': tools,
         'model': model,
         'maxTurns': max_turns,
     }
@@ -726,12 +725,24 @@ def create_agent_handler(
     body_text = body if body.startswith('\n') else f'\n{body}'
     _write_agent_file(path, fm, body_text)
 
-    # settings.yaml is reserved for folder permissions — the tool and skill
-    # whitelists live in the agent.md frontmatter (read by the config UI
-    # and by claude -p at sub-agent spawn time). We do not stamp a default
-    # settings.yaml here.
-
     agent_dir = os.path.dirname(path)
+
+    # settings.yaml's ``permissions.allow`` is the source of truth for
+    # tool assignments — it's what Claude Code honors to auto-approve
+    # MCP tool calls in ``claude -p`` (tools listed in frontmatter alone
+    # are still prompted for). The UI reads and writes this file; the
+    # launcher passes it through ``--settings`` so the subprocess sees
+    # the same allow list the UI displays.
+    tool_list = [t.strip() for t in (tools or '').split(',') if t.strip()]
+    if tool_list:
+        settings_path = os.path.join(agent_dir, 'settings.yaml')
+        if not os.path.exists(settings_path):
+            import yaml as _yaml
+            with open(settings_path, 'w') as _f:
+                _yaml.dump(
+                    {'permissions': {'allow': tool_list}},
+                    _f, default_flow_style=False, sort_keys=False,
+                )
 
     # Write default pins.yaml so every agent has its prompt pinned.
     from teaparty.config.config_reader import write_pins

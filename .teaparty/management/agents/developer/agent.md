@@ -2,7 +2,6 @@
 name: developer
 description: The ONLY agent authorized to modify production source code. Full read/write/execute
   access. Implements features, fixes bugs, refactors code.
-tools: Read, Write, Edit, Bash, Grep, Glob
 model: sonnet
 maxTurns: 20
 ---

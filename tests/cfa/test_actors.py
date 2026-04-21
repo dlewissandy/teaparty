@@ -182,20 +182,14 @@ class TestGenerateBridge(unittest.TestCase):
         )
 
     def test_bridge_names_decision_and_lists_artifact(self):
-        """_generate_bridge opens with the decision line and lists the artifact.
-
-        The bridge is a self-contained Send to the reviewer — same discipline
-        as the Send tool. For a known assert state with an artifact on disk,
-        the output must: (1) state the decision the reviewer is being asked
-        to make, (2) list the artifact under review by its absolute path.
-        """
+        """_generate_bridge opens with the decision line and lists the artifact."""
         gate = self._make_gate()
-        artifact_path = os.path.join(self.tmpdir, 'INTENT.md')
-        Path(artifact_path).write_text('# Intent')
+        artifact_path = os.path.join(self.tmpdir, 'WORK_SUMMARY.md')
+        Path(artifact_path).write_text('# Work Summary')
 
-        text = gate._generate_bridge(artifact_path, 'INTENT_ASSERT', 'task')
+        text = gate._generate_bridge(artifact_path, 'WORK_ASSERT', 'task')
 
-        self.assertIn('Decide: Approve or revise the proposed intent.', text)
+        self.assertIn('Decide: Approve or revise the overall deliverable.', text)
         self.assertIn('Available:', text)
         self.assertIn(f'{artifact_path} — the artifact under review', text)
 
@@ -223,8 +217,8 @@ class TestGenerateBridge(unittest.TestCase):
         that strips the actor's message or obscures what's being asked.
         """
         gate = self._make_gate()
-        text = gate._generate_bridge('', 'INTENT_ASSERT', 'task')
-        self.assertIn('Decide: Approve or revise the proposed intent.', text)
+        text = gate._generate_bridge('', 'WORK_ASSERT', 'task')
+        self.assertIn('Decide: Approve or revise the overall deliverable.', text)
 
 
 # ── Phase config artifact values ──────────────────────────────────────────────

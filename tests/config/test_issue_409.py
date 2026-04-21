@@ -449,8 +449,10 @@ class TestProjectLeadAlwaysScaffolded(unittest.TestCase):
     def test_lead_agent_md_has_spec_frontmatter(self):
         """agent.md must have name, description, model=sonnet, maxTurns=30.
 
-        The tool whitelist lives in settings.yaml, not agent.md frontmatter
-        — agent.md is role-only.
+        Tool assignments live in ``settings.yaml`` (``permissions.allow``) —
+        that is the field Claude Code honors via ``--settings`` to auto-
+        approve MCP tool calls. The frontmatter holds identity + model
+        config only.
         """
         tmp = _make_tmp(self)
         home = _make_teaparty_home(tmp)
@@ -478,12 +480,13 @@ class TestProjectLeadAlwaysScaffolded(unittest.TestCase):
         self.assertIn('tau-project', fm['description'])
         self.assertNotIn(
             'tools', fm,
-            "agent.md frontmatter must NOT carry a tools list — the "
-            "whitelist lives in settings.yaml (see test_lead_settings_yaml_permissions)",
+            "project lead frontmatter must not carry `tools:` — "
+            "tool assignments live in settings.yaml permissions.allow",
         )
 
-    def test_lead_settings_yaml_permissions(self):
-        """settings.yaml must grant allow-list for the project-lead tool set."""
+    def test_lead_settings_yaml_carries_tool_whitelist(self):
+        """settings.yaml ``permissions.allow`` is the source of truth for
+        tool assignments."""
         tmp = _make_tmp(self)
         home = _make_teaparty_home(tmp)
         proj = os.path.join(tmp, 'upsilon')
@@ -491,9 +494,14 @@ class TestProjectLeadAlwaysScaffolded(unittest.TestCase):
         settings_path = os.path.join(
             proj, '.teaparty', 'project', 'agents', 'upsilon-lead', 'settings.yaml'
         )
+        self.assertTrue(
+            os.path.exists(settings_path),
+            "scaffold_project_lead must write settings.yaml with "
+            "permissions.allow — it is what Claude Code honors",
+        )
         with open(settings_path) as f:
             settings = yaml.safe_load(f) or {}
-        allow = settings.get('permissions', {}).get('allow', [])
+        allow = (settings.get('permissions') or {}).get('allow') or []
         for required in [
             'mcp__teaparty-config__Send',
             'mcp__teaparty-config__ProjectStatus',
@@ -502,11 +510,12 @@ class TestProjectLeadAlwaysScaffolded(unittest.TestCase):
         ]:
             self.assertIn(
                 required, allow,
-                f"settings.yaml allow-list must grant {required}",
+                f"settings.yaml permissions.allow must grant {required}",
             )
 
     def test_lead_pins_yaml_entries(self):
-        """pins.yaml must pin agent.md + settings.yaml with spec labels."""
+        """pins.yaml pins agent.md and settings.yaml — both are first-class
+        config surfaces the lead owns."""
         tmp = _make_tmp(self)
         home = _make_teaparty_home(tmp)
         proj = os.path.join(tmp, 'phi')
@@ -523,8 +532,8 @@ class TestProjectLeadAlwaysScaffolded(unittest.TestCase):
         )
         self.assertEqual(
             paths.get('settings.yaml'), 'Tool & File Permissions',
-            "pins.yaml must pin settings.yaml with label "
-            "'Tool & File Permissions'",
+            "pins.yaml must pin settings.yaml — it is the source of truth "
+            "for tool assignments",
         )
 
     def test_lead_scaffold_is_non_destructive(self):
@@ -540,7 +549,6 @@ class TestProjectLeadAlwaysScaffolded(unittest.TestCase):
         os.makedirs(lead_dir, exist_ok=True)
         for fname, sentinel in [
             ('agent.md', '# custom agent\n'),
-            ('settings.yaml', 'custom: true\n'),
             ('pins.yaml', '- path: custom.md\n  label: Custom\n'),
         ]:
             with open(os.path.join(lead_dir, fname), 'w') as f:
@@ -550,7 +558,6 @@ class TestProjectLeadAlwaysScaffolded(unittest.TestCase):
 
         for fname, sentinel in [
             ('agent.md', '# custom agent\n'),
-            ('settings.yaml', 'custom: true\n'),
             ('pins.yaml', '- path: custom.md\n  label: Custom\n'),
         ]:
             with open(os.path.join(lead_dir, fname)) as f:

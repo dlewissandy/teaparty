@@ -121,20 +121,20 @@ class TestPhaseConfigLeadResolution(unittest.TestCase):
             f"got '{spec.lead}' — phase-config.json default 'project-lead' was not overridden",
         )
 
-    def test_intent_phase_not_substituted_with_project_lead(self):
-        """Intent phase keeps its own configured lead — project lead substitution is out of scope."""
+    def test_intent_phase_substituted_with_project_lead(self):
+        """Intent phase uses the project's lead, same as planning and execution —
+        the intent-alignment skill runs on the project lead, not a separate
+        intent-lead."""
         tmp = _make_tmp(self)
         _make_project_yaml(tmp, lead='comics-lead')
         cfg = _make_phase_config(project_dir=tmp)
 
         spec = cfg.resolve_phase('intent')
 
-        # Intent phase has its own lead ('intent-lead') and must NOT be replaced
-        # by the project lead. The issue explicitly excludes the intent phase.
-        self.assertNotEqual(
+        self.assertEqual(
             spec.lead, 'comics-lead',
-            'intent phase must NOT use the project lead — intent is explicitly out of scope '
-            '(see issue #408). Only planning and execution phases are in scope.',
+            'intent phase must use the project lead — the intent-alignment '
+            'skill replaced the separate intent-lead agent.',
         )
 
     def test_planning_phase_falls_back_when_no_project_yaml(self):

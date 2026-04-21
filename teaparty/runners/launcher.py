@@ -26,6 +26,159 @@ from teaparty.telemetry import events as _telem_events
 from teaparty.telemetry import record_event
 
 
+# ── Baseline deny rules ──────────────────────────────────────────────────────
+
+# System-wide permission.deny rules injected into every agent's settings.
+# Deny takes precedence over allow in Claude Code's permission model, so
+# these rules hold even when an agent has a broad tool like bare ``Bash``
+# or ``Edit`` in ``permissions.allow``.
+#
+# Scope of protection:
+# - Destructive / exfil shell: rm -rf, sudo, pipe-to-shell installs.
+# - Config tampering: writes to .claude/ (Claude Code config) and to the
+#   management / project tiers of .teaparty/ (tool permissions live there;
+#   letting an agent edit those would defeat this entire control). The
+#   rules deliberately spare .teaparty/jobs/ so agents can still read and
+#   write within their own job worktree.
+BASELINE_DENY_RULES: tuple[str, ...] = (
+    # Destructive shell
+    'Bash(rm -rf *)',
+    'Bash(rm -fr *)',
+    'Bash(sudo *)',
+    'Bash(chmod -R *)',
+    # Pipe-to-shell (exfil / unreviewed install)
+    'Bash(curl * | *sh*)',
+    'Bash(curl * | bash*)',
+    'Bash(wget * | *sh*)',
+    'Bash(wget * | bash*)',
+    # Claude Code config tampering — deny writes to the files that could
+    # change agent behaviour. Deliberately spares .claude/skills/ so the
+    # launcher-symlinked skills remain loadable, and leaves read access
+    # unrestricted so skill discovery works.
+    'Edit(*/.claude/settings.json)',
+    'Edit(*/.claude/settings.local.json)',
+    'Edit(*/.claude/agents/**)',
+    'Edit(*/.claude/hooks/**)',
+    'Edit(*/.claude/mcp.json)',
+    'Write(*/.claude/settings.json)',
+    'Write(*/.claude/settings.local.json)',
+    'Write(*/.claude/agents/**)',
+    'Write(*/.claude/hooks/**)',
+    'Write(*/.claude/mcp.json)',
+    # TeaParty config tampering — management + project tiers only; the
+    # jobs tier is where the agent's own worktree lives.
+    'Edit(*/.teaparty/management/**)',
+    'Edit(*/.teaparty/project/**)',
+    'Edit(*/.teaparty/teaparty.yaml)',
+    'Write(*/.teaparty/management/**)',
+    'Write(*/.teaparty/project/**)',
+    'Write(*/.teaparty/teaparty.yaml)',
+)
+
+
+# Baseline allow rules — explicit permission grants added to every
+# agent's settings at launch. These cover paths Claude Code may
+# implicitly prompt for even when a bare tool name is in allow (e.g.
+# reading its own .claude/ config when loading skills).
+BASELINE_ALLOW_RULES: tuple[str, ...] = (
+    'Read(*/.claude/**)',
+    'Read(*/.claude/skills/**)',
+    # Skill is the built-in tool agents use to invoke skills in
+    # headless mode. Without this, the agent sees skills listed in its
+    # frontmatter but can't run them — the CLI prompts for permission
+    # on every Skill call.
+    'Skill',
+)
+
+
+
+
+def _inject_baseline_deny(settings: dict) -> None:
+    """Merge the baseline deny / allow lists and disable auto-memory.
+
+    Appends without duplicates so a project can add its own entries
+    alongside the baseline. Called by every launch path so agents never
+    see a settings file without these rules.
+
+    Auto-memory is disabled because Claude Code stores it under
+    ``<CLAUDE_CONFIG_DIR>/projects/<cwd-hash>/memory/`` — outside the
+    agent's worktree cwd. The cwd sandbox refuses access; the agent
+    sees a permission failure on what should be transparent state. The
+    engine already manages session state via ``.cfa-state.json`` and
+    worktree files; agents do not need cross-session auto-memory on
+    top of that.
+    """
+    perms = settings.get('permissions') or {}
+
+    existing_deny = list(perms.get('deny') or [])
+    seen_deny = set(existing_deny)
+    for rule in BASELINE_DENY_RULES:
+        if rule not in seen_deny:
+            existing_deny.append(rule)
+            seen_deny.add(rule)
+    perms['deny'] = existing_deny
+
+    existing_allow = list(perms.get('allow') or [])
+    seen_allow = set(existing_allow)
+    for rule in BASELINE_ALLOW_RULES:
+        if rule not in seen_allow:
+            existing_allow.append(rule)
+            seen_allow.add(rule)
+    perms['allow'] = existing_allow
+
+    settings['permissions'] = perms
+    settings['autoMemoryEnabled'] = False
+
+
+# Write-capable built-in tools that must be scoped to the worktree when
+# present in the allow list as bare names (blanket grants).
+_WRITE_TOOLS: tuple[str, ...] = ('Write', 'Edit', 'NotebookEdit')
+
+
+def _scope_writes_to_worktree(settings: dict, worktree: str) -> None:
+    """Confine blanket Write / Edit / NotebookEdit grants to the worktree.
+
+    If ``permissions.allow`` contains a bare write-capable tool (e.g.
+    ``Edit``), replace it with path-scoped entries that permit writes
+    only within the agent's worktree plus the system temp directories.
+    Writes to any other path then fall through to the default permission
+    handling (prompt in interactive, deny in headless ``claude -p``).
+
+    No-op when ``worktree`` is empty (chat tier runs in the project's
+    real cwd; scoping there would be a behaviour change, not a safety
+    fence). No-op for any tool that already has only path-scoped entries.
+    """
+    if not worktree:
+        return
+    worktree_abs = os.path.abspath(worktree)
+    perms = settings.get('permissions') or {}
+    allow = list(perms.get('allow') or [])
+    scoped_prefixes = (
+        worktree_abs,
+        '/tmp',
+        '/private/tmp',
+    )
+    new_allow: list[str] = []
+    scoped: set[str] = set()
+    for entry in allow:
+        if entry in _WRITE_TOOLS:
+            scoped.add(entry)
+            continue  # drop blanket grant; replaced below
+        new_allow.append(entry)
+    for tool in _WRITE_TOOLS:
+        if tool not in scoped:
+            continue
+        for prefix in scoped_prefixes:
+            rule_dir = f'{tool}({prefix}/**)'
+            rule_file = f'{tool}({prefix}/*)'
+            if rule_dir not in new_allow:
+                new_allow.append(rule_dir)
+            if rule_file not in new_allow:
+                new_allow.append(rule_file)
+    perms['allow'] = new_allow
+    settings['permissions'] = perms
+
+
 # ── Data ─────────────────────────────────────────────────────────────────────
 
 @dataclass
@@ -201,13 +354,34 @@ def compose_launch_worktree(
         shutil.copy2(agent_def_path, dest_md)
 
     # ── Skills (filtered by agent allowlist) ─────────────────────────────
+    # Skills are staged in two places:
+    #
+    # 1. ``<worktree>/.claude/skills/<name>/`` — project-local copy.
+    #    Kept for transparency and because hooks / helpers inside the
+    #    worktree may reference them by relative path.
+    #
+    # 2. ``$CLAUDE_CONFIG_DIR/skills/<name>/`` — the location Claude
+    #    Code's headless ``Skill`` tool actually discovers from. In
+    #    ``claude -p`` the cwd's ``.claude/skills/`` is not in the
+    #    discovery path; without this second copy the agent sees its
+    #    frontmatter-declared skill but invoking it fails with
+    #    "Unknown skill: <name>". Writes are idempotent (same source,
+    #    same content) across concurrent launches.
     allowed_skills = fm.get('skills') or []
     skills_dest = os.path.join(claude_dir, 'skills')
-    # Clean old skills
+    claude_config_dir = os.environ.get('CLAUDE_CONFIG_DIR', '')
+    config_skills_dest = (
+        os.path.join(claude_config_dir, 'skills') if claude_config_dir else ''
+    )
+    # Clean the worktree skills dir; the CLAUDE_CONFIG_DIR one is shared
+    # so we do not wipe it — each launch just (re)writes the specific
+    # skills it needs.
     if os.path.isdir(skills_dest):
         shutil.rmtree(skills_dest)
     if allowed_skills:
         os.makedirs(skills_dest, exist_ok=True)
+        if config_skills_dest:
+            os.makedirs(config_skills_dest, exist_ok=True)
         # Search order: scope in primary home → management in primary home
         # → management in org home (Issue #408 fallback for project jobs)
         for skill_name in allowed_skills:
@@ -222,14 +396,25 @@ def compose_launch_worktree(
                 skill_src = os.path.join(
                     org_home, 'management', 'skills', skill_name,
                 )
-            if os.path.isdir(skill_src):
-                os.symlink(
-                    os.path.abspath(skill_src),
-                    os.path.join(skills_dest, skill_name),
-                )
+            if not os.path.isdir(skill_src):
+                continue
+            # Copy into the worktree for transparency.
+            shutil.copytree(
+                skill_src,
+                os.path.join(skills_dest, skill_name),
+            )
+            # Copy into CLAUDE_CONFIG_DIR/skills/ for Claude Code
+            # discovery. Overwrite if present so edits to the source
+            # skill propagate on next launch.
+            if config_skills_dest:
+                target = os.path.join(config_skills_dest, skill_name)
+                if os.path.isdir(target):
+                    shutil.rmtree(target)
+                shutil.copytree(skill_src, target)
 
     # ── Settings (scope base + agent override) ───────────────────────────
     settings = _merge_settings(agent_name, scope, teaparty_home)
+    _inject_baseline_deny(settings)
     settings_path = os.path.join(claude_dir, 'settings.json')
     with open(settings_path, 'w') as f:
         json.dump(settings, f, indent=2)
@@ -433,6 +618,7 @@ def compose_launch_config(
             perms['allow'] = fallback
             settings['permissions'] = perms
 
+    _inject_baseline_deny(settings)
     settings_path = os.path.join(config_dir, 'settings.json')
     with open(settings_path, 'w') as f:
         json.dump(settings, f, indent=2)
@@ -933,9 +1119,18 @@ async def launch(
         settings = dict(settings_override)
     else:
         settings = _merge_settings(agent_name, scope, teaparty_home)
+    _inject_baseline_deny(settings)
+    _scope_writes_to_worktree(settings, worktree)
 
     # Derive --tools from settings.yaml's permissions.allow; fall back to
     # frontmatter tools: for agents that have not yet migrated to settings.yaml.
+    #
+    # --tools takes BARE tool names ("Write", "Edit"), not permission
+    # patterns ("Write(/path/**)"). When _scope_writes_to_worktree has
+    # rewritten bare Write/Edit/NotebookEdit into path-scoped forms, the
+    # bare name must still appear in --tools or the tool isn't enabled
+    # at all. Strip the parenthesised arg from each entry to extract the
+    # tool name, then dedupe.
     tools = tools_override
     if tools is None:
         allow = (settings.get('permissions') or {}).get('allow') or []
@@ -944,10 +1139,17 @@ async def launch(
             if tools_str:
                 allow = [t.strip() for t in tools_str.split(',') if t.strip()]
         if allow:
-            all_tools = list(allow)
-            if 'ToolSearch' not in all_tools:
-                all_tools.append('ToolSearch')
-            tools = ','.join(all_tools)
+            bare_names: list[str] = []
+            seen: set[str] = set()
+            for entry in allow:
+                paren = entry.find('(')
+                name = entry[:paren].strip() if paren > 0 else entry.strip()
+                if name and name not in seen:
+                    bare_names.append(name)
+                    seen.add(name)
+            if 'ToolSearch' not in seen:
+                bare_names.append('ToolSearch')
+            tools = ','.join(bare_names)
 
     if is_chat:
         effective_cwd = launch_cwd

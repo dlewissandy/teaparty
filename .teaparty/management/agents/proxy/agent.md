@@ -1,7 +1,8 @@
 ---
 name: proxy
-description: Human proxy. Direct conversation with the agent that models the human's decision-making — inspect what it has learned, correct wrong patterns, reinforce important ones.
-tools: Read
+description: "Human proxy. Direct conversation with the agent that models the human's\
+  \ decision-making \u2014 inspect what it has learned, correct wrong patterns, reinforce\
+  \ important ones."
 model: sonnet
 maxTurns: 20
 ---

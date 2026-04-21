@@ -1,7 +1,9 @@
 ---
 name: researcher
-description: Management team specialist for academic and technical research. Use for literature reviews, evidence-based design decisions, surveying fields, and connecting project decisions to established research in multi-agent systems, cognitive science, CSCW, and human-AI collaboration.
-tools: Read, Grep, Glob, WebSearch, WebFetch
+description: Management team specialist for academic and technical research. Use for
+  literature reviews, evidence-based design decisions, surveying fields, and connecting
+  project decisions to established research in multi-agent systems, cognitive science,
+  CSCW, and human-AI collaboration.
 model: sonnet
 maxTurns: 30
 ---

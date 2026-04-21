@@ -321,8 +321,11 @@ class PhaseConfig:
           3. Project lead from project.yaml: substituted when the org default is
              the generic 'project-lead' sentinel (Issue #408).
 
-        The intent phase is not substituted — it has its own lead ('intent-lead')
-        and is explicitly out of scope.
+        Intent, planning, and execution phases all use the generic
+        'project-lead' sentinel in phase-config.json and get substituted
+        for the project's actual lead (e.g. 'joke-book-lead'). One agent
+        carries the job across all three phases; skills differentiate the
+        phase-specific behaviour.
         """
         base = self._phases[phase_name]
 

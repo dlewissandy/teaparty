@@ -2,7 +2,6 @@
 name: reviewer
 description: "Read-only code reviewer. Reviews diffs, checks quality, reports findings\
   \ organized by severity. NEVER modifies code \u2014 only reports."
-tools: Read, Bash, Grep, Glob
 model: sonnet
 maxTurns: 20
 ---

@@ -59,17 +59,12 @@ REGRET_WEIGHT = 3
 
 # States where the proxy only needs to produce a binary approve/reject signal.
 BINARY_STATES = frozenset([
-    'INTENT_ASSERT',
-    'PLAN_ASSERT',
     'WORK_ASSERT',
 ])
 
 # States where the proxy must generate a substantive response (clarify, correct,
 # refine) rather than simply saying yes or no.
-GENERATIVE_STATES = frozenset([
-    'INTENT_ESCALATE',
-    'PLANNING_ESCALATE',
-])
+GENERATIVE_STATES: frozenset[str] = frozenset()
 
 # All valid outcomes that can be recorded after a human decision.
 VALID_OUTCOMES = frozenset(['approve', 'correct', 'reject', 'withdraw', 'clarify'])

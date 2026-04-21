@@ -1,11 +1,12 @@
 ---
 name: research-lead
-description: "Research workgroup lead — route web, academic-literature, patent, or video research work here. Retrieves and summarizes source material; not for original content or deep analysis."
-tools: Read, Glob, Grep, Write, Edit, mcp__teaparty-config__Send, mcp__teaparty-config__CloseConversation, mcp__teaparty-config__AskQuestion
+description: "Research workgroup lead \u2014 route web, academic-literature, patent,\
+  \ or video research work here. Retrieves and summarizes source material; not for\
+  \ original content or deep analysis."
 model: sonnet
 maxTurns: 20
 skills:
-  - digest
+- digest
 disallowedTools:
 - TeamCreate
 - TeamDelete

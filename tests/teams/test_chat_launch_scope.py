@@ -693,9 +693,15 @@ class TestSpawnFnDispatchesAtProjectRepo(unittest.TestCase):
             'comics-lead must NOT launch at the teaparty repo',
         )
 
-        # Config dir is at the spec'd path (parent of settings.json).
+        # Config dir must live under the project's scope, not
+        # management's. Project leads are registered at
+        # project/agents/{name}/; composing their per-launch config
+        # under management/agents/ would read the wrong (or missing)
+        # settings.yaml and agent.md — the exact stale-copy bug that
+        # motivated the spawn_fn placement fix.
         settings_path = got['settings_path']
-        self.assertIn('management/agents/comics-lead/', settings_path)
+        self.assertIn('project/agents/comics-lead/', settings_path)
+        self.assertNotIn('management/agents/comics-lead/', settings_path)
         self.assertTrue(settings_path.endswith('/config/settings.json'))
         self.assertTrue(os.path.isfile(settings_path))
         self.assertTrue(got['strict_mcp_config'],

@@ -224,11 +224,11 @@ class TestSkillLookupIntegrationWithEngine(unittest.TestCase):
             name='planning', agent_file='agents/uber-team.json',
             lead='project-lead', permission_mode='acceptEdits',
             stream_file='.plan-stream.jsonl', artifact='PLAN.md',
-            approval_state='PLAN_ASSERT',
+            approval_state='PLANNING',
         )
 
         orch = Orchestrator(
-            cfa_state=CfaState(state='DRAFT', phase='planning', actor='agent',
+            cfa_state=CfaState(state='PLANNING', phase='planning', actor='agent',
                                history=[], backtrack_count=0),
             phase_config=cfg,
             event_bus=MagicMock(spec=EventBus, publish=AsyncMock()),
@@ -275,8 +275,11 @@ class TestSkillLookupIntegrationWithEngine(unittest.TestCase):
             self.assertIn('Survey', plan_content)
             self.assertIn('Argue', plan_content)
 
-    def test_skill_match_advances_cfa_to_plan_assert(self):
-        """When a skill matches, CfA state advances to PLAN_ASSERT."""
+    def test_skill_match_preseeds_plan_without_advancing_state(self):
+        """When a skill matches, PLAN.md is pre-seeded but CfA state does
+        not advance. The planning skill picks up the pre-seeded plan on
+        the next turn and proposes it for approval via its own ASSERT
+        dialog."""
         with tempfile.TemporaryDirectory() as worktree, \
              tempfile.TemporaryDirectory() as project_dir, \
              tempfile.TemporaryDirectory() as infra_dir:
@@ -294,12 +297,15 @@ class TestSkillLookupIntegrationWithEngine(unittest.TestCase):
                 ))
 
             orch = self._make_orchestrator(worktree, project_dir, infra_dir=infra_dir)
+            pre_state = orch.cfa.state
             asyncio.run(orch._try_skill_lookup())
 
-            self.assertEqual(orch.cfa.state, 'PLAN_ASSERT')
+            # State unchanged — skill just pre-seeds PLAN.md
+            self.assertEqual(orch.cfa.state, pre_state)
+            self.assertTrue(os.path.exists(os.path.join(worktree, 'PLAN.md')))
 
     def test_no_skill_match_returns_false_state_unchanged(self):
-        """When no skill matches, returns False and CfA stays at DRAFT."""
+        """When no skill matches, returns False and CfA stays at PLANNING."""
         with tempfile.TemporaryDirectory() as worktree, \
              tempfile.TemporaryDirectory() as project_dir:
             with open(os.path.join(worktree, 'INTENT.md'), 'w') as f:
@@ -312,7 +318,7 @@ class TestSkillLookupIntegrationWithEngine(unittest.TestCase):
             result = asyncio.run(orch._try_skill_lookup())
 
             self.assertFalse(result)
-            self.assertEqual(orch.cfa.state, 'DRAFT')
+            self.assertEqual(orch.cfa.state, 'PLANNING')
             # No PLAN.md written
             self.assertFalse(os.path.exists(os.path.join(worktree, 'PLAN.md')))
 
@@ -324,7 +330,7 @@ class TestSkillLookupIntegrationWithEngine(unittest.TestCase):
             result = asyncio.run(orch._try_skill_lookup())
 
             self.assertFalse(result)
-            self.assertEqual(orch.cfa.state, 'DRAFT')
+            self.assertEqual(orch.cfa.state, 'PLANNING')
 
 
 if __name__ == '__main__':

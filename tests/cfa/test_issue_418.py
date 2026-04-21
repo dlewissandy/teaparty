@@ -90,18 +90,18 @@ class TestExecutionPhaseShape(unittest.TestCase):
 
 
 class TestNewDelegatePath(unittest.TestCase):
-    """PLAN --delegate--> WORK_IN_PROGRESS (replacing PLAN --delegate--> TASK)."""
+    """PLANNING --approve--> WORK_IN_PROGRESS (planning phase terminates via the skill outcome)."""
 
-    def test_plan_delegates_to_work_in_progress(self):
-        plan_edges = TRANSITIONS.get('PLAN', [])
-        delegate_targets = [
+    def test_planning_approves_to_work_in_progress(self):
+        plan_edges = TRANSITIONS.get('PLANNING', [])
+        approve_targets = [
             target for action, target, _actor in plan_edges
-            if action == 'delegate'
+            if action == 'approve'
         ]
         self.assertEqual(
-            delegate_targets, ['WORK_IN_PROGRESS'],
-            'PLAN must delegate directly to WORK_IN_PROGRESS — got '
-            f'{delegate_targets}',
+            approve_targets, ['WORK_IN_PROGRESS'],
+            'PLANNING must approve directly to WORK_IN_PROGRESS — got '
+            f'{approve_targets}',
         )
 
     def test_work_in_progress_outgoing_edges_are_exact(self):
@@ -133,8 +133,8 @@ class TestNewDelegatePath(unittest.TestCase):
             f'got {action_to_target["auto-approve"]}',
         )
         self.assertEqual(
-            action_to_target['backtrack'], 'PLANNING_QUESTION',
-            f'WORK_IN_PROGRESS --backtrack--> must go to PLANNING_QUESTION '
+            action_to_target['backtrack'], 'PLANNING',
+            f'WORK_IN_PROGRESS --backtrack--> must go to PLANNING '
             f'(project-level backtrack to planning phase), got '
             f'{action_to_target["backtrack"]}',
         )
@@ -236,15 +236,15 @@ class TestScopeViolatingEdgesRemoved(unittest.TestCase):
 
 
 class TestProjectLevelBacktracksPreserved(unittest.TestCase):
-    """WORK_ASSERT keeps the project-level backtracks; PLAN_ASSERT keeps
-    refine-intent. These are project-level decisions and stay."""
+    """WORK_ASSERT keeps the project-level backtracks; PLANNING keeps
+    its own backtrack to intent. These are project-level decisions and stay."""
 
     def test_work_assert_can_revise_plan(self):
         edges = TRANSITIONS.get('WORK_ASSERT', [])
         revise = [(a, t) for a, t, _ in edges if a == 'revise-plan']
         self.assertEqual(
-            revise, [('revise-plan', 'PLANNING_RESPONSE')],
-            f'WORK_ASSERT --revise-plan--> PLANNING_RESPONSE must be preserved '
+            revise, [('revise-plan', 'PLANNING')],
+            f'WORK_ASSERT --revise-plan--> PLANNING must be preserved '
             f'at project-level scope; got {revise}',
         )
 
@@ -252,23 +252,22 @@ class TestProjectLevelBacktracksPreserved(unittest.TestCase):
         edges = TRANSITIONS.get('WORK_ASSERT', [])
         refine = [(a, t) for a, t, _ in edges if a == 'refine-intent']
         self.assertEqual(
-            refine, [('refine-intent', 'INTENT_RESPONSE')],
-            f'WORK_ASSERT --refine-intent--> INTENT_RESPONSE must be preserved '
-            f'at project-level scope; got {refine}',
+            refine, [('refine-intent', 'IDEA')],
+            f'WORK_ASSERT --refine-intent--> IDEA must be preserved '
+            f'at project-level scope (intent skill re-runs on backtrack); got {refine}',
         )
 
-    def test_plan_assert_can_refine_intent(self):
-        edges = TRANSITIONS.get('PLAN_ASSERT', [])
-        refine = [(a, t) for a, t, _ in edges if a == 'refine-intent']
+    def test_planning_can_backtrack_to_intent(self):
+        edges = TRANSITIONS.get('PLANNING', [])
+        back = [(a, t) for a, t, _ in edges if a == 'backtrack']
         self.assertEqual(
-            refine, [('refine-intent', 'INTENT_RESPONSE')],
-            f'PLAN_ASSERT --refine-intent--> INTENT_RESPONSE must be preserved; '
-            f'got {refine}',
+            back, [('backtrack', 'IDEA')],
+            f'PLANNING --backtrack--> IDEA must be preserved; got {back}',
         )
 
 
 class TestHappyPathThroughNewMachine(unittest.TestCase):
-    """End-to-end: IDEA → PROPOSAL → INTENT → DRAFT → PLAN →
+    """End-to-end: IDEA → INTENT → PLANNING →
     WORK_IN_PROGRESS → WORK_ASSERT → COMPLETED_WORK."""
 
     def test_happy_path_reaches_completed_work_without_any_task_state(self):
@@ -276,9 +275,9 @@ class TestHappyPathThroughNewMachine(unittest.TestCase):
         path = [(cfa.state, '')]
 
         for action in [
-            'propose', 'auto-approve',  # → INTENT
-            'plan', 'auto-approve',     # → PLAN
-            'delegate',                 # → WORK_IN_PROGRESS (was TASK)
+            'approve',                  # → INTENT
+            'plan',                     # → PLANNING
+            'approve',                  # → WORK_IN_PROGRESS
             'assert',                   # → WORK_ASSERT
             'approve',                  # → COMPLETED_WORK
         ]:

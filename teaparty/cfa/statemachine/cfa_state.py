@@ -77,7 +77,7 @@ class InvalidTransition(Exception):
 class CfaState:
     """Full state of a Conversation for Action instance."""
     phase: str           # 'intent' | 'planning' | 'execution'
-    state: str           # e.g. 'PROPOSAL', 'DRAFT', 'WORK_IN_PROGRESS'
+    state: str           # e.g. 'IDEA', 'PLANNING', 'WORK_IN_PROGRESS'
     actor: str           # who should act next (from transition table)
     history: list = field(default_factory=list)  # list of dicts: {state, action, actor, timestamp}
     backtrack_count: int = 0  # how many cross-phase backtracks have occurred
@@ -91,11 +91,11 @@ class CfaState:
 # ── Factory ─────────────────────────────────────────────────────────────────────
 
 def make_initial_state(task_id: str = '', team_id: str = '') -> CfaState:
-    """Create the initial CfaState at IDEA, waiting for a human to propose."""
+    """Create the initial CfaState at IDEA, ready for the intent team."""
     return CfaState(
         phase='intent',
         state='IDEA',
-        actor='human',
+        actor='intent_team',
         history=[],
         backtrack_count=0,
         task_id=task_id,
@@ -162,11 +162,10 @@ def is_phase_terminal(state: str) -> bool:
     """True for states that are terminal for their phase.
 
     INTENT — terminal for intent phase (also entry to planning).
-    PLAN — terminal for planning phase (also entry to execution).
     COMPLETED_WORK — globally terminal.
     WITHDRAWN — globally terminal.
     """
-    return state in ('INTENT', 'PLAN', 'COMPLETED_WORK', 'WITHDRAWN')
+    return state in ('INTENT', 'COMPLETED_WORK', 'WITHDRAWN')
 
 
 def is_globally_terminal(state: str) -> bool:
@@ -356,19 +355,14 @@ def _cli_test() -> None:
     assert cfa.history == []
     print("  [OK] make_initial_state")
 
-    # Happy path: IDEA → PROPOSAL → INTENT → PLAN → COMPLETED_WORK
-    cfa = transition(cfa, 'propose')
-    assert cfa.state == 'PROPOSAL'
-    cfa = transition(cfa, 'auto-approve')
+    # Happy path: IDEA → INTENT → PLANNING → WORK_IN_PROGRESS → COMPLETED_WORK
+    cfa = transition(cfa, 'approve')
     assert cfa.state == 'INTENT'
     assert is_phase_terminal('INTENT')
     assert not is_globally_terminal('INTENT')
     cfa = transition(cfa, 'plan')
-    assert cfa.state == 'DRAFT'
-    cfa = transition(cfa, 'auto-approve')
-    assert cfa.state == 'PLAN'
-    assert is_phase_terminal('PLAN')
-    cfa = transition(cfa, 'delegate')
+    assert cfa.state == 'PLANNING'
+    cfa = transition(cfa, 'approve')
     assert cfa.state == 'WORK_IN_PROGRESS'
     cfa = transition(cfa, 'assert')
     assert cfa.state == 'WORK_ASSERT'
@@ -379,46 +373,42 @@ def _cli_test() -> None:
 
     # Invalid transition raises InvalidTransition
     try:
-        transition(cfa, 'propose')
+        transition(cfa, 'approve')
         assert False, "Should have raised InvalidTransition"
     except InvalidTransition:
         pass
     print("  [OK] InvalidTransition raised for terminal state")
 
     # Backtrack detection
-    assert is_backtrack('DRAFT', 'refine-intent'), "DRAFT→refine-intent should be backtrack"
-    assert is_backtrack('PLANNING_QUESTION', 'backtrack'), "PLANNING_QUESTION→backtrack should be backtrack"
-    assert not is_backtrack('PROPOSAL', 'auto-approve'), "PROPOSAL→auto-approve is not a backtrack"
+    assert is_backtrack('PLANNING', 'backtrack'), "PLANNING→backtrack should be backtrack"
+    assert not is_backtrack('IDEA', 'approve'), "IDEA→approve is not a backtrack"
     print("  [OK] is_backtrack")
 
     # Backtrack count increment
     cfa2 = make_initial_state()
-    cfa2 = transition(cfa2, 'propose')
-    cfa2 = transition(cfa2, 'auto-approve')  # INTENT
-    cfa2 = transition(cfa2, 'plan')          # DRAFT
-    cfa2 = transition(cfa2, 'refine-intent') # INTENT_RESPONSE (backtrack)
+    cfa2 = transition(cfa2, 'approve')  # INTENT
+    cfa2 = transition(cfa2, 'plan')     # PLANNING
+    cfa2 = transition(cfa2, 'backtrack')  # IDEA (backtrack)
     assert cfa2.backtrack_count == 1, f"Expected 1, got {cfa2.backtrack_count}"
     print("  [OK] backtrack_count increments on cross-phase backtrack")
 
     # phase_for_state
     assert phase_for_state('IDEA') == 'intent'
-    assert phase_for_state('DRAFT') == 'planning'
+    assert phase_for_state('PLANNING') == 'planning'
     assert phase_for_state('WORK_IN_PROGRESS') == 'execution'
     assert phase_for_state('COMPLETED_WORK') == 'execution'
     print("  [OK] phase_for_state")
 
     # available_actions
-    actions = dict(available_actions('PROPOSAL'))
-    assert 'propose' not in actions
-    assert 'auto-approve' in actions
+    actions = dict(available_actions('IDEA'))
+    assert 'approve' in actions
     assert 'withdraw' in actions
-    assert actions['withdraw'] == 'human'
     print("  [OK] available_actions")
 
     # Persistence round-trip
     import tempfile, os
     cfa3 = make_initial_state()
-    cfa3 = transition(cfa3, 'propose')
+    cfa3 = transition(cfa3, 'approve')
     with tempfile.NamedTemporaryFile(suffix='.json', delete=False) as f:
         tmp_path = f.name
     try:
@@ -435,11 +425,9 @@ def _cli_test() -> None:
 
     # Hierarchy: make_child_state
     parent = make_initial_state(task_id='uber-001')
-    parent = transition(parent, 'propose')
-    parent = transition(parent, 'auto-approve')
+    parent = transition(parent, 'approve')
     parent = transition(parent, 'plan')
-    parent = transition(parent, 'auto-approve')
-    parent = transition(parent, 'delegate')
+    parent = transition(parent, 'approve')
     assert parent.state == 'WORK_IN_PROGRESS'
 
     child = make_child_state(parent, 'coding')
@@ -455,7 +443,7 @@ def _cli_test() -> None:
     print("  [OK] make_child_state + is_root")
 
     # Hierarchy: child transitions preserve hierarchy fields
-    child = transition(child, 'plan')  # INTENT → DRAFT
+    child = transition(child, 'plan')  # INTENT → PLANNING
     assert child.parent_id == 'uber-001'
     assert child.team_id == 'coding'
     assert child.depth == 1
@@ -476,8 +464,8 @@ def _cli_test() -> None:
 
     # set_state_direct
     cfa4 = make_initial_state()
-    cfa4 = set_state_direct(cfa4, 'PLAN')
-    assert cfa4.state == 'PLAN'
+    cfa4 = set_state_direct(cfa4, 'PLANNING')
+    assert cfa4.state == 'PLANNING'
     assert cfa4.phase == 'planning'
     assert len(cfa4.history) == 1
     assert cfa4.history[0]['action'] == 'set-state'

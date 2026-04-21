@@ -1,0 +1,8 @@
+permissions:
+  allow:
+  - Read
+  - Write
+  - Glob
+  - WebSearch
+  - WebFetch
+  - mcp__teaparty-config__youtube_transcript

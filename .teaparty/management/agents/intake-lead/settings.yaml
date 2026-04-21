@@ -1,0 +1,11 @@
+permissions:
+  allow:
+  - Read
+  - Glob
+  - Grep
+  - Write
+  - Edit
+  - mcp__teaparty-config__Send
+  - mcp__teaparty-config__CloseConversation
+  - mcp__teaparty-config__AskQuestion
+  - Bash

@@ -709,30 +709,11 @@ async def run_proxy_agent(
     )
     context_block = '\n'.join(context_parts) if context_parts else ''
 
-    # Gate-specific instruction — varies by CfA state.
-    # INTENT_ASSERT: the proxy must probe before approving; rubber-stamping is wrong.
-    # The instruction is dialog-aware: probe required only if no prior probe in
-    # this review, otherwise evaluate whether the answer resolves the concern.
+    # Gate-specific instruction hook — currently unused. Intent and
+    # planning phases run skill-based and resolve their own dialog
+    # internally via AskQuestion, so the proxy never fires on their
+    # gates. WORK_ASSERT uses the default (no extra instruction).
     gate_instruction = ''
-    if state == 'INTENT_ASSERT':
-        if dialog_history.strip():
-            gate_instruction = (
-                f'\nYou have already been in dialog about this intent (see '
-                f'DIALOG SO FAR). Evaluate whether the agent\'s reply resolves '
-                f'your concern. If it does, approve. If it raises a new '
-                f'concrete concern, ask one more focused question. Do not '
-                f'probe indefinitely — once your questions are answered, '
-                f'approve.\n'
-            )
-        else:
-            gate_instruction = (
-                f'\nYou are being asked whether the stated intent accurately '
-                f'and completely reflects what was requested. Before indicating '
-                f'approval, probe with one specific question that targets a '
-                f'concrete claim or framing choice in the proposal — scope, '
-                f'assumptions, or anything that seems underspecified. '
-                f'Do not rubber-stamp.\n'
-            )
 
     # ── Pass 1: Prior (without artifact) ─────────────────────────────────
     prior_prompt = (
@@ -850,24 +831,17 @@ def _build_artifact_context(
     if infra_dir:
         prompt_path = os.path.join(infra_dir, 'PROMPT.txt')
         if os.path.isfile(prompt_path):
-            if state in ('INTENT_ASSERT', 'INTENT_ESCALATE'):
-                # Intent is being built from PROMPT — it's authoritative here.
-                context_parts.append(
-                    f'Original request (the user\'s exact words — INTENT.md '
-                    f'must accurately capture this): {prompt_path}'
-                )
-            else:
-                # Post-intent phases: INTENT.md supersedes PROMPT.txt.
-                context_parts.append(
-                    f'Initial seed (the user\'s first-turn wording; may have '
-                    f'been refined since — see INTENT.md for the current '
-                    f'authoritative spec): {prompt_path}'
-                )
+            # Post-intent phases: INTENT.md supersedes PROMPT.txt.
+            context_parts.append(
+                f'Initial seed (the user\'s first-turn wording; may have '
+                f'been refined since — see INTENT.md for the current '
+                f'authoritative spec): {prompt_path}'
+            )
 
     if artifact_path and os.path.isfile(artifact_path):
         context_parts.append(f'Artifact under review: {artifact_path}')
 
-    if state in ('PLAN_ASSERT', 'WORK_ASSERT'):
+    if state == 'WORK_ASSERT':
         for name in ('INTENT.md',):
             for search_dir in (session_worktree, infra_dir):
                 if not search_dir:

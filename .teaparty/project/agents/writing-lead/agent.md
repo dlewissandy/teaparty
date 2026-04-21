@@ -1,7 +1,8 @@
 ---
 name: writing-lead
-description: "Writing workgroup lead — route original content production (documentation, academic papers, blog posts, specifications, PDFs) here. Research must be complete before dispatch."
-tools: Read, Glob, Grep, Write, Edit, mcp__teaparty-config__Send, mcp__teaparty-config__CloseConversation, mcp__teaparty-config__AskQuestion
+description: "Writing workgroup lead \u2014 route original content production (documentation,\
+  \ academic papers, blog posts, specifications, PDFs) here. Research must be complete\
+  \ before dispatch."
 model: sonnet
 maxTurns: 20
 disallowedTools:

@@ -2,7 +2,6 @@
 name: test-engineer
 description: Writes and maintains tests, runs test suites, checks coverage. Write
   access scoped to test files and test infrastructure.
-tools: Read, Write, Edit, Bash, Grep, Glob
 model: sonnet
 maxTurns: 20
 ---

@@ -197,7 +197,7 @@ class TestBridgeCreateProjectE2E(unittest.IsolatedAsyncioTestCase):
         lead_dir = os.path.join(
             proj_path, '.teaparty', 'project', 'agents', 'my-project-lead',
         )
-        for fname in ('agent.md', 'settings.yaml', 'pins.yaml'):
+        for fname in ('agent.md', 'pins.yaml'):
             self.assertTrue(
                 os.path.isfile(os.path.join(lead_dir, fname)),
                 f"bridge onboarding must scaffold {fname} in the project "

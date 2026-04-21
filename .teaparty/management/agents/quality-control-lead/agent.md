@@ -1,11 +1,12 @@
 ---
 name: quality-control-lead
-description: "Quality Control workgroup lead — route verification work (functional correctness, test coverage, regression, performance, AI detection) here. Dispatch after implementation."
-tools: Read, Glob, Grep, Write, Edit, mcp__teaparty-config__Send, mcp__teaparty-config__CloseConversation, mcp__teaparty-config__AskQuestion
+description: "Quality Control workgroup lead \u2014 route verification work (functional\
+  \ correctness, test coverage, regression, performance, AI detection) here. Dispatch\
+  \ after implementation."
 model: sonnet
 maxTurns: 20
 skills:
-  - digest
+- digest
 disallowedTools:
 - TeamCreate
 - TeamDelete

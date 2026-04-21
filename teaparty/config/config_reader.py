@@ -1302,8 +1302,6 @@ PROJECT_LEAD_TOOLS = [
     'mcp__teaparty-config__WithdrawSession',
 ]
 
-PROJECT_LEAD_PERMISSIONS = list(PROJECT_LEAD_TOOLS)
-
 # Template body for a scaffolded project lead.  Two substitution points:
 # `{project_name}` identifies the project; `{decider}` names the human the
 # project ultimately serves.  Every other sentence is identical across
@@ -1354,13 +1352,19 @@ def scaffold_project_lead(
 ) -> None:
     """Create the project-level agent definition for a project lead.
 
-    Writes ``agent.md`` + ``settings.yaml`` + ``pins.yaml`` under
+    Writes ``agent.md`` + ``pins.yaml`` under
     ``{project_path}/.teaparty/project/agents/{project_name}-lead/``.
+    The tool whitelist lives in the agent.md ``tools:`` frontmatter field,
+    same as any other agent created via the UI or ``CreateAgent`` MCP tool.
+    ``settings.yaml`` is reserved for folder/Bash permissions and is not
+    stamped here.
+
     Non-destructive: any file that already exists is left untouched so
     customized leads are never clobbered.
 
     ``project_name`` must already be normalized.
     """
+    from teaparty.mcp.tools.config_helpers import _write_agent_file
     lead_name = f'{project_name}-lead'
     agent_dir = os.path.join(project_agents_dir(project_path), lead_name)
     os.makedirs(agent_dir, exist_ok=True)
@@ -1377,31 +1381,28 @@ def scaffold_project_lead(
             'description': description,
             'model': 'sonnet',
             'maxTurns': 30,
+            'skills': ['intent-alignment', 'planning'],
         }
         body = PROJECT_LEAD_BODY_TEMPLATE.format(
             project_name=project_name, decider=decider,
         )
-        with open(agent_md, 'w') as f:
-            f.write('---\n')
-            yaml.dump(frontmatter, f, default_flow_style=False, sort_keys=False)
-            f.write('---\n')
-            f.write(body)
+        body_text = body if body.startswith('\n') else f'\n{body}'
+        _write_agent_file(agent_md, frontmatter, body_text)
 
     settings_yaml = os.path.join(agent_dir, 'settings.yaml')
     if not os.path.exists(settings_yaml):
         with open(settings_yaml, 'w') as f:
             yaml.dump(
-                {'permissions': {'allow': list(PROJECT_LEAD_PERMISSIONS)}},
+                {'permissions': {'allow': list(PROJECT_LEAD_TOOLS)}},
                 f, default_flow_style=False, sort_keys=False,
             )
 
     pins_yaml = os.path.join(agent_dir, 'pins.yaml')
     if not os.path.exists(pins_yaml):
-        with open(pins_yaml, 'w') as f:
-            yaml.dump([
-                {'path': 'agent.md', 'label': 'Prompt & Identity'},
-                {'path': 'settings.yaml', 'label': 'Tool & File Permissions'},
-            ], f, default_flow_style=False, sort_keys=False)
+        write_pins(agent_dir, [
+            {'path': 'agent.md', 'label': 'Prompt & Identity'},
+            {'path': 'settings.yaml', 'label': 'Tool & File Permissions'},
+        ])
 
 
 def _emit_project_added_event(project: str, path: str, created: bool) -> None:

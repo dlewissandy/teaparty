@@ -97,8 +97,6 @@ def _is_heartbeat_terminal(infra_dir: str) -> bool:
 
 # States where the human needs to act
 HUMAN_ACTOR_STATES = frozenset([
-    'INTENT_ASSERT', 'INTENT_ESCALATE', 'INTENT_QUESTION',
-    'PLAN_ASSERT', 'PLANNING_ESCALATE', 'PLANNING_QUESTION',
     'WORK_ASSERT',
 ])
 

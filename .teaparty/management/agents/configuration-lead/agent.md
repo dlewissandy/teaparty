@@ -1,7 +1,7 @@
 ---
 name: configuration-lead
-description: "Configuration workgroup lead — route requests to create or modify agents, skills, hooks, MCP servers, or scheduled tasks here."
-tools: Read, Glob, Grep, Write, Edit, mcp__teaparty-config__Send, mcp__teaparty-config__CloseConversation, mcp__teaparty-config__AskQuestion
+description: "Configuration workgroup lead \u2014 route requests to create or modify\
+  \ agents, skills, hooks, MCP servers, or scheduled tasks here."
 model: sonnet
 maxTurns: 20
 disallowedTools:

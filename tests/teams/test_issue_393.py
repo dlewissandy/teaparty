@@ -401,6 +401,125 @@ class TestClearMessagesBusMethod(unittest.TestCase):
         self.assertEqual(children[0]['context_id'], 'child-X1')
 
 
+class TestClearForcesTeardownOnMergeFailure(unittest.TestCase):
+    """/clear must purge on-disk state even when close_conversation
+    cannot merge the child's worktree.
+
+    Specification: /clear is operator-initiated "throw it away." A
+    child whose worktree has drifted or whose branch has vanished would
+    make close_conversation return {'status': 'conflict'} or 'error' —
+    in that case the child stays in the parent's on-disk
+    ``conversation_map`` and the blade resurrects on page reload.
+    /clear must fall back to force-teardown: strip the conversation_map
+    entry and rmtree the session dir regardless of merge status.
+    """
+
+    def setUp(self):
+        self._tmpdir = tempfile.mkdtemp()
+        self._session = _make_session(self._tmpdir)
+
+    def tearDown(self):
+        self._session._bus.close()
+
+    def _seed_stale_child(self, parent_session_id=None,
+                          child_session_id='stale-child',
+                          request_id='dispatch:stale-conv'):
+        # Default to the session's actual _session_key so load_session
+        # finds it. _make_session uses qualifier='test-user' → the key
+        # is 'office-manager-test-user'.
+        if parent_session_id is None:
+            parent_session_id = self._session._session_key()
+        """Write parent + child metadata.json so /clear walks them."""
+        import json as _json
+        sessions_dir = os.path.join(
+            self._tmpdir, 'management', 'sessions')
+        os.makedirs(os.path.join(
+            sessions_dir, parent_session_id), exist_ok=True)
+        os.makedirs(os.path.join(
+            sessions_dir, child_session_id), exist_ok=True)
+
+        with open(os.path.join(
+                sessions_dir, parent_session_id, 'metadata.json'), 'w') as f:
+            _json.dump({
+                'session_id': parent_session_id,
+                'agent_name': 'office-manager',
+                'scope': 'management',
+                'conversation_map': {request_id: child_session_id},
+            }, f)
+        with open(os.path.join(
+                sessions_dir, child_session_id, 'metadata.json'), 'w') as f:
+            _json.dump({
+                'session_id': child_session_id,
+                'agent_name': 'teaparty-lead',
+                'scope': 'management',
+                'conversation_map': {},
+                # No worktree_path — nothing to merge, but simulate
+                # close_conversation returning a non-ok status.
+            }, f)
+        return sessions_dir
+
+    def test_clear_purges_child_when_close_returns_conflict(self):
+        """If close_conversation returns status='conflict', /clear must
+        still remove the child from conversation_map and rmtree its dir."""
+        sessions_dir = self._seed_stale_child()
+        bus = self._session._bus
+        conv_id = self._session.conversation_id
+
+        bus.send(conv_id, 'human', '/clear')
+
+        async def failing_close(parent_session, conversation_id, **kwargs):
+            return {'status': 'conflict',
+                    'message': 'simulated merge conflict',
+                    'conflicts': ['file.txt']}
+
+        with patch.object(self._session, 'load_state'), \
+             patch.object(self._session, 'save_state'), \
+             patch('teaparty.workspace.close_conversation.close_conversation',
+                   side_effect=failing_close):
+            asyncio.run(self._session.invoke(cwd=self._tmpdir))
+
+        # Child session dir must be gone
+        self.assertFalse(
+            os.path.isdir(os.path.join(sessions_dir, 'stale-child')),
+            'Force-teardown must rmtree the child session dir '
+            'when close_conversation fails to merge')
+
+        # Parent's conversation_map on disk must no longer reference it
+        parent_meta_path = os.path.join(
+            sessions_dir, self._session._session_key(), 'metadata.json')
+        import json as _json
+        with open(parent_meta_path) as f:
+            parent_meta = _json.load(f)
+        self.assertEqual(parent_meta.get('conversation_map', {}), {},
+                         'Force-teardown must strip the entry from the '
+                         'parent conversation_map on disk so the blade '
+                         'does not resurrect on page reload')
+
+    def test_clear_purges_child_when_close_raises(self):
+        """If close_conversation raises, /clear must still force-teardown."""
+        sessions_dir = self._seed_stale_child(
+            child_session_id='raising-child',
+            request_id='dispatch:raising')
+        bus = self._session._bus
+        conv_id = self._session.conversation_id
+
+        bus.send(conv_id, 'human', '/clear')
+
+        async def raising_close(*args, **kwargs):
+            raise RuntimeError('simulated close_conversation blowup')
+
+        with patch.object(self._session, 'load_state'), \
+             patch.object(self._session, 'save_state'), \
+             patch('teaparty.workspace.close_conversation.close_conversation',
+                   side_effect=raising_close):
+            asyncio.run(self._session.invoke(cwd=self._tmpdir))
+
+        self.assertFalse(
+            os.path.isdir(os.path.join(sessions_dir, 'raising-child')),
+            'Force-teardown must rmtree the child even when '
+            'close_conversation raises')
+
+
 class TestResumePathSendsOnlyLatestMessage(unittest.TestCase):
     """On resume, invoke sends only the latest human message, not full history."""
 

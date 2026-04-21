@@ -1,11 +1,12 @@
 ---
 name: intake-lead
-description: "Intake workgroup lead — route requirements-gathering and intent-alignment work here. Upstream of planning; produces an artifact execution teams can act on."
-tools: Read, Glob, Grep, Write, Edit, mcp__teaparty-config__Send, mcp__teaparty-config__CloseConversation, mcp__teaparty-config__AskQuestion
+description: "Intake workgroup lead \u2014 route requirements-gathering and intent-alignment\
+  \ work here. Upstream of planning; produces an artifact execution teams can act\
+  \ on."
 model: sonnet
 maxTurns: 20
 skills:
-  - digest
+- digest
 disallowedTools:
 - TeamCreate
 - TeamDelete

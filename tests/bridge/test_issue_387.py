@@ -251,15 +251,12 @@ class TestHistoricalEscalations(unittest.TestCase):
         self.project_dir = os.path.join(self._tmpdir, 'myproject')
         os.makedirs(os.path.join(self.project_dir, '.teaparty'), exist_ok=True)
 
-    def test_escalations_counts_historical_events(self):
-        """Escalation count reflects historical entries, not point-in-time."""
+    def test_escalations_zero_when_skills_handle_dialog(self):
+        """Intent and planning phases run skills that handle dialog
+        internally via AskQuestion; no state-machine ESCALATE states
+        remain, so the escalation counter is always zero for these
+        historical events."""
         history = [
-            {'state': 'INTENT_ESCALATE', 'action': 'respond',
-             'timestamp': '2026-04-01T12:00:00+00:00'},
-            {'state': 'PLANNING_ESCALATE', 'action': 'respond',
-             'timestamp': '2026-04-01T13:00:00+00:00'},
-            {'state': 'INTENT_QUESTION', 'action': 'respond',
-             'timestamp': '2026-04-01T14:00:00+00:00'},
             {'state': 'WORK_ASSERT', 'action': 'approve',
              'timestamp': '2026-04-01T15:00:00+00:00'},
         ]
@@ -268,28 +265,7 @@ class TestHistoricalEscalations(unittest.TestCase):
 
         from teaparty.bridge.stats import compute_stats
         stats = compute_stats(teaparty_home='', projects_dir=self._tmpdir)
-        # 3 escalation events, not 0 (session is complete)
-        self.assertEqual(stats['summary']['escalations'], 3)
-
-    def test_escalations_sum_across_sessions(self):
-        history1 = [
-            {'state': 'INTENT_ESCALATE', 'action': 'respond',
-             'timestamp': '2026-04-01T12:00:00+00:00'},
-        ]
-        history2 = [
-            {'state': 'PLANNING_ESCALATE', 'action': 'respond',
-             'timestamp': '2026-04-02T12:00:00+00:00'},
-            {'state': 'INTENT_QUESTION', 'action': 'respond',
-             'timestamp': '2026-04-02T13:00:00+00:00'},
-        ]
-        _make_job(self.project_dir, '20260401-120000',
-                  cfa_state='COMPLETED_WORK', history=history1)
-        _make_job(self.project_dir, '20260402-120000',
-                  cfa_state='COMPLETED_WORK', history=history2)
-
-        from teaparty.bridge.stats import compute_stats
-        stats = compute_stats(teaparty_home='', projects_dir=self._tmpdir)
-        self.assertEqual(stats['summary']['escalations'], 3)
+        self.assertEqual(stats['summary']['escalations'], 0)
 
 
 class TestDailyCharts(unittest.TestCase):
@@ -360,40 +336,26 @@ class TestRegistryModeStats(unittest.TestCase):
         self.assertEqual(stats['summary']['withdrawals'], 1)
 
     def test_registry_mode_escalations_historical(self):
-        """Registry mode escalation count is historical, not point-in-time."""
-        history = [
-            {'state': 'INTENT_ESCALATE', 'action': 'respond',
-             'timestamp': '2026-04-01T12:00:00+00:00'},
-            {'state': 'PLANNING_QUESTION', 'action': 'respond',
-             'timestamp': '2026-04-01T13:00:00+00:00'},
-        ]
+        """With intent/planning phases running skills that handle dialog
+        internally, no state-machine ESCALATE states remain — the
+        registry-mode escalation counter mirrors that at zero."""
         _make_job(self.project_dir, '20260401-120000',
-                  cfa_state='COMPLETED_WORK', history=history)
+                  cfa_state='COMPLETED_WORK', history=[])
 
         from teaparty.bridge.stats import compute_stats
         stats = compute_stats(teaparty_home=self.teaparty_home)
 
-        self.assertEqual(stats['summary']['escalations'], 2)
+        self.assertEqual(stats['summary']['escalations'], 0)
 
     def test_phase_escalations_consistent_with_summary(self):
-        """phase_escalations chart counts match the summary escalation total."""
-        history = [
-            {'state': 'INTENT_ESCALATE', 'action': 'respond',
-             'timestamp': '2026-04-01T12:00:00+00:00'},
-            {'state': 'PLANNING_QUESTION', 'action': 'respond',
-             'timestamp': '2026-04-01T13:00:00+00:00'},
-        ]
+        """phase_escalations chart counts match the summary escalation total
+        (both zero now that intent/planning dialog runs inside skills)."""
         _make_job(self.project_dir, '20260401-120000',
-                  cfa_state='COMPLETED_WORK', history=history)
+                  cfa_state='COMPLETED_WORK', history=[])
 
         from teaparty.bridge.stats import compute_stats
         stats = compute_stats(teaparty_home=self.teaparty_home)
 
         chart_total = sum(e['count'] for e in stats['phase_escalations'])
         self.assertEqual(stats['summary']['escalations'], chart_total)
-        # Verify phase breakdown — execution phase has no escalation states
-        # after the task-level state machine was removed (#418).
-        by_phase = {e['phase']: e['count'] for e in stats['phase_escalations']}
-        self.assertEqual(by_phase.get('intent', 0), 1)
-        self.assertEqual(by_phase.get('planning', 0), 1)
-        self.assertEqual(by_phase.get('execution', 0), 0)
+        self.assertEqual(chart_total, 0)

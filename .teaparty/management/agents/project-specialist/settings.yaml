@@ -1,0 +1,10 @@
+permissions:
+  allow:
+  - Read
+  - Glob
+  - Grep
+  - Write
+  - Edit
+  - Bash
+  - mcp__teaparty-config__CreateProject
+  - mcp__teaparty-config__AddProject

@@ -1,12 +1,12 @@
 {
   "phases": {
     "intent": {
-      "agent_file": "intent",
-      "lead": "intent-lead",
+      "agent_file": "uber",
+      "lead": "project-lead",
       "permission_mode": "acceptEdits",
       "stream_file": ".intent-stream.jsonl",
       "artifact": "INTENT.md",
-      "approval_state": "INTENT_ASSERT"
+      "approval_state": "IDEA"
     },
     "planning": {
       "agent_file": "uber",
@@ -14,7 +14,7 @@
       "permission_mode": "acceptEdits",
       "stream_file": ".plan-stream.jsonl",
       "artifact": "PLAN.md",
-      "approval_state": "PLAN_ASSERT"
+      "approval_state": "PLANNING"
     },
     "execution": {
       "agent_file": "uber",

@@ -72,7 +72,7 @@ class PhaseResult:
     failure_reason: str = ''
 
 
-PLAN_ESCALATION_STATES = frozenset({'INTENT_ESCALATE', 'PLANNING_ESCALATE'})
+PLAN_ESCALATION_STATES: frozenset[str] = frozenset()
 WORK_ESCALATION_STATES: frozenset[str] = frozenset()
 
 
@@ -1256,14 +1256,10 @@ class Orchestrator:
         # Propagate active skill to approval gate for log tagging (Issue #146)
         self._approval_gate._active_skill = self._active_skill
 
-        # Advance CfA: DRAFT → assert → PLAN_ASSERT
-        # This bypasses the planning agent entirely — the skill is the plan,
-        # presented directly to the human for approval.
-        await self._transition('assert', ActorResult(
-            action='assert',
-            data={'artifact_path': plan_path, 'skill_name': match.name},
-        ))
-
+        # Pre-seed PLAN.md with the matched skill template; the planning
+        # skill will pick it up in ALIGN on the next turn and propose it
+        # for approval via its own ASSERT dialog, rather than bypassing
+        # the planning phase entirely.
         await self.event_bus.publish(Event(
             type=EventType.LOG,
             data={
@@ -1331,11 +1327,9 @@ class Orchestrator:
                 self._write_assumption_checkpoint(phase_name)
                 return PhaseResult()
 
-            # Check for phase exit (e.g., INTENT → planning, PLAN → execution)
+            # Check for phase exit (e.g., INTENT → planning, PLANNING → execution)
             current_phase = phase_for_state(self.cfa.state)
-            if current_phase != phase_name and self.cfa.state not in (
-                'INTENT_RESPONSE', 'PLANNING_RESPONSE',
-            ):
+            if current_phase != phase_name:
                 # We've transitioned out of this phase
                 await self.event_bus.publish(Event(
                     type=EventType.PHASE_COMPLETED,
@@ -2008,7 +2002,7 @@ class Orchestrator:
         await self._commit_artifacts(old_state, action)
 
         # Post-intent-approval: detect project stage and retire old-stage memory
-        if old_state == 'INTENT_ASSERT' and action == 'approve':
+        if old_state == 'IDEA' and action == 'approve':
             self._detect_and_retire_stage()
 
     async def _commit_artifacts(self, old_state: str, action: str) -> None:
@@ -2231,28 +2225,41 @@ class Orchestrator:
 
         # Prepend CfA phase framing.  agent.md is role-only; this layer
         # supplies deliverable, boundary, and re-entry rule per phase.
+        # Working scope — same for every phase. Your current directory is a
+        # self-contained worktree that holds everything this phase needs.
+        # Absolute paths outside cwd are outside the sandbox and will fail.
+        scope = (
+            '--- Working scope ---\n'
+            'Your current directory is the worktree for this job. Every file '
+            'this phase reads or writes lives here. Use relative paths (./file) '
+            'for all file operations. Do not reference paths outside your cwd — '
+            'they are outside your allowed scope and attempting to access them '
+            'will fail.\n'
+            '--- end ---\n\n'
+        )
+
         if phase_name == 'intent':
             base_task = (
-                '--- CfA: Intent Alignment Phase ---\n'
-                'Deliverable: INTENT.md — what the human wants, success criteria, constraints, open questions. Do not do the work described below.\n'
-                'Write INTENT.md every invocation, even on re-entry; re-writing verbatim signals you verified it against the current request.\n'
+                scope
+                + '--- CfA: Intent Alignment Phase ---\n'
+                'Run the /intent-alignment skill to completion. Do not do the work described in the idea — that belongs to later phases. The skill will traverse DRAFT/ALIGN/ASK/REVISE/ASSERT internally and terminate by writing ./.phase-outcome.json with APPROVE or WITHDRAW.\n'
                 '--- end ---\n\n'
                 + base_task
             )
         elif phase_name == 'planning':
             base_task = (
-                '--- CfA: Planning Phase ---\n'
-                'Deliverable: PLAN.md. Skipping planning because the task feels small is a protocol violation — the execution artifact belongs to the next phase, not this one.\n'
-                'On re-entry, reconcile existing files against the current INTENT.md and human feedback; prior-pass files may be stale.\n'
-                'Write PLAN.md every invocation.\n'
+                scope
+                + '--- CfA: Planning Phase ---\n'
+                'Run the /planning skill to completion. Do not execute or dispatch — planning is a separate act from doing. The skill will traverse DRAFT/ALIGN/ASK/REVISE/ASSERT internally and terminate by writing ./.phase-outcome.json with APPROVE, BACKTRACK, or WITHDRAW.\n'
                 '--- end ---\n\n'
                 + base_task
             )
         elif phase_name == 'execution':
             base_task = (
-                '--- CfA: Execution Phase ---\n'
-                'Dispatch to the teams named in PLAN.md. Verify each team\'s output against PLAN.md and INTENT.md before accepting. On a subteam backtrack or review request: review, route, or escalate. Do not guess.\n'
-                'Deliverable: WORK_SUMMARY.md once the plan\'s steps are complete and verified.\n'
+                scope
+                + '--- CfA: Execution Phase ---\n'
+                'Dispatch to the teams named in ./PLAN.md. Verify each team\'s output against ./PLAN.md and ./INTENT.md before accepting. On a subteam backtrack or review request: review, route, or escalate. Do not guess.\n'
+                'Deliverable: ./WORK_SUMMARY.md once the plan\'s steps are complete and verified.\n'
                 '--- end ---\n\n'
                 + base_task
             )
@@ -2276,7 +2283,7 @@ class Orchestrator:
                     f'This is a cold start — the proxy has {obs_count} prior '
                     f'observation(s) for this project and phase (threshold: '
                     f'{COLD_START_THRESHOLD}). The system has no model of the '
-                    f"human's preferences yet. Exploring the problem space and "
+                    f"human's preferences yet. Exploring within your cwd and "
                     f'engaging the human with what you find before producing '
                     f'the artifact will lead to a better result than a '
                     f'one-shot attempt.\n'

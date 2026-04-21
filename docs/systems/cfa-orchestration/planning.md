@@ -79,6 +79,88 @@ A strategic plan for writing a research paper might be: survey the literature, c
 
 The uber lead produces strategic plans. It never produces deliverables and never makes tactical decisions. Subteam leads produce tactical plans within the scope of their assignments, exercising the decision authority the strategic plan has granted them, operating within the invariants it has defined.
 
+## Planning Workflow
+
+### START
+
+Read `INTENT.md`. You cannot skip this because the intent may have changed since the last time you read it.
+
+- If a plan exists, ALIGN.
+- If no plan exists, DRAFT.
+
+### DRAFT
+
+Generate a plan that could reasonably produce the intent.
+
+- If you have strategic questions on how your plan should produce the intent, then ASK.
+- If you have no strategic questions on how your plan should produce the intent, then ASSERT.
+
+### ALIGN
+
+Re-read `PLAN.md` from disk. This is necessary because it may have changed since the last time you read it.
+
+Compare the plan against the current intent and identify which parts still serve it, which parts are now obsolete, and which gaps have opened. Reconstruct the plan around what survives. The prior plan is evidence of past thinking, not a scaffold you must preserve.
+
+- If after aligning the plan you have strategic questions on how your plan should produce the intent, then ASK.
+- If you have no strategic questions on how your plan should produce the intent, then ASSERT.
+
+### ASK
+
+Conduct a dialog with the human using the `mcp__teaparty-config__AskQuestion` tool.
+
+Dialog purpose: you are not certain that you understand how the human wants to do things, and you are seeking guidance. Dialog is necessary because your expectations may not be aligned with the human's — the questions you are asking may not be the relevant ones, and the only way to ensure alignment is to dialogue. This discussion may uncover additional questions, or produce unexpected clarifications.
+
+- If during the conversation you and the human confirm that the intent does not capture their idea, then BACKTRACK.
+- If during the conversation you and the human confirm that they no longer want to continue this job, then WITHDRAW.
+- Once your questions have been resolved (or the human deems them unnecessary), then REVISE.
+
+### REVISE
+
+Re-read `PLAN.md` from disk. This is necessary because it may have changed since the last time you read it.
+
+Integrate the refinements from the preceding dialog. The intent is stable and the plan's overall shape is sound, so edit locally rather than rebuilding. If you find yourself rewriting more than a section or two, stop and consider whether you have actually landed in ALIGN territory (intent drift) rather than REVISE territory (plan refinement); if so, signal this to the human rather than silently doing an ALIGN under a REVISE label.
+
+- If in rewriting you discover that you have strategic questions on how your plan should produce the intent, then ASK.
+- If you have no strategic questions on how your plan should produce the intent, then ASSERT.
+
+### ASSERT
+
+Conduct a dialog with the human regarding the current draft of the plan using the `mcp__teaparty-config__AskQuestion` tool.
+
+Dialog purpose: you expect that `PLAN.md` is complete, and you are confirming with the human. Dialog is necessary because your expectations may not be aligned with the human's — the plan may not actually be complete, and the only way to ensure alignment is to dialogue.
+
+- If in the course of the dialog the human approves the plan, then APPROVE.
+- If in the course of the dialog you discover that the plan needs revisions, then REVISE.
+- If during the conversation you and the human confirm that the intent does not capture their idea, then BACKTRACK.
+- If during the conversation you and the human confirm that they no longer want to continue this job, then WITHDRAW.
+
+### APPROVE
+
+Terminal. Emit and halt:
+
+```
+{ outcome: APPROVE,
+  reason: <short summary of what the human approved, preserving any conditions or caveats they attached during the ASSERT dialog> }
+```
+
+### BACKTRACK
+
+Terminal. Emit and halt:
+
+```
+{ outcome: BACKTRACK,
+  reason: <short summary of how the intent failed to capture the human's actual idea, specific enough to inform the next intent revision> }
+```
+
+### WITHDRAW
+
+Terminal. Emit and halt:
+
+```
+{ outcome: WITHDRAW,
+  reason: <short summary of why the human chose to abandon the job> }
+```
+
 ## Plan Revision Discipline
 
 Revise the strategic plan when new information invalidates an assumption: a constraint discovered, a proof point failed, a scope change from the human. Do not revise when execution is merely harder than expected or when tactical details need filling in. The test: does this change what the plan was predicting, or how the plan is being carried out? The former requires revision and re-confirmation with the human. The latter is expected tactical improvisation within the decision authority the plan already granted.

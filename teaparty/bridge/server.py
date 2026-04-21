@@ -84,14 +84,6 @@ def _resolve_conversation_type(type_str: str) -> ConversationType:
     return ConversationType[type_str.upper()]
 
 
-def _withdrawal_socket_path(teaparty_home: str, session_id: str) -> str:
-    """Return the stable Unix socket path for a session's intervention channel.
-
-    Path: {teaparty_home}/sockets/{session_id}.sock
-    The bridge constructs this from the session ID alone — no file read required.
-    Socket presence is the readiness signal.  Decision record: issue #278 option B.
-    """
-    return os.path.join(teaparty_home, 'sockets', f'{session_id}.sock')
 
 
 def _classify_heartbeat(infra_dir: str) -> str:
@@ -1428,6 +1420,46 @@ class TeaPartyBridge:
             )
         )
 
+    def _agent_settings_path(self, agent_dir: str) -> str:
+        return os.path.join(agent_dir, 'settings.yaml')
+
+    def _read_agent_settings(self, agent_dir: str) -> dict:
+        path = self._agent_settings_path(agent_dir)
+        if not os.path.isfile(path):
+            return {}
+        try:
+            with open(path) as f:
+                return yaml.safe_load(f) or {}
+        except (OSError, yaml.YAMLError):
+            return {}
+
+    def _write_agent_settings(self, agent_dir: str, data: dict) -> None:
+        path = self._agent_settings_path(agent_dir)
+        with open(path, 'w') as f:
+            yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+
+    def _strip_frontmatter_field(self, agent_md_path: str, field: str) -> None:
+        """Remove ``field`` from the agent.md frontmatter if present. Leaves
+        the prose body untouched. Used when ownership of a field moves out
+        of frontmatter (e.g. tools → settings.yaml permissions.allow)."""
+        from teaparty.config.config_reader import _FRONTMATTER_RE
+        try:
+            with open(agent_md_path) as f:
+                content = f.read()
+        except OSError:
+            return
+        m = _FRONTMATTER_RE.match(content)
+        if not m:
+            return
+        fm = yaml.safe_load(m.group(1)) or {}
+        if field not in fm:
+            return
+        fm.pop(field)
+        body = m.group(2)
+        fm_str = yaml.dump(fm, default_flow_style=False, sort_keys=False).rstrip()
+        with open(agent_md_path, 'w') as f:
+            f.write(f'---\n{fm_str}\n---\n{body}')
+
     async def _handle_agent_detail(self, request: web.Request) -> web.Response:
         name = request.match_info['name']
         project_slug = request.rel_url.query.get('project')
@@ -1446,6 +1478,14 @@ class TeaPartyBridge:
         if path is None:
             return web.json_response({'error': f'agent not found: {name}'}, status=404)
         fm = read_agent_frontmatter(path)
+        # settings.yaml permissions.allow is authoritative for tool
+        # assignments (Claude Code uses permissions.allow, not frontmatter
+        # tools, for MCP auto-approval). Fall back to frontmatter tools
+        # only for agents not yet migrated to settings.yaml.
+        settings = self._read_agent_settings(os.path.dirname(path))
+        allow = (settings.get('permissions') or {}).get('allow')
+        if allow is not None:
+            fm['tools'] = ', '.join(allow)
         fm['_path'] = path
         fm['_dir'] = os.path.dirname(path)
         return web.json_response(fm)
@@ -1473,8 +1513,29 @@ class TeaPartyBridge:
             return web.json_response({'error': 'invalid JSON body'}, status=400)
         if not isinstance(body, dict):
             return web.json_response({'error': 'body must be a JSON object'}, status=400)
-        write_agent_frontmatter(path, body)
+        # Route 'tools' updates to settings.yaml permissions.allow (the
+        # field Claude Code actually honors); everything else continues
+        # to write into agent.md frontmatter.
+        fm_updates = dict(body)
+        agent_dir = os.path.dirname(path)
+        if 'tools' in fm_updates:
+            tools_value = fm_updates.pop('tools') or ''
+            tool_list = [t.strip() for t in tools_value.split(',') if t.strip()]
+            settings = self._read_agent_settings(agent_dir)
+            perms = settings.get('permissions') or {}
+            perms['allow'] = tool_list
+            settings['permissions'] = perms
+            self._write_agent_settings(agent_dir, settings)
+            # settings.yaml is now the single source of truth — drop any
+            # stale `tools:` from frontmatter to avoid divergence.
+            self._strip_frontmatter_field(path, 'tools')
+        if fm_updates:
+            write_agent_frontmatter(path, fm_updates)
         fm = read_agent_frontmatter(path)
+        settings = self._read_agent_settings(agent_dir)
+        allow = (settings.get('permissions') or {}).get('allow')
+        if allow is not None:
+            fm['tools'] = ', '.join(allow)
         return web.json_response(fm)
 
     async def _handle_catalog(self, request: web.Request) -> web.Response:
@@ -2847,10 +2908,6 @@ class TeaPartyBridge:
             _log.exception('Withdrawal failed for session %s', session_id)
             return web.json_response({'error': str(exc)}, status=502)
 
-        status = result.get('status', '')
-        if status == 'already_terminal':
-            return web.json_response(result, status=409)
-
         # Broadcast withdrawal to connected WebSocket clients
         payload = json.dumps({
             'type': 'session_completed',
@@ -3149,7 +3206,7 @@ class TeaPartyBridge:
 
     # CfA gate states that accept a per-gate escalation mode.
     _ESCALATION_GATES: tuple[str, ...] = (
-        'INTENT_ASSERT', 'PLAN_ASSERT', 'WORK_ASSERT',
+        'WORK_ASSERT',
     )
     _ESCALATION_VALID_MODES: frozenset[str] = frozenset(
         {'always', 'when_unsure', 'never'}

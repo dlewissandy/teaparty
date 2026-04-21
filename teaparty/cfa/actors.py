@@ -211,6 +211,14 @@ class AgentRunner:
         # The hook script is staged into the worktree by
         # compose_launch_worktree (runners/launcher.py); the path here
         # must match the staged destination.
+        #
+        # Schema must match Claude Code's documented hook shape: hooks
+        # is a dict keyed by event name, each entry is
+        # ``{matcher: "Tool|Tool", hooks: [{type, command}, ...]}``.
+        # An ad-hoc shape (event/matchers/handler) silently invalidates
+        # the entire settings file — Claude Code falls back to defaults
+        # and ``permissions.allow`` is ignored, which manifests as
+        # every tool prompting for permission.
         _JAIL_HOOK_SCRIPT = '.claude/hooks/worktree_hook.py'
         _stage_jail_hook(ctx.session_worktree, _JAIL_HOOK_SCRIPT)
         _check_jail_hook(ctx.session_worktree, _JAIL_HOOK_SCRIPT)
@@ -218,13 +226,15 @@ class AgentRunner:
             'type': 'command',
             'command': f'python3 {_JAIL_HOOK_SCRIPT}',
         }
-        hooks = settings.setdefault('hooks', [])
-        for tool in ('Read', 'Edit', 'Write', 'Glob', 'Grep'):
-            hooks.append({
-                'event': 'PreToolUse',
-                'matchers': [{'tool': tool}],
-                'handler': jail_hook,
-            })
+        hooks_section = settings.setdefault('hooks', {})
+        if not isinstance(hooks_section, dict):
+            hooks_section = {}
+            settings['hooks'] = hooks_section
+        pre = hooks_section.setdefault('PreToolUse', [])
+        pre.append({
+            'matcher': 'Read|Edit|Write|Glob|Grep',
+            'hooks': [jail_hook],
+        })
 
         from teaparty.runners.launcher import launch, _default_ollama_caller
         _caller: Callable | None = self._llm_caller
@@ -348,6 +358,17 @@ class AgentRunner:
         if actor_message:
             data['actor_message'] = actor_message
 
+        # Skill-driven phases terminate by writing .phase-outcome.json with
+        # an explicit {outcome, reason} payload. When present, trust it as
+        # the authoritative signal — the skill has self-terminated, no
+        # artifact-presence inference needed.
+        outcome_action = self._read_phase_outcome(ctx)
+        if outcome_action is not None:
+            action, reason = outcome_action
+            if reason:
+                data['outcome_reason'] = reason
+            return ActorResult(action=action, data=data)
+
         # Check for expected artifact in the session worktree.
         if ctx.phase_spec.artifact:
             artifact_path = _find_artifact(
@@ -366,6 +387,39 @@ class AgentRunner:
         # No artifact configured — agent produced output, advance normally
         action = self._resolve_action(ctx.state, 'auto-approve')
         return ActorResult(action=action, data=data)
+
+    def _read_phase_outcome(
+        self, ctx: ActorContext,
+    ) -> tuple[str, str] | None:
+        """Return (action, reason) when the skill wrote .phase-outcome.json.
+
+        The file is consumed (deleted) on read so a subsequent phase run
+        cannot pick up a stale outcome. Unknown outcomes are treated as
+        absent so the caller falls back to artifact inference.
+        """
+        path = os.path.join(ctx.session_worktree, '.phase-outcome.json')
+        if not os.path.isfile(path):
+            return None
+        try:
+            with open(path) as f:
+                payload = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            return None
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+        outcome = str(payload.get('outcome', '')).upper()
+        reason = str(payload.get('reason', ''))
+        mapping = {
+            'APPROVE':   'approve',
+            'BACKTRACK': 'backtrack',
+            'WITHDRAW':  'withdraw',
+        }
+        action = mapping.get(outcome)
+        if action is None:
+            return None
+        return self._resolve_action(ctx.state, action), reason
 
     @staticmethod
     def _no_artifact_action_for_state(state: str) -> str:
@@ -619,10 +673,6 @@ def _find_artifact(worktree: str, artifact_name: str) -> str:
 # ── CfA state → learning phase mapping ───────────────────────────────────────
 
 _CFA_STATE_TO_PHASE: dict[str, str] = {
-    'INTENT_ASSERT': 'specification',
-    'INTENT_ESCALATE': 'specification',
-    'PLAN_ASSERT': 'planning',
-    'PLANNING_ESCALATE': 'planning',
     'WORK_ASSERT': 'implementation',
 }
 
@@ -640,21 +690,6 @@ _CFA_STATE_TO_PHASE: dict[str, str] = {
 # doc_specs is an ordered list of (filename, one-line-purpose) pairs.
 # Files that don't exist at review time are silently skipped.
 _GATE_TEMPLATES: dict[str, tuple[str, list[tuple[str, str]]]] = {
-    'INTENT_ASSERT': (
-        'Approve or revise the proposed intent.',
-        [
-            ('INTENT.md', 'the proposed intent'),
-            ('PROMPT.txt', "the user's original request"),
-        ],
-    ),
-    'PLAN_ASSERT': (
-        'Approve or revise the proposed plan.',
-        [
-            ('PLAN.md', 'the proposed plan'),
-            ('INTENT.md', 'the approved intent'),
-            ('PROMPT.txt', "the user's original request"),
-        ],
-    ),
     'WORK_ASSERT': (
         'Approve or revise the overall deliverable.',
         [

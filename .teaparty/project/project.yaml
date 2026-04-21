@@ -6,14 +6,12 @@ humans:
 workgroups:
 - ref: coding
 - ref: configuration
-- ref: Planning
 - ref: Intake
 - ref: Research
 - ref: quality-control
 members:
   workgroups:
   - Coding
-  - Planning
   - Intake
   - Research
   - Quality Control
@@ -23,4 +21,4 @@ artifact_pins:
   label: docs
 escalation:
   WORK_ASSERT: always
-  INTENT_ASSERT: always
+  IDEA: always

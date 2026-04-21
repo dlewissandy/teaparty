@@ -1,7 +1,7 @@
 ---
 name: coding-lead
-description: "Coding workgroup lead — route implementation, testing, refactoring, or code-review work here when the deliverable is code changes."
-tools: Read, Glob, Grep, Write, Edit, mcp__teaparty-config__Send, mcp__teaparty-config__CloseConversation, mcp__teaparty-config__AskQuestion
+description: "Coding workgroup lead \u2014 route implementation, testing, refactoring,\
+  \ or code-review work here when the deliverable is code changes."
 model: sonnet
 maxTurns: 20
 disallowedTools:

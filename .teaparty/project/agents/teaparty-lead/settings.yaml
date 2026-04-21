@@ -5,12 +5,9 @@ permissions:
   - Grep
   - Write
   - Edit
-  - WebSearch
-  - WebFetch
   - Bash
   - mcp__teaparty-config__Send
   - mcp__teaparty-config__CloseConversation
-  - mcp__teaparty-config__AskQuestion
   - mcp__teaparty-config__GetAgent
   - mcp__teaparty-config__ListAgents
   - mcp__teaparty-config__GetWorkgroup
@@ -27,3 +24,4 @@ permissions:
   - mcp__teaparty-config__UnpinArtifact
   - mcp__teaparty-config__ProjectStatus
   - mcp__teaparty-config__WithdrawSession
+  - mcp__teaparty-config__AskQuestion

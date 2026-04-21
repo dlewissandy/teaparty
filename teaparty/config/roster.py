@@ -142,31 +142,31 @@ class LaunchCwdNotResolved(ValueError):
     """
 
 
-def resolve_launch_cwd(
+def resolve_launch_placement(
     member: str,
     teaparty_home: str,
-) -> str:
-    """Walk the config registry to find the launch cwd for a member.
+) -> tuple[str, str]:
+    """Walk the config registry to find where a member should launch.
 
-    Determines which repo a chat-tier agent should launch in by walking
-    the management team, management workgroups, and every registered
-    project's team + workgroups. The answer comes from the registry, not
-    from the caller's cwd, so nested dispatches (workgroup lead under a
-    project) always land in the project's repo regardless of which
-    session triggered the dispatch.
+    Returns ``(launch_cwd, scope)`` — the repo the chat-tier agent
+    launches in, and the config scope its definition lives under.
 
-    Resolution order:
-      1. Management lead (``team.lead``) → teaparty repo.
-      2. Management-level ``members.agents`` → teaparty repo.
-      3. Management workgroups: lead or member → teaparty repo.
-      4. For each project in the registry:
-         a. ``project.lead`` → project repo.
-         b. Project workgroup: lead or member → project repo.
+    The scope pairs with ``launch_cwd``: management members launch at
+    the teaparty repo under ``management/agents/{name}/``; project
+    members launch at the project repo under ``project/agents/{name}/``.
+    Without returning both, the caller must guess — and guessing
+    produces stale-copy bugs like the one we just deleted, where a
+    project lead was served from ``management/agents/`` because the
+    dispatcher propagated its own scope.
+
+    Resolution order (same as ``resolve_launch_cwd``):
+      1. Management lead or member → (teaparty repo, 'management').
+      2. Management workgroup lead or member → (teaparty repo, 'management').
+      3. Project lead, workgroup lead, or workgroup member →
+         (project repo, 'project').
 
     Raises:
-        LaunchCwdNotResolved: If the member is not found in any of the
-            above. Silent default to the teaparty repo is not an option
-            — issue #397 requires unknown members to surface as errors.
+        LaunchCwdNotResolved: member not found anywhere in the registry.
     """
     repo_root = os.path.dirname(os.path.abspath(teaparty_home))
 
@@ -174,17 +174,17 @@ def resolve_launch_cwd(
         team = load_management_team(teaparty_home=teaparty_home)
     except FileNotFoundError as exc:
         raise LaunchCwdNotResolved(
-            f'resolve_launch_cwd({member!r}): management team config missing '
-            f'({exc})'
+            f'resolve_launch_placement({member!r}): management team config '
+            f'missing ({exc})'
         ) from exc
 
     # 1. Management lead
     if team.lead and member == team.lead:
-        return repo_root
+        return repo_root, 'management'
 
     # 2. Management-level members.agents
     if member in (team.members_agents or []):
-        return repo_root
+        return repo_root, 'management'
 
     # 3. Management workgroups (lead or member)
     try:
@@ -194,9 +194,9 @@ def resolve_launch_cwd(
         mgmt_workgroups = []
     for wg in mgmt_workgroups:
         if wg.lead == member:
-            return repo_root
+            return repo_root, 'management'
         if member in (wg.members_agents or []):
-            return repo_root
+            return repo_root, 'management'
 
     # 4. Each project: lead, workgroup leads, workgroup members
     for project_name in team.members_projects:
@@ -225,7 +225,7 @@ def resolve_launch_cwd(
             continue
 
         if project_team.lead == member:
-            return project_path
+            return project_path, 'project'
 
         try:
             workgroups = resolve_workgroups(
@@ -237,15 +237,29 @@ def resolve_launch_cwd(
             workgroups = []
         for wg in workgroups:
             if wg.lead == member:
-                return project_path
+                return project_path, 'project'
             if member in (wg.members_agents or []):
-                return project_path
+                return project_path, 'project'
 
     raise LaunchCwdNotResolved(
-        f'resolve_launch_cwd({member!r}): not found in management team, '
-        f'management workgroups, or any registered project roster under '
-        f'{teaparty_home}'
+        f'resolve_launch_placement({member!r}): not found in management '
+        f'team, management workgroups, or any registered project roster '
+        f'under {teaparty_home}'
     )
+
+
+def resolve_launch_cwd(
+    member: str,
+    teaparty_home: str,
+) -> str:
+    """Return the launch cwd for a member (scope-agnostic wrapper).
+
+    Most callers want both cwd and scope — prefer
+    :func:`resolve_launch_placement`. This wrapper exists for legacy
+    callers that only need the cwd.
+    """
+    cwd, _scope = resolve_launch_placement(member, teaparty_home)
+    return cwd
 
 
 def derive_project_roster(

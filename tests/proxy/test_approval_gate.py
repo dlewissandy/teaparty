@@ -161,7 +161,7 @@ class TestColdStart(DeterministicProxyTestCase):
     def test_cold_start_confidence_is_zero(self):
         """Cold-start decisions always report confidence 0.0."""
         model = _make_model()
-        decision = should_escalate(model, 'INTENT_ASSERT', 'any-project')
+        decision = should_escalate(model, 'WORK_ASSERT', 'any-project')
         self.assertEqual(decision.confidence, 0.0)
 
 
@@ -261,66 +261,22 @@ class TestLowConfidenceEscalates(DeterministicProxyTestCase):
 
 class TestGenerativeStates(DeterministicProxyTestCase):
 
-    def test_is_generative_state_returns_true_for_escalate_states(self):
-        for state in ('INTENT_ESCALATE', 'PLANNING_ESCALATE'):
-            self.assertTrue(is_generative_state(state), f"{state} should be generative")
-
-    def test_is_generative_state_returns_false_for_binary_states(self):
-        for state in ('INTENT_ASSERT', 'PLAN_ASSERT', 'WORK_ASSERT'):
-            self.assertFalse(is_generative_state(state), f"{state} should be binary")
-
-    def test_generative_threshold_higher_than_binary(self):
-        """The same approval history escalates on a generative state but
-        auto-approves on a binary state when confidence sits between the two
-        thresholds.
-        """
-        # 9 approvals out of 10 → confidence = (9+1)/(10+2) ≈ 0.833
-        # binary threshold  = 0.80  → would auto-approve
-        # generative threshold = 0.95 → should still escalate
-        model = _make_model(global_threshold=0.80, generative_threshold=0.95)
-
-        binary_entry = _make_entry(
-            state='PLAN_ASSERT',
-            task_type='same-project',
-            approve_count=9,
-            total_count=10,
-        )
-        generative_entry = _make_entry(
-            state='INTENT_ESCALATE',
-            task_type='same-project',
-            approve_count=9,
-            total_count=10,
-        )
-
-        from dataclasses import asdict
-        model = ConfidenceModel(
-            entries={
-                'PLAN_ASSERT|same-project': asdict(binary_entry),
-                'INTENT_ESCALATE|same-project': asdict(generative_entry),
-            },
-            global_threshold=0.80,
-            generative_threshold=0.95,
-        )
-
-        binary_decision = should_escalate(model, 'PLAN_ASSERT', 'same-project')
-        generative_decision = should_escalate(model, 'INTENT_ESCALATE', 'same-project')
-
-        self.assertEqual(binary_decision.action, 'auto-approve',
-                         "Binary state with confidence ~0.833 should auto-approve at threshold 0.80")
-        self.assertEqual(generative_decision.action, 'escalate',
-                         "Generative state with confidence ~0.833 should escalate at threshold 0.95")
+    def test_no_generative_states_remain(self):
+        """With intent/planning moved to skill-based termination, no gate
+        state needs the higher generative threshold — WORK_ASSERT is binary."""
+        self.assertFalse(is_generative_state('WORK_ASSERT'))
 
     def test_generative_state_auto_approves_when_very_high_confidence(self):
         """Generative state auto-approves only when confidence clears 0.95."""
         # 20 approvals out of 20 → confidence = (20+1)/(20+2) ≈ 0.955 > 0.95
         entry = _make_entry(
-            state='INTENT_ESCALATE',
+            state='WORK_ASSERT',
             task_type='well-calibrated',
             approve_count=20,
             total_count=20,
         )
         model = _model_with_entry(entry, generative_threshold=0.95)
-        decision = should_escalate(model, 'INTENT_ESCALATE', 'well-calibrated')
+        decision = should_escalate(model, 'WORK_ASSERT', 'well-calibrated')
         self.assertEqual(decision.action, 'auto-approve')
 
 
@@ -349,8 +305,8 @@ class TestRecordOutcome(unittest.TestCase):
 
     def test_reject_increments_reject_and_total(self):
         model = _make_model()
-        model = record_outcome(model, 'INTENT_ASSERT', 'proj', 'reject')
-        key = 'INTENT_ASSERT|proj'
+        model = record_outcome(model, 'WORK_ASSERT', 'proj', 'reject')
+        key = 'WORK_ASSERT|proj'
         entry = ConfidenceEntry(**model.entries[key])
         self.assertEqual(entry.reject_count, 1)
         self.assertEqual(entry.total_count, 1)
@@ -367,8 +323,8 @@ class TestRecordOutcome(unittest.TestCase):
     def test_clarify_only_increments_total(self):
         """'clarify' is a non-approval signal — it increments total but no sub-counter."""
         model = _make_model()
-        model = record_outcome(model, 'INTENT_ESCALATE', 'proj', 'clarify')
-        key = 'INTENT_ESCALATE|proj'
+        model = record_outcome(model, 'WORK_ASSERT', 'proj', 'clarify')
+        key = 'WORK_ASSERT|proj'
         entry = ConfidenceEntry(**model.entries[key])
         self.assertEqual(entry.total_count, 1)
         self.assertEqual(entry.approve_count, 0)
@@ -790,52 +746,52 @@ class TestTeamScopedModels(DeterministicProxyTestCase):
         self.assertEqual(coding_decision.action, 'escalate')
 
 
-# ── 11. INTENT_ASSERT gate ───────────────────────────────────────────────────
+# ── 11. WORK_ASSERT gate ───────────────────────────────────────────────────
 
 class TestIntentAssertGate(DeterministicProxyTestCase):
-    """INTENT_ASSERT is a binary state used at the intent phase gate in run.sh.
+    """WORK_ASSERT is a binary state used at the intent phase gate in run.sh.
     Verify the proxy correctly handles it alongside PLAN_ASSERT/WORK_ASSERT."""
 
     def test_intent_assert_is_binary(self):
-        """INTENT_ASSERT should be in the BINARY_STATES list."""
-        self.assertIn('INTENT_ASSERT', BINARY_STATES)
+        """WORK_ASSERT should be in the BINARY_STATES list."""
+        self.assertIn('WORK_ASSERT', BINARY_STATES)
 
     def test_intent_assert_cold_start_escalates(self):
         """No history → always escalate."""
         model = _make_model()
-        decision = should_escalate(model, 'INTENT_ASSERT', 'default')
+        decision = should_escalate(model, 'WORK_ASSERT', 'default')
         self.assertEqual(decision.action, 'escalate')
 
     def test_intent_assert_auto_approve_after_training(self):
         """After enough approvals, proxy should auto-approve intent."""
         model = _make_model()
-        model = _record_n(model, 'INTENT_ASSERT', 'default', 'approve', 10)
-        decision = should_escalate(model, 'INTENT_ASSERT', 'default')
+        model = _record_n(model, 'WORK_ASSERT', 'default', 'approve', 10)
+        decision = should_escalate(model, 'WORK_ASSERT', 'default')
         self.assertEqual(decision.action, 'auto-approve')
 
     def test_intent_assert_corrections_erode_confidence(self):
         """Corrections after approvals push confidence below threshold."""
         model = _make_model()
-        model = _record_n(model, 'INTENT_ASSERT', 'default', 'approve', 8)
-        model = _record_n(model, 'INTENT_ASSERT', 'default', 'reject', 4)
-        decision = should_escalate(model, 'INTENT_ASSERT', 'default')
+        model = _record_n(model, 'WORK_ASSERT', 'default', 'approve', 8)
+        model = _record_n(model, 'WORK_ASSERT', 'default', 'reject', 4)
+        decision = should_escalate(model, 'WORK_ASSERT', 'default')
         self.assertEqual(decision.action, 'escalate')
 
     def test_intent_assert_independent_from_plan_assert(self):
-        """INTENT_ASSERT and PLAN_ASSERT are tracked independently."""
+        """WORK_ASSERT and PLAN_ASSERT are tracked independently."""
         model = _make_model()
         model = _record_n(model, 'PLAN_ASSERT', 'default', 'approve', 20)
-        model = _record_n(model, 'INTENT_ASSERT', 'default', 'reject', 3)
+        model = _record_n(model, 'WORK_ASSERT', 'default', 'reject', 3)
 
         plan_decision = should_escalate(model, 'PLAN_ASSERT', 'default')
-        intent_decision = should_escalate(model, 'INTENT_ASSERT', 'default')
+        intent_decision = should_escalate(model, 'WORK_ASSERT', 'default')
 
         self.assertEqual(plan_decision.action, 'auto-approve')
         self.assertEqual(intent_decision.action, 'escalate')
 
     def test_intent_assert_uses_binary_threshold(self):
-        """INTENT_ASSERT should use the binary threshold (0.8), not generative (0.95)."""
-        self.assertFalse(is_generative_state('INTENT_ASSERT'))
+        """WORK_ASSERT should use the binary threshold (0.8), not generative (0.95)."""
+        self.assertFalse(is_generative_state('WORK_ASSERT'))
 
 
 # ── 12. Text differential learning ──────────────────────────────────────────
@@ -982,17 +938,17 @@ class TestTextDifferentials(unittest.TestCase):
 # ── 13. Escalation state proxy recording ──────────────────────────────────────
 
 class TestEscalationRecording(unittest.TestCase):
-    """Verify proxy_record works for ESCALATE states (INTENT_ESCALATE,
+    """Verify proxy_record works for ESCALATE states (WORK_ASSERT,
     PLANNING_ESCALATE) with differentials."""
 
     def test_record_clarify_on_intent_escalate(self):
-        """Clarify on INTENT_ESCALATE records correctly."""
+        """Clarify on WORK_ASSERT records correctly."""
         model = _make_model()
         model = record_outcome(
-            model, 'INTENT_ESCALATE', 'proj', 'clarify',
+            model, 'WORK_ASSERT', 'proj', 'clarify',
             differential_summary='Output should be a single doc',
         )
-        key = 'INTENT_ESCALATE|proj'
+        key = 'WORK_ASSERT|proj'
         entry = ConfidenceEntry(**model.entries[key])
         self.assertEqual(entry.total_count, 1)
         self.assertEqual(entry.approve_count, 0)
@@ -1023,26 +979,6 @@ class TestEscalationRecording(unittest.TestCase):
         self.assertEqual(len(entry.differentials), 1)
         self.assertEqual(entry.differentials[0]['summary'], 'Use the REST API not GraphQL')
 
-    def test_escalation_states_use_generative_threshold(self):
-        """All ESCALATE states use the higher generative threshold."""
-        for state in ('INTENT_ESCALATE', 'PLANNING_ESCALATE'):
-            self.assertTrue(is_generative_state(state),
-                            f"{state} should use generative threshold")
-
-    def test_escalation_accumulates_independently(self):
-        """INTENT_ESCALATE and INTENT_ASSERT are tracked independently."""
-        model = _make_model()
-        model = _record_n(model, 'INTENT_ASSERT', 'proj', 'approve', 10)
-        model = record_outcome(
-            model, 'INTENT_ESCALATE', 'proj', 'clarify',
-            differential_summary='Need format spec',
-        )
-        # INTENT_ASSERT has 10 approvals
-        assert_entry = ConfidenceEntry(**model.entries['INTENT_ASSERT|proj'])
-        self.assertEqual(assert_entry.approve_count, 10)
-        # INTENT_ESCALATE has 1 clarify
-        esc_entry = ConfidenceEntry(**model.entries['INTENT_ESCALATE|proj'])
-        self.assertEqual(esc_entry.total_count, 1)
 
 
 # ── 14. Generative proxy response ───────────────────────────────────────────
@@ -1112,10 +1048,10 @@ class TestGenerativeResponse(unittest.TestCase):
         from teaparty.proxy.approval_gate import generate_response, GenerativeResponse
         model = _make_model(generative_threshold=0.95)
         # 9 approvals + 1 correction → confidence ~= (9+1)/(11+2) = 0.769
-        model = _record_n(model, 'INTENT_ESCALATE', 'proj', 'approve', 9)
-        model = record_outcome(model, 'INTENT_ESCALATE', 'proj', 'correct',
+        model = _record_n(model, 'WORK_ASSERT', 'proj', 'approve', 9)
+        model = record_outcome(model, 'WORK_ASSERT', 'proj', 'correct',
                                differential_summary='Use markdown format')
-        result = generate_response(model, 'INTENT_ESCALATE', 'proj')
+        result = generate_response(model, 'WORK_ASSERT', 'proj')
         self.assertIsInstance(result, GenerativeResponse)
         self.assertLess(result.confidence, model.generative_threshold)
 

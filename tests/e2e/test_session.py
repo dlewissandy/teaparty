@@ -171,6 +171,15 @@ def _make_phase_aware_caller(transcript: _Transcript | None = None) -> Any:
             Path(cwd, artifact).write_text(content)
             if transcript:
                 transcript.record_runner(artifact, cwd, content)
+            # Intent-alignment and planning skills self-terminate via
+            # .phase-outcome.json. The scripted caller emits APPROVE to
+            # advance to the next phase.
+            if '.intent-stream' in sf or '.plan-stream' in sf:
+                import json as _json
+                Path(cwd, '.phase-outcome.json').write_text(
+                    _json.dumps({'outcome': 'APPROVE',
+                                 'reason': 'scripted e2e approval'})
+                )
 
         if stream_file:
             Path(stream_file).touch()
@@ -429,7 +438,7 @@ class TestSessionHappyPath(_SessionTestBase):
             result = self._run_session(session, t)
 
         self._assert_completed(result, t)
-        self._assert_path_includes(t, 'PLAN_ASSERT', 'WORK_ASSERT', 'COMPLETED_WORK')
+        self._assert_path_includes(t, 'PLANNING', 'WORK_ASSERT', 'COMPLETED_WORK')
         self._assert_artifacts_exist(t)
         # Verify both phases ran
         artifact_names = {name for name, *_ in t.runner_calls}
@@ -470,60 +479,17 @@ class TestSessionBacktrackPaths(_SessionTestBase):
         Path(p).write_text('# Plan\nStep 1.\n')
         return p
 
-    def test_plan_assert_refine_intent_backtrack(self):
-        """PLAN_ASSERT → refine-intent → re-runs intent → re-runs planning → COMPLETED_WORK.
-
-        Gate call sequence:
-          1. PLAN_ASSERT:   refine-intent  (backtrack to intent)
-          2. INTENT_ASSERT: approve        (second pass through intent)
-          3. PLAN_ASSERT:   approve        (second pass through planning)
-          4. WORK_ASSERT:   approve
-        """
-        intent_path = os.path.join(self._tmp, 'INTENT.md')
-        Path(intent_path).write_text('# Intent\nBuild something.\n')
-
-        t, bus = self._make_transcript_and_bus()
-        gate = _GateScript(
-            'refine-intent\tchange the objective to building a better tool',
-            'approve',
-            'approve',
-            'approve',
-        )
-
-        with patch('teaparty.cfa.actors.ApprovalGate._classify_review',
-                   side_effect=_stub_classify):
-            session = self._make_session(
-                t, gate,
-                task='Build something',
-                skip_intent=True,
-                intent_file=intent_path,
-                llm_caller=_make_phase_aware_caller(t),
-            )
-            result = self._run_session(session, t)
-
-        self._assert_completed(result, t)
-        self._assert_path_includes(t, 'PLAN_ASSERT', 'INTENT_RESPONSE',
-                                   'INTENT_ASSERT', 'COMPLETED_WORK')
-        self.assertGreater(result.backtrack_count, 0,
-                           f'backtrack_count must be > 0{t.render()}')
-        # Verify PLAN_ASSERT was visited at least twice
-        plan_assert_visits = sum(1 for _, _, nxt in t.transitions
-                                 if nxt == 'PLAN_ASSERT')
-        self.assertGreaterEqual(plan_assert_visits, 2,
-                                f'PLAN_ASSERT must be visited ≥2 times{t.render()}')
-
     def test_work_assert_revise_plan_backtrack(self):
         """WORK_ASSERT → revise-plan → re-runs planning → re-runs execution → COMPLETED_WORK.
 
         Gate call sequence (execute_only starts at WORK_IN_PROGRESS):
           1. WORK_ASSERT:   revise-plan    (backtrack to planning)
-          2. PLAN_ASSERT:   approve        (re-planning)
+          2. Planning skill approves via .phase-outcome.json
           3. WORK_ASSERT:   approve
         """
         t, bus = self._make_transcript_and_bus()
         gate = _GateScript(
             'revise-plan\tthe approach was wrong, use a different architecture',  # WORK_ASSERT
-            'approve',                                                     # PLAN_ASSERT
             # WORK_ASSERT (2nd) → fallback 'approve'
         )
 
@@ -539,8 +505,7 @@ class TestSessionBacktrackPaths(_SessionTestBase):
             result = self._run_session(session, t)
 
         self._assert_completed(result, t)
-        self._assert_path_includes(t, 'WORK_ASSERT', 'PLANNING_RESPONSE',
-                                   'PLAN_ASSERT', 'COMPLETED_WORK')
+        self._assert_path_includes(t, 'WORK_ASSERT', 'PLANNING', 'COMPLETED_WORK')
         self.assertGreater(result.backtrack_count, 0,
                            f'backtrack_count must be > 0{t.render()}')
         work_assert_visits = sum(1 for _, _, nxt in t.transitions
@@ -552,16 +517,14 @@ class TestSessionBacktrackPaths(_SessionTestBase):
         """WORK_ASSERT → refine-intent → re-runs intent+planning+execution → COMPLETED_WORK.
 
         Gate call sequence (execute_only starts at WORK_IN_PROGRESS):
-          1. WORK_ASSERT:   refine-intent  (backtrack all the way to intent)
-          2. INTENT_ASSERT: approve
-          3. PLAN_ASSERT:   approve
+          1. WORK_ASSERT:   refine-intent  (backtrack all the way to IDEA)
+          2. Intent skill approves via .phase-outcome.json
+          3. Planning skill approves via .phase-outcome.json
           4. WORK_ASSERT:   approve        (fallback)
         """
         t, bus = self._make_transcript_and_bus()
         gate = _GateScript(
             'refine-intent\tactually the goal should be different',  # WORK_ASSERT
-            'approve',                                               # INTENT_ASSERT
-            'approve',                                               # PLAN_ASSERT
             # WORK_ASSERT (2nd) → fallback 'approve'
         )
 
@@ -577,8 +540,7 @@ class TestSessionBacktrackPaths(_SessionTestBase):
             result = self._run_session(session, t)
 
         self._assert_completed(result, t)
-        self._assert_path_includes(t, 'WORK_ASSERT', 'INTENT_RESPONSE',
-                                   'INTENT_ASSERT', 'COMPLETED_WORK')
+        self._assert_path_includes(t, 'WORK_ASSERT', 'IDEA', 'COMPLETED_WORK')
         self.assertGreater(result.backtrack_count, 0,
                            f'backtrack_count must be > 0{t.render()}')
 
@@ -623,41 +585,6 @@ class TestSessionGateDialog(_SessionTestBase):
                                  if nxt == 'WORK_ASSERT')
         self.assertGreaterEqual(work_assert_visits, 2,
                                 f'WORK_ASSERT must be visited ≥2 times{t.render()}')
-
-    def test_plan_assert_correct_then_approve(self):
-        """PLAN_ASSERT → correct (re-run planning) → PLAN_ASSERT → approve → COMPLETED_WORK.
-
-        correct at PLAN_ASSERT → PLANNING_RESPONSE → DRAFT (agent re-runs) →
-        PLAN_ASSERT → approve → PLAN → execution → COMPLETED_WORK.
-        """
-        intent_path = os.path.join(self._tmp, 'INTENT.md')
-        Path(intent_path).write_text('# Intent\nBuild something.\n')
-
-        t, bus = self._make_transcript_and_bus()
-        gate = _GateScript(
-            'correct\tadd error handling to step 2',
-            'approve',   # PLAN_ASSERT second visit
-            'approve',   # WORK_ASSERT
-        )
-
-        with patch('teaparty.cfa.actors.ApprovalGate._classify_review',
-                   side_effect=_stub_classify):
-            session = self._make_session(
-                t, gate,
-                task='Build something',
-                skip_intent=True,
-                intent_file=intent_path,
-                llm_caller=_make_phase_aware_caller(t),
-            )
-            result = self._run_session(session, t)
-
-        self._assert_completed(result, t)
-        self._assert_path_includes(t, 'PLANNING_RESPONSE', 'PLAN_ASSERT', 'COMPLETED_WORK')
-        plan_assert_visits = sum(1 for _, _, nxt in t.transitions
-                                 if nxt == 'PLAN_ASSERT')
-        self.assertGreaterEqual(plan_assert_visits, 2,
-                                f'PLAN_ASSERT must be visited ≥2 times{t.render()}')
-
 
 # ── Proxy path tests ──────────────────────────────────────────────────────────
 

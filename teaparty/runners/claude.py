@@ -282,6 +282,12 @@ class ClaudeRunner:
         'ANTHROPIC_API_KEY',
         # Python / uv
         'VIRTUAL_ENV', 'PYENV_ROOT',
+        # Claude Code config redirect — set by teaparty.sh to a
+        # teaparty-managed dir so subprocess agents see only the
+        # commands/skills we stage and not the user's personal ones
+        # under ~/.claude. Auth lives at the same redirected path
+        # (created via `claude /login` against the same CLAUDE_CONFIG_DIR).
+        'CLAUDE_CONFIG_DIR',
     })
 
     # Prefixes that are always passed through (e.g. CLAUDE_*, POC_*, LC_*).

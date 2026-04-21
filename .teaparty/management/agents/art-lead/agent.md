@@ -1,11 +1,11 @@
 ---
 name: art-lead
-description: "Art workgroup lead — route diagram, illustration, vector-graphic, or generative-image production here when the deliverable is a visual artifact."
-tools: Read, Glob, Grep, Write, Edit, mcp__teaparty-config__Send, mcp__teaparty-config__CloseConversation, mcp__teaparty-config__AskQuestion
+description: "Art workgroup lead \u2014 route diagram, illustration, vector-graphic,\
+  \ or generative-image production here when the deliverable is a visual artifact."
 model: sonnet
 maxTurns: 20
 skills:
-  - digest
+- digest
 disallowedTools:
 - TeamCreate
 - TeamDelete

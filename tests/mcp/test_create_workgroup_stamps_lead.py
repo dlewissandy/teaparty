@@ -73,14 +73,26 @@ class CreateWorkgroupStampsLeadTest(unittest.TestCase):
             f'lead agent.md not stamped at {lead_path}',
         )
 
-    def test_lead_frontmatter_has_unified_tools(self) -> None:
-        """The stamped lead's tools: frontmatter matches the unified list exactly."""
+    def test_lead_settings_yaml_has_unified_tools(self) -> None:
+        """The stamped lead's settings.yaml permissions.allow matches the unified list.
+
+        Tool assignments live in settings.yaml (the field Claude Code reads
+        via ``--settings`` for MCP auto-approval), not in agent.md frontmatter.
+        """
+        import yaml as _yaml
         lead_path = self._run('scratch')
-        fm = read_agent_frontmatter(lead_path)
-        tools = {t.strip() for t in str(fm.get('tools', '')).split(',') if t.strip()}
+        settings_path = os.path.join(os.path.dirname(lead_path), 'settings.yaml')
+        self.assertTrue(
+            os.path.isfile(settings_path),
+            f'stamped lead missing settings.yaml at {settings_path}',
+        )
+        with open(settings_path) as f:
+            settings = _yaml.safe_load(f) or {}
+        allow = (settings.get('permissions') or {}).get('allow') or []
+        tools = set(allow)
         self.assertEqual(
             tools, _EXPECTED_TOOLS,
-            f'stamped lead has tools {sorted(tools)}, '
+            f'stamped lead has settings.yaml allow {sorted(tools)}, '
             f'expected {sorted(_EXPECTED_TOOLS)}',
         )
 
@@ -123,14 +135,24 @@ class CreateWorkgroupStampsLeadTest(unittest.TestCase):
         self.assertIn(desc, content)
         self.assertIn('## Team scope', content)
 
-    def test_settings_yaml_is_not_created(self) -> None:
-        """settings.yaml must NOT be stamped — the whitelist lives in frontmatter."""
+    def test_settings_yaml_is_created(self) -> None:
+        """settings.yaml IS stamped — it's the source of truth for tool permissions."""
         lead_path = self._run('scratch')
         settings_path = os.path.join(os.path.dirname(lead_path), 'settings.yaml')
-        self.assertFalse(
+        self.assertTrue(
             os.path.exists(settings_path),
-            f'stamped lead has settings.yaml at {settings_path} — '
-            f'the tool whitelist belongs in the agent.md frontmatter, not here',
+            f'stamped lead missing settings.yaml at {settings_path} — '
+            f'tool assignments live in settings.yaml permissions.allow',
+        )
+
+    def test_lead_frontmatter_has_no_tools(self) -> None:
+        """Tools live in settings.yaml, not agent.md frontmatter."""
+        lead_path = self._run('scratch')
+        fm = read_agent_frontmatter(lead_path)
+        self.assertNotIn(
+            'tools', fm,
+            f'stamped lead frontmatter still has tools: {fm.get("tools")!r} — '
+            f'tools belong in settings.yaml permissions.allow',
         )
 
     def test_existing_lead_is_not_overwritten(self) -> None:

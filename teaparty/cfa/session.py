@@ -275,8 +275,16 @@ class Session:
             if self.plan_file:
                 shutil.copy2(self.plan_file, os.path.join(worktree_path, 'PLAN.md'))
 
-            # Persist the full prompt so it's never lost to truncation
+            # Persist the full prompt so it's never lost to truncation.
             with open(os.path.join(infra_dir, 'PROMPT.txt'), 'w') as f:
+                f.write(self.task)
+
+            # IDEA.md is the artifact the intent-alignment skill reads as
+            # its starting point. The raw task string IS the user's idea;
+            # seeding it into the worktree lets the skill run verbatim
+            # from its START → ALIGN/DRAFT branch without a separate
+            # engine-side transformation. Gitignored alongside INTENT.md.
+            with open(os.path.join(worktree_path, 'IDEA.md'), 'w') as f:
                 f.write(self.task)
 
             # 5. Start state writer (filesystem persistence)
@@ -330,11 +338,11 @@ class Session:
                 cfa = set_state_direct(cfa, 'WORK_IN_PROGRESS')
             elif self.intent_file or self.skip_intent:
                 # Skip intent: set state to INTENT (planning entry point)
-                # _auto_bridge() in Orchestrator will apply INTENT → DRAFT
+                # _auto_bridge() in Orchestrator will apply INTENT → PLANNING
                 cfa = set_state_direct(cfa, 'INTENT')
-            else:
-                # Normal path: IDEA → PROPOSAL (agent's first turn)
-                cfa = transition(cfa, 'propose')
+            # Normal path: stay at IDEA. The intent-alignment skill runs
+            # at IDEA and terminates via .phase-outcome.json (approve or
+            # withdraw) — no sub-state machine to traverse anymore.
 
             save_state(cfa, os.path.join(infra_dir, '.cfa-state.json'))
 

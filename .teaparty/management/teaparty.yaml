@@ -28,8 +28,6 @@ workgroups:
   config: workgroups/editorial.yaml
 - name: Intake
   config: workgroups/intake.yaml
-- name: Planning
-  config: workgroups/planning.yaml
 - name: Quality Control
   config: workgroups/quality-control.yaml
 - name: Research

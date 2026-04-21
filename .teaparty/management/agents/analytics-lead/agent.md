@@ -1,11 +1,12 @@
 ---
 name: analytics-lead
-description: "Analytics workgroup lead — route statistical analysis, modeling, inference, or data-visualization work here when you have data in hand and need it analyzed or charted."
-tools: Read, Glob, Grep, Write, Edit, mcp__teaparty-config__Send, mcp__teaparty-config__CloseConversation, mcp__teaparty-config__AskQuestion
+description: "Analytics workgroup lead \u2014 route statistical analysis, modeling,\
+  \ inference, or data-visualization work here when you have data in hand and need\
+  \ it analyzed or charted."
 model: sonnet
 maxTurns: 20
 skills:
-  - digest
+- digest
 disallowedTools:
 - TeamCreate
 - TeamDelete

@@ -4,7 +4,6 @@ description: "Management team specialist for code audits, quality assessment, an
   \ intent-fidelity review. Use for auditing diffs against issue intent, reviewing\
   \ code quality, checking for regressions, and verifying consistency with design\
   \ docs. Read-only \u2014 does not modify code."
-tools: Read, Grep, Glob, Bash
 model: sonnet
 maxTurns: 20
 permissionMode: default

@@ -37,14 +37,12 @@ def _run(coro):
 
 
 def _make_parent_state_file(tmpdir: str, task_id: str = 'uber-001') -> str:
-    """Create a parent CfA state file at TASK (ready to dispatch) and return its path."""
+    """Create a parent CfA state file at WORK_IN_PROGRESS (ready to dispatch) and return its path."""
     cfa = make_initial_state(task_id=task_id)
-    cfa = transition(cfa, 'propose')
-    cfa = transition(cfa, 'auto-approve')
+    cfa = transition(cfa, 'approve')
     cfa = transition(cfa, 'plan')
-    cfa = transition(cfa, 'auto-approve')
-    cfa = transition(cfa, 'delegate')
-    # cfa.state == 'TASK' — parent is at dispatch point
+    cfa = transition(cfa, 'approve')
+    # cfa.state == 'WORK_IN_PROGRESS' — parent is at dispatch point
     path = os.path.join(tmpdir, '.cfa-state.json')
     save_state(cfa, path)
     return path
@@ -243,21 +241,17 @@ class TestDispatchParentStateFallback(unittest.TestCase):
         # Write explicit parent state to a named file
         explicit_path = os.path.join(self.tmpdir, 'explicit-state.json')
         cfa = make_initial_state(task_id='explicit-parent')
-        cfa = transition(cfa, 'propose')
-        cfa = transition(cfa, 'auto-approve')
+        cfa = transition(cfa, 'approve')
         cfa = transition(cfa, 'plan')
-        cfa = transition(cfa, 'auto-approve')
-        cfa = transition(cfa, 'delegate')
+        cfa = transition(cfa, 'approve')
         save_state(cfa, explicit_path)
 
         # Write a different parent state where POC_CFA_STATE points
         env_state_path = os.path.join(self.tmpdir, 'env-state.json')
         env_cfa = make_initial_state(task_id='env-parent')
-        env_cfa = transition(env_cfa, 'propose')
-        env_cfa = transition(env_cfa, 'auto-approve')
+        env_cfa = transition(env_cfa, 'approve')
         env_cfa = transition(env_cfa, 'plan')
-        env_cfa = transition(env_cfa, 'auto-approve')
-        env_cfa = transition(env_cfa, 'delegate')
+        env_cfa = transition(env_cfa, 'approve')
         save_state(env_cfa, env_state_path)
 
         result, saved_cfa_path = self._run_dispatch_with_env(
@@ -273,11 +267,9 @@ class TestDispatchParentStateFallback(unittest.TestCase):
         """POC_CFA_STATE env var is used when no explicit path is given."""
         env_state_path = os.path.join(self.tmpdir, 'env-state.json')
         parent = make_initial_state(task_id='env-task-001')
-        parent = transition(parent, 'propose')
-        parent = transition(parent, 'auto-approve')
+        parent = transition(parent, 'approve')
         parent = transition(parent, 'plan')
-        parent = transition(parent, 'auto-approve')
-        parent = transition(parent, 'delegate')
+        parent = transition(parent, 'approve')
         save_state(parent, env_state_path)
 
         result, saved_cfa_path = self._run_dispatch_with_env(
@@ -293,11 +285,9 @@ class TestDispatchParentStateFallback(unittest.TestCase):
         # Write parent state to the default location
         default_state_path = os.path.join(self.tmpdir, '.cfa-state.json')
         parent = make_initial_state(task_id='default-task-001')
-        parent = transition(parent, 'propose')
-        parent = transition(parent, 'auto-approve')
+        parent = transition(parent, 'approve')
         parent = transition(parent, 'plan')
-        parent = transition(parent, 'auto-approve')
-        parent = transition(parent, 'delegate')
+        parent = transition(parent, 'approve')
         save_state(parent, default_state_path)
 
         result, saved_cfa_path = self._run_dispatch_with_env(

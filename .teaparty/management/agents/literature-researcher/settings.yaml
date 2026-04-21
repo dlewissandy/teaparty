@@ -1,0 +1,10 @@
+permissions:
+  allow:
+  - Read
+  - Write
+  - Glob
+  - WebSearch
+  - WebFetch
+  - mcp__teaparty-config__arxiv_search
+  - mcp__teaparty-config__semantic_scholar_search
+  - mcp__teaparty-config__pubmed_search

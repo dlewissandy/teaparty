@@ -633,7 +633,7 @@ class TestProxyArtifactSearchOrder(unittest.TestCase):
         Path(wt_intent).write_text('# INTENT: Worktree version\n')
         Path(infra_intent).write_text('# INTENT: Infra version\n')
 
-        parts = self._call('PLAN_ASSERT')
+        parts = self._call('WORK_ASSERT')
 
         intent_parts = [p for p in parts if 'INTENT.md' in p]
         self.assertEqual(len(intent_parts), 1,
@@ -650,7 +650,7 @@ class TestProxyArtifactSearchOrder(unittest.TestCase):
         Path(infra_intent).write_text('# INTENT: Legacy session\n')
         self.assertFalse(os.path.isfile(os.path.join(self.worktree, 'INTENT.md')))
 
-        parts = self._call('PLAN_ASSERT')
+        parts = self._call('WORK_ASSERT')
 
         intent_parts = [p for p in parts if 'INTENT.md' in p]
         self.assertEqual(len(intent_parts), 1)

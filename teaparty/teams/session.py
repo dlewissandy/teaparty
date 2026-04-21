@@ -306,7 +306,7 @@ class AgentSession:
             import asyncio as _asyncio
             from teaparty.teams.stream import _classify_event
             from teaparty.config.roster import (
-                resolve_launch_cwd, LaunchCwdNotResolved,
+                resolve_launch_placement, LaunchCwdNotResolved,
             )
             from teaparty.workspace.worktree import (
                 default_branch_of, current_branch_of, head_commit_of,
@@ -337,11 +337,17 @@ class AgentSession:
                 )
                 return ('', '', '')
 
-            # Resolve the member's natural repo (the repo whose
-            # configuration places this agent). Unknown members are a
-            # configuration error — refuse the dispatch.
+            # Resolve the member's natural repo AND config scope from
+            # the registry. A project lead (e.g. teaparty-lead) lives
+            # under ``project/agents/``, not ``management/agents/``, so
+            # we cannot propagate ``self.scope``: if the dispatcher is
+            # OM (management) and the member is a project lead, the
+            # child must still resolve its agent definition and
+            # settings.yaml from the project scope. Returning both here
+            # is the one place we can get this right for every
+            # dispatcher/member combination.
             try:
-                member_natural_repo = resolve_launch_cwd(
+                member_natural_repo, member_scope = resolve_launch_placement(
                     member, self.teaparty_home,
                 )
             except LaunchCwdNotResolved as exc:
@@ -350,6 +356,14 @@ class AgentSession:
                     self.agent_name, member, exc,
                 )
                 return ('', '', '')
+
+            # The member's teaparty_home is the ``.teaparty/`` directory
+            # inside its natural repo. For same-repo members this is
+            # identical to ``self.teaparty_home``; for cross-repo
+            # project members it's the project's own ``.teaparty/``.
+            member_teaparty_home = os.path.join(
+                member_natural_repo, '.teaparty',
+            )
 
             # The dispatcher's current working state is the integration
             # branch for same-repo dispatches. For a privileged top-level
@@ -498,6 +512,8 @@ class AgentSession:
                     child_conv_id=child_conv_id,
                     dispatcher_session=dispatcher_session,
                     repo_root=repo_root,
+                    member_scope=member_scope,
+                    member_teaparty_home=member_teaparty_home,
                     start_at_phase=start_at_phase,
                     initial_gc_task_ids=initial_gc_task_ids,
                     resume_claude_session=resume_claude_session,
@@ -800,15 +816,39 @@ class AgentSession:
 
                 # Filesystem teardown: rmtree session dirs, remove
                 # entry from parent's conversation_map on disk.
+                #
+                # /clear is operator-initiated "throw it away" — it must
+                # leave no on-disk state behind. close_conversation
+                # returns a structured result (ok/conflict/error/noop)
+                # and only updates conversation_map when status == 'ok'.
+                # A stale child whose worktree can't merge (conflict,
+                # missing branch, etc.) would otherwise stay in the
+                # parent's conversation_map forever and reappear as a
+                # blade on page reload. When close_conversation fails
+                # we fall through to force-teardown: drop the worktree
+                # and branch without merging, rmtree the session dir,
+                # and strip the entry from conversation_map by request_id.
+                close_ok = False
                 try:
-                    await close_conversation(
+                    result = await close_conversation(
                         dispatch_session, f'dispatch:{child_sid}',
                         teaparty_home=self.teaparty_home,
                         scope=self.scope)
+                    close_ok = isinstance(result, dict) and result.get(
+                        'status') in ('ok', 'noop')
+                    if not close_ok:
+                        _log.warning(
+                            '%s _clear: close_conversation returned %r '
+                            'for %s; forcing teardown',
+                            self.agent_name, result, child_sid)
                 except Exception:
                     _log.exception(
                         '%s _clear: close_conversation failed for %s',
                         self.agent_name, child_sid)
+
+                if not close_ok:
+                    await self._force_teardown_subtree(
+                        sessions_dir, subtree, dispatch_session)
 
                 # Fire dispatch_completed per removed session,
                 # leaves-first, so the UI accordion walks upward
@@ -867,6 +907,105 @@ class AgentSession:
         self._dispatch_session = None
         self.save_state()
 
+    async def _force_teardown_subtree(
+        self, sessions_dir: str, subtree: list[tuple[str, str]],
+        dispatch_session,
+    ) -> None:
+        """Tear down a subtree without attempting any merges.
+
+        Used by ``/clear`` when ``close_conversation`` refuses to merge
+        (conflict, missing branch, stale worktree, etc.). /clear is a
+        destructive operator action — leaving stale session dirs on
+        disk would resurrect the blades on page reload because
+        ``build_dispatch_tree`` walks ``conversation_map`` without
+        re-validating.
+
+        For each (session_id, parent_id) in the subtree, leaves-first:
+
+          - force-remove the session's git worktree (if any)
+          - delete the session branch
+          - rmtree the session directory
+          - strip the corresponding entry from the parent's
+            conversation_map on disk
+
+        All operations are best-effort; individual failures are logged
+        but do not prevent the rest of the teardown.
+        """
+        from teaparty.workspace.worktree import (
+            remove_session_worktree, delete_branch,
+        )
+        from teaparty.runners.launcher import (
+            load_session as _load_session, remove_child_session,
+        )
+
+        # Walk leaves-first so we remove children before parents.
+        for child_sid, parent_sid in reversed(subtree):
+            session_path = os.path.join(sessions_dir, child_sid)
+            meta_path = os.path.join(session_path, 'metadata.json')
+            meta: dict = {}
+            if os.path.isfile(meta_path):
+                try:
+                    with open(meta_path) as f:
+                        meta = json.load(f)
+                except (json.JSONDecodeError, OSError):
+                    meta = {}
+
+            worktree_path = meta.get('worktree_path') or ''
+            worktree_branch = meta.get('worktree_branch') or ''
+            merge_target_repo = (
+                meta.get('merge_target_repo')
+                or meta.get('merge_target_worktree') or '')
+
+            if worktree_path and os.path.isdir(worktree_path):
+                try:
+                    await remove_session_worktree(
+                        merge_target_repo or worktree_path, worktree_path)
+                except Exception:
+                    _log.exception(
+                        '%s _clear: remove_session_worktree %s',
+                        self.agent_name, worktree_path)
+
+            if worktree_branch and merge_target_repo:
+                try:
+                    await delete_branch(merge_target_repo, worktree_branch)
+                except Exception:
+                    _log.exception(
+                        '%s _clear: delete_branch %s',
+                        self.agent_name, worktree_branch)
+
+            if os.path.isdir(session_path):
+                import shutil as _shutil
+                _shutil.rmtree(session_path, ignore_errors=True)
+
+            # Strip the entry from the parent's conversation_map.
+            # For the top-level of this subtree the parent is
+            # dispatch_session; for grandchildren it's their recorded
+            # parent_sid — load that session fresh from disk and edit
+            # its map so the walk terminates on reload.
+            if parent_sid == dispatch_session.id:
+                parent = dispatch_session
+            else:
+                parent = _load_session(
+                    agent_name='',  # ignored — read from meta
+                    scope=self.scope,
+                    teaparty_home=self.teaparty_home,
+                    session_id=parent_sid,
+                )
+                if parent is None:
+                    continue
+            request_id = None
+            for rid, csid in list(parent.conversation_map.items()):
+                if csid == child_sid:
+                    request_id = rid
+                    break
+            if request_id is not None:
+                try:
+                    remove_child_session(parent, request_id=request_id)
+                except Exception:
+                    _log.exception(
+                        '%s _clear: remove_child_session rid=%r',
+                        self.agent_name, request_id)
+
     async def stop(self):
         """Stop the session: cancel background dispatches, stop bus listener.
 
@@ -891,6 +1030,8 @@ class AgentSession:
         child_conv_id: str,
         dispatcher_session,
         repo_root: str,
+        member_scope: str = '',
+        member_teaparty_home: str = '',
         start_at_phase: str = 'launching',
         initial_gc_task_ids: list[str] | None = None,
         resume_claude_session: str = '',
@@ -940,6 +1081,14 @@ class AgentSession:
         current_claude_session = resume_claude_session or ''
         current_message = composite
 
+        # Legacy callers may not supply the member's placement (scope +
+        # teaparty_home). Fall back to the dispatcher's values so old
+        # tests and any unmigrated code paths keep working unchanged.
+        if not member_scope:
+            member_scope = self.scope
+        if not member_teaparty_home:
+            member_teaparty_home = self.teaparty_home
+
         if start_at_phase == 'awaiting':
             gc_tasks = [
                 self._tasks_by_child[g]
@@ -964,10 +1113,13 @@ class AgentSession:
 
             if worktree_path:
                 # Same-repo dispatch: child runs inside its own
-                # per-session git worktree (job tier).
+                # per-session git worktree (job tier). Scope +
+                # teaparty_home track the member's placement, so a
+                # project lead dispatched from OM resolves its agent
+                # definition and settings.yaml from project/agents/.
                 launch_kwargs = dict(
                     agent_name=member, message=current_message,
-                    scope=self.scope, teaparty_home=self.teaparty_home,
+                    scope=member_scope, teaparty_home=member_teaparty_home,
                     telemetry_scope=self._telemetry_scope,
                     worktree=worktree_path,
                     mcp_port=mcp_port,
@@ -978,16 +1130,16 @@ class AgentSession:
             else:
                 # Cross-repo dispatch: child is a project lead running
                 # directly at its own repo root (chat tier). Config
-                # files are composed under the dispatcher's teaparty
-                # home, same as a top-level invoke().
+                # files are composed under the member's teaparty home
+                # (its own project's .teaparty/).
                 from teaparty.runners.launcher import chat_config_dir as _chat_cfg_dir
                 child_config_dir = _chat_cfg_dir(
-                    self.teaparty_home, self.scope,
+                    member_teaparty_home, member_scope,
                     member, child_session.id,
                 )
                 launch_kwargs = dict(
                     agent_name=member, message=current_message,
-                    scope=self.scope, teaparty_home=self.teaparty_home,
+                    scope=member_scope, teaparty_home=member_teaparty_home,
                     telemetry_scope=self._telemetry_scope,
                     tier='chat',
                     launch_cwd=child_session.launch_cwd,
@@ -1100,10 +1252,24 @@ class AgentSession:
                     session_id=dispatcher_sid,
                 )
 
+            # Re-resolve the member's placement from the registry so
+            # the paused-resume path launches against the same scope
+            # (project vs management) the original dispatch did.
+            try:
+                from teaparty.config.roster import resolve_launch_placement
+                m_cwd, m_scope = resolve_launch_placement(
+                    child_session.agent_name, self.teaparty_home,
+                )
+                m_home = os.path.join(m_cwd, '.teaparty')
+            except Exception:
+                m_scope = child_session.scope or self.scope
+                m_home = self.teaparty_home
+
             def _make_factory(
                 cs=child_session, wt=worktree_path, cv=child_conv_id,
                 co=composite, ds=dispatcher_session,
                 mem=child_session.agent_name,
+                msc=m_scope, mhm=m_home,
             ):
                 async def _factory(
                     start_at_phase: str = 'launching',
@@ -1118,6 +1284,8 @@ class AgentSession:
                         child_conv_id=cv,
                         dispatcher_session=ds,
                         repo_root=repo_root,
+                        member_scope=msc,
+                        member_teaparty_home=mhm,
                         start_at_phase=start_at_phase,
                         initial_gc_task_ids=initial_gc_task_ids,
                         resume_claude_session=resume_claude_session,

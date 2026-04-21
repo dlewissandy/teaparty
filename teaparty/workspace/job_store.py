@@ -122,9 +122,11 @@ async def _write_artifact_gitignore(worktree_path: str) -> None:
     with open(gitignore_path, 'a') as f:
         f.write(
             '# Process artifacts — planning scaffolding, not deliverables\n'
+            'IDEA.md\n'
             'INTENT.md\n'
             'PLAN.md\n'
             'WORK_SUMMARY.md\n'
+            '.phase-outcome.json\n'
             '# Per-launch infrastructure\n'
             '.mcp.json\n'
             '.claude/\n'
@@ -408,17 +410,10 @@ async def withdraw_job(*, project_root: str, job_dir: str) -> dict:
     5. Remove from jobs.json index
 
     The job directory itself is kept (with .cfa-state.json and job.json)
-    so the stats pipeline can still discover historical data.
+    so the stats pipeline can still discover historical data. Safe to call
+    on a job in any state — kill/worktree-remove are no-ops when the
+    targets are already gone.
     """
-    # Read current CfA state to check if already terminal
-    cfa_path = os.path.join(job_dir, '.cfa-state.json')
-    try:
-        with open(cfa_path) as f:
-            cfa = json.load(f)
-        if cfa.get('state') in ('COMPLETED_WORK', 'WITHDRAWN'):
-            return {'status': 'already_terminal', 'state': cfa['state']}
-    except (FileNotFoundError, json.JSONDecodeError):
-        pass
 
     # 1. Kill processes — job first, then tasks
     pid = _read_heartbeat_pid(job_dir)

@@ -39,8 +39,9 @@ class TestAgentDefinitionsExist(unittest.TestCase):
             'research-lead', 'web-researcher', 'arxiv-researcher', 'image-analyst',
             # configuration team
             'configuration-lead', 'skill-architect', 'agent-designer', 'systems-engineer',
-            # intent team
-            'intent-lead', 'research-liaison',
+            # Intent, planning, and execution all run on the project lead
+            # (substituted from project-lead by phase-config resolution).
+            # Intent-alignment and planning skills differentiate phase work.
             # uber team
             'project-lead', 'qa-reviewer',
             # management team (project-liaison and config-workgroup-liaison operate at project scope;
@@ -97,7 +98,7 @@ class TestWorkgroupDefinitionsExist(unittest.TestCase):
         """Every team from phase-config.json must have a workgroup definition."""
         expected = {
             'coding', 'art', 'writing', 'editorial', 'research',
-            'configuration', 'intent', 'uber', 'flat', 'management',
+            'configuration', 'uber', 'flat', 'management',
         }
         wg_dir = self._workgroups_dir()
         for team in sorted(expected):
