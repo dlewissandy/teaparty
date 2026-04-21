@@ -81,6 +81,46 @@ async def send_handler(
     return await post_fn(member, composite, context_id)
 
 
+def _spawn_refusal_reason(reason_code: str, member: str) -> str:
+    """Translate spawn_fn's refusal reason into agent-facing text.
+
+    spawn_fn returns ``('', '', reason)`` when it declines to dispatch.
+    The reason codes are emitted by the chat-tier spawn_fn in
+    ``teaparty/teams/session.py``:
+
+    - ``slot_limit``         — dispatcher already has MAX open children
+    - ``paused``             — project is paused; new dispatches refused
+    - ``unresolved_member:…``— member not in any roster
+    - ``worktree_failed``    — git worktree add failed for same-repo dispatch
+
+    Unrecognized or empty reasons fall back to a generic refusal
+    message; agents shouldn't see that in practice.
+    """
+    if reason_code == 'slot_limit':
+        return (
+            'You already have three open conversations. '
+            'Wait for them to complete or use CloseConversation.'
+        )
+    if reason_code == 'paused':
+        return (
+            'The project is paused; new dispatches are refused '
+            'until it resumes.'
+        )
+    if reason_code.startswith('unresolved_member:'):
+        name = reason_code.split(':', 1)[1] or member
+        return (
+            f'{name!r} is not registered in any team or workgroup. '
+            f'Check with ListTeamMembers or ListWorkgroups before '
+            f'sending.'
+        )
+    if reason_code == 'worktree_failed':
+        return (
+            f'Could not create a worktree for {member!r}. '
+            f'See the bridge log for the git error.'
+        )
+    return f'Dispatch to {member!r} was refused.'
+
+
 async def _default_send_post(member: str, composite: str, context_id: str) -> str:
     """Default Send transport: direct call to bus listener via registry.
 
@@ -102,12 +142,16 @@ async def _default_send_post(member: str, composite: str, context_id: str) -> st
         try:
             session_id, worktree, result_text = await spawn_fn(member, composite, context_id)
             if not session_id:
-                _send_log.warning('send_registry: member=%r slot limit reached', member)
-                return json.dumps({
-                    'status': 'failed',
-                    'reason': 'You already have three open conversations. '
-                              'Wait for them to complete or use CloseConversation.',
-                })
+                # spawn_fn reports why it refused in the third slot. Surface
+                # that reason to the agent faithfully — reporting every
+                # failure as "slot limit" hides roster errors and pause
+                # state behind a message that suggests the fix is to
+                # close a conversation.
+                reason = _spawn_refusal_reason(result_text, member)
+                _send_log.warning(
+                    'send_registry: member=%r refused (%s)',
+                    member, result_text or 'unknown')
+                return json.dumps({'status': 'failed', 'reason': reason})
             conv_id = f'dispatch:{session_id}'
             _send_log.info('send_registry: member=%r conv=%s elapsed=%.2fs',
                            member, conv_id, _time.monotonic() - t0)

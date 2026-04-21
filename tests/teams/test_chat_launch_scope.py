@@ -718,14 +718,27 @@ class TestSpawnFnDispatchesAtProjectRepo(unittest.TestCase):
         )
 
     def test_unknown_member_is_refused_at_dispatch(self):
-        """Dispatching to an unregistered agent must block the launch."""
+        """Dispatching to an unregistered agent must block the launch.
+
+        spawn_fn signals refusal with an empty session_id (first slot).
+        The third slot carries a machine-readable reason code so the
+        Send handler can surface a faithful error to the caller — see
+        ``_spawn_refusal_reason`` in ``mcp/tools/messaging.py``.
+        """
         captured, result = self._run_dispatch('bogus-lead')
         self.assertEqual(
             captured, [],
             'spawn_fn must NOT call launch() for an unknown member',
         )
-        self.assertEqual(result, ('', '', ''),
-                         'spawn_fn must return empty handles on refusal')
+        session_id, worktree, reason = result
+        self.assertEqual(session_id, '',
+                         'spawn_fn must return empty session_id on refusal')
+        self.assertEqual(worktree, '',
+                         'spawn_fn must return empty worktree on refusal')
+        self.assertEqual(reason, 'unresolved_member:bogus-lead',
+                         'spawn_fn must report the refusal reason so the '
+                         'Send handler can surface it instead of blaming '
+                         'the slot limit')
 
     def test_no_git_worktree_add_during_project_dispatch(self):
         """Cross-check criterion 1 on the dispatch path, not just launch()."""

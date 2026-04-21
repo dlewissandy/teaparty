@@ -327,7 +327,7 @@ class AgentSession:
                     '%s spawn_fn: at conversation limit, dispatch to %s blocked',
                     self.agent_name, member,
                 )
-                return ('', '', '')
+                return ('', '', 'slot_limit')
 
             # Refuse new dispatches while the project is paused (issue #403).
             if self._paused_check is not None and self._paused_check():
@@ -335,7 +335,7 @@ class AgentSession:
                     '%s spawn_fn: project %s paused, dispatch to %s refused',
                     self.agent_name, self.project_slug, member,
                 )
-                return ('', '', '')
+                return ('', '', 'paused')
 
             # Resolve the member's natural repo AND config scope from
             # the registry. A project lead (e.g. teaparty-lead) lives
@@ -355,7 +355,7 @@ class AgentSession:
                     '%s spawn_fn: refusing dispatch to %s — %s',
                     self.agent_name, member, exc,
                 )
-                return ('', '', '')
+                return ('', '', f'unresolved_member:{member}')
 
             # The member's teaparty_home is the ``.teaparty/`` directory
             # inside its natural repo. For same-repo members this is
@@ -443,7 +443,7 @@ class AgentSession:
                         '%s spawn_fn: git worktree add failed for %s',
                         self.agent_name, member,
                     )
-                    return ('', '', '')
+                    return ('', '', 'worktree_failed')
                 child_session.launch_cwd = worktree_path
                 child_session.worktree_path = worktree_path
                 child_session.worktree_branch = session_branch

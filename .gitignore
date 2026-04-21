@@ -132,4 +132,6 @@ INTENT.md
 PLAN.md
 WORK_SUMMARY.md
 .phase-outcome.json
+
+# Inter-agent scratch — copied at spawn, never committed
 .scratch/
