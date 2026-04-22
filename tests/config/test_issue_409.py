@@ -484,6 +484,40 @@ class TestProjectLeadAlwaysScaffolded(unittest.TestCase):
             "tool assignments live in settings.yaml permissions.allow",
         )
 
+    def test_lead_frontmatter_declares_all_cfa_phase_skills(self):
+        """agent.md's ``skills:`` list must include every CfA phase skill.
+
+        The launcher stages skills from ``skills:`` — missing any one
+        silently breaks that phase for the lead (the phase's skill
+        never reaches the subprocess, the agent has no ``/<name>`` to
+        invoke, and the job stalls).  All three of intent-alignment /
+        planning / execute are load-bearing.  joke-book-lead shipped
+        without ``execute`` once and the EXECUTE phase ran the wrong
+        thing; this test locks the invariant into scaffold output.
+        """
+        tmp = _make_tmp(self)
+        home = _make_teaparty_home(tmp)
+        proj = os.path.join(tmp, 'omega')
+        create_project('omega', proj, teaparty_home=home, decider='alice')
+
+        agent_md = os.path.join(
+            proj, '.teaparty', 'project', 'agents', 'omega-lead', 'agent.md'
+        )
+        import re
+        with open(agent_md) as f:
+            content = f.read()
+        m = re.match(r'^---\n(.*?\n)---\n(.*)', content, re.DOTALL)
+        self.assertIsNotNone(m, 'agent.md must have YAML frontmatter')
+        fm = yaml.safe_load(m.group(1))
+        declared = set(fm.get('skills') or [])
+        for skill in ('intent-alignment', 'planning', 'execute'):
+            self.assertIn(
+                skill, declared,
+                f'project-lead scaffold must declare ``{skill}`` in skills: — '
+                f'without it the launcher never stages the skill and the '
+                f'corresponding CfA phase runs without its workflow script',
+            )
+
     def test_lead_settings_yaml_carries_tool_whitelist(self):
         """settings.yaml ``permissions.allow`` is the source of truth for
         tool assignments."""
