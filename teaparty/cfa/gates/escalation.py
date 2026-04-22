@@ -502,19 +502,19 @@ class EscalationListener:
     def _resolve_proxy_bus(self) -> SqliteMessageBus:
         """Open the proxy's message bus at its canonical location.
 
-        ``infra_dir`` points at ``.teaparty/{scope}/agents/{agent}``.  The
-        proxy bus lives at ``.teaparty/proxy/proxy-messages.db``.  We walk
-        up to the ``.teaparty/`` root and resolve from there.
+        The proxy bus lives at ``{management_teaparty_home}/proxy/
+        proxy-messages.db``.  ``self._teaparty_home`` is the proxy's
+        home — always management — set by the caller when constructing
+        the listener.  No path-walking from the caller's ``infra_dir``;
+        that was an artifact of the old chat-tier layout assumption
+        (``.teaparty/{scope}/agents/{agent}``) that doesn't hold for
+        CfA-engine-hosted listeners whose infra_dir is the job dir.
         """
-        if not self.infra_dir:
+        if not self._teaparty_home:
             raise RuntimeError(
-                'EscalationListener needs infra_dir to locate the proxy bus'
+                'EscalationListener needs teaparty_home to locate the proxy bus'
             )
-        # .teaparty/{scope}/agents/{agent} → .teaparty/
-        teaparty_home = os.path.dirname(
-            os.path.dirname(os.path.dirname(self.infra_dir))
-        )
-        bus_path = proxy_bus_path(teaparty_home)
+        bus_path = proxy_bus_path(self._teaparty_home)
         os.makedirs(os.path.dirname(bus_path), exist_ok=True)
         return SqliteMessageBus(bus_path)
 
