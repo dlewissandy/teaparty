@@ -686,6 +686,17 @@ class TeaPartyBridge:
             return web.json_response({'error': 'cfa-state.json not found'}, status=404)
         # Include worktree_path so the browser can construct absolute artifact URLs.
         state['worktree_path'] = os.path.join(infra_dir, 'worktree')
+        # Surface the active-escalation signal so the job page's workflow
+        # bar can render the red dot (needsInput → wf-gate).  Matches the
+        # same registry-driven computation as _serialize_session on the
+        # home-page state endpoint — single source of truth for "is this
+        # session waiting on human input?" across both views.
+        from teaparty.mcp.registry import (
+            active_escalation_qualifier as _active_qual,
+        )
+        qual = _active_qual(session_id)
+        state['needs_input'] = bool(qual)
+        state['input_conv_id'] = f'proxy:{qual}' if qual else ''
         return web.json_response(state)
 
     async def _handle_heartbeat(self, request: web.Request) -> web.Response:

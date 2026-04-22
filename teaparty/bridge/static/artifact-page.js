@@ -476,11 +476,15 @@
         }
       }
 
-      // In job mode, poll CfA state for the workflow bar
+      // In job mode, poll CfA state for the workflow bar.  A new
+      // escalation doesn't change workflowState — it flips
+      // needsInput — so re-render when either changes.
       if (_config.mode === 'job') {
         var prevPhase = _config.workflowState;
+        var prevNeeds = _config.needsInput;
         await _fetchCfaState();
         if (_config.workflowState !== prevPhase) needsRender = true;
+        if (_config.needsInput !== prevNeeds) needsRender = true;
       }
 
       if (needsRender) _render();
