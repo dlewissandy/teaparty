@@ -298,6 +298,80 @@ def resolve_agent_definition(
     )
 
 
+# ── Skill staging (shared by chat-tier and worktree-tier launches) ──────────
+
+def _stage_skills(
+    *,
+    allowed_skills: list[str],
+    worktree_skills_dest: str,
+    scope: str,
+    teaparty_home: str,
+    org_home: str | None = None,
+) -> None:
+    """Stage an agent's declared skills for a Claude Code launch.
+
+    Skills are staged in two places:
+
+    1. ``<worktree_skills_dest>/<name>/`` — project-local copy (only when
+       the caller supplies a writable destination, i.e. the dispatch-tier
+       path that composes a worktree).  Chat-tier launches pass ``''``
+       here since there is no per-launch worktree to populate.
+    2. ``$CLAUDE_CONFIG_DIR/skills/<name>/`` — the location Claude Code's
+       headless ``Skill`` tool actually discovers from. In ``claude -p``
+       the cwd's ``.claude/skills/`` is not on the discovery path; without
+       this copy the agent sees its frontmatter-declared skill listed
+       in the system prompt but ``/<name>`` fails with
+       "Unknown skill: <name>".  Writes are idempotent (same source,
+       same content) across concurrent launches.
+
+    When ``allowed_skills`` is empty both destinations are left untouched
+    beyond cleaning ``worktree_skills_dest``.
+    """
+    # Clean the per-launch worktree skills dir; the CLAUDE_CONFIG_DIR one
+    # is shared so we do not wipe it — each launch just (re)writes the
+    # specific skills it needs.
+    if worktree_skills_dest and os.path.isdir(worktree_skills_dest):
+        shutil.rmtree(worktree_skills_dest)
+    if not allowed_skills:
+        return
+
+    claude_config_dir = os.environ.get('CLAUDE_CONFIG_DIR', '')
+    config_skills_dest = (
+        os.path.join(claude_config_dir, 'skills') if claude_config_dir else ''
+    )
+    if worktree_skills_dest:
+        os.makedirs(worktree_skills_dest, exist_ok=True)
+    if config_skills_dest:
+        os.makedirs(config_skills_dest, exist_ok=True)
+
+    # Search order: scope in primary home → management in primary home →
+    # management in org home (Issue #408 fallback for project jobs).
+    for skill_name in allowed_skills:
+        skill_src = os.path.join(
+            teaparty_home, scope, 'skills', skill_name,
+        )
+        if not os.path.isdir(skill_src) and scope != 'management':
+            skill_src = os.path.join(
+                teaparty_home, 'management', 'skills', skill_name,
+            )
+        if not os.path.isdir(skill_src) and org_home:
+            skill_src = os.path.join(
+                org_home, 'management', 'skills', skill_name,
+            )
+        if not os.path.isdir(skill_src):
+            continue
+        if worktree_skills_dest:
+            shutil.copytree(
+                skill_src,
+                os.path.join(worktree_skills_dest, skill_name),
+            )
+        if config_skills_dest:
+            target = os.path.join(config_skills_dest, skill_name)
+            if os.path.isdir(target):
+                shutil.rmtree(target)
+            shutil.copytree(skill_src, target)
+
+
 # ── Worktree composition ────────────────────────────────────────────────────
 
 def compose_launch_worktree(
@@ -354,63 +428,13 @@ def compose_launch_worktree(
         shutil.copy2(agent_def_path, dest_md)
 
     # ── Skills (filtered by agent allowlist) ─────────────────────────────
-    # Skills are staged in two places:
-    #
-    # 1. ``<worktree>/.claude/skills/<name>/`` — project-local copy.
-    #    Kept for transparency and because hooks / helpers inside the
-    #    worktree may reference them by relative path.
-    #
-    # 2. ``$CLAUDE_CONFIG_DIR/skills/<name>/`` — the location Claude
-    #    Code's headless ``Skill`` tool actually discovers from. In
-    #    ``claude -p`` the cwd's ``.claude/skills/`` is not in the
-    #    discovery path; without this second copy the agent sees its
-    #    frontmatter-declared skill but invoking it fails with
-    #    "Unknown skill: <name>". Writes are idempotent (same source,
-    #    same content) across concurrent launches.
-    allowed_skills = fm.get('skills') or []
-    skills_dest = os.path.join(claude_dir, 'skills')
-    claude_config_dir = os.environ.get('CLAUDE_CONFIG_DIR', '')
-    config_skills_dest = (
-        os.path.join(claude_config_dir, 'skills') if claude_config_dir else ''
+    _stage_skills(
+        allowed_skills=fm.get('skills') or [],
+        worktree_skills_dest=os.path.join(claude_dir, 'skills'),
+        scope=scope,
+        teaparty_home=teaparty_home,
+        org_home=org_home,
     )
-    # Clean the worktree skills dir; the CLAUDE_CONFIG_DIR one is shared
-    # so we do not wipe it — each launch just (re)writes the specific
-    # skills it needs.
-    if os.path.isdir(skills_dest):
-        shutil.rmtree(skills_dest)
-    if allowed_skills:
-        os.makedirs(skills_dest, exist_ok=True)
-        if config_skills_dest:
-            os.makedirs(config_skills_dest, exist_ok=True)
-        # Search order: scope in primary home → management in primary home
-        # → management in org home (Issue #408 fallback for project jobs)
-        for skill_name in allowed_skills:
-            skill_src = os.path.join(
-                teaparty_home, scope, 'skills', skill_name,
-            )
-            if not os.path.isdir(skill_src) and scope != 'management':
-                skill_src = os.path.join(
-                    teaparty_home, 'management', 'skills', skill_name,
-                )
-            if not os.path.isdir(skill_src) and org_home:
-                skill_src = os.path.join(
-                    org_home, 'management', 'skills', skill_name,
-                )
-            if not os.path.isdir(skill_src):
-                continue
-            # Copy into the worktree for transparency.
-            shutil.copytree(
-                skill_src,
-                os.path.join(skills_dest, skill_name),
-            )
-            # Copy into CLAUDE_CONFIG_DIR/skills/ for Claude Code
-            # discovery. Overwrite if present so edits to the source
-            # skill propagate on next launch.
-            if config_skills_dest:
-                target = os.path.join(config_skills_dest, skill_name)
-                if os.path.isdir(target):
-                    shutil.rmtree(target)
-                shutil.copytree(skill_src, target)
 
     # ── Settings (scope base + agent override) ───────────────────────────
     settings = _merge_settings(agent_name, scope, teaparty_home)
@@ -622,6 +646,18 @@ def compose_launch_config(
     settings_path = os.path.join(config_dir, 'settings.json')
     with open(settings_path, 'w') as f:
         json.dump(settings, f, indent=2)
+
+    # Stage skills into $CLAUDE_CONFIG_DIR/skills/ — chat-tier has no
+    # per-launch worktree to populate, but the discovery path the
+    # ``Skill`` tool uses is the shared CLAUDE_CONFIG_DIR one.  Without
+    # this call a chat-tier agent's ``skills:`` frontmatter is inert
+    # and its ``/<name>`` slash command fails with "Unknown skill".
+    _stage_skills(
+        allowed_skills=fm.get('skills') or [],
+        worktree_skills_dest='',
+        scope=scope,
+        teaparty_home=teaparty_home,
+    )
 
     # MCP endpoint — scoped to this agent/session so tools can route.
     mcp_path = ''
