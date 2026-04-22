@@ -156,12 +156,38 @@ class EscalationListener:
         silently dropped.
         """
         self._bus = SqliteMessageBus(self.bus_db_path)
+        self._rehydrate_active_escalations()
         since = time.time()
         self._task = asyncio.create_task(self._poll_loop(since))
         _log.info(
             'Escalation listener started on bus %s conv %s',
             self.bus_db_path, self.conv_id,
         )
+
+    def _rehydrate_active_escalations(self) -> None:
+        """Re-register in-flight escalations from the dispatcher's
+        conversation_map.
+
+        The ``_active_escalations`` registry is in-memory and is lost
+        across bridge restarts, but the escalation's on-disk state
+        (proxy session dir, dispatcher's conversation_map entry) is
+        preserved on cancellation — so the next listener startup can
+        repopulate the registry by scanning what's already there.
+        Without this, the workflow-bar dot and the
+        ``is_escalation_active`` guard in the bridge's HTTP auto-invoke
+        would be blank for escalations that survived a restart.
+        """
+        if self._dispatcher_session is None:
+            return
+        from teaparty.mcp.registry import mark_escalation_active as _mark
+        conv_map = getattr(self._dispatcher_session, 'conversation_map', {}) or {}
+        for request_id, child_session_id in conv_map.items():
+            if not isinstance(child_session_id, str):
+                continue
+            if not child_session_id.startswith('proxy-'):
+                continue
+            qualifier = f'{self._dispatcher_session.id}:{request_id}'
+            _mark(qualifier)
 
     async def stop(self) -> None:
         """Cancel the polling task."""
@@ -426,6 +452,14 @@ class EscalationListener:
         _mark_active(qualifier)
 
         final_answer = ''
+        # Distinguish a terminal exit (RESPONSE / WITHDRAW — the
+        # escalation is done) from a cancellation (bridge shutdown,
+        # engine stop) so the finally block only cleans up when the
+        # escalation genuinely finished.  On cancellation we leave the
+        # proxy session directory, the dispatcher's conversation_map
+        # entry, and the registry entry in place so the next engine
+        # startup can reconstitute the in-flight state from disk.
+        terminal = False
         try:
             while True:
                 # Capture the pre-invocation watermark so we can find the
@@ -447,9 +481,11 @@ class EscalationListener:
 
                 if status == 'RESPONSE':
                     final_answer = message
+                    terminal = True
                     break
                 if status == 'WITHDRAW':
                     final_answer = f'[WITHDRAW]\n{message}'
+                    terminal = True
                     break
                 # Anything else — no JSON status, DIALOG marker, or an
                 # unrecognised status value — is an in-dialog turn: the
@@ -462,16 +498,20 @@ class EscalationListener:
                     proxy_bus, proxy_conv_id, since=invocation_start,
                 )
         finally:
-            _mark_done(qualifier)
-            _remove_child(
-                self._dispatcher_session, request_id=escalation_id,
-            )
-            self._emit_dispatch(
-                'dispatch_completed',
-                parent_sid=self._dispatcher_session.id,
-                child_sid=child_session.id,
-            )
-            shutil.rmtree(child_session.path, ignore_errors=True)
+            if terminal:
+                _mark_done(qualifier)
+                _remove_child(
+                    self._dispatcher_session, request_id=escalation_id,
+                )
+                self._emit_dispatch(
+                    'dispatch_completed',
+                    parent_sid=self._dispatcher_session.id,
+                    child_sid=child_session.id,
+                )
+                shutil.rmtree(child_session.path, ignore_errors=True)
+            # On non-terminal exit (cancellation) the registry entry is
+            # in-memory and is about to be lost with the process; the
+            # next engine startup repopulates it by scanning disk state.
 
         self._last_escalation_source = 'proxy_skill'
         return final_answer
