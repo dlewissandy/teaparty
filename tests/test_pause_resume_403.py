@@ -470,15 +470,26 @@ class TestUIGrepCheck(unittest.TestCase):
 
 
 class TestPauseResumeIntegration(unittest.IsolatedAsyncioTestCase):
-    """End-to-end integration tests: dispatch a real tree through the real
-    ``AgentSession`` + ``_run_child`` loop, count claude invocations via a
-    scripted ``_launch``, pause mid-flight, resume, and verify the
-    phase-based faithfulness invariant.
+    """Orchestration-layer tests for the #403 faithfulness invariant.
 
-    These are the load-bearing tests for issue #403: they fail if the
-    phase markers are removed from the subtree loop, if the resume walker
-    re-enters via the wrong entry point, or if the cancellation path
-    leaves the tree in an inconsistent state.
+    Drive the real ``AgentSession`` + ``_run_child`` + pause/resume-walker
+    code paths with the environment below them stubbed out: the LLM
+    (``_launch``), git queries (``head_commit_of`` / ``current_branch_of`` /
+    ``default_branch_of``), and worktree creation (``create_subchat_worktree``)
+    are all mocks.  What runs un-mocked is the scheduling, phase-marker
+    recording, task cancellation, and gather re-entry.
+
+    These are the load-bearing tests for #403's orchestration contract:
+    they fail if the phase markers are removed from the subtree loop, if
+    the resume walker re-enters via the wrong entry point, or if the
+    cancellation path leaves the tree in an inconsistent state.
+
+    What these tests do NOT cover: whether a real ``claude -p`` process
+    dies cleanly under task cancellation, whether git worktrees survive
+    a cancel/resume cycle, or whether the has_sub_roster branch works
+    end-to-end against real repositories.  Those require a different
+    harness (real temp git repo, real cancellable subprocess) — not in
+    scope here.
     """
 
     def setUp(self):
