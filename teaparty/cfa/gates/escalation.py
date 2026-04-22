@@ -602,24 +602,16 @@ class EscalationListener:
                 if status == 'WITHDRAW':
                     final_answer = f'[WITHDRAW]\n{message}'
                     break
-                if status == 'DIALOG':
-                    # Wait for a new human message on the proxy conversation
-                    # before re-invoking.  The human replies through the
-                    # accordion chat widget.
-                    await self._wait_for_human_reply(
-                        proxy_bus, proxy_conv_id, since=invocation_start,
-                    )
-                    continue
-                # Status unrecognised — treat as a malformed turn and
-                # return an empty answer.  The caller will surface this
-                # as an escalation failure rather than silently retry.
-                _log.error(
-                    'Escalation skill emitted unrecognised status; '
-                    'conv=%s text=%r',
-                    proxy_conv_id, proxy_text[:200],
+                # Anything else — no JSON status, DIALOG marker, or an
+                # unrecognised status value — is an in-dialog turn: the
+                # proxy asked the human a clarifying question and is
+                # waiting for the reply.  Block on a ``human`` message
+                # on the proxy conversation, then re-invoke so the proxy
+                # resumes with the human's input.  RESPONSE / WITHDRAW
+                # are the only signals that terminate the loop.
+                await self._wait_for_human_reply(
+                    proxy_bus, proxy_conv_id, since=invocation_start,
                 )
-                final_answer = ''
-                break
         finally:
             _mark_done(qualifier)
             _remove_child(
