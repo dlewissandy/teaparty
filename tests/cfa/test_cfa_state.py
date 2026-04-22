@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Tests for cfa_state.py — Conversation for Action state machine."""
+"""Tests for cfa_state.py — Conversation for Action state machine.
+
+Five-state model: INTENT, PLAN, EXECUTE, DONE, WITHDRAWN.
+"""
 import sys
 import tempfile
 import os
@@ -35,12 +38,12 @@ from teaparty.cfa.statemachine.cfa_state import (
 def _make_cfa(**kwargs) -> CfaState:
     """Create a CfaState at a given position for testing.
 
-    Defaults to the initial IDEA state. Callers can override any field.
+    Defaults to the initial INTENT state. Callers can override any field.
     """
     defaults = dict(
         phase='intent',
-        state='IDEA',
-        actor='human',
+        state='INTENT',
+        actor='intent_team',
         history=[],
         backtrack_count=0,
         task_id='',
@@ -62,9 +65,9 @@ def _advance(cfa: CfaState, *actions: str) -> CfaState:
 def _make_at_state(state: str, **kwargs) -> CfaState:
     """Create a CfaState positioned at a specific state node, with correct phase."""
     phase = phase_for_state(state)
-    # Determine a plausible actor for the state (use any valid next actor or 'human')
+    # Determine a plausible actor for the state (use any valid next actor or 'system')
     actions = available_actions(state)
-    actor = actions[0][1] if actions else 'human'
+    actor = actions[0][1] if actions else 'system'
     return _make_cfa(phase=phase, state=state, actor=actor, **kwargs)
 
 
@@ -72,9 +75,9 @@ def _make_at_state(state: str, **kwargs) -> CfaState:
 
 class TestMakeInitialState(unittest.TestCase):
 
-    def test_initial_state_is_idea(self):
+    def test_initial_state_is_intent(self):
         cfa = make_initial_state()
-        self.assertEqual(cfa.state, 'IDEA')
+        self.assertEqual(cfa.state, 'INTENT')
 
     def test_initial_phase_is_intent(self):
         cfa = make_initial_state()
@@ -121,11 +124,10 @@ class TestPhaseForState(unittest.TestCase):
             phase_for_state('BOGUS_STATE')
 
     def test_specific_samples(self):
-        self.assertEqual(phase_for_state('IDEA'), 'intent')
         self.assertEqual(phase_for_state('INTENT'), 'intent')
-        self.assertEqual(phase_for_state('PLANNING'), 'planning')
-        self.assertEqual(phase_for_state('WORK_IN_PROGRESS'), 'execution')
-        self.assertEqual(phase_for_state('COMPLETED_WORK'), 'execution')
+        self.assertEqual(phase_for_state('PLAN'), 'planning')
+        self.assertEqual(phase_for_state('EXECUTE'), 'execution')
+        self.assertEqual(phase_for_state('DONE'), 'execution')
         self.assertEqual(phase_for_state('WITHDRAWN'), 'execution')
 
 
@@ -133,13 +135,13 @@ class TestPhaseForState(unittest.TestCase):
 
 class TestAvailableActions(unittest.TestCase):
 
-    def test_idea_actions(self):
-        actions = dict(available_actions('IDEA'))
+    def test_intent_actions(self):
+        actions = dict(available_actions('INTENT'))
         self.assertIn('approve', actions)
         self.assertIn('withdraw', actions)
 
-    def test_completed_work_has_no_actions(self):
-        self.assertEqual(available_actions('COMPLETED_WORK'), [])
+    def test_done_has_no_actions(self):
+        self.assertEqual(available_actions('DONE'), [])
 
     def test_withdrawn_has_no_actions(self):
         self.assertEqual(available_actions('WITHDRAWN'), [])
@@ -160,18 +162,15 @@ class TestAvailableActions(unittest.TestCase):
 
 class TestIsPhaseTerminal(unittest.TestCase):
 
-    def test_intent_is_phase_terminal(self):
-        self.assertTrue(is_phase_terminal('INTENT'))
-
-    def test_completed_work_is_phase_terminal(self):
-        self.assertTrue(is_phase_terminal('COMPLETED_WORK'))
+    def test_done_is_phase_terminal(self):
+        self.assertTrue(is_phase_terminal('DONE'))
 
     def test_withdrawn_is_phase_terminal(self):
         self.assertTrue(is_phase_terminal('WITHDRAWN'))
 
-    def test_mid_states_are_not_phase_terminal(self):
-        non_terminal = ['IDEA', 'PLANNING', 'WORK_IN_PROGRESS']
-        for state in non_terminal:
+    def test_working_states_are_not_phase_terminal(self):
+        # In the five-state model, only globally terminal states are phase-terminal.
+        for state in ('INTENT', 'PLAN', 'EXECUTE'):
             with self.subTest(state=state):
                 self.assertFalse(is_phase_terminal(state))
 
@@ -180,17 +179,14 @@ class TestIsPhaseTerminal(unittest.TestCase):
 
 class TestIsGloballyTerminal(unittest.TestCase):
 
-    def test_completed_work_is_globally_terminal(self):
-        self.assertTrue(is_globally_terminal('COMPLETED_WORK'))
+    def test_done_is_globally_terminal(self):
+        self.assertTrue(is_globally_terminal('DONE'))
 
     def test_withdrawn_is_globally_terminal(self):
         self.assertTrue(is_globally_terminal('WITHDRAWN'))
 
-    def test_intent_is_not_globally_terminal(self):
-        self.assertFalse(is_globally_terminal('INTENT'))
-
-    def test_mid_states_are_not_globally_terminal(self):
-        for state in ['IDEA', 'PLANNING', 'WORK_IN_PROGRESS']:
+    def test_working_states_are_not_globally_terminal(self):
+        for state in ('INTENT', 'PLAN', 'EXECUTE'):
             with self.subTest(state=state):
                 self.assertFalse(is_globally_terminal(state))
 
@@ -199,48 +195,42 @@ class TestIsGloballyTerminal(unittest.TestCase):
 
 class TestIsBacktrack(unittest.TestCase):
 
-    def test_planning_backtrack_is_backtrack(self):
-        self.assertTrue(is_backtrack('PLANNING', 'backtrack'))
+    def test_plan_realign_is_backtrack(self):
+        self.assertTrue(is_backtrack('PLAN', 'realign'))
 
-    def test_work_in_progress_backtrack_is_backtrack(self):
-        self.assertTrue(is_backtrack('WORK_IN_PROGRESS', 'backtrack'))
+    def test_execute_replan_is_backtrack(self):
+        self.assertTrue(is_backtrack('EXECUTE', 'replan'))
 
-    def test_work_assert_revise_plan_is_backtrack(self):
-        self.assertTrue(is_backtrack('WORK_ASSERT', 'revise-plan'))
-
-    def test_work_assert_refine_intent_is_backtrack(self):
-        self.assertTrue(is_backtrack('WORK_ASSERT', 'refine-intent'))
+    def test_execute_realign_is_backtrack(self):
+        self.assertTrue(is_backtrack('EXECUTE', 'realign'))
 
     def test_forward_transitions_are_not_backtracks(self):
         forward_cases = [
-            ('IDEA', 'approve'),
-            ('INTENT', 'plan'),
-            ('PLANNING', 'approve'),
-            ('WORK_IN_PROGRESS', 'assert'),
+            ('INTENT', 'approve'),
+            ('PLAN', 'approve'),
+            ('EXECUTE', 'approve'),
         ]
         for from_state, action in forward_cases:
             with self.subTest(from_state=from_state, action=action):
                 self.assertFalse(is_backtrack(from_state, action))
 
-    def test_same_phase_transitions_are_not_backtracks(self):
-        self.assertFalse(is_backtrack('WORK_ASSERT', 'correct'))
-
     def test_unknown_action_returns_false(self):
-        self.assertFalse(is_backtrack('PLANNING', 'nonexistent-action'))
+        self.assertFalse(is_backtrack('PLAN', 'nonexistent-action'))
 
 
 # ── transition — Phase 1: Intent Alignment ──────────────────────────────────────
 
 class TestTransitionPhase1(unittest.TestCase):
 
-    def test_idea_approve_to_intent(self):
+    def test_intent_approve_to_plan(self):
         cfa = _make_cfa()
         new_cfa = transition(cfa, 'approve')
-        self.assertEqual(new_cfa.state, 'INTENT')
-        self.assertEqual(new_cfa.phase, 'intent')
+        self.assertEqual(new_cfa.state, 'PLAN')
+        self.assertEqual(new_cfa.phase, 'planning')
+        # actor reflects who performed the INTENT→PLAN approve
         self.assertEqual(new_cfa.actor, 'intent_team')
 
-    def test_idea_withdraw_to_withdrawn(self):
+    def test_intent_withdraw_to_withdrawn(self):
         cfa = _make_cfa()
         new_cfa = transition(cfa, 'withdraw')
         self.assertEqual(new_cfa.state, 'WITHDRAWN')
@@ -251,28 +241,22 @@ class TestTransitionPhase1(unittest.TestCase):
 
 class TestTransitionPhase2(unittest.TestCase):
 
-    def test_intent_plan_to_planning(self):
-        cfa = _make_at_state('INTENT')
-        new_cfa = transition(cfa, 'plan')
-        self.assertEqual(new_cfa.state, 'PLANNING')
-        self.assertEqual(new_cfa.phase, 'planning')
+    def test_plan_approve_to_execute(self):
+        cfa = _make_at_state('PLAN')
+        new_cfa = transition(cfa, 'approve')
+        self.assertEqual(new_cfa.state, 'EXECUTE')
+        self.assertEqual(new_cfa.phase, 'execution')
+        # actor reflects who performed the PLAN→EXECUTE approve
         self.assertEqual(new_cfa.actor, 'planning_team')
 
-    def test_planning_approve_to_work_in_progress(self):
-        cfa = _make_at_state('PLANNING')
-        new_cfa = transition(cfa, 'approve')
-        self.assertEqual(new_cfa.state, 'WORK_IN_PROGRESS')
-        self.assertEqual(new_cfa.phase, 'execution')
-        self.assertEqual(new_cfa.actor, 'project_lead')
-
-    def test_planning_backtrack_to_idea(self):
-        cfa = _make_at_state('PLANNING')
-        new_cfa = transition(cfa, 'backtrack')
-        self.assertEqual(new_cfa.state, 'IDEA')
+    def test_plan_realign_to_intent(self):
+        cfa = _make_at_state('PLAN')
+        new_cfa = transition(cfa, 'realign')
+        self.assertEqual(new_cfa.state, 'INTENT')
         self.assertEqual(new_cfa.phase, 'intent')
 
-    def test_planning_withdraw_to_withdrawn(self):
-        cfa = _make_at_state('PLANNING')
+    def test_plan_withdraw_to_withdrawn(self):
+        cfa = _make_at_state('PLAN')
         new_cfa = transition(cfa, 'withdraw')
         self.assertEqual(new_cfa.state, 'WITHDRAWN')
 
@@ -281,52 +265,26 @@ class TestTransitionPhase2(unittest.TestCase):
 
 class TestTransitionPhase3(unittest.TestCase):
 
-    def test_work_in_progress_assert_to_work_assert(self):
-        cfa = _make_at_state('WORK_IN_PROGRESS')
-        new_cfa = transition(cfa, 'assert')
-        self.assertEqual(new_cfa.state, 'WORK_ASSERT')
-
-    def test_work_in_progress_auto_approve_to_completed_work(self):
-        cfa = _make_at_state('WORK_IN_PROGRESS')
-        new_cfa = transition(cfa, 'auto-approve')
-        self.assertEqual(new_cfa.state, 'COMPLETED_WORK')
-
-    def test_work_in_progress_backtrack_to_planning(self):
-        cfa = _make_at_state('WORK_IN_PROGRESS')
-        new_cfa = transition(cfa, 'backtrack')
-        self.assertEqual(new_cfa.state, 'PLANNING')
-        self.assertEqual(new_cfa.phase, 'planning')
-
-    def test_work_in_progress_withdraw_to_withdrawn(self):
-        cfa = _make_at_state('WORK_IN_PROGRESS')
-        new_cfa = transition(cfa, 'withdraw')
-        self.assertEqual(new_cfa.state, 'WITHDRAWN')
-
-    def test_work_assert_approve_to_completed_work(self):
-        cfa = _make_at_state('WORK_ASSERT')
+    def test_execute_approve_to_done(self):
+        cfa = _make_at_state('EXECUTE')
         new_cfa = transition(cfa, 'approve')
-        self.assertEqual(new_cfa.state, 'COMPLETED_WORK')
-        self.assertEqual(new_cfa.actor, 'approval_gate')
+        self.assertEqual(new_cfa.state, 'DONE')
+        self.assertEqual(new_cfa.phase, 'execution')
 
-    def test_work_assert_correct_to_work_in_progress(self):
-        cfa = _make_at_state('WORK_ASSERT')
-        new_cfa = transition(cfa, 'correct')
-        self.assertEqual(new_cfa.state, 'WORK_IN_PROGRESS')
-
-    def test_work_assert_revise_plan_to_planning(self):
-        cfa = _make_at_state('WORK_ASSERT')
-        new_cfa = transition(cfa, 'revise-plan')
-        self.assertEqual(new_cfa.state, 'PLANNING')
+    def test_execute_replan_to_plan(self):
+        cfa = _make_at_state('EXECUTE')
+        new_cfa = transition(cfa, 'replan')
+        self.assertEqual(new_cfa.state, 'PLAN')
         self.assertEqual(new_cfa.phase, 'planning')
 
-    def test_work_assert_refine_intent_to_idea(self):
-        cfa = _make_at_state('WORK_ASSERT')
-        new_cfa = transition(cfa, 'refine-intent')
-        self.assertEqual(new_cfa.state, 'IDEA')
+    def test_execute_realign_to_intent(self):
+        cfa = _make_at_state('EXECUTE')
+        new_cfa = transition(cfa, 'realign')
+        self.assertEqual(new_cfa.state, 'INTENT')
         self.assertEqual(new_cfa.phase, 'intent')
 
-    def test_work_assert_withdraw_to_withdrawn(self):
-        cfa = _make_at_state('WORK_ASSERT')
+    def test_execute_withdraw_to_withdrawn(self):
+        cfa = _make_at_state('EXECUTE')
         new_cfa = transition(cfa, 'withdraw')
         self.assertEqual(new_cfa.state, 'WITHDRAWN')
 
@@ -338,22 +296,22 @@ class TestInvalidTransitions(unittest.TestCase):
     def test_invalid_action_raises_invalid_transition(self):
         cfa = _make_cfa()
         with self.assertRaises(InvalidTransition):
-            transition(cfa, 'plan')  # not valid from IDEA
+            transition(cfa, 'replan')  # not valid from INTENT
 
     def test_wrong_action_for_state_raises(self):
-        cfa = _make_at_state('IDEA')
+        cfa = _make_at_state('INTENT')
         with self.assertRaises(InvalidTransition):
             transition(cfa, 'accept')
 
     def test_terminal_state_raises_on_any_action(self):
-        for terminal in ('COMPLETED_WORK', 'WITHDRAWN'):
+        for terminal in ('DONE', 'WITHDRAWN'):
             cfa = _make_at_state(terminal)
             with self.subTest(terminal=terminal):
                 with self.assertRaises(InvalidTransition):
                     transition(cfa, 'approve')
 
     def test_error_message_lists_valid_actions(self):
-        cfa = _make_at_state('IDEA')
+        cfa = _make_at_state('INTENT')
         try:
             transition(cfa, 'bogus-action')
             self.fail("Expected InvalidTransition")
@@ -362,10 +320,10 @@ class TestInvalidTransitions(unittest.TestCase):
             self.assertIn('bogus-action', str(e))
 
     def test_skipping_phases_raises(self):
-        """Cannot jump from IDEA straight to PLANNING."""
+        """Cannot jump from INTENT straight to EXECUTE."""
         cfa = _make_cfa()
         with self.assertRaises(InvalidTransition):
-            transition(cfa, 'plan')
+            transition(cfa, 'replan')
 
     def test_every_state_rejects_random_action(self):
         """Every state should reject a nonsense action."""
@@ -385,7 +343,7 @@ class TestHistory(unittest.TestCase):
         self.assertEqual(len(cfa.history), 0)
         cfa = transition(cfa, 'approve')
         self.assertEqual(len(cfa.history), 1)
-        cfa = transition(cfa, 'plan')
+        cfa = transition(cfa, 'approve')
         self.assertEqual(len(cfa.history), 2)
 
     def test_history_entry_has_required_keys(self):
@@ -400,7 +358,7 @@ class TestHistory(unittest.TestCase):
     def test_history_records_correct_from_state(self):
         cfa = make_initial_state()
         cfa = transition(cfa, 'approve')
-        self.assertEqual(cfa.history[0]['state'], 'IDEA')
+        self.assertEqual(cfa.history[0]['state'], 'INTENT')
         self.assertEqual(cfa.history[0]['action'], 'approve')
 
     def test_history_is_not_mutated_between_instances(self):
@@ -424,32 +382,32 @@ class TestHistory(unittest.TestCase):
 class TestBacktrackCount(unittest.TestCase):
 
     def test_forward_transitions_do_not_increment(self):
-        cfa = _advance(make_initial_state(), 'approve', 'plan', 'approve')
+        cfa = _advance(make_initial_state(), 'approve', 'approve', 'approve')
         self.assertEqual(cfa.backtrack_count, 0)
+        self.assertEqual(cfa.state, 'DONE')
 
-    def test_planning_backtrack_increments(self):
-        cfa = _advance(make_initial_state(), 'approve', 'plan', 'backtrack')
+    def test_plan_realign_increments(self):
+        cfa = _advance(make_initial_state(), 'approve', 'realign')
+        self.assertEqual(cfa.state, 'INTENT')
         self.assertEqual(cfa.backtrack_count, 1)
 
     def test_multiple_backtracks_accumulate(self):
-        # IDEA → INTENT → PLANNING → backtrack → IDEA
-        # → approve → INTENT → plan → PLANNING → backtrack (2nd)
+        # INTENT → PLAN → realign → INTENT (backtrack #1)
+        # → approve → PLAN → realign (backtrack #2)
         cfa = make_initial_state()
-        cfa = _advance(cfa, 'approve')          # INTENT
-        cfa = _advance(cfa, 'plan', 'backtrack')  # IDEA; backtrack #1
+        cfa = _advance(cfa, 'approve', 'realign')
         self.assertEqual(cfa.backtrack_count, 1)
-        cfa = _advance(cfa, 'approve')          # INTENT again
-        cfa = _advance(cfa, 'plan', 'backtrack')  # backtrack #2
+        cfa = _advance(cfa, 'approve', 'realign')
         self.assertEqual(cfa.backtrack_count, 2)
 
-    def test_work_assert_backtrack_increments(self):
-        cfa = _make_at_state('WORK_ASSERT')
-        new_cfa = transition(cfa, 'revise-plan')
+    def test_execute_replan_increments(self):
+        cfa = _make_at_state('EXECUTE')
+        new_cfa = transition(cfa, 'replan')
         self.assertEqual(new_cfa.backtrack_count, 1)
 
-    def test_work_assert_refine_intent_increments(self):
-        cfa = _make_at_state('WORK_ASSERT')
-        new_cfa = transition(cfa, 'refine-intent')
+    def test_execute_realign_increments(self):
+        cfa = _make_at_state('EXECUTE')
+        new_cfa = transition(cfa, 'realign')
         self.assertEqual(new_cfa.backtrack_count, 1)
 
 
@@ -478,19 +436,19 @@ class TestPersistence(unittest.TestCase):
             os.unlink(path)
 
     def test_round_trip_with_history(self):
-        cfa = _advance(make_initial_state(), 'approve', 'plan')
+        cfa = _advance(make_initial_state(), 'approve', 'approve')
         path = self._make_temp_path()
         try:
             save_state(cfa, path)
             loaded = load_state(path)
-            self.assertEqual(loaded.state, 'PLANNING')
-            self.assertEqual(loaded.phase, 'planning')
+            self.assertEqual(loaded.state, 'EXECUTE')
+            self.assertEqual(loaded.phase, 'execution')
             self.assertEqual(len(loaded.history), 2)
         finally:
             os.unlink(path)
 
     def test_round_trip_with_backtrack_count(self):
-        cfa = _advance(make_initial_state(), 'approve', 'plan', 'backtrack')
+        cfa = _advance(make_initial_state(), 'approve', 'realign')
         path = self._make_temp_path()
         try:
             save_state(cfa, path)
@@ -500,7 +458,7 @@ class TestPersistence(unittest.TestCase):
             os.unlink(path)
 
     def test_round_trip_with_task_id(self):
-        cfa = _make_at_state('WORK_IN_PROGRESS', task_id='task-abc-123')
+        cfa = _make_at_state('EXECUTE', task_id='task-abc-123')
         path = self._make_temp_path()
         try:
             save_state(cfa, path)
@@ -529,34 +487,27 @@ class TestPersistence(unittest.TestCase):
 # ── Full happy path ──────────────────────────────────────────────────────────────
 
 class TestHappyPath(unittest.TestCase):
-    """Test the complete direct path from IDEA to COMPLETED_WORK."""
+    """Test the complete direct path from INTENT to DONE."""
 
     def test_full_happy_path(self):
-        """IDEA → INTENT → PLANNING → WORK_IN_PROGRESS → WORK_ASSERT → COMPLETED_WORK"""
+        """INTENT → PLAN → EXECUTE → DONE"""
         cfa = make_initial_state()
-        self.assertEqual(cfa.state, 'IDEA')
-
-        cfa = transition(cfa, 'approve')
         self.assertEqual(cfa.state, 'INTENT')
-        self.assertTrue(is_phase_terminal('INTENT'))
-        self.assertFalse(is_globally_terminal('INTENT'))
-
-        cfa = transition(cfa, 'plan')
-        self.assertEqual(cfa.state, 'PLANNING')
 
         cfa = transition(cfa, 'approve')
-        self.assertEqual(cfa.state, 'WORK_IN_PROGRESS')
-
-        cfa = transition(cfa, 'assert')
-        self.assertEqual(cfa.state, 'WORK_ASSERT')
+        self.assertEqual(cfa.state, 'PLAN')
+        self.assertFalse(is_globally_terminal('PLAN'))
 
         cfa = transition(cfa, 'approve')
-        self.assertEqual(cfa.state, 'COMPLETED_WORK')
+        self.assertEqual(cfa.state, 'EXECUTE')
 
-        self.assertTrue(is_globally_terminal('COMPLETED_WORK'))
+        cfa = transition(cfa, 'approve')
+        self.assertEqual(cfa.state, 'DONE')
+
+        self.assertTrue(is_globally_terminal('DONE'))
         self.assertEqual(cfa.backtrack_count, 0)
-        # 5 transitions = 5 history entries
-        self.assertEqual(len(cfa.history), 5)
+        # 3 transitions = 3 history entries
+        self.assertEqual(len(cfa.history), 3)
 
     def test_full_happy_path_phases_correct(self):
         """Verify phase transitions at each phase boundary."""
@@ -564,13 +515,10 @@ class TestHappyPath(unittest.TestCase):
         self.assertEqual(cfa.phase, 'intent')
 
         cfa = _advance(cfa, 'approve')
-        self.assertEqual(cfa.phase, 'intent')  # INTENT is still intent phase
-
-        cfa = _advance(cfa, 'plan')
-        self.assertEqual(cfa.phase, 'planning')  # PLANNING
+        self.assertEqual(cfa.phase, 'planning')  # PLAN
 
         cfa = _advance(cfa, 'approve')
-        self.assertEqual(cfa.phase, 'execution')  # WORK_IN_PROGRESS enters execution
+        self.assertEqual(cfa.phase, 'execution')  # EXECUTE
 
     def test_withdrawn_path(self):
         """Withdrawal at any point leads to WITHDRAWN terminal state."""
@@ -587,59 +535,47 @@ class TestHappyPath(unittest.TestCase):
 class TestBacktrackingPath(unittest.TestCase):
     """Test a full path that includes cross-phase backtracking."""
 
-    def test_backtrack_from_planning_to_intent_and_complete(self):
-        """IDEA → INTENT → PLANNING → backtrack → IDEA → approve → INTENT
-           → plan → PLANNING → approve → WORK_IN_PROGRESS → ... → COMPLETED_WORK"""
+    def test_realign_from_plan_to_intent_and_complete(self):
+        """INTENT → PLAN → realign → INTENT → approve → PLAN → approve
+           → EXECUTE → approve → DONE"""
         cfa = make_initial_state()
 
-        # Reach PLANNING
-        cfa = _advance(cfa, 'approve', 'plan')
-        self.assertEqual(cfa.state, 'PLANNING')
+        # Reach PLAN
+        cfa = _advance(cfa, 'approve')
+        self.assertEqual(cfa.state, 'PLAN')
         self.assertEqual(cfa.backtrack_count, 0)
 
-        # Backtrack to intent phase (lands at IDEA — skill re-runs)
-        cfa = transition(cfa, 'backtrack')
-        self.assertEqual(cfa.state, 'IDEA')
+        # Realign back to INTENT
+        cfa = transition(cfa, 'realign')
+        self.assertEqual(cfa.state, 'INTENT')
         self.assertEqual(cfa.phase, 'intent')
         self.assertEqual(cfa.backtrack_count, 1)
 
         # Re-approve intent
         cfa = transition(cfa, 'approve')
-        self.assertEqual(cfa.state, 'INTENT')
-
-        # Re-enter planning
-        cfa = transition(cfa, 'plan')
-        self.assertEqual(cfa.state, 'PLANNING')
+        self.assertEqual(cfa.state, 'PLAN')
         self.assertEqual(cfa.phase, 'planning')
 
-        # Complete execution: PLANNING → approve → WORK_IN_PROGRESS → assert → WORK_ASSERT → approve → COMPLETED_WORK
-        cfa = _advance(cfa, 'approve', 'assert', 'approve')
-        self.assertEqual(cfa.state, 'COMPLETED_WORK')
+        # Complete execution
+        cfa = _advance(cfa, 'approve', 'approve')
+        self.assertEqual(cfa.state, 'DONE')
         self.assertTrue(is_globally_terminal(cfa.state))
         self.assertEqual(cfa.backtrack_count, 1)
 
-    def test_backtrack_from_work_assert_revise_plan(self):
-        """Backtrack from WORK_ASSERT → revise-plan → PLANNING."""
-        cfa = _make_at_state('WORK_ASSERT')
-        cfa = transition(cfa, 'revise-plan')
-        self.assertEqual(cfa.state, 'PLANNING')
+    def test_execute_replan_to_plan(self):
+        """EXECUTE → replan → PLAN."""
+        cfa = _make_at_state('EXECUTE')
+        cfa = transition(cfa, 'replan')
+        self.assertEqual(cfa.state, 'PLAN')
         self.assertEqual(cfa.phase, 'planning')
         self.assertEqual(cfa.backtrack_count, 1)
 
-    def test_backtrack_from_work_assert_refine_intent(self):
-        """Deep backtrack: WORK_ASSERT → refine-intent → IDEA."""
-        cfa = _make_at_state('WORK_ASSERT')
-        cfa = transition(cfa, 'refine-intent')
-        self.assertEqual(cfa.state, 'IDEA')
+    def test_execute_realign_to_intent(self):
+        """Deep backtrack: EXECUTE → realign → INTENT."""
+        cfa = _make_at_state('EXECUTE')
+        cfa = transition(cfa, 'realign')
+        self.assertEqual(cfa.state, 'INTENT')
         self.assertEqual(cfa.phase, 'intent')
-        self.assertEqual(cfa.backtrack_count, 1)
-
-    def test_work_in_progress_backtrack_to_planning(self):
-        """WORK_IN_PROGRESS → backtrack → PLANNING."""
-        cfa = _make_at_state('WORK_IN_PROGRESS')
-        cfa = transition(cfa, 'backtrack')
-        self.assertEqual(cfa.state, 'PLANNING')
-        self.assertEqual(cfa.phase, 'planning')
         self.assertEqual(cfa.backtrack_count, 1)
 
 
@@ -676,14 +612,14 @@ class TestHierarchyFields(unittest.TestCase):
     def test_make_initial_with_task_id(self):
         cfa = make_initial_state(task_id='uber-001')
         self.assertEqual(cfa.task_id, 'uber-001')
-        self.assertEqual(cfa.state, 'IDEA')
+        self.assertEqual(cfa.state, 'INTENT')
 
     def test_make_initial_with_team_id(self):
         cfa = make_initial_state(team_id='coding')
         self.assertEqual(cfa.team_id, 'coding')
 
     def test_make_child_state_basic(self):
-        parent = _make_at_state('WORK_IN_PROGRESS', task_id='uber-001')
+        parent = _make_at_state('EXECUTE', task_id='uber-001')
         child = make_child_state(parent, 'coding')
         self.assertEqual(child.parent_id, 'uber-001')
         self.assertEqual(child.team_id, 'coding')
@@ -695,7 +631,7 @@ class TestHierarchyFields(unittest.TestCase):
         self.assertTrue(child.task_id.startswith('coding-'))
 
     def test_make_child_state_custom_task_id(self):
-        parent = _make_at_state('WORK_IN_PROGRESS', task_id='uber-001')
+        parent = _make_at_state('EXECUTE', task_id='uber-001')
         child = make_child_state(parent, 'art', task_id='art-custom-001')
         self.assertEqual(child.task_id, 'art-custom-001')
         self.assertEqual(child.parent_id, 'uber-001')
@@ -718,16 +654,15 @@ class TestHierarchyFields(unittest.TestCase):
         self.assertTrue(is_root(cfa))
 
     def test_is_root_false_for_child(self):
-        parent = _make_at_state('WORK_IN_PROGRESS', task_id='uber-001')
+        parent = _make_at_state('EXECUTE', task_id='uber-001')
         child = make_child_state(parent, 'coding')
         self.assertFalse(is_root(child))
 
     def test_hierarchy_preserved_through_transitions(self):
-        parent = _make_at_state('WORK_IN_PROGRESS', task_id='uber-001')
+        parent = _make_at_state('EXECUTE', task_id='uber-001')
         child = make_child_state(parent, 'coding')
-        # Child starts at INTENT; the inherited intent is acknowledged
-        # (not re-derived) before advancing into planning.
-        child = transition(child, 'plan')
+        # Child starts at INTENT; advance through approve → PLAN → EXECUTE.
+        child = transition(child, 'approve')
         self.assertEqual(child.parent_id, 'uber-001')
         self.assertEqual(child.team_id, 'coding')
         self.assertEqual(child.depth, 1)
@@ -737,10 +672,10 @@ class TestHierarchyFields(unittest.TestCase):
         self.assertEqual(child.depth, 1)
 
     def test_hierarchy_preserved_through_backtrack(self):
-        parent = _make_at_state('WORK_IN_PROGRESS', task_id='uber-001')
+        parent = _make_at_state('EXECUTE', task_id='uber-001')
         child = make_child_state(parent, 'coding')
-        # Child starts at INTENT, plan → PLANNING, backtrack → IDEA
-        child = _advance(child, 'plan', 'backtrack')
+        # Child starts at INTENT, approve → PLAN, realign → INTENT
+        child = _advance(child, 'approve', 'realign')
         self.assertEqual(child.parent_id, 'uber-001')
         self.assertEqual(child.team_id, 'coding')
         self.assertEqual(child.depth, 1)
@@ -773,7 +708,7 @@ class TestHierarchyPersistence(unittest.TestCase):
         import json
         old_data = {
             'phase': 'planning',
-            'state': 'PLANNING',
+            'state': 'PLAN',
             'actor': 'planning_team',
             'history': [],
             'backtrack_count': 0,
@@ -784,7 +719,7 @@ class TestHierarchyPersistence(unittest.TestCase):
             with open(path, 'w') as f:
                 json.dump(old_data, f)
             loaded = load_state(path)
-            self.assertEqual(loaded.state, 'PLANNING')
+            self.assertEqual(loaded.state, 'PLAN')
             self.assertEqual(loaded.parent_id, '')
             self.assertEqual(loaded.team_id, '')
             self.assertEqual(loaded.depth, 0)
@@ -792,10 +727,10 @@ class TestHierarchyPersistence(unittest.TestCase):
             os.unlink(path)
 
     def test_child_state_round_trip(self):
-        parent = _make_at_state('WORK_IN_PROGRESS', task_id='uber-001')
+        parent = _make_at_state('EXECUTE', task_id='uber-001')
         child = make_child_state(parent, 'art', task_id='art-001')
-        # Child starts at INTENT; advance to PLANNING via plan
-        child = _advance(child, 'plan')  # INTENT → PLANNING
+        # Child starts at INTENT; advance to PLAN via approve
+        child = _advance(child, 'approve')  # INTENT → PLAN
         path = self._make_temp_path()
         try:
             save_state(child, path)
@@ -804,7 +739,7 @@ class TestHierarchyPersistence(unittest.TestCase):
             self.assertEqual(loaded.team_id, 'art')
             self.assertEqual(loaded.depth, 1)
             self.assertEqual(loaded.task_id, 'art-001')
-            self.assertEqual(loaded.state, 'PLANNING')
+            self.assertEqual(loaded.state, 'PLAN')
         finally:
             os.unlink(path)
 
@@ -813,37 +748,37 @@ class TestHierarchyPersistence(unittest.TestCase):
 
 class TestSetStateDirect(unittest.TestCase):
 
-    def test_set_to_planning(self):
+    def test_set_to_plan(self):
         cfa = make_initial_state()
-        cfa = set_state_direct(cfa, 'PLANNING')
-        self.assertEqual(cfa.state, 'PLANNING')
+        cfa = set_state_direct(cfa, 'PLAN')
+        self.assertEqual(cfa.state, 'PLAN')
         self.assertEqual(cfa.phase, 'planning')
 
-    def test_set_to_completed_work(self):
-        cfa = _make_at_state('WORK_ASSERT')
-        cfa = set_state_direct(cfa, 'COMPLETED_WORK')
-        self.assertEqual(cfa.state, 'COMPLETED_WORK')
+    def test_set_to_done(self):
+        cfa = _make_at_state('EXECUTE')
+        cfa = set_state_direct(cfa, 'DONE')
+        self.assertEqual(cfa.state, 'DONE')
         self.assertEqual(cfa.phase, 'execution')
         self.assertEqual(cfa.actor, 'system')  # terminal state
 
     def test_set_state_appends_history(self):
         cfa = make_initial_state()
-        cfa = set_state_direct(cfa, 'INTENT')
+        cfa = set_state_direct(cfa, 'PLAN')
         self.assertEqual(len(cfa.history), 1)
         self.assertEqual(cfa.history[0]['action'], 'set-state')
-        self.assertEqual(cfa.history[0]['state'], 'IDEA')
-        self.assertEqual(cfa.history[0]['target'], 'INTENT')
+        self.assertEqual(cfa.history[0]['state'], 'INTENT')
+        self.assertEqual(cfa.history[0]['target'], 'PLAN')
 
     def test_set_state_preserves_hierarchy(self):
         cfa = _make_cfa(parent_id='p1', team_id='art', depth=1)
-        cfa = set_state_direct(cfa, 'PLANNING')
+        cfa = set_state_direct(cfa, 'PLAN')
         self.assertEqual(cfa.parent_id, 'p1')
         self.assertEqual(cfa.team_id, 'art')
         self.assertEqual(cfa.depth, 1)
 
     def test_set_state_preserves_backtrack_count(self):
         cfa = _make_cfa(backtrack_count=3)
-        cfa = set_state_direct(cfa, 'WORK_IN_PROGRESS')
+        cfa = set_state_direct(cfa, 'EXECUTE')
         self.assertEqual(cfa.backtrack_count, 3)
 
     def test_set_state_unknown_state_raises(self):
@@ -859,53 +794,52 @@ class TestRecursiveHappyPath(unittest.TestCase):
     """Test a full recursive CfA cycle: parent dispatches, child completes."""
 
     def test_parent_to_child_to_completion(self):
-        # Parent: IDEA → INTENT → PLANNING → approve → WORK_IN_PROGRESS
+        # Parent: INTENT → PLAN → EXECUTE
         parent = make_initial_state(task_id='uber-001')
-        parent = _advance(parent, 'approve', 'plan', 'approve')
-        self.assertEqual(parent.state, 'WORK_IN_PROGRESS')
+        parent = _advance(parent, 'approve', 'approve')
+        self.assertEqual(parent.state, 'EXECUTE')
 
-        # Create child for coding team — starts at INTENT (skips intent phase per spec Section 7)
+        # Create child for coding team — starts at INTENT
         child = make_child_state(parent, 'coding', task_id='coding-001')
         self.assertEqual(child.depth, 1)
         self.assertEqual(child.parent_id, 'uber-001')
         self.assertEqual(child.state, 'INTENT')
 
-        # Child runs planning+execution (no intent phase needed)
-        child = _advance(child, 'plan', 'approve', 'assert', 'approve')
-        self.assertEqual(child.state, 'COMPLETED_WORK')
+        # Child runs the full cycle
+        child = _advance(child, 'approve', 'approve', 'approve')
+        self.assertEqual(child.state, 'DONE')
         self.assertTrue(is_globally_terminal(child.state))
 
-        # Parent continues: WORK_IN_PROGRESS → assert → WORK_ASSERT → approve → COMPLETED_WORK
-        parent = _advance(parent, 'assert', 'approve')
-        self.assertEqual(parent.state, 'COMPLETED_WORK')
+        # Parent continues: EXECUTE → approve → DONE
+        parent = _advance(parent, 'approve')
+        self.assertEqual(parent.state, 'DONE')
 
     def test_multiple_dispatches_sequential(self):
-        """Parent runs execution with multiple subteam dispatches before
-        writing WORK_SUMMARY.  Subteam coordination happens over the bus;
-        the parent stays in WORK_IN_PROGRESS throughout.
+        """Parent runs execution with multiple subteam dispatches.
+        Subteam coordination happens over the bus; the parent stays in
+        EXECUTE throughout.
         """
         parent = make_initial_state(task_id='uber-001')
-        parent = _advance(parent, 'approve', 'plan', 'approve')
-        self.assertEqual(parent.state, 'WORK_IN_PROGRESS')
+        parent = _advance(parent, 'approve', 'approve')
+        self.assertEqual(parent.state, 'EXECUTE')
 
-        # First dispatch: art team — child starts at INTENT (skips intent phase)
+        # First dispatch: art team
         art_child = make_child_state(parent, 'art', task_id='art-001')
-        art_child = _advance(art_child, 'plan', 'approve', 'assert', 'approve')
-        self.assertEqual(art_child.state, 'COMPLETED_WORK')
+        art_child = _advance(art_child, 'approve', 'approve', 'approve')
+        self.assertEqual(art_child.state, 'DONE')
 
-        # Parent stays in WORK_IN_PROGRESS; no state transition needed
-        # between dispatches.
-        self.assertEqual(parent.state, 'WORK_IN_PROGRESS')
+        # Parent stays in EXECUTE between dispatches
+        self.assertEqual(parent.state, 'EXECUTE')
 
-        # Second dispatch: coding team — child starts at INTENT
+        # Second dispatch: coding team
         coding_child = make_child_state(parent, 'coding', task_id='coding-001')
         self.assertEqual(coding_child.parent_id, 'uber-001')
-        coding_child = _advance(coding_child, 'plan', 'approve', 'assert', 'approve')
-        self.assertEqual(coding_child.state, 'COMPLETED_WORK')
+        coding_child = _advance(coding_child, 'approve', 'approve', 'approve')
+        self.assertEqual(coding_child.state, 'DONE')
 
-        # Parent finishes: WORK_IN_PROGRESS → assert → WORK_ASSERT → approve → COMPLETED_WORK
-        parent = _advance(parent, 'assert', 'approve')
-        self.assertEqual(parent.state, 'COMPLETED_WORK')
+        # Parent finishes: EXECUTE → approve → DONE
+        parent = _advance(parent, 'approve')
+        self.assertEqual(parent.state, 'DONE')
 
 
 # ── CLI --transition tests ───────────────────────────────────────────────────
@@ -918,46 +852,40 @@ class TestTransitionCLI(unittest.TestCase):
         with tempfile.NamedTemporaryFile(suffix='.json', delete=False) as f:
             state_file = f.name
         try:
-            # Init a state at IDEA
+            # Init a state at INTENT
             cfa = make_initial_state('test-cli')
             save_state(cfa, state_file)
-            self.assertEqual(cfa.state, 'IDEA')
+            self.assertEqual(cfa.state, 'INTENT')
 
-            # Apply 'approve' transition: IDEA → INTENT
+            # Apply 'approve' transition: INTENT → PLAN
             loaded = load_state(state_file)
             result = transition(loaded, 'approve')
             save_state(result, state_file)
 
             reloaded = load_state(state_file)
-            self.assertEqual(reloaded.state, 'INTENT')
+            self.assertEqual(reloaded.state, 'PLAN')
         finally:
             os.unlink(state_file)
 
     def test_invalid_transition_raises(self):
         """Applying an invalid action from a given state raises InvalidTransition."""
-        cfa = _make_cfa(state='IDEA')
+        cfa = _make_cfa(state='INTENT')
         with self.assertRaises(InvalidTransition):
-            transition(cfa, 'plan')  # 'plan' is not valid from IDEA
+            transition(cfa, 'replan')  # 'replan' is not valid from INTENT
 
     def test_transition_round_trip_through_planning(self):
         """Walk through a valid transition sequence through intent and planning."""
-        cfa = _make_cfa(state='IDEA')
+        cfa = _make_cfa(state='INTENT')
         cfa = transition(cfa, 'approve')
-        self.assertEqual(cfa.state, 'INTENT')
-        cfa = transition(cfa, 'plan')
-        self.assertEqual(cfa.state, 'PLANNING')
+        self.assertEqual(cfa.state, 'PLAN')
         cfa = transition(cfa, 'approve')
-        self.assertEqual(cfa.state, 'WORK_IN_PROGRESS')
+        self.assertEqual(cfa.state, 'EXECUTE')
+        cfa = transition(cfa, 'approve')
+        self.assertEqual(cfa.state, 'DONE')
 
-    def test_work_assert_correct_goes_to_work_in_progress(self):
-        """WORK_ASSERT correct sends the lead back to re-do the work."""
-        cfa = _make_cfa(state='WORK_ASSERT', phase='execution')
-        cfa = transition(cfa, 'correct')
-        self.assertEqual(cfa.state, 'WORK_IN_PROGRESS')
-
-    def test_withdraw_from_work_in_progress(self):
-        """WORK_IN_PROGRESS withdraw → WITHDRAWN."""
-        cfa = _make_cfa(state='WORK_IN_PROGRESS', phase='execution')
+    def test_withdraw_from_execute(self):
+        """EXECUTE withdraw → WITHDRAWN."""
+        cfa = _make_cfa(state='EXECUTE', phase='execution')
         cfa = transition(cfa, 'withdraw')
         self.assertEqual(cfa.state, 'WITHDRAWN')
 

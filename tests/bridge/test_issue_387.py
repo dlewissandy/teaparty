@@ -3,8 +3,8 @@
 Tests that:
 1. Legacy .sessions/ data is migrated to .teaparty/jobs/ format
 2. Stats summary computes non-zero totals from job data
-3. Jobs done counts COMPLETED_WORK sessions
-4. Tasks done counts completed-work transitions (WORK_ASSERT→approve)
+3. Jobs done counts DONE sessions
+4. Tasks done counts completed-work transitions (EXECUTE→approve)
 5. Backtracks counts CfA state machine reversals
 6. Withdrawals counts cancelled sessions
 7. Escalations counts historical human-contact events (not point-in-time)
@@ -24,8 +24,8 @@ import yaml
 
 def _make_cfa_state(
     *,
-    state: str = 'COMPLETED_WORK',
-    phase: str = 'work',
+    state: str = 'DONE',
+    phase: str = 'execution',
     actor: str = 'agent',
     backtrack_count: int = 0,
     history: list | None = None,
@@ -43,8 +43,8 @@ def _make_job(
     project_dir: str,
     session_id: str,
     *,
-    cfa_state: str = 'COMPLETED_WORK',
-    cfa_phase: str = 'work',
+    cfa_state: str = 'DONE',
+    cfa_phase: str = 'execution',
     backtrack_count: int = 0,
     history: list | None = None,
     prompt: str = '',
@@ -61,7 +61,7 @@ def _make_job(
         'slug': slug,
         'issue': None,
         'branch': '',
-        'status': 'complete' if cfa_state in ('COMPLETED_WORK', 'WITHDRAWN') else 'active',
+        'status': 'complete' if cfa_state in ('DONE', 'WITHDRAWN') else 'active',
         'created_at': '2026-04-01T00:00:00+00:00',
         'updated_at': '2026-04-01T00:00:00+00:00',
     }
@@ -88,7 +88,7 @@ def _make_job(
 
 
 def _make_legacy_session(project_dir: str, session_id: str, *,
-                         cfa_state: str = 'COMPLETED_WORK',
+                         cfa_state: str = 'DONE',
                          backtrack_count: int = 0,
                          history: list | None = None,
                          prompt: str = '') -> str:
@@ -119,7 +119,7 @@ class TestLegacyMigration(unittest.TestCase):
     def test_migrate_creates_job_entry(self):
         """migrate_legacy_sessions creates a .teaparty/jobs/ entry from .sessions/."""
         _make_legacy_session(self.project_dir, '20260401-120000',
-                             cfa_state='COMPLETED_WORK', prompt='Fix the bug')
+                             cfa_state='DONE', prompt='Fix the bug')
 
         from teaparty.workspace.job_store import migrate_legacy_sessions
         migrated = migrate_legacy_sessions(self.project_dir)
@@ -144,7 +144,7 @@ class TestLegacyMigration(unittest.TestCase):
     def test_migrate_moves_cfa_state(self):
         """CfA state files are moved into the new job directory."""
         _make_legacy_session(self.project_dir, '20260401-120000',
-                             cfa_state='COMPLETED_WORK', backtrack_count=3)
+                             cfa_state='DONE', backtrack_count=3)
 
         from teaparty.workspace.job_store import migrate_legacy_sessions
         migrate_legacy_sessions(self.project_dir)
@@ -175,7 +175,7 @@ class TestLegacyMigration(unittest.TestCase):
     def test_stats_after_migration(self):
         """compute_stats finds data after legacy migration."""
         _make_legacy_session(self.project_dir, '20260401-120000',
-                             cfa_state='COMPLETED_WORK')
+                             cfa_state='DONE')
 
         from teaparty.workspace.job_store import migrate_legacy_sessions
         migrate_legacy_sessions(self.project_dir)
@@ -196,9 +196,9 @@ class TestStatsFromJobs(unittest.TestCase):
 
     def test_jobs_done_counts_completed_sessions(self):
         _make_job(self.project_dir, '20260401-120000',
-                  cfa_state='COMPLETED_WORK')
+                  cfa_state='DONE')
         _make_job(self.project_dir, '20260402-120000',
-                  cfa_state='COMPLETED_WORK')
+                  cfa_state='DONE')
         _make_job(self.project_dir, '20260403-120000',
                   cfa_state='WITHDRAWN')
 
@@ -208,7 +208,7 @@ class TestStatsFromJobs(unittest.TestCase):
 
     def test_withdrawals_counts_withdrawn_sessions(self):
         _make_job(self.project_dir, '20260401-120000',
-                  cfa_state='COMPLETED_WORK')
+                  cfa_state='DONE')
         _make_job(self.project_dir, '20260402-120000',
                   cfa_state='WITHDRAWN')
 
@@ -218,25 +218,25 @@ class TestStatsFromJobs(unittest.TestCase):
 
     def test_backtracks_sums_across_sessions(self):
         _make_job(self.project_dir, '20260401-120000',
-                  cfa_state='COMPLETED_WORK', backtrack_count=2)
+                  cfa_state='DONE', backtrack_count=2)
         _make_job(self.project_dir, '20260402-120000',
-                  cfa_state='COMPLETED_WORK', backtrack_count=5)
+                  cfa_state='DONE', backtrack_count=5)
 
         from teaparty.bridge.stats import compute_stats
         stats = compute_stats(teaparty_home='', projects_dir=self._tmpdir)
         self.assertEqual(stats['summary']['backtracks'], 7)
 
-    def test_tasks_done_counts_work_assert_approve(self):
+    def test_tasks_done_counts_execute_approve(self):
         history = [
-            {'state': 'WORK_ASSERT', 'action': 'approve',
+            {'state': 'EXECUTE', 'action': 'approve',
              'timestamp': '2026-04-01T12:00:00+00:00'},
-            {'state': 'WORK_ASSERT', 'action': 'approve',
+            {'state': 'EXECUTE', 'action': 'approve',
              'timestamp': '2026-04-01T13:00:00+00:00'},
-            {'state': 'PLAN_ASSERT', 'action': 'approve',
+            {'state': 'PLAN', 'action': 'approve',
              'timestamp': '2026-04-01T11:00:00+00:00'},
         ]
         _make_job(self.project_dir, '20260401-120000',
-                  cfa_state='COMPLETED_WORK', history=history)
+                  cfa_state='DONE', history=history)
 
         from teaparty.bridge.stats import compute_stats
         stats = compute_stats(teaparty_home='', projects_dir=self._tmpdir)
@@ -257,11 +257,11 @@ class TestHistoricalEscalations(unittest.TestCase):
         remain, so the escalation counter is always zero for these
         historical events."""
         history = [
-            {'state': 'WORK_ASSERT', 'action': 'approve',
+            {'state': 'EXECUTE', 'action': 'approve',
              'timestamp': '2026-04-01T15:00:00+00:00'},
         ]
         _make_job(self.project_dir, '20260401-120000',
-                  cfa_state='COMPLETED_WORK', history=history)
+                  cfa_state='DONE', history=history)
 
         from teaparty.bridge.stats import compute_stats
         stats = compute_stats(teaparty_home='', projects_dir=self._tmpdir)
@@ -283,11 +283,11 @@ class TestDailyCharts(unittest.TestCase):
                                        tzinfo=datetime.timezone.utc)
         today_ts = local_noon.isoformat()
         history = [
-            {'state': 'WORK_ASSERT', 'action': 'approve', 'timestamp': today_ts},
+            {'state': 'EXECUTE', 'action': 'approve', 'timestamp': today_ts},
         ]
         session_id = today.strftime('%Y%m%d') + '-120000'
         _make_job(self.project_dir, session_id,
-                  cfa_state='COMPLETED_WORK', history=history)
+                  cfa_state='DONE', history=history)
 
         from teaparty.bridge.stats import compute_stats
         stats = compute_stats(teaparty_home='', projects_dir=self._tmpdir)
@@ -325,7 +325,7 @@ class TestRegistryModeStats(unittest.TestCase):
     def test_registry_mode_finds_jobs(self):
         """compute_stats in registry mode discovers jobs via teaparty.yaml."""
         _make_job(self.project_dir, '20260401-120000',
-                  cfa_state='COMPLETED_WORK')
+                  cfa_state='DONE')
         _make_job(self.project_dir, '20260402-120000',
                   cfa_state='WITHDRAWN')
 
@@ -340,7 +340,7 @@ class TestRegistryModeStats(unittest.TestCase):
         internally, no state-machine ESCALATE states remain — the
         registry-mode escalation counter mirrors that at zero."""
         _make_job(self.project_dir, '20260401-120000',
-                  cfa_state='COMPLETED_WORK', history=[])
+                  cfa_state='DONE', history=[])
 
         from teaparty.bridge.stats import compute_stats
         stats = compute_stats(teaparty_home=self.teaparty_home)
@@ -351,7 +351,7 @@ class TestRegistryModeStats(unittest.TestCase):
         """phase_escalations chart counts match the summary escalation total
         (both zero now that intent/planning dialog runs inside skills)."""
         _make_job(self.project_dir, '20260401-120000',
-                  cfa_state='COMPLETED_WORK', history=[])
+                  cfa_state='DONE', history=[])
 
         from teaparty.bridge.stats import compute_stats
         stats = compute_stats(teaparty_home=self.teaparty_home)

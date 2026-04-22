@@ -267,19 +267,23 @@ class TestWorkSummaryGenerationDeleted(unittest.TestCase):
 # ── SC5: phase-config.json execution artifact ─────────────────────────────────
 
 class TestPhaseConfigArtifactName(unittest.TestCase):
-    """The execution phase artifact must be WORK_SUMMARY.md, not .work-summary.md."""
+    """The execution phase no longer has a mandatory artifact — in the
+    five-state model, approval is the done-signal (not a summary file).
+    The regression guard here is that the old .work-summary.md name must
+    still be absent from phase-config.json.
+    """
 
-    def test_execution_artifact_is_work_summary_md(self):
-        """phase-config.json must specify WORK_SUMMARY.md as the execution artifact."""
+    def test_execution_artifact_is_null(self):
+        """phase-config.json execution.artifact is null — approval is the
+        done-signal, no summary file is required."""
         config_path = Path(__file__).parent.parent.parent / 'teaparty' / 'cfa' / 'phase-config.json'
         with open(config_path) as f:
             config = json.load(f)
         artifact = config.get('phases', {}).get('execution', {}).get('artifact')
-        self.assertEqual(
-            artifact, 'WORK_SUMMARY.md',
-            f'execution phase artifact must be WORK_SUMMARY.md (got {artifact!r}). '
-            'The old .work-summary.md was hidden and generated from git log; '
-            'WORK_SUMMARY.md is agent-written and visible.',
+        self.assertIsNone(
+            artifact,
+            f'execution phase artifact must be null in the five-state model '
+            f'(approval is the done-signal); got {artifact!r}.',
         )
 
     def test_execution_artifact_is_not_old_hidden_name(self):
@@ -633,7 +637,7 @@ class TestProxyArtifactSearchOrder(unittest.TestCase):
         Path(wt_intent).write_text('# INTENT: Worktree version\n')
         Path(infra_intent).write_text('# INTENT: Infra version\n')
 
-        parts = self._call('WORK_ASSERT')
+        parts = self._call('EXECUTE')
 
         intent_parts = [p for p in parts if 'INTENT.md' in p]
         self.assertEqual(len(intent_parts), 1,
@@ -650,7 +654,7 @@ class TestProxyArtifactSearchOrder(unittest.TestCase):
         Path(infra_intent).write_text('# INTENT: Legacy session\n')
         self.assertFalse(os.path.isfile(os.path.join(self.worktree, 'INTENT.md')))
 
-        parts = self._call('WORK_ASSERT')
+        parts = self._call('EXECUTE')
 
         intent_parts = [p for p in parts if 'INTENT.md' in p]
         self.assertEqual(len(intent_parts), 1)
@@ -664,30 +668,30 @@ class TestProxyArtifactSearchOrder(unittest.TestCase):
         # Also write the old name — it must NOT appear
         Path(os.path.join(self.worktree, '.work-summary.md')).write_text('# Old hidden file\n')
 
-        parts = self._call('WORK_ASSERT')
+        parts = self._call('EXECUTE')
 
         summary_parts = [p for p in parts if 'WORK_SUMMARY.md' in p]
         old_parts = [p for p in parts if '.work-summary.md' in p]
 
         self.assertEqual(len(summary_parts), 1,
-                         'WORK_SUMMARY.md must appear in context for WORK_ASSERT state. '
+                         'WORK_SUMMARY.md must appear in context for EXECUTE state. '
                          'If this fails, the artifact name was not updated from .work-summary.md.')
         self.assertEqual(len(old_parts), 0,
                          '.work-summary.md must NOT appear — it is the old hidden artifact name')
 
-    def test_plan_md_found_in_worktree_for_work_assert(self):
-        """PLAN.md in worktree is included in WORK_ASSERT context (worktree-first)."""
+    def test_plan_md_found_in_worktree_for_execute(self):
+        """PLAN.md in worktree is included in EXECUTE context (worktree-first)."""
         wt_plan = os.path.join(self.worktree, 'PLAN.md')
         infra_plan = os.path.join(self.infra_dir, 'PLAN.md')
         Path(wt_plan).write_text('# Plan: worktree\n')
         Path(infra_plan).write_text('# Plan: infra\n')
 
-        parts = self._call('WORK_ASSERT')
+        parts = self._call('EXECUTE')
 
         plan_parts = [p for p in parts if 'PLAN.md' in p]
         self.assertEqual(len(plan_parts), 1)
         self.assertIn(self.worktree, plan_parts[0],
-                      'PLAN.md context must reference worktree path for WORK_ASSERT. '
+                      'PLAN.md context must reference worktree path for EXECUTE. '
                       'If this fails, search order is still (infra_dir, worktree).')
 
 

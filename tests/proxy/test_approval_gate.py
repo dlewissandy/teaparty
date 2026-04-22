@@ -753,8 +753,8 @@ class TestIntentAssertGate(DeterministicProxyTestCase):
     Verify the proxy correctly handles it alongside PLAN_ASSERT/WORK_ASSERT."""
 
     def test_intent_assert_is_binary(self):
-        """WORK_ASSERT should be in the BINARY_STATES list."""
-        self.assertIn('WORK_ASSERT', BINARY_STATES)
+        """EXECUTE should be in the BINARY_STATES list (the collapsed assert gate)."""
+        self.assertIn('EXECUTE', BINARY_STATES)
 
     def test_intent_assert_cold_start_escalates(self):
         """No history → always escalate."""

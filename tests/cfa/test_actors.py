@@ -125,11 +125,14 @@ class TestInterpretOutputMissingArtifact(unittest.TestCase):
         self.assertNotEqual(result.action, 'assert',
                             "Missing artifact must never route to the ASSERT gate")
 
-    def test_missing_artifact_routes_question_from_proposal(self):
-        """From PROPOSAL, missing artifact uses 'question' to loop back through human."""
-        ctx = self._make_ctx_in_tmpdir(state='PROPOSAL')
+    def test_missing_artifact_routes_to_safe_terminal(self):
+        """From INTENT, missing artifact routes to 'withdraw' — the safe terminal.
+        Advancing without evidence of the work would lose integrity; withdraw loops
+        the work back through a new dispatch rather than asserting.
+        """
+        ctx = self._make_ctx_in_tmpdir(state='INTENT')
         result = self.runner._interpret_output(ctx, _make_claude_result())
-        self.assertEqual(result.action, 'question')
+        self.assertEqual(result.action, 'withdraw')
         self.assertNotIn('artifact_missing', result.data)
         self.assertNotIn('artifact_expected', result.data)
 
@@ -187,7 +190,7 @@ class TestGenerateBridge(unittest.TestCase):
         artifact_path = os.path.join(self.tmpdir, 'WORK_SUMMARY.md')
         Path(artifact_path).write_text('# Work Summary')
 
-        text = gate._generate_bridge(artifact_path, 'WORK_ASSERT', 'task')
+        text = gate._generate_bridge(artifact_path, 'EXECUTE', 'task')
 
         self.assertIn('Decide: Approve or revise the overall deliverable.', text)
         self.assertIn('Available:', text)
@@ -202,7 +205,7 @@ class TestGenerateBridge(unittest.TestCase):
         Path(artifact_path).write_text('# Intent')
 
         text = gate._generate_bridge(
-            artifact_path, 'INTENT_ASSERT', 'task',
+            artifact_path, 'INTENT', 'task',
             actor_message="I've captured what the user asked for in INTENT.md.",
         )
 
@@ -217,7 +220,7 @@ class TestGenerateBridge(unittest.TestCase):
         that strips the actor's message or obscures what's being asked.
         """
         gate = self._make_gate()
-        text = gate._generate_bridge('', 'WORK_ASSERT', 'task')
+        text = gate._generate_bridge('', 'EXECUTE', 'task')
         self.assertIn('Decide: Approve or revise the overall deliverable.', text)
 
 

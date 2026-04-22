@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Tests for classify_review.py."""
+"""Tests for classify_review.py.
+
+In the five-state model (INTENT, PLAN, EXECUTE, DONE, WITHDRAWN), review
+happens at the three working states (INTENT, PLAN, EXECUTE).  The
+synthetic FAILURE decision state is retained for infrastructure failures.
+"""
 import os
 import subprocess
 import sys
@@ -13,12 +18,9 @@ import teaparty.scripts.classify_review as mod
 class TestStateActions(unittest.TestCase):
     """STATE_ACTIONS covers all documented CfA review states."""
 
-    def test_all_assert_states_present(self):
-        for state in ["WORK_ASSERT", "WORK_ASSERT"]:
+    def test_all_review_states_present(self):
+        for state in ["INTENT", "PLAN", "EXECUTE"]:
             self.assertIn(state, mod.STATE_ACTIONS)
-
-    def test_all_escalate_states_present(self):
-        self.assertIn("WORK_ASSERT", mod.STATE_ACTIONS)
 
     def test_task_level_states_absent(self):
         """Task-level states are no longer in the state machine."""
@@ -26,33 +28,32 @@ class TestStateActions(unittest.TestCase):
             self.assertNotIn(state, mod.STATE_ACTIONS,
                              f"{state} must not appear in STATE_ACTIONS")
 
-    def test_plan_level_states_absent(self):
-        """PLAN_ASSERT / PLANNING_* collapsed into the planning skill's internal flow."""
-        for state in ["PLAN_ASSERT", "PLANNING_QUESTION", "PLANNING_RESPONSE", "PLANNING_ESCALATE"]:
+    def test_collapsed_states_absent(self):
+        """WORK_ASSERT, PLAN_ASSERT, INTENT_ASSERT, IDEA, PLANNING,
+        WORK_IN_PROGRESS, COMPLETED_WORK, PLANNING_QUESTION etc. collapsed
+        into the five-state model."""
+        for state in [
+            "WORK_ASSERT", "PLAN_ASSERT", "INTENT_ASSERT",
+            "IDEA", "PLANNING", "WORK_IN_PROGRESS", "COMPLETED_WORK",
+            "PLANNING_QUESTION", "PLANNING_RESPONSE", "PLANNING_ESCALATE",
+        ]:
             self.assertNotIn(state, mod.STATE_ACTIONS,
                              f"{state} must not appear in STATE_ACTIONS")
 
-    def test_work_assert_actions(self):
-        actions = mod.STATE_ACTIONS["WORK_ASSERT"]
-        for required in ("dialog", "approve", "correct", "withdraw"):
+    def test_execute_actions(self):
+        actions = mod.STATE_ACTIONS["EXECUTE"]
+        for required in ("approve", "replan", "realign", "withdraw"):
             self.assertIn(required, actions)
 
-    def test_dialog_in_all_gate_states(self):
-        """dialog is present in all ASSERT and ESCALATE states (review gates)."""
-        for state in mod.STATE_ACTIONS:
-            if state.endswith('_ASSERT') or state.endswith('_ESCALATE'):
-                self.assertIn("dialog", mod.STATE_ACTIONS[state],
-                              f"dialog missing from {state}")
+    def test_plan_actions(self):
+        actions = mod.STATE_ACTIONS["PLAN"]
+        for required in ("approve", "realign", "withdraw"):
+            self.assertIn(required, actions)
 
-    def test_work_assert_has_all_actions(self):
-        actions = mod.STATE_ACTIONS["WORK_ASSERT"]
-        self.assertIn("dialog", actions)
-        self.assertIn("approve", actions)
-        self.assertIn("correct", actions)
-        self.assertIn("revise-plan", actions)
-        self.assertIn("refine-intent", actions)
-        self.assertIn("withdraw", actions)
-
+    def test_intent_actions(self):
+        actions = mod.STATE_ACTIONS["INTENT"]
+        for required in ("approve", "withdraw"):
+            self.assertIn(required, actions)
 
     def test_state_actions_derived_from_state_machine(self):
         """STATE_ACTIONS should be derived, not hardcoded — verify key invariant."""
@@ -119,21 +120,21 @@ class TestParseOutput(unittest.TestCase):
         self.assertEqual(action, "approve")
         self.assertEqual(feedback, "")
 
-    def test_revise_plan_valid_at_work_assert(self):
-        valid = set(mod.STATE_ACTIONS["WORK_ASSERT"])
+    def test_replan_valid_at_execute(self):
+        valid = set(mod.STATE_ACTIONS["EXECUTE"])
         action, feedback = mod.parse_output(
-            "revise-plan\tThe architecture is wrong",
+            "replan\tThe architecture is wrong",
             valid)
-        self.assertEqual(action, "revise-plan")
+        self.assertEqual(action, "replan")
         self.assertEqual(feedback, "The architecture is wrong")
 
 
-    def test_refine_intent_valid_at_work_assert(self):
-        valid = set(mod.STATE_ACTIONS["WORK_ASSERT"])
+    def test_realign_valid_at_execute(self):
+        valid = set(mod.STATE_ACTIONS["EXECUTE"])
         action, feedback = mod.parse_output(
-            "refine-intent\tChange objective to research paper",
+            "realign\tChange objective to research paper",
             valid)
-        self.assertEqual(action, "refine-intent")
+        self.assertEqual(action, "realign")
 
 
 
@@ -161,15 +162,16 @@ class TestBuildContextBlock(unittest.TestCase):
 
 class TestBuildPrompt(unittest.TestCase):
 
-    def test_assert_state_uses_assert_prompt(self):
-        prompt = mod.build_prompt("WORK_ASSERT", "looks good", "intent", "plan")
-        self.assertIn("WORK_ASSERT", prompt)
+    def test_execute_state_uses_assert_prompt(self):
+        prompt = mod.build_prompt("EXECUTE", "looks good", "intent", "plan")
+        self.assertIn("EXECUTE", prompt)
         self.assertIn("looks good", prompt)
-        self.assertIn("refine-intent", prompt)  # valid action listed
+        # realign is a valid action at EXECUTE, should appear in the valid-actions list
+        self.assertIn("realign", prompt)
 
-    def test_escalate_state_uses_escalate_prompt(self):
-        prompt = mod.build_prompt("WORK_ASSERT", "use postgres")
-        self.assertIn("WORK_ASSERT", prompt)
+    def test_execute_prompt_lists_withdraw(self):
+        prompt = mod.build_prompt("EXECUTE", "use postgres")
+        self.assertIn("EXECUTE", prompt)
         self.assertIn("use postgres", prompt)
         self.assertIn("WITHDRAW", prompt.upper())
 
@@ -179,7 +181,7 @@ class TestBuildPrompt(unittest.TestCase):
         self.assertIn("correct", prompt)
 
     def test_context_included(self):
-        prompt = mod.build_prompt("WORK_ASSERT", "ok",
+        prompt = mod.build_prompt("EXECUTE", "ok",
                                   "Build a widget", "Step 1: setup")
         self.assertIn("Build a widget", prompt)
         self.assertIn("Step 1: setup", prompt)
@@ -195,75 +197,63 @@ class TestClassify(unittest.TestCase):
 
     def test_approve_classification(self):
         with patch('subprocess.run', return_value=self._mock_llm("approve\t")):
-            result = mod.classify("WORK_ASSERT", "looks good")
+            result = mod.classify("EXECUTE", "looks good")
         self.assertEqual(result, "approve\t")
 
-    def test_correct_with_feedback(self):
-        with patch('subprocess.run',
-                   return_value=self._mock_llm("correct\tFix section 1")):
-            result = mod.classify("WORK_ASSERT", "change section 1")
-        self.assertEqual(result, "correct\tFix section 1")
-
-    def test_refine_intent(self):
+    def test_realign_with_feedback(self):
         with patch('subprocess.run',
                    return_value=self._mock_llm(
-                       "refine-intent\tBuild research paper instead")):
-            result = mod.classify("WORK_ASSERT",
+                       "realign\tBuild research paper instead")):
+            result = mod.classify("EXECUTE",
                                   "actually, let's build the research paper first")
-        self.assertTrue(result.startswith("refine-intent\t"))
+        self.assertTrue(result.startswith("realign\t"))
 
     def test_withdraw(self):
         with patch('subprocess.run',
                    return_value=self._mock_llm("withdraw\t")):
-            result = mod.classify("WORK_ASSERT", "let's call this whole thing off")
-        self.assertEqual(result, "withdraw\t")
-
-    def test_escalate_withdraw(self):
-        with patch('subprocess.run',
-                   return_value=self._mock_llm("withdraw\t")):
-            result = mod.classify("WORK_ASSERT", "forget it, cancel")
+            result = mod.classify("EXECUTE", "let's call this whole thing off")
         self.assertEqual(result, "withdraw\t")
 
     def test_empty_response_returns_fallback(self):
-        result = mod.classify("WORK_ASSERT", "")
+        result = mod.classify("EXECUTE", "")
         self.assertTrue(result.startswith("__fallback__"))
 
     def test_whitespace_response_returns_fallback(self):
-        result = mod.classify("WORK_ASSERT", "   ")
+        result = mod.classify("EXECUTE", "   ")
         self.assertTrue(result.startswith("__fallback__"))
 
     def test_llm_timeout_returns_fallback(self):
         with patch('subprocess.run',
                    side_effect=subprocess.TimeoutExpired("claude", 30)):
-            result = mod.classify("WORK_ASSERT", "looks good")
+            result = mod.classify("EXECUTE", "looks good")
         self.assertTrue(result.startswith("__fallback__"))
 
     def test_llm_not_found_returns_fallback(self):
         with patch('subprocess.run', side_effect=FileNotFoundError()):
-            result = mod.classify("WORK_ASSERT", "looks good")
+            result = mod.classify("EXECUTE", "looks good")
         self.assertTrue(result.startswith("__fallback__"))
 
     def test_llm_nonzero_exit_returns_fallback(self):
         with patch('subprocess.run', return_value=self._mock_llm("", 1)):
-            result = mod.classify("WORK_ASSERT", "looks good")
+            result = mod.classify("EXECUTE", "looks good")
         self.assertTrue(result.startswith("__fallback__"))
 
     def test_llm_empty_output_returns_fallback(self):
         with patch('subprocess.run', return_value=self._mock_llm("  ")):
-            result = mod.classify("WORK_ASSERT", "looks good")
+            result = mod.classify("EXECUTE", "looks good")
         self.assertTrue(result.startswith("__fallback__"))
 
     def test_llm_invalid_action_returns_fallback(self):
         with patch('subprocess.run',
                    return_value=self._mock_llm("explode\teverything")):
-            result = mod.classify("WORK_ASSERT", "looks good")
+            result = mod.classify("EXECUTE", "looks good")
         self.assertTrue(result.startswith("__fallback__"))
 
     def test_summaries_passed_to_prompt(self):
         """Verify summaries reach the prompt (inspect the subprocess call)."""
         with patch('subprocess.run',
                    return_value=self._mock_llm("approve\t")) as mock_run:
-            mod.classify("WORK_ASSERT", "ok",
+            mod.classify("EXECUTE", "ok",
                          intent_summary="Build widget",
                          plan_summary="Step 1 setup")
         call_args = mock_run.call_args
@@ -280,7 +270,14 @@ class TestClassify(unittest.TestCase):
 
 
 class TestDialogAction(unittest.TestCase):
-    """Tests for the dialog action and dialog history support."""
+    """Tests for the dialog action and dialog history support.
+
+    In the five-state model the valid_actions list for INTENT/PLAN/EXECUTE
+    does not contain 'dialog' (skills handle dialog internally).  These
+    tests exercise dialog-handling in prompt building and in the ASSERT-
+    style prompt used for any unknown review state (where 'dialog' is in
+    the generic valid_actions fallback list).
+    """
 
     def _mock_llm(self, stdout, returncode=0):
         mock = MagicMock()
@@ -289,62 +286,36 @@ class TestDialogAction(unittest.TestCase):
         return mock
 
     def test_parse_output_accepts_dialog(self):
-        valid = set(mod.STATE_ACTIONS["WORK_ASSERT"])
+        # Unknown states fall back to the generic ASSERT valid set which
+        # includes dialog; simulate that here directly.
+        valid = {"dialog", "approve", "correct", "withdraw"}
         action, feedback = mod.parse_output(
             "dialog\tHave you tested it?", valid)
         self.assertEqual(action, "dialog")
         self.assertEqual(feedback, "Have you tested it?")
 
-    def test_parse_output_dialog_at_escalate(self):
-        valid = set(mod.STATE_ACTIONS["WORK_ASSERT"])
-        action, feedback = mod.parse_output(
-            "dialog\tWhat do you mean by that?", valid)
-        self.assertEqual(action, "dialog")
-
-    def test_classify_dialog(self):
-        with patch('subprocess.run',
-                   return_value=self._mock_llm(
-                       "dialog\tHave you tested it?")):
-            result = mod.classify("WORK_ASSERT", "Have you tested it?")
-        self.assertTrue(result.startswith("dialog\t"))
-
-    def test_classify_dialog_at_escalate(self):
-        with patch('subprocess.run',
-                   return_value=self._mock_llm(
-                       "dialog\tCan you give me an example?")):
-            result = mod.classify("WORK_ASSERT",
-                                  "Can you give me an example?")
-        self.assertTrue(result.startswith("dialog\t"))
-
     def test_dialog_history_in_prompt_when_provided(self):
         prompt = mod.build_prompt(
-            "WORK_ASSERT", "No it sounds fine",
+            "EXECUTE", "No it sounds fine",
             dialog_history="HUMAN: Have you tested it?\nAGENT: Yes.")
         self.assertIn("DIALOG HISTORY", prompt)
         self.assertIn("Have you tested it?", prompt)
 
     def test_dialog_history_omitted_when_empty(self):
-        prompt = mod.build_prompt("WORK_ASSERT", "looks good",
+        prompt = mod.build_prompt("EXECUTE", "looks good",
                                   dialog_history="")
         self.assertNotIn("DIALOG HISTORY", prompt)
 
     def test_dialog_history_omitted_when_whitespace(self):
-        prompt = mod.build_prompt("WORK_ASSERT", "looks good",
+        prompt = mod.build_prompt("EXECUTE", "looks good",
                                   dialog_history="   ")
         self.assertNotIn("DIALOG HISTORY", prompt)
-
-    def test_dialog_history_in_escalate_prompt(self):
-        prompt = mod.build_prompt(
-            "WORK_ASSERT", "I already told you",
-            dialog_history="HUMAN: What do you mean?\nAGENT: I mean X.")
-        self.assertIn("DIALOG HISTORY", prompt)
-        self.assertIn("What do you mean?", prompt)
 
     def test_dialog_history_passed_through_classify(self):
         """Verify dialog_history reaches subprocess via prompt input."""
         with patch('subprocess.run',
                    return_value=self._mock_llm("approve\t")) as mock_run:
-            mod.classify("WORK_ASSERT", "No it sounds fine",
+            mod.classify("EXECUTE", "No it sounds fine",
                          dialog_history="HUMAN: Tested?\nAGENT: Yes.")
         call_args = mock_run.call_args
         prompt_input = call_args.kwargs.get('input', call_args[1].get('input', ''))

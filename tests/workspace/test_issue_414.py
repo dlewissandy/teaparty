@@ -309,7 +309,7 @@ class TestSessionMergeVerificationFailure(unittest.TestCase):
         from teaparty.cfa.engine import OrchestratorResult
         from teaparty.messaging.conversations import SqliteMessageBus
 
-        completed_result = OrchestratorResult(terminal_state='COMPLETED_WORK', backtrack_count=0)
+        completed_result = OrchestratorResult(terminal_state='DONE', backtrack_count=0)
         mock_orch = MagicMock()
         mock_orch.run = AsyncMock(return_value=completed_result)
 

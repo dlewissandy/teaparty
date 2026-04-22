@@ -62,13 +62,13 @@ class TestBuildContext(unittest.TestCase):
         self.assertIn("My Plan", ctx["artifact_content"])
         os.unlink(f.name)
 
-    def test_exec_stream_only_for_work_assert(self):
+    def test_exec_stream_only_for_execute(self):
         with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
             f.write("some exec data\n")
             f.flush()
-            ctx_work = mod.build_context("WORK_ASSERT", exec_stream_path=f.name)
-            ctx_plan = mod.build_context("PLAN_ASSERT", exec_stream_path=f.name)
-        self.assertIn("EXECUTION LOG", ctx_work["extra_context"])
+            ctx_exec = mod.build_context("EXECUTE", exec_stream_path=f.name)
+            ctx_plan = mod.build_context("PLAN", exec_stream_path=f.name)
+        self.assertIn("EXECUTION LOG", ctx_exec["extra_context"])
         self.assertEqual(ctx_plan["extra_context"], "")
         os.unlink(f.name)
 

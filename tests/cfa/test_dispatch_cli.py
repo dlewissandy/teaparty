@@ -39,16 +39,15 @@ def _run(coro):
 def _make_parent_state_file(tmpdir: str, task_id: str = 'uber-001') -> str:
     """Create a parent CfA state file at WORK_IN_PROGRESS (ready to dispatch) and return its path."""
     cfa = make_initial_state(task_id=task_id)
-    cfa = transition(cfa, 'approve')
-    cfa = transition(cfa, 'plan')
-    cfa = transition(cfa, 'approve')
-    # cfa.state == 'WORK_IN_PROGRESS' — parent is at dispatch point
+    cfa = transition(cfa, 'approve')  # INTENT → PLAN
+    cfa = transition(cfa, 'approve')  # PLAN → EXECUTE
+    # cfa.state == 'EXECUTE' — parent is at dispatch point
     path = os.path.join(tmpdir, '.cfa-state.json')
     save_state(cfa, path)
     return path
 
 
-def _make_mock_orchestrator_result(terminal_state: str = 'COMPLETED_WORK') -> MagicMock:
+def _make_mock_orchestrator_result(terminal_state: str = 'DONE') -> MagicMock:
     result = MagicMock()
     result.terminal_state = terminal_state
     result.escalation_type = ''
@@ -117,14 +116,16 @@ class TestDispatchUsesMakeChildState(unittest.TestCase):
 
         return result, saved_cfa_path
 
-    def test_child_state_is_not_idea(self):
-        """Child CfA state must start at INTENT, not IDEA."""
+    def test_child_state_is_intent_working_state(self):
+        """Child CfA state must start at INTENT (the intent working state).
+        In the five-state model, INTENT is the entry point for every CfA
+        (root or child); hierarchy fields distinguish children from roots.
+        """
         parent_path = _make_parent_state_file(self.tmpdir)
         _, saved_cfa_path = self._run_dispatch(parent_path)
 
         child = load_state(saved_cfa_path)
-        self.assertNotEqual(child.state, 'IDEA',
-                            "Child must not start at IDEA — it skips intent phase")
+        self.assertEqual(child.state, 'INTENT')
 
     def test_child_state_starts_at_intent(self):
         """Child CfA state must start at INTENT (planning entry point)."""
@@ -241,16 +242,14 @@ class TestDispatchParentStateFallback(unittest.TestCase):
         # Write explicit parent state to a named file
         explicit_path = os.path.join(self.tmpdir, 'explicit-state.json')
         cfa = make_initial_state(task_id='explicit-parent')
-        cfa = transition(cfa, 'approve')
-        cfa = transition(cfa, 'plan')
-        cfa = transition(cfa, 'approve')
+        cfa = transition(cfa, 'approve')  # INTENT → PLAN
+        cfa = transition(cfa, 'approve')  # PLAN → EXECUTE
         save_state(cfa, explicit_path)
 
         # Write a different parent state where POC_CFA_STATE points
         env_state_path = os.path.join(self.tmpdir, 'env-state.json')
         env_cfa = make_initial_state(task_id='env-parent')
         env_cfa = transition(env_cfa, 'approve')
-        env_cfa = transition(env_cfa, 'plan')
         env_cfa = transition(env_cfa, 'approve')
         save_state(env_cfa, env_state_path)
 
@@ -268,7 +267,6 @@ class TestDispatchParentStateFallback(unittest.TestCase):
         env_state_path = os.path.join(self.tmpdir, 'env-state.json')
         parent = make_initial_state(task_id='env-task-001')
         parent = transition(parent, 'approve')
-        parent = transition(parent, 'plan')
         parent = transition(parent, 'approve')
         save_state(parent, env_state_path)
 
@@ -286,7 +284,6 @@ class TestDispatchParentStateFallback(unittest.TestCase):
         default_state_path = os.path.join(self.tmpdir, '.cfa-state.json')
         parent = make_initial_state(task_id='default-task-001')
         parent = transition(parent, 'approve')
-        parent = transition(parent, 'plan')
         parent = transition(parent, 'approve')
         save_state(parent, default_state_path)
 
@@ -331,7 +328,7 @@ class TestDispatchReturnShape(unittest.TestCase):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
         shutil.rmtree(self.dispatch_infra, ignore_errors=True)
 
-    def _run_dispatch(self, terminal_state: str = 'COMPLETED_WORK') -> dict:
+    def _run_dispatch(self, terminal_state: str = 'DONE') -> dict:
         parent_path = _make_parent_state_file(self.tmpdir)
         mock_result = _make_mock_orchestrator_result(terminal_state)
         mock_dispatch_info = _make_mock_dispatch_info(self.dispatch_infra)
@@ -368,7 +365,7 @@ class TestDispatchReturnShape(unittest.TestCase):
         return result
 
     def test_completed_dispatch_has_status_completed(self):
-        result = self._run_dispatch('COMPLETED_WORK')
+        result = self._run_dispatch('DONE')
         self.assertEqual(result['status'], 'completed')
 
     def test_withdrawn_dispatch_has_status_failed(self):

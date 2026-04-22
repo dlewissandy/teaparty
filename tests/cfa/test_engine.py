@@ -70,7 +70,7 @@ def _make_phase_config() -> PhaseConfig:
     return cfg
 
 
-def _make_cfa_state(state: str = 'IDEA') -> CfaState:
+def _make_cfa_state(state: str = 'INTENT') -> CfaState:
     """Build a minimal CfaState at the given state."""
     return CfaState(
         state=state,
@@ -237,11 +237,11 @@ class TestInvokeActorStderrInjection(unittest.TestCase):
     def test_stderr_injection_skipped_for_human_actor_states(self):
         """When the current state is a human-actor state, the agent runner is not called."""
         orch = _make_orchestrator(
-            cfa_state=_make_cfa_state(state='WORK_ASSERT'),
+            cfa_state=_make_cfa_state(state='EXECUTE'),
             last_actor_data={'stderr_lines': ['Error: tool failed']},
         )
-        # Mark WORK_ASSERT as a human actor state
-        orch.config.human_actor_states = frozenset({'WORK_ASSERT'})
+        # Mark EXECUTE as a human actor state
+        orch.config.human_actor_states = frozenset({'EXECUTE'})
 
         captured_agent_ctx = []
 
@@ -467,7 +467,7 @@ class TestTransitionStoresFeedbackInLastActorData(unittest.TestCase):
     def test_transition_stores_feedback(self):
         """After _transition with an ActorResult carrying feedback, _last_actor_data has it."""
         orch = _make_orchestrator(
-            cfa_state=_make_cfa_state(state='IDEA'),
+            cfa_state=_make_cfa_state(state='INTENT'),
         )
         # Patch save_state and commit so _transition does not touch the filesystem
         with patch('teaparty.cfa.engine.save_state'), \
@@ -488,7 +488,7 @@ class TestTransitionStoresFeedbackInLastActorData(unittest.TestCase):
     def test_transition_stores_dialog_history(self):
         """After _transition with dialog_history in ActorResult, _last_actor_data has it."""
         orch = _make_orchestrator(
-            cfa_state=_make_cfa_state(state='IDEA'),
+            cfa_state=_make_cfa_state(state='INTENT'),
         )
         dialog = "Human: Narrow scope.\nProxy: Auth only?\nHuman: Yes."
         with patch('teaparty.cfa.engine.save_state'), \
@@ -506,7 +506,7 @@ class TestTransitionStoresFeedbackInLastActorData(unittest.TestCase):
     def test_transition_preserves_data_alongside_feedback(self):
         """_transition stores both actor_result.data fields and feedback together."""
         orch = _make_orchestrator(
-            cfa_state=_make_cfa_state(state='IDEA'),
+            cfa_state=_make_cfa_state(state='INTENT'),
         )
         with patch('teaparty.cfa.engine.save_state'), \
              patch.object(orch, '_commit_artifacts', new=AsyncMock()), \
@@ -525,7 +525,7 @@ class TestTransitionStoresFeedbackInLastActorData(unittest.TestCase):
     def test_transition_no_feedback_does_not_set_key(self):
         """When ActorResult has no feedback, _last_actor_data does not gain a feedback key."""
         orch = _make_orchestrator(
-            cfa_state=_make_cfa_state(state='IDEA'),
+            cfa_state=_make_cfa_state(state='INTENT'),
         )
         with patch('teaparty.cfa.engine.save_state'), \
              patch.object(orch, '_commit_artifacts', new=AsyncMock()), \
