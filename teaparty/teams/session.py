@@ -186,7 +186,17 @@ class AgentSession:
                 teaparty_home=self.teaparty_home, session_id=key,
             )
         meta_path = os.path.join(session.path, 'metadata.json')
-        meta = {
+        # Read-modify-write so fields this class does not track
+        # (parent_session_id, launch_cwd, phase, etc.) are preserved.
+        # The escalation path pre-creates the proxy's session with
+        # parent_session_id set — a blind overwrite would clobber that
+        # linkage and the accordion would lose the parent→child edge.
+        try:
+            with open(meta_path) as f:
+                meta = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            meta = {}
+        meta.update({
             'session_id': session.id,
             'agent_name': session.agent_name,
             'scope': session.scope,
@@ -195,7 +205,7 @@ class AgentSession:
             'conversation_title': self.conversation_title or '',
             'qualifier': self.qualifier,
             'conversation_id': self.conversation_id,
-        }
+        })
         tmp = meta_path + '.tmp'
         with open(tmp, 'w') as f:
             json.dump(meta, f, indent=2)
@@ -745,7 +755,7 @@ class AgentSession:
             input_provider=input_provider,
             bus_db_path=self._ask_question_bus_db,
             conv_id=self._ask_question_conv_id,
-            session_id=self._session_key(),
+            session_id=self._dispatch_session.id,
             project_slug='',
             cfa_state='',
             session_worktree='',
@@ -753,6 +763,13 @@ class AgentSession:
             team='',
             proxy_invoker_fn=self._proxy_invoker_fn,
             on_dispatch=self._on_dispatch,
+            # Accordion wiring: the escalation runs as a child session of
+            # the caller's dispatch session, so the dispatch tree walker
+            # can find it via conversation_map and render it as a nested
+            # blade under this agent.
+            dispatcher_session=self._dispatch_session,
+            teaparty_home=self.teaparty_home,
+            scope=self.scope,
         )
         await self._escalation_listener.start()
 
@@ -1357,7 +1374,12 @@ class AgentSession:
 
     # ── Invoke ───────────────────────────────────────────────────────────
 
-    async def invoke(self, *, cwd: str, resume_message: str = '') -> str:
+    async def invoke(
+        self, *,
+        cwd: str,
+        resume_message: str = '',
+        launch_cwd_override: str = '',
+    ) -> str:
         """Invoke the agent via the unified launcher.
 
         Concurrent invocations are serialized via an asyncio lock. When
@@ -1372,14 +1394,27 @@ class AgentSession:
                 uses this string directly as the resume prompt. Used by
                 ``_run_child`` to hand a completed reply up to the
                 parent without relaying it through the parent's bus.
+            launch_cwd_override: When non-empty, bypass registry-based
+                launch-cwd resolution and use this path verbatim.  The
+                escalation path uses this so the proxy runs inside the
+                per-escalation session directory where ``QUESTION.md``
+                lives.  Normal chat invocations leave this empty.
         """
         if self._invoke_lock is None:
             self._invoke_lock = asyncio.Lock()
         async with self._invoke_lock:
             return await self._invoke_inner(
-                cwd=cwd, resume_message=resume_message)
+                cwd=cwd,
+                resume_message=resume_message,
+                launch_cwd_override=launch_cwd_override,
+            )
 
-    async def _invoke_inner(self, *, cwd: str, resume_message: str = '') -> str:
+    async def _invoke_inner(
+        self, *,
+        cwd: str,
+        resume_message: str = '',
+        launch_cwd_override: str = '',
+    ) -> str:
         import time as _time
         from teaparty.runners.launcher import (
             launch, detect_poisoned_session,
@@ -1434,22 +1469,30 @@ class AgentSession:
         # management agents, the project repo for project leads). No
         # worktree is composed — per-launch config travels via CLI flags
         # pointed at files under .teaparty/{scope}/agents/{name}/{qualifier}/config/.
-        try:
-            launch_cwd = resolve_launch_cwd(
-                self.agent_name, self.teaparty_home,
-            )
-        except LaunchCwdNotResolved:
-            # Top-level AgentSessions can legitimately run before the
-            # management registry is fully populated (e.g. in unit tests
-            # that exercise invoke() without a management/teaparty.yaml).
-            # Fall back to the caller-supplied cwd rather than crashing
-            # the whole session — this is a deliberate fallback with a
-            # logged reason, not a silent one.
-            _log.info(
-                '%s invoke: registry resolution unavailable; '
-                'falling back to caller cwd %s', self.agent_name, cwd,
-            )
-            launch_cwd = cwd
+        if launch_cwd_override:
+            # Escalation path: the caller already knows exactly where the
+            # proxy should run (the per-escalation session directory).
+            # Skip registry resolution — it would send the proxy to the
+            # repo root instead and the ``/escalation`` skill's
+            # ``Read ./QUESTION.md`` would fail.
+            launch_cwd = launch_cwd_override
+        else:
+            try:
+                launch_cwd = resolve_launch_cwd(
+                    self.agent_name, self.teaparty_home,
+                )
+            except LaunchCwdNotResolved:
+                # Top-level AgentSessions can legitimately run before the
+                # management registry is fully populated (e.g. in unit tests
+                # that exercise invoke() without a management/teaparty.yaml).
+                # Fall back to the caller-supplied cwd rather than crashing
+                # the whole session — this is a deliberate fallback with a
+                # logged reason, not a silent one.
+                _log.info(
+                    '%s invoke: registry resolution unavailable; '
+                    'falling back to caller cwd %s', self.agent_name, cwd,
+                )
+                launch_cwd = cwd
         session.launch_cwd = launch_cwd
         effective_cwd = launch_cwd
         config_dir = _chat_cfg_dir(

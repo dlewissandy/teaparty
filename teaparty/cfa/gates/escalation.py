@@ -51,7 +51,10 @@ _log = logging.getLogger('teaparty.cfa.gates.escalation')
 InputProvider = Callable[[InputRequest], Awaitable[str]]
 
 # Type for the proxy invoker hook supplied by the bridge.
-# Signature: async invoker(qualifier: str, cwd: str) -> None
+# Signature: async invoker(
+#     qualifier: str, cwd: str,
+#     teaparty_home: str = '', scope: str = 'management',
+# ) -> None
 ProxyInvoker = Callable[..., Awaitable[None]]
 
 # Type for the dispatch-event hook used to surface the escalation as a
@@ -100,6 +103,9 @@ class EscalationListener:
         proxy_enabled: bool = True,
         proxy_invoker_fn: ProxyInvoker | None = None,
         on_dispatch: DispatchHook | None = None,
+        dispatcher_session: Any = None,
+        teaparty_home: str = '',
+        scope: str = 'management',
     ):
         self.event_bus = event_bus
         self.input_provider = input_provider
@@ -121,6 +127,14 @@ class EscalationListener:
         # Issue #420: dispatch-event hook so the escalation appears as a
         # child accordion node under the caller's session.
         self._on_dispatch = on_dispatch
+        # Accordion wiring (issue #420 follow-up): the escalation must
+        # appear as a real child session under the caller's dispatch
+        # session so ``build_dispatch_tree`` can walk to it via the
+        # caller's ``conversation_map``.  Required whenever
+        # ``proxy_invoker_fn`` is set.
+        self._dispatcher_session = dispatcher_session
+        self._teaparty_home = teaparty_home
+        self._scope = scope
         self._task: asyncio.Task | None = None
         self._bus: SqliteMessageBus | None = None
         self._last_escalation_source: str = ''
@@ -416,26 +430,50 @@ class EscalationListener:
     ) -> str:
         """Run one escalation through the proxy + `/escalation` skill.
 
-        Per design decisions on #340:
-          DD2: the proxy conversation ``proxy:{session_id}:{escalation_id}``
-               IS the accordion — DIALOG turns land there, human replies
-               land there, the proxy resumes on each reply.
-          DD3: a per-escalation temp directory holds QUESTION.md; the
-               proxy runs with that directory as its cwd.  Torn down on
-               RESPONSE / WITHDRAW.
-          DD4: the conversation is seeded with `/escalation` as a
-               synthesized human message so Claude Code loads the skill.
-          DD5: dispatch_started / dispatch_completed events nest the
-               escalation under the caller session's accordion node.
-          DD6: the skill emits a JSON object
-               ``{"status": "DIALOG"|"RESPONSE"|"WITHDRAW", "message": ...}``.
-               DIALOG → wait for human reply, resume.  RESPONSE / WITHDRAW
-               terminate the loop.
+        The escalation runs as a real proxy child session under the
+        caller's dispatch session so the accordion renders it.  Without
+        this the proxy dialog would open in a temp directory that the
+        dispatch-tree walker could never reach — the human would see
+        the question land in the bus but no chat blade to respond in.
+
+        Flow:
+          1. Create a proxy Session via the launcher's session
+             machinery, with ``parent_session_id = dispatcher.id``.
+          2. Write ``QUESTION.md`` into that session's directory.
+          3. Record the session in the dispatcher's ``conversation_map``
+             so ``build_dispatch_tree`` walks into it.
+          4. Emit ``dispatch_started`` with real session IDs — the
+             dashboard uses these as the accordion key.
+          5. Seed the proxy conversation with ``/escalation`` so the
+             skill loads on the first turn.
+          6. Invoke the proxy with ``launch_cwd_override = session.path``
+             so its cwd contains ``QUESTION.md``.
+          7. Parse the skill's JSON output:
+               RESPONSE  → return message as the answer.
+               WITHDRAW  → return ``[WITHDRAW]\\n<reason>``.
+               DIALOG    → wait for a human reply on the proxy bus,
+                           then re-invoke.
+          8. On termination, remove the session from the dispatcher's
+             conversation map, emit ``dispatch_completed``, and rmtree
+             the session directory.
         """
         if self._proxy_invoker_fn is None:
             raise RuntimeError(
                 'escalation-skill path requires proxy_invoker_fn to be set'
             )
+        if self._dispatcher_session is None or not self._teaparty_home:
+            raise RuntimeError(
+                'escalation-skill path requires dispatcher_session and '
+                'teaparty_home so the accordion can render the escalation '
+                'as a child of the caller'
+            )
+
+        from teaparty.runners.launcher import (
+            create_session as _create_session,
+            record_child_session as _record_child,
+            remove_child_session as _remove_child,
+            _save_session_metadata as _save_meta,
+        )
 
         escalation_id = uuid.uuid4().hex
         qualifier = f'{self.session_id}:{escalation_id}'
@@ -443,30 +481,60 @@ class EscalationListener:
             ConversationType.PROXY, qualifier,
         )
 
-        # DD3: ephemeral per-escalation directory with QUESTION.md.
-        base = self.infra_dir or '/tmp'
-        escalation_dir = os.path.join(base, 'escalations', escalation_id)
-        os.makedirs(escalation_dir, exist_ok=True)
-        question_md = os.path.join(escalation_dir, 'QUESTION.md')
+        # The proxy AgentSession keys its on-disk session by
+        # ``f"{agent_name}-{safe_qualifier}"``.  We pre-create that exact
+        # session so the proxy invocation loads it (rather than creating
+        # a sibling), and so parent_session_id survives the first
+        # save_state().
+        safe_qualifier = (
+            qualifier.replace('/', '-').replace(':', '-').replace(' ', '-')
+        )
+        proxy_session_key = f'proxy-{safe_qualifier}'
+        child_session = _create_session(
+            agent_name='proxy',
+            scope=self._scope,
+            teaparty_home=self._teaparty_home,
+            session_id=proxy_session_key,
+        )
+        child_session.parent_session_id = self._dispatcher_session.id
+        child_session.launch_cwd = child_session.path
+        child_session.initial_message = question
+        _save_meta(child_session)
+
+        # Write QUESTION.md into the session dir.  The proxy launches
+        # with cwd = session.path, so the skill's ``Read ./QUESTION.md``
+        # resolves here.
+        question_md = os.path.join(child_session.path, 'QUESTION.md')
         body = question
         if context:
             body = f'{question}\n\n## Context\n\n{context}'
         with open(question_md, 'w') as fh:
             fh.write(body)
 
-        # DD5: emit dispatch_started so the accordion nests the escalation
-        # under the caller session.
-        self._emit_dispatch('dispatch_started', escalation_id)
+        # Link the child into the caller's conversation_map so
+        # ``build_dispatch_tree`` walks into it.  Using escalation_id as
+        # the request_id keeps multiple concurrent escalations distinct.
+        _record_child(
+            self._dispatcher_session,
+            request_id=escalation_id,
+            child_session_id=child_session.id,
+        )
 
-        # DD2: the proxy bus is where the accordion reads messages from.
-        # Resolve the proxy bus path from the conventional location (mirrors
-        # proxy_home()).  infra_dir points at .teaparty/{scope}/agents/{agent};
-        # walk up two levels to reach .teaparty/ then descend into proxy/.
+        # Emit dispatch_started so the dashboard animates the new blade.
+        # Parent = dispatcher.id so the event agrees with the tree-walker
+        # view (which reads parent_session_id off disk).
+        self._emit_dispatch(
+            'dispatch_started',
+            parent_sid=self._dispatcher_session.id,
+            child_sid=child_session.id,
+        )
+
+        # The proxy bus is where the accordion reads dialog messages from.
         proxy_bus = self._resolve_proxy_bus()
 
-        # DD4: seed the conversation with the /escalation slash command
-        # as the initial "human" message.  Claude Code's skill-dispatcher
-        # picks this up on the proxy's first turn.
+        # Seed the conversation with the /escalation slash command as the
+        # initial "human" message.  Claude Code's skill dispatcher picks
+        # this up on the proxy's first turn.
         proxy_bus.send(proxy_conv_id, 'human', '/escalation')
 
         final_answer = ''
@@ -477,7 +545,10 @@ class EscalationListener:
                 invocation_start = time.time()
 
                 await self._proxy_invoker_fn(
-                    qualifier=qualifier, cwd=escalation_dir,
+                    qualifier=qualifier,
+                    cwd=child_session.path,
+                    teaparty_home=self._teaparty_home,
+                    scope=self._scope,
                 )
 
                 # Pull the proxy's last turn output from the conversation.
@@ -511,26 +582,35 @@ class EscalationListener:
                 final_answer = ''
                 break
         finally:
-            self._emit_dispatch('dispatch_completed', escalation_id)
-            shutil.rmtree(escalation_dir, ignore_errors=True)
+            _remove_child(
+                self._dispatcher_session, request_id=escalation_id,
+            )
+            self._emit_dispatch(
+                'dispatch_completed',
+                parent_sid=self._dispatcher_session.id,
+                child_sid=child_session.id,
+            )
+            shutil.rmtree(child_session.path, ignore_errors=True)
 
         self._last_escalation_source = 'proxy_skill'
         return final_answer
 
-    def _emit_dispatch(self, event_type: str, escalation_id: str) -> None:
+    def _emit_dispatch(
+        self, event_type: str, *, parent_sid: str, child_sid: str,
+    ) -> None:
         """Fire a dispatch_started / dispatch_completed event.
 
-        Parent = caller session (``self.session_id``), child = the
-        escalation's id, agent_name = 'proxy'.  No-op when the hook is
-        not attached.
+        ``parent_sid``/``child_sid`` are real session IDs that match the
+        on-disk metadata, so the dispatch-tree walker and the event
+        stream agree.  No-op when the hook is not attached.
         """
         if self._on_dispatch is None:
             return
         try:
             self._on_dispatch({
                 'type': event_type,
-                'parent_session_id': self.session_id,
-                'child_session_id': escalation_id,
+                'parent_session_id': parent_sid,
+                'child_session_id': child_sid,
                 'agent_name': 'proxy',
             })
         except Exception:

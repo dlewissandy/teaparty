@@ -1912,6 +1912,7 @@ class TeaPartyBridge:
         post_invoke_hook=None,
         build_prompt_hook=None,
         project_slug: str = '',
+        launch_cwd_override: str = '',
     ) -> None:
         """Unified agent invocation — one codepath for all agent types.
 
@@ -1960,7 +1961,9 @@ class TeaPartyBridge:
                 )
             session = self._agent_sessions[session_key]
             try:
-                await session.invoke(cwd=cwd)
+                await session.invoke(
+                    cwd=cwd, launch_cwd_override=launch_cwd_override,
+                )
             except Exception:
                 _log.exception('%s invocation failed for %r', agent_name, qualifier)
                 try:
@@ -2021,7 +2024,13 @@ class TeaPartyBridge:
             project_slug=project_slug,
         )
 
-    async def _invoke_proxy(self, qualifier: str, cwd: str | None = None) -> None:
+    async def _invoke_proxy(
+        self,
+        qualifier: str,
+        cwd: str | None = None,
+        teaparty_home: str = '',
+        scope: str = 'management',
+    ) -> None:
         """Invoke the proxy agent for the given conversation qualifier.
 
         Runs as a fire-and-forget asyncio task. The proxy agent reads the
@@ -2036,10 +2045,15 @@ class TeaPartyBridge:
         On runner failure, writes an error message to the bus so the human sees
         feedback rather than silence.
 
-        ``cwd`` defaults to the repo root for ordinary proxy chat. The
-        escalation path (issue #420) passes a per-escalation ephemeral
-        directory so the proxy sees ``QUESTION.md`` in its working
-        directory when the ``/escalation`` skill loads.
+        ``cwd`` is None for ordinary proxy chat — the registry resolves the
+        proxy's launch_cwd to the repo root.  The escalation path (issue #420)
+        passes a per-escalation session directory, which becomes the proxy's
+        ``launch_cwd_override`` so ``./QUESTION.md`` resolves correctly.
+
+        ``teaparty_home``/``scope`` default to the bridge's management home.
+        The escalation path passes the caller's home and scope so the proxy's
+        escalation session lives alongside the caller's session — required for
+        ``build_dispatch_tree`` to walk into the escalation's child node.
         """
         from teaparty.proxy.hooks import proxy_post_invoke, proxy_build_prompt
         await self._invoke_agent(
@@ -2049,6 +2063,9 @@ class TeaPartyBridge:
             qualifier=qualifier,
             conversation_type=ConversationType.PROXY,
             cwd=cwd if cwd is not None else self._repo_root,
+            launch_cwd_override=cwd or '',
+            teaparty_home=teaparty_home,
+            scope=scope,
             post_invoke_hook=proxy_post_invoke,
             build_prompt_hook=proxy_build_prompt,
         )

@@ -542,19 +542,34 @@ class TestEscalationSkillPath(unittest.TestCase):
 
     def _make_listener(self, proxy_invoker, on_dispatch=None):
         from teaparty.cfa.gates.escalation import EscalationListener
+        from teaparty.runners.launcher import create_session
 
         async def human_never_called(req):
             raise AssertionError('input_provider must not be called on skill path')
+
+        # The skill path creates the escalation as a proxy child session
+        # under a real dispatcher session, so the accordion can render
+        # it.  Pre-create the dispatcher so ``record_child_session`` has
+        # a valid on-disk conversation_map to mutate.
+        dispatcher = create_session(
+            agent_name='office-manager',
+            scope='management',
+            teaparty_home=self.teaparty_home,
+            session_id='test-dispatcher',
+        )
 
         return EscalationListener(
             event_bus=None,
             input_provider=human_never_called,
             bus_db_path=self.bus_db,
             conv_id=self.conv_id,
-            session_id='test-session',
+            session_id=dispatcher.id,
             infra_dir=self.infra_dir,
             proxy_invoker_fn=proxy_invoker,
             on_dispatch=on_dispatch,
+            dispatcher_session=dispatcher,
+            teaparty_home=self.teaparty_home,
+            scope='management',
         )
 
     def test_response_terminates_loop_with_message(self):
@@ -571,7 +586,7 @@ class TestEscalationSkillPath(unittest.TestCase):
         invocations = []
         dispatch_events = []
 
-        async def mock_invoker(qualifier: str, cwd: str) -> None:
+        async def mock_invoker(qualifier: str, cwd: str, **_: object) -> None:
             invocations.append((qualifier, cwd))
             # QUESTION.md must exist at the invoker's cwd.
             assert os.path.isfile(os.path.join(cwd, 'QUESTION.md'))
@@ -624,7 +639,7 @@ class TestEscalationSkillPath(unittest.TestCase):
         import json as _json
         import time as _time
 
-        async def mock_invoker(qualifier: str, cwd: str) -> None:
+        async def mock_invoker(qualifier: str, cwd: str, **_: object) -> None:
             proxy_bus = SqliteMessageBus(self.proxy_bus_path)
             conv_id = make_conversation_id(ConversationType.PROXY, qualifier)
             proxy_bus.send(conv_id, 'proxy', _json.dumps({
@@ -669,7 +684,7 @@ class TestEscalationSkillPath(unittest.TestCase):
 
         invocations = []
 
-        async def mock_invoker(qualifier: str, cwd: str) -> None:
+        async def mock_invoker(qualifier: str, cwd: str, **_: object) -> None:
             invocations.append(qualifier)
             proxy_bus = SqliteMessageBus(self.proxy_bus_path)
             conv_id = make_conversation_id(ConversationType.PROXY, qualifier)
