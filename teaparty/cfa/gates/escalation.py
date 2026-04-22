@@ -532,6 +532,15 @@ class EscalationListener:
         # The proxy bus is where the accordion reads dialog messages from.
         proxy_bus = self._resolve_proxy_bus()
 
+        # Register the conversation in the bus's conversations table so it
+        # shows up in GET /api/conversations?type=proxy (which is how the
+        # chat-list sidebar and some frontend paths discover
+        # conversations).  Writing messages alone populates the messages
+        # table but not the conversations table — the accordion iframe's
+        # participant chat logic then sees a ``match``-less fetch and may
+        # leave the UI in an unhydrated state.
+        proxy_bus.create_conversation(ConversationType.PROXY, qualifier)
+
         # Seed the conversation with the /escalation slash command as the
         # initial "human" message.  Claude Code's skill dispatcher picks
         # this up on the proxy's first turn.
