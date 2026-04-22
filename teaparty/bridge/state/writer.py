@@ -59,10 +59,6 @@ class StateWriter:
             category = event.data.get('category', 'INFO')
             message = event.data.get('message', '')
             self._log(category, message)
-        elif event.type == EventType.INPUT_REQUESTED:
-            self._log('STATE', f"Input requested: {event.data.get('state', '')}")
-        elif event.type == EventType.INPUT_RECEIVED:
-            self._log('HUMAN', event.data.get('response', '')[:200])
         elif event.type == EventType.API_OVERLOADED:
             retry = event.data.get('retry_count', '?')
             max_r = event.data.get('max_retries', '?')

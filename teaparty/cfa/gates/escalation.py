@@ -370,26 +370,9 @@ class EscalationListener:
 
     async def _ask_human(self, question: str) -> str:
         """Surface a question to the human via the input_provider."""
-        await self._publish_event(Event(
-            type=EventType.INPUT_REQUESTED,
-            data={
-                'state': 'AGENT_QUESTION',
-                'bridge_text': question,
-            },
-            session_id=self.session_id,
-        ))
-
-        response = await self.input_provider(InputRequest(
+        return await self.input_provider(InputRequest(
             type='agent_question',
             state='AGENT_QUESTION',
             artifact='',
             bridge_text=question,
         ))
-
-        await self._publish_event(Event(
-            type=EventType.INPUT_RECEIVED,
-            data={'response': response},
-            session_id=self.session_id,
-        ))
-
-        return response

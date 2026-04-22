@@ -18,8 +18,6 @@ _log = logging.getLogger('teaparty.messaging.bus')
 class EventType(Enum):
     STATE_CHANGED = 'state_changed'
     STREAM_DATA = 'stream_data'
-    INPUT_REQUESTED = 'input_requested'
-    INPUT_RECEIVED = 'input_received'
     PHASE_STARTED = 'phase_started'
     PHASE_COMPLETED = 'phase_completed'
     DISPATCH_STARTED = 'dispatch_started'

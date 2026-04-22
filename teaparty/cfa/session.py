@@ -539,15 +539,6 @@ class Session:
                 '  approve — resolve by taking the session version (theirs)\n'
                 '  escalate — stop and review the conflicts manually\n'
             )
-            await self.event_bus.publish(Event(
-                type=EventType.INPUT_REQUESTED,
-                data={
-                    'state': 'MERGE_CONFLICT',
-                    'bridge_text': bridge_text,
-                    'conflicted_files': conflicted_files,
-                },
-                session_id=self.session_id,
-            ))
             from teaparty.messaging.bus import InputRequest
             response = await provider(InputRequest(
                 type='merge_conflict',
@@ -1190,15 +1181,6 @@ def _make_conflict_callback_static(input_provider, event_bus, session_id):
             '  approve — resolve by taking the session version (theirs)\n'
             '  escalate — stop and review the conflicts manually\n'
         )
-        await event_bus.publish(Event(
-            type=EventType.INPUT_REQUESTED,
-            data={
-                'state': 'MERGE_CONFLICT',
-                'bridge_text': bridge_text,
-                'conflicted_files': conflicted_files,
-            },
-            session_id=session_id,
-        ))
         from teaparty.messaging.bus import InputRequest
         response = await input_provider(InputRequest(
             type='merge_conflict',

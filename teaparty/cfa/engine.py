@@ -1652,11 +1652,6 @@ class Orchestrator:
                 f'This job has used ${cost:.2f} of its ${limit:.2f} budget. '
                 f'Continue?'
             )
-            await self.event_bus.publish(Event(
-                type=EventType.INPUT_REQUESTED,
-                data={'state': 'COST_LIMIT', 'bridge_text': bridge_text},
-                session_id=self.session_id,
-            ))
             response = await self.input_provider(InputRequest(
                 type='cost_limit',
                 state='COST_LIMIT',
@@ -1718,11 +1713,6 @@ class Orchestrator:
                 f'Project has used ${project_total:.2f} of its '
                 f'${project_limit:.2f} budget across all jobs. Continue?'
             )
-            await self.event_bus.publish(Event(
-                type=EventType.INPUT_REQUESTED,
-                data={'state': 'COST_LIMIT', 'bridge_text': bridge_text},
-                session_id=self.session_id,
-            ))
             response = await self.input_provider(InputRequest(
                 type='cost_limit',
                 state='COST_LIMIT',
@@ -2477,11 +2467,6 @@ class Orchestrator:
             '  backtrack — return to planning with feedback\n'
             '  withdraw — mark this session as withdrawn\n'
         )
-        await self.event_bus.publish(Event(
-            type=EventType.INPUT_REQUESTED,
-            data={'state': 'INFRASTRUCTURE_FAILURE', 'bridge_text': bridge_text},
-            session_id=self.session_id,
-        ))
         response = await self.input_provider(InputRequest(
             type='failure_decision',
             state='INFRASTRUCTURE_FAILURE',

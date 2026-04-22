@@ -57,10 +57,7 @@ class _Transcript:
 
     def __init__(self, bus: EventBus):
         self.transitions: list[tuple[str, str, str]] = []
-        # (state, artifact_path, bridge_text_snippet, response)
-        self.gate_calls: list[tuple[str, str, str, str]] = []
         self.runner_calls: list[tuple[str, str, str]] = []  # (artifact, path, content)
-        self._pending_request: dict = {}
 
         async def _collect(event) -> None:
             if event.type == EventType.STATE_CHANGED:
@@ -69,18 +66,6 @@ class _Transcript:
                     event.data.get('action', '?'),
                     event.data.get('state', '?'),
                 ))
-            elif event.type == EventType.INPUT_REQUESTED:
-                self._pending_request = event.data
-            elif event.type == EventType.INPUT_RECEIVED:
-                req = self._pending_request
-                state = req.get('state', '?')
-                artifact = req.get('artifact', '')
-                bridge = req.get('bridge_text', '')
-                # First line of bridge text as a summary (full text can be long)
-                bridge_snip = (bridge.splitlines()[0] if bridge else '').strip()
-                response = event.data.get('response', '?')
-                self.gate_calls.append((state, artifact, bridge_snip, response))
-                self._pending_request = {}
 
         bus.subscribe(_collect)
 
@@ -100,14 +85,6 @@ class _Transcript:
         lines.append('State transitions:')
         for prev, action, nxt in self.transitions:
             lines.append(f'  {prev} →({action})→ {nxt}')
-        if self.gate_calls:
-            lines.append('Gate dialog:')
-            for state, artifact, bridge_snip, resp in self.gate_calls:
-                artifact_name = Path(artifact).name if artifact else '—'
-                lines.append(f'  [{state}] reviewing: {artifact_name}')
-                if bridge_snip:
-                    lines.append(f'           prompt:    {bridge_snip!r}')
-                lines.append(f'           human said: {resp!r}')
         if self.runner_calls:
             lines.append('Runner artifacts written:')
             for name, path, content, exists, actual in self.runner_calls:

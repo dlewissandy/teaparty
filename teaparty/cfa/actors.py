@@ -1080,20 +1080,9 @@ class ApprovalGate:
                 session_worktree=ctx.session_worktree, infra_dir=ctx.infra_dir,
                 actor_message=actor_message,
             )
-            await ctx.event_bus.publish(Event(
-                type=EventType.INPUT_REQUESTED,
-                data={'state': ctx.state, 'artifact': artifact_path,
-                      'bridge_text': bridge_text, 'human_present': True},
-                session_id=ctx.session_id,
-            ))
             response_text = await self.input_provider(InputRequest(
                 type='approval', state=ctx.state,
                 artifact=artifact_path, bridge_text=bridge_text,
-            ))
-            await ctx.event_bus.publish(Event(
-                type=EventType.INPUT_RECEIVED,
-                data={'response': response_text, 'human_present': True},
-                session_id=ctx.session_id,
             ))
             # Learning signal: the delta between what the proxy would
             # have said and what the human actually said.
@@ -1171,19 +1160,9 @@ class ApprovalGate:
         self._publish_to_job_conversation(
             ctx, project_slug, 'proxy', proxy_result.text,
         )
-        await ctx.event_bus.publish(Event(
-            type=EventType.INPUT_REQUESTED,
-            data={'state': ctx.state, 'artifact': artifact_path, 'bridge_text': bridge_text},
-            session_id=ctx.session_id,
-        ))
         response_text = await self.input_provider(InputRequest(
             type='approval', state=ctx.state,
             artifact=artifact_path, bridge_text=bridge_text,
-        ))
-        await ctx.event_bus.publish(Event(
-            type=EventType.INPUT_RECEIVED,
-            data={'response': response_text},
-            session_id=ctx.session_id,
         ))
         return response_text, False
 
@@ -1506,11 +1485,6 @@ class ApprovalGate:
             '  backtrack — return to planning with feedback\n'
             '  withdraw — mark this dispatch as withdrawn\n'
         )
-        await ctx.event_bus.publish(Event(
-            type=EventType.INPUT_REQUESTED,
-            data={'state': 'INFRASTRUCTURE_FAILURE', 'bridge_text': bridge_text},
-            session_id=ctx.session_id,
-        ))
         response = await self.input_provider(InputRequest(
             type='failure_decision',
             state='INFRASTRUCTURE_FAILURE',
