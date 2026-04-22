@@ -140,13 +140,22 @@ def proxy_build_prompt(session: AgentSession, latest_human: str) -> str:
         # Resumed: provide fresh memory context
         return f'{memory_context}\n\nHuman: {latest_human}'
     else:
-        # Fresh: include conversation history
+        # Fresh: include conversation history.  Escalation conversations
+        # may have a seed message from the requesting agent (e.g. the
+        # office manager's question) that is neither human nor proxy —
+        # label those with the agent name so Claude reads it as a third
+        # party, not as the proxy's own prior turn.
         messages = session.get_messages()
         lines = []
         for msg in messages:
             if msg.sender in NON_CONVERSATIONAL_SENDERS or msg.sender.startswith('unknown:'):
                 continue
-            role = 'Human' if msg.sender == 'human' else 'Proxy'
+            if msg.sender == 'human':
+                role = 'Human'
+            elif msg.sender == 'proxy':
+                role = 'Proxy'
+            else:
+                role = msg.sender
             lines.append(f'{role}: {msg.content}')
         dialog = '\n'.join(lines)
         return f'{memory_context}\n\n{dialog}'

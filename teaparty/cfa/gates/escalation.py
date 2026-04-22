@@ -560,9 +560,18 @@ class EscalationListener:
         # leave the UI in an unhydrated state.
         proxy_bus.create_conversation(ConversationType.PROXY, qualifier)
 
+        # Post the question as a message from the requesting agent so the
+        # accordion iframe shows *what the teammate actually asked*, not
+        # just the ``/escalation`` slash command.  proxy_build_prompt
+        # preserves the sender name for non-human / non-proxy messages,
+        # so Claude reads this as a third-party turn (not the proxy's
+        # own prior output) on first invocation.
+        requestor = self._dispatcher_session.agent_name or 'caller'
+        proxy_bus.send(proxy_conv_id, requestor, question)
+
         # Seed the conversation with the /escalation slash command as the
         # initial "human" message.  Claude Code's skill dispatcher picks
-        # this up on the proxy's first turn.
+        # this up on the proxy's first turn and loads the skill.
         proxy_bus.send(proxy_conv_id, 'human', '/escalation')
 
         # Take ownership of this proxy qualifier so the bridge's HTTP
