@@ -69,10 +69,6 @@ _TEAM_SPEC: dict[str, dict] = {
         'lead': 'analytics-lead',
         'members': ['data-scientist', 'data-visualizer'],
     },
-    'planning': {
-        'lead': 'planning-lead',
-        'members': ['strategist', 'risk-analyst', 'milestone-planner', 'dependency-mapper'],
-    },
     'intake': {
         'lead': 'intake-lead',
         'members': ['intent-specialist', 'scope-analyst', 'stakeholder-interviewer'],
@@ -84,13 +80,14 @@ _TEAM_SPEC: dict[str, dict] = {
 # single tool allowlist. The lead's specialization is in the description
 # and team-scope blurb, not in the tools it carries.
 #
-# The list is deliberately lean: leads inspect and author coordination
-# artifacts (Read/Glob/Grep/Write/Edit), delegate (Send), tear down
-# threads they opened (CloseConversation), and escalate (AskQuestion).
-# Research and catalog-discovery tools are intentionally absent — the
-# lead's member roster arrives via --agents; research is a team's job.
+# Leads inspect and author coordination artifacts (Read/Glob/Grep/
+# Write/Edit), run local shell operations for reconciliation and
+# verification (Bash), delegate (Send), tear down threads they opened
+# (CloseConversation), and escalate (AskQuestion). Research and
+# catalog-discovery tools are intentionally absent — the lead's member
+# roster arrives via --agents; research is a team's job.
 _UNIFIED_LEAD_TOOLS: set[str] = {
-    'Read', 'Glob', 'Grep', 'Write', 'Edit',
+    'Read', 'Glob', 'Grep', 'Write', 'Edit', 'Bash',
     'mcp__teaparty-config__Send',
     'mcp__teaparty-config__CloseConversation',
     'mcp__teaparty-config__AskQuestion',
@@ -145,12 +142,6 @@ _AGENT_TOOLS: dict[str, set[str]] = {
     'analytics-lead':       _UNIFIED_LEAD_TOOLS,
     'data-scientist':       {'Bash', 'Read', 'Write', 'Glob'},
     'data-visualizer':      {'Bash', 'Write', 'Read'},
-    # Planning
-    'planning-lead':        _UNIFIED_LEAD_TOOLS,
-    'strategist':           {'Read', 'Write', 'WebSearch', 'WebFetch'},
-    'risk-analyst':         {'Read', 'Write', 'Glob', 'Grep'},
-    'milestone-planner':    {'Read', 'Write'},
-    'dependency-mapper':    {'Read', 'Write', 'Glob', 'Grep'},
     # Intake
     'intake-lead':          _UNIFIED_LEAD_TOOLS,
     'intent-specialist':    {'Read', 'Write', 'mcp__teaparty-config__AskQuestion'},
@@ -178,16 +169,21 @@ def _agent_md_path(name: str) -> str:
 def _agent_tools(name: str) -> set[str]:
     """Return the tool whitelist for an agent.
 
-    Source of truth is the ``tools:`` field in the agent.md frontmatter
-    — the same value the config UI reads and the same value
-    ``claude -p`` sees at sub-agent spawn time. ``settings.yaml`` is
-    for folder permissions, not tools.
+    Source of truth is ``settings.yaml`` → ``permissions.allow`` in the
+    agent's directory — the same value Claude Code honors for MCP
+    auto-approval and the field the config UI writes to.  Any
+    ``tools:`` field in the agent.md frontmatter is stripped by the
+    UI to prevent divergence (see bridge server ``_handle_agent_patch``).
     """
-    fm = read_agent_frontmatter(_agent_md_path(name))
-    tools_str = fm.get('tools', '')
-    if not tools_str:
+    agent_dir = os.path.dirname(_agent_md_path(name))
+    settings_path = os.path.join(agent_dir, 'settings.yaml')
+    try:
+        with open(settings_path) as f:
+            settings = yaml.safe_load(f) or {}
+    except OSError:
         return set()
-    return {t.strip() for t in str(tools_str).split(',')}
+    allow = (settings.get('permissions') or {}).get('allow') or []
+    return {str(t) for t in allow}
 
 
 def _agent_skills(name: str) -> list[str]:
