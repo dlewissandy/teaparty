@@ -43,6 +43,16 @@ _close_fns: dict[str, Callable] = {}
 # tool via current_agent_name contextvar.
 _escalation_routes: dict[str, tuple[str, str]] = {}
 
+# {proxy qualifier}
+# Escalation ownership — the EscalationListener drives its own proxy
+# invocation loop (fires, parses, DIALOG→wait→re-fire).  The bridge's
+# HTTP /api/send handler auto-invokes the proxy on any new message to
+# ``proxy:{qualifier}``.  When an escalation is in flight those two
+# paths would race and the proxy would double-respond per human turn.
+# The listener registers the qualifier here while the loop is running;
+# the HTTP handler skips auto-invoke for any qualifier in this set.
+_active_escalations: set[str] = set()
+
 
 def register_spawn_fn(agent_name: str, fn: Callable) -> None:
     """Register a spawn function for an agent's bus listener."""
@@ -100,9 +110,30 @@ def get_escalation_route(agent_name: str = '') -> tuple[str, str] | None:
     return _escalation_routes.get(name)
 
 
+def mark_escalation_active(qualifier: str) -> None:
+    """Mark a proxy qualifier as owned by an in-flight escalation.
+
+    While marked, the bridge's HTTP handler must not auto-invoke the
+    proxy for this qualifier — the EscalationListener drives the loop
+    and a parallel auto-invoke would cause a double-response.
+    """
+    _active_escalations.add(qualifier)
+
+
+def mark_escalation_done(qualifier: str) -> None:
+    """Remove a proxy qualifier from the active-escalation set."""
+    _active_escalations.discard(qualifier)
+
+
+def is_escalation_active(qualifier: str) -> bool:
+    """Return True when an escalation currently owns ``qualifier``."""
+    return qualifier in _active_escalations
+
+
 def clear() -> None:
     """Remove all registrations."""
     _spawn_fns.clear()
     _reply_fns.clear()
     _close_fns.clear()
     _escalation_routes.clear()
+    _active_escalations.clear()

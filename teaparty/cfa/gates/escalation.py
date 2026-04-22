@@ -537,6 +537,17 @@ class EscalationListener:
         # this up on the proxy's first turn.
         proxy_bus.send(proxy_conv_id, 'human', '/escalation')
 
+        # Take ownership of this proxy qualifier so the bridge's HTTP
+        # handler stops auto-invoking the proxy while the escalation
+        # loop is running.  Without this, every DIALOG reply the human
+        # types into the accordion would fire two proxy invocations
+        # (one from the HTTP handler, one from this loop's re-fire).
+        from teaparty.mcp.registry import (
+            mark_escalation_active as _mark_active,
+            mark_escalation_done as _mark_done,
+        )
+        _mark_active(qualifier)
+
         final_answer = ''
         try:
             while True:
@@ -582,6 +593,7 @@ class EscalationListener:
                 final_answer = ''
                 break
         finally:
+            _mark_done(qualifier)
             _remove_child(
                 self._dispatcher_session, request_id=escalation_id,
             )

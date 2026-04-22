@@ -1811,7 +1811,15 @@ class TeaPartyBridge:
         elif conv_id.startswith('pm:'):
             asyncio.create_task(self._invoke_pm(qualifier))
         elif conv_id.startswith('proxy:'):
-            asyncio.create_task(self._invoke_proxy(qualifier))
+            # Skip auto-invoke when an EscalationListener owns the loop
+            # for this qualifier — the listener fires the proxy itself
+            # with the correct cwd / teaparty_home / scope.  A parallel
+            # HTTP-triggered invoke would double-respond per human turn
+            # and run the proxy in the wrong cwd (the skill would fail
+            # to Read ./QUESTION.md).
+            from teaparty.mcp.registry import is_escalation_active
+            if not is_escalation_active(qualifier):
+                asyncio.create_task(self._invoke_proxy(qualifier))
         elif conv_id.startswith('config:'):
             asyncio.create_task(self._invoke_config_lead(qualifier))
         elif conv_id.startswith('lead:'):
