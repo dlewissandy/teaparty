@@ -27,7 +27,6 @@ import yaml
 
 from aiohttp import web
 
-from teaparty.cfa.gates.intervention_listener import make_intervention_request
 from teaparty.messaging.conversations import ConversationType, SqliteMessageBus, agent_bus_path
 from teaparty.proxy.hooks import proxy_bus_path
 from teaparty.teams.session import AgentSession, read_session_title
@@ -1836,45 +1835,28 @@ class TeaPartyBridge:
     ) -> web.Response:
         """Handle a human message posted to an agent-to-agent conversation.
 
-        Finds the interjection socket for the session that owns this conversation
-        and posts {context_id, message} to trigger --resume on the active session.
+        Finds the AgentSession whose BusEventListener owns this
+        conversation and calls ``handle_interjection`` directly — the
+        bridge and the listener share a process, no IPC needed.
         """
-        import asyncio
-        import json
-
-        socket_path = self._find_interjection_socket(conv_id)
-        if not socket_path:
+        listener = self._find_interjection_listener(conv_id)
+        if listener is None:
             return web.json_response(
                 {'error': f'No active session found for conversation: {conv_id}'},
                 status=404,
             )
 
         try:
-            reader, writer = await asyncio.open_unix_connection(socket_path)
-            try:
-                request_payload = json.dumps({
-                    'type': 'interject',
-                    'context_id': conv_id,
-                    'message': content,
-                })
-                writer.write(request_payload.encode() + b'\n')
-                await writer.drain()
-                response_line = await reader.readline()
-                response = json.loads(response_line.decode())
-            finally:
-                writer.close()
-                try:
-                    await writer.wait_closed()
-                except Exception:
-                    pass
+            response = await listener.handle_interjection(conv_id, content)
         except Exception as exc:
             return web.json_response(
-                {'error': f'Failed to reach interjection socket: {exc}'},
-                status=502,
+                {'error': f'Interjection failed: {exc}'}, status=502,
             )
 
         if response.get('status') == 'error':
-            return web.json_response({'error': response.get('reason', 'unknown error')}, status=409)
+            return web.json_response(
+                {'error': response.get('reason', 'unknown error')}, status=409,
+            )
 
         # Telemetry: interjection_received — human typed into an agent
         # conversation that wasn't awaiting input (Issue #405).
@@ -1895,28 +1877,24 @@ class TeaPartyBridge:
 
         return web.json_response({'status': 'ok'})
 
-    def _find_interjection_socket(self, conv_id: str) -> str:
-        """Find the interjection socket path for the session that owns conv_id.
+    def _find_interjection_listener(self, conv_id: str):
+        """Return the BusEventListener whose bus owns ``conv_id``.
 
-        Searches active session buses for one that has an agent_contexts record
-        matching conv_id, then resolves the session's infra_dir and reads the
-        interjection_socket file written by the engine at startup.
+        Walks active AgentSessions, checks each one's bus for an
+        agent_context record matching ``conv_id``, and returns that
+        session's listener.  Returns None if no active session owns it.
         """
-        for session_id, bus in self._buses.items():
+        for agent_session in self._agent_sessions.values():
+            bus = getattr(agent_session, '_bus', None)
+            listener = getattr(agent_session, '_bus_listener', None)
+            if bus is None or listener is None:
+                continue
             try:
-                ctx = bus.get_agent_context(conv_id)
-                if ctx is None:
-                    continue
-                infra_dir = self._resolve_session_infra(session_id)
-                if infra_dir is None:
-                    continue
-                socket_file = os.path.join(infra_dir, 'interjection_socket')
-                if os.path.exists(socket_file):
-                    with open(socket_file) as f:
-                        return f.read().strip()
+                if bus.get_agent_context(conv_id) is not None:
+                    return listener
             except Exception:
-                pass
-        return ''
+                continue
+        return None
 
     async def _invoke_agent(
         self,

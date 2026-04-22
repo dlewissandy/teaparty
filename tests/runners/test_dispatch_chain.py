@@ -352,14 +352,18 @@ class TestThreeDeepDispatchChain(unittest.TestCase):
 
     def test_bus_listener_spawn_fn_uses_launcher(self):
         """BusEventListener's spawn_fn delegates to launch() and records
-        the session in the agent_contexts database."""
+        the session in the agent_contexts database.
+
+        Post-#419: Send no longer goes over a Unix socket.  The MCP tool
+        looks up spawn_fn in the in-process registry and calls
+        ``_spawn_and_record`` directly.  This test exercises that path.
+        """
 
         launch_calls: list[dict] = []
 
         async def run_bus_test():
             bus_db = os.path.join(self._tmpdir, 'bus.db')
 
-            # spawn_fn that records the call and delegates to launch()
             async def spawn_fn(member, composite, context_id):
                 launch_calls.append({
                     'member': member,
@@ -386,43 +390,28 @@ class TestThreeDeepDispatchChain(unittest.TestCase):
                 current_context_id='agent:root:agent-a:init',
                 initiator_agent_id='agent-a',
             )
-            send_path, close_path = await listener.start()
+            await listener.start()
 
             try:
-                # Simulate agent A calling Send(to='agent-b', message='...')
-                reader, writer = await asyncio.open_unix_connection(send_path)
-                request = json.dumps({
-                    'type': 'send',
-                    'member': 'agent-b',
-                    'composite': '## Task\nAsk C for a joke\n\n## Context\n',
-                    'context_id': '',
-                }) + '\n'
-                writer.write(request.encode())
-                await writer.drain()
+                from teaparty.messaging.listener import make_agent_context_id
+                context_id = make_agent_context_id('agent-a', 'agent-b')
+                listener._create_context_record(context_id, 'agent-b')
 
-                # Read response
-                response_line = await asyncio.wait_for(reader.readline(), timeout=10)
-                response = json.loads(response_line.decode())
-                writer.close()
+                result_text = await listener._spawn_and_record(
+                    'agent-b',
+                    '## Task\nAsk C for a joke\n\n## Context\n',
+                    context_id,
+                )
 
-                # Verify Send was processed
-                self.assertIn(response['status'], ('ok', 'queued'))
-                self.assertTrue(response.get('context_id', ''),
-                                'Context ID must be returned')
-
-                # Wait for spawn_fn to be called (it runs in background)
-                await asyncio.sleep(0.2)
-
-                # Verify spawn_fn was called with correct args
                 self.assertEqual(len(launch_calls), 1)
                 self.assertEqual(launch_calls[0]['member'], 'agent-b')
                 self.assertIn('Ask C for a joke', launch_calls[0]['composite'])
+                self.assertEqual(launch_calls[0]['context_id'], context_id)
+                self.assertIn('Result from agent-b', result_text)
 
-                # Verify agent_contexts database has the record
                 bus = SqliteMessageBus(bus_db)
                 try:
-                    ctx_id = response['context_id']
-                    ctx = bus.get_agent_context(ctx_id)
+                    ctx = bus.get_agent_context(context_id)
                     self.assertIsNotNone(ctx, 'Context record must exist in database')
                     self.assertEqual(ctx['recipient_agent_id'], 'agent-b')
                     self.assertEqual(ctx['session_id'], 'session-agent-b')

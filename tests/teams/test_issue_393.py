@@ -5,7 +5,7 @@ Acceptance criteria:
 1. /clear clears all messages from the conversation's bus database
 2. /clear stops the bus event listener
 3. /clear closes open agent context records
-4. /clear resets bus listener state (_bus_listener, _bus_listener_sockets, etc.)
+4. /clear resets bus listener state (_bus_listener, etc.)
 5. build_context returns empty string after clear (no stale history)
 6. Resume path sends only the latest human message (not full history)
 """
@@ -88,7 +88,6 @@ class TestClearStopsBusListener(unittest.TestCase):
         # Simulate an active listener
         mock_listener = AsyncMock()
         self._session._bus_listener = mock_listener
-        self._session._bus_listener_sockets = ('/tmp/s', '/tmp/r', '/tmp/c')
 
         bus.send(conv_id, 'human', '/clear')
 
@@ -120,7 +119,6 @@ class TestClearResetsListenerState(unittest.TestCase):
         self._session._bus_context_id = 'agent:office-manager:lead:fake-uuid'
         self._session._dispatch_session = MagicMock()
         self._session._bus_listener = AsyncMock()
-        self._session._bus_listener_sockets = ('/tmp/s', '/tmp/r', '/tmp/c')
 
         bus.send(conv_id, 'human', '/clear')
 
@@ -132,8 +130,6 @@ class TestClearResetsListenerState(unittest.TestCase):
                           '_bus_context_id should be None after /clear')
         self.assertIsNone(self._session._dispatch_session,
                           '_dispatch_session should be None after /clear')
-        self.assertIsNone(self._session._bus_listener_sockets,
-                          '_bus_listener_sockets should be None after /clear')
 
 
 class TestClearClosesAgentContexts(unittest.TestCase):

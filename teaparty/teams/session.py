@@ -108,7 +108,6 @@ class AgentSession:
 
         # Dispatch infrastructure (lazy init)
         self._bus_listener = None
-        self._bus_listener_sockets: tuple[str, str, str] | None = None
         self._bus_context_id: str | None = None
         self._dispatch_session = None
         self._escalation_listener = None
@@ -251,12 +250,13 @@ class AgentSession:
     # ── Dispatch (Send/Reply) ────────────────────────────────────────────
 
     async def _ensure_bus_listener(self, cwd: str) -> dict:
-        """Start the BusEventListener (dispatch) and EscalationListener (AskQuestion)."""
+        """Start the BusEventListener (dispatch) and EscalationListener (AskQuestion).
+
+        Send and CloseConversation route through the in-process registry
+        (spawn_fn/close_fn keyed by agent name); no Unix sockets.
+        """
         if self._bus_listener is not None:
-            send, close = self._bus_listener_sockets
             return {
-                'SEND_SOCKET': send,
-                'CLOSE_CONV_SOCKET': close,
                 'ASK_QUESTION_BUS_DB': self._ask_question_bus_db,
                 'ASK_QUESTION_CONV_ID': self._ask_question_conv_id,
                 'AGENT_ID': self.agent_name,
@@ -627,8 +627,7 @@ class AgentSession:
             reinvoke_fn=reinvoke_fn,
             cleanup_fn=cleanup_fn,
         )
-        sockets = await self._bus_listener.start()
-        self._bus_listener_sockets = sockets
+        await self._bus_listener.start()
 
         from teaparty.mcp.registry import register_spawn_fn, register_close_fn
         register_spawn_fn(self.agent_name, spawn_fn)
@@ -748,10 +747,7 @@ class AgentSession:
         )
         await self._escalation_listener.start()
 
-        send, close = sockets
         return {
-            'SEND_SOCKET': send,
-            'CLOSE_CONV_SOCKET': close,
             'ASK_QUESTION_BUS_DB': self._ask_question_bus_db,
             'ASK_QUESTION_CONV_ID': self._ask_question_conv_id,
             'AGENT_ID': self.agent_name,
@@ -1055,7 +1051,6 @@ class AgentSession:
         if self._bus_listener is not None:
             await self._bus_listener.stop()
             self._bus_listener = None
-            self._bus_listener_sockets = None
         if self._escalation_listener is not None:
             await self._escalation_listener.stop()
             self._escalation_listener = None

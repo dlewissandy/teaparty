@@ -9,8 +9,11 @@ import os
 async def intervention_handler(request_type: str, **kwargs) -> str:
     """Core handler for intervention tools.
 
-    Sends the request to the InterventionListener via the Unix socket
-    at INTERVENTION_SOCKET and returns the result JSON as a string.
+    Posts the request to the orchestrator over the message bus, then
+    polls the same conversation for the reply.  Env vars
+    ``INTERVENTION_BUS_DB`` + ``INTERVENTION_CONV_ID`` tell the tool
+    which bus/conversation to use; they are set by the orchestrator
+    before launching Claude Code.
 
     Args:
         request_type: One of withdraw_session, pause_dispatch,
@@ -18,22 +21,38 @@ async def intervention_handler(request_type: str, **kwargs) -> str:
         **kwargs: Additional fields for the request (session_id,
             dispatch_id, priority).
     """
-    socket_path = os.environ.get('INTERVENTION_SOCKET', '')
-    if not socket_path:
+    bus_db = os.environ.get('INTERVENTION_BUS_DB', '')
+    conv_id = os.environ.get('INTERVENTION_CONV_ID', '')
+    if not bus_db or not conv_id:
         raise RuntimeError(
-            'INTERVENTION_SOCKET not set — cannot execute intervention'
+            'INTERVENTION_BUS_DB / INTERVENTION_CONV_ID not set — '
+            'cannot execute intervention'
         )
-    reader, writer = await asyncio.open_unix_connection(socket_path)
-    try:
-        from teaparty.cfa.gates.intervention_listener import make_intervention_request
-        request = json.dumps(make_intervention_request(request_type, **kwargs))
-        writer.write(request.encode() + b'\n')
-        await writer.drain()
-        response_line = await reader.readline()
-        response = json.loads(response_line.decode())
-    finally:
-        writer.close()
-        await writer.wait_closed()
+
+    # Import lazily so the MCP tool module doesn't pull in the whole
+    # teaparty package at import time.
+    from teaparty.cfa.gates.intervention_listener import make_intervention_request
+    from teaparty.messaging.conversations import SqliteMessageBus
+    import time as _time
+
+    bus = SqliteMessageBus(bus_db)
+    since = _time.time()
+    bus.send(conv_id, 'agent', json.dumps(make_intervention_request(
+        request_type, **kwargs,
+    )))
+
+    response: dict | None = None
+    while response is None:
+        messages = bus.receive(conv_id, since_timestamp=since)
+        for msg in messages:
+            if msg.sender == 'orchestrator':
+                try:
+                    response = json.loads(msg.content)
+                except json.JSONDecodeError:
+                    response = {'status': 'error', 'reason': 'malformed reply'}
+                break
+        if response is None:
+            await asyncio.sleep(0.1)
 
     # Telemetry (Issue #405) — pause_all / resume_all / withdraw_clicked /
     # reprioritize_dispatch_clicked, depending on the request type.

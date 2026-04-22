@@ -10,7 +10,6 @@ from typing import Any, Awaitable, Callable
 ProxyFn = Callable[[str, str], Awaitable[dict[str, Any]]]
 HumanFn = Callable[[str], Awaitable[str]]
 RecordDifferentialFn = Callable[[str, str, str, str], None]
-FlushFn = Callable[[str], Awaitable[None]]
 
 CONTEXT_BUDGET_LINES = 200
 
@@ -20,7 +19,6 @@ async def ask_question_handler(
     context: str = '',
     *,
     scratch_path: str = '',
-    flush_fn: FlushFn | None = None,
     proxy_fn: ProxyFn | None = None,
     human_fn: HumanFn | None = None,
     record_differential_fn: RecordDifferentialFn | None = None,
@@ -36,9 +34,6 @@ async def ask_question_handler(
         raise ValueError('AskQuestion requires a non-empty question')
 
     if scratch_path:
-        if flush_fn is None:
-            flush_fn = _default_flush
-        await flush_fn(scratch_path)
         question = _build_composite(question, _read_scratch(scratch_path))
         context = ''
 
@@ -134,17 +129,3 @@ def _scratch_path_from_env() -> str:
     return os.path.join(worktree, '.context', 'scratch.md')
 
 
-async def _default_flush(scratch_path: str) -> None:
-    """Request the orchestrator to flush its current job state to the scratch file."""
-    socket_path = os.environ.get('FLUSH_SOCKET', '')
-    if not socket_path:
-        return
-    reader, writer = await asyncio.open_unix_connection(socket_path)
-    try:
-        request = json.dumps({'type': 'flush', 'scratch_path': scratch_path})
-        writer.write(request.encode() + b'\n')
-        await writer.drain()
-        await reader.readline()
-    finally:
-        writer.close()
-        await writer.wait_closed()

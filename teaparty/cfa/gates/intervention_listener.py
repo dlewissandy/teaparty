@@ -1,21 +1,23 @@
-"""Unix socket listener for office manager intervention tools.
+"""Bus-backed listener for office-manager intervention tools.
 
 Bridges MCP tool calls (WithdrawSession, PauseDispatch, ResumeDispatch,
 ReprioritizeDispatch) to the office_manager_tools functions.  The MCP
-server sends requests over INTERVENTION_SOCKET; this listener resolves
-session/dispatch IDs to infra directory paths and calls the functions.
+tool writes a request message onto the intervention conversation; this
+listener polls that conversation, resolves session/dispatch IDs to
+infra directory paths, calls the appropriate function, and writes the
+result back.
 
 Same pattern as EscalationListener.
 
-Protocol (newline-delimited JSON over Unix socket):
+Protocol (JSON in the ``content`` field of each bus message):
 
-  MCP server -> listener:
+  agent → orchestrator:
     {"type": "withdraw_session", "session_id": "abc123"}
     {"type": "pause_dispatch", "dispatch_id": "writing-abc123"}
     {"type": "resume_dispatch", "dispatch_id": "writing-abc123"}
     {"type": "reprioritize_dispatch", "dispatch_id": "writing-abc123", "priority": "high"}
 
-  listener -> MCP server:
+  orchestrator → agent:
     {"status": "withdrawn"}
     {"status": "paused"}
     {"status": "resumed"}
@@ -28,10 +30,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
-import tempfile
+import time
 from typing import Callable, Literal, TypedDict
 
+from teaparty.messaging.conversations import SqliteMessageBus
 from teaparty.teams.office_manager_tools import (
     pause_dispatch,
     reprioritize_dispatch,
@@ -41,10 +43,13 @@ from teaparty.teams.office_manager_tools import (
 
 _log = logging.getLogger('teaparty.cfa.gates.intervention')
 
+# How often the listener polls the bus for new agent messages.
+_POLL_INTERVAL = 0.1
+
 
 # ── Shared wire format ────────────────────────────────────────────────────────
 # Defined here, imported by both the bridge and the MCP server to prevent
-# protocol drift.  See cfa-extensions proposal and bridge-api.md.
+# protocol drift.
 
 RequestType = Literal[
     'withdraw_session',
@@ -55,7 +60,7 @@ RequestType = Literal[
 
 
 class InterventionRequest(TypedDict, total=False):
-    """Wire format for intervention socket messages.
+    """Wire format for intervention bus messages.
 
     Required: ``type`` plus the relevant ID field (``session_id`` or
     ``dispatch_id``).  Optional: ``priority`` (for reprioritize only).
@@ -84,120 +89,98 @@ _ID_FIELD: dict[RequestType, str] = {
 
 
 class InterventionListener:
-    """Unix socket server bridging MCP intervention tools to file operations.
+    """Bus consumer that bridges MCP intervention tools to file operations.
 
     The resolver dict maps session/dispatch IDs to infra directory paths.
     The orchestrator populates this at construction time from its knowledge
     of active sessions and dispatches.
 
-    When ``teaparty_home`` is provided, the listener binds directly at the
-    well-known path ``{teaparty_home}/sockets/{session_id}.sock`` so the
-    bridge can reach it.  Uses unlink-before-bind to handle stale sockets
-    from crashed sessions.  Issue #386, per cfa-extensions proposal.
-
     Lifecycle:
       listener = InterventionListener(
           resolver={'ses-1': '/path/to/infra'},
-          teaparty_home='~/.teaparty',
+          bus_db_path='/path/to/messages.db',
+          conv_id='intervention:ses-1',
       )
       await listener.start()
-      # ... run office manager with INTERVENTION_SOCKET=listener.socket_path ...
+      # ... run Claude Code with
+      #   INTERVENTION_BUS_DB=bus_db_path
+      #   INTERVENTION_CONV_ID=conv_id
       await listener.stop()
     """
 
     def __init__(
         self,
         resolver: dict[str, str],
-        teaparty_home: str = '',
+        bus_db_path: str,
+        conv_id: str,
         on_withdraw: 'Callable[[str], None] | None' = None,
     ):
         self._resolver = resolver
-        self._teaparty_home = os.path.expanduser(teaparty_home) if teaparty_home else ''
+        self.bus_db_path = bus_db_path
+        self.conv_id = conv_id
         self._on_withdraw = on_withdraw
-        self.socket_path = ''
-        self._server: asyncio.AbstractServer | None = None
-        self._well_known_paths: list[str] = []
+        self._task: asyncio.Task | None = None
+        self._bus: SqliteMessageBus | None = None
 
-    async def start(self) -> str:
-        """Start listening. Returns the socket path.
+    async def start(self) -> None:
+        """Open the bus and start the background polling task.
 
-        When teaparty_home is set, binds at the well-known per-session path
-        so the bridge can find the socket by session ID alone.  Falls back
-        to a temp directory when teaparty_home is not provided.
+        ``since`` is captured here (not inside the task body) so messages
+        written between create_task() and the task's first tick are not
+        silently dropped — same invariant as EscalationListener.
         """
-        if self._teaparty_home and self._resolver:
-            # Bind at the well-known path per the cfa-extensions spec.
-            # Use the first session ID (one session per engine run).
-            session_id = next(iter(self._resolver))
-            sockets_dir = os.path.join(self._teaparty_home, 'sockets')
-            os.makedirs(sockets_dir, exist_ok=True)
-            self.socket_path = os.path.join(sockets_dir, f'{session_id}.sock')
-            self._well_known_paths.append(self.socket_path)
-            # Unlink-before-bind: remove stale socket from crashed session.
-            try:
-                os.unlink(self.socket_path)
-            except FileNotFoundError:
-                pass
-        else:
-            sock_dir = tempfile.mkdtemp(prefix='teaparty-intervention-')
-            self.socket_path = os.path.join(sock_dir, 'intervention.sock')
-
-        self._server = await asyncio.start_unix_server(
-            self._handle_connection, path=self.socket_path,
+        self._bus = SqliteMessageBus(self.bus_db_path)
+        since = time.time()
+        self._task = asyncio.create_task(self._poll_loop(since))
+        _log.info(
+            'Intervention listener started on bus %s conv %s',
+            self.bus_db_path, self.conv_id,
         )
-        _log.info('Intervention listener started at %s', self.socket_path)
-        return self.socket_path
 
     async def stop(self) -> None:
-        """Stop listening and clean up."""
-        if self._server:
-            self._server.close()
-            await self._server.wait_closed()
-            self._server = None
-        if self.socket_path:
+        """Cancel the polling task."""
+        if self._task:
+            self._task.cancel()
             try:
-                os.unlink(self.socket_path)
-            except OSError:
+                await self._task
+            except (asyncio.CancelledError, Exception):
                 pass
-            # Only remove parent dir if we created a temp directory.
-            if self.socket_path not in self._well_known_paths:
-                try:
-                    os.rmdir(os.path.dirname(self.socket_path))
-                except OSError:
-                    pass
-            self.socket_path = ''
-        self._well_known_paths.clear()
+            self._task = None
+        self._bus = None
 
-    async def _handle_connection(
-        self,
-        reader: asyncio.StreamReader,
-        writer: asyncio.StreamWriter,
-    ) -> None:
-        """Handle a single connection from the MCP server."""
+    async def _poll_loop(self, since: float) -> None:
+        """Poll the bus for new 'agent' messages and handle each one."""
+        while True:
+            try:
+                if self._bus is None:
+                    return
+                messages = self._bus.receive(self.conv_id, since_timestamp=since)
+                for msg in messages:
+                    since = max(since, msg.timestamp)
+                    if msg.sender != 'agent':
+                        continue
+                    self._handle_message(msg.content)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                _log.exception('Error polling bus for intervention messages')
+            await asyncio.sleep(_POLL_INTERVAL)
+
+    def _handle_message(self, raw_content: str) -> None:
+        """Parse an agent request, dispatch it, write the reply to the bus."""
         try:
-            line = await reader.readline()
-            if not line:
-                return
-            request = json.loads(line.decode())
-            response = self._dispatch(request)
-            writer.write(json.dumps(response).encode() + b'\n')
-            await writer.drain()
-        except Exception:
-            _log.exception('Error handling intervention connection')
-            try:
-                writer.write(
-                    json.dumps({'status': 'error', 'reason': 'internal error'}).encode()
-                    + b'\n'
-                )
-                await writer.drain()
-            except Exception:
-                pass
-        finally:
-            writer.close()
-            try:
-                await writer.wait_closed()
-            except Exception:
-                pass
+            request = json.loads(raw_content)
+        except json.JSONDecodeError:
+            _log.warning(
+                'Intervention message is not JSON: %r', raw_content[:120],
+            )
+            return
+
+        response = self._dispatch(request)
+        if self._bus is not None:
+            self._bus.send(
+                self.conv_id, 'orchestrator', json.dumps(response),
+            )
 
     def _dispatch(self, request: dict) -> dict:
         """Route a request to the appropriate tool function."""

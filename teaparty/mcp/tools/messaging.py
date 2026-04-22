@@ -8,10 +8,8 @@ from typing import Awaitable, Callable
 
 from teaparty.mcp.tools.escalation import (
     _build_composite,
-    _default_flush,
     _read_scratch,
     _scratch_path_from_env,
-    FlushFn,
 )
 
 SendPostFn = Callable[[str, str, str], Awaitable[str]]
@@ -43,7 +41,6 @@ async def send_handler(
     context_id: str = '',
     *,
     scratch_path: str = '',
-    flush_fn: FlushFn | None = None,
     post_fn: SendPostFn | None = None,
     session_lookup_fn: SessionLookupFn | None = None,
     inject_fn: InjectFn | None = None,
@@ -55,11 +52,6 @@ async def send_handler(
         raise ValueError('Send requires a non-empty message')
 
     resolved = scratch_path or _scratch_path_from_env()
-
-    if flush_fn is None:
-        flush_fn = _default_flush
-    await flush_fn(resolved)
-
     scratch = _read_scratch(resolved)
     composite = _build_composite(message, scratch)
 
@@ -128,7 +120,8 @@ async def _default_send_post(member: str, composite: str, context_id: str) -> st
     listener's spawn_fn is registered in the registry, keyed by agent
     name. The current agent name is set per-request via contextvars.
 
-    Falls back to SEND_SOCKET for the CfA engine path (not yet migrated).
+    Falls back to the dispatch bus (DISPATCH_BUS_PATH / DISPATCH_CONV_ID)
+    for paths that run the MCP server as a separate subprocess.
     """
     import time as _time
     import logging as _logging
@@ -168,30 +161,45 @@ async def _default_send_post(member: str, composite: str, context_id: str) -> st
             _send_log.warning('send_registry failed for %r: %s', member, exc)
             return json.dumps({'status': 'error', 'reason': str(exc)})
 
-    # Fallback: SEND_SOCKET (CfA engine path)
-    socket_path = os.environ.get('SEND_SOCKET', '')
-    if not socket_path:
+    # Fallback: dispatch bus (CfA engine path).  The engine's dispatch
+    # poller consumes agent-sender 'send' messages and writes back with
+    # sender 'orchestrator'.
+    bus_path = os.environ.get('DISPATCH_BUS_PATH', '')
+    dispatch_conv = os.environ.get('DISPATCH_CONV_ID', '')
+    if not bus_path or not dispatch_conv:
         raise RuntimeError(
-            'No spawn_fn in registry and SEND_SOCKET not set — cannot send',
+            'No spawn_fn in registry and DISPATCH_BUS_PATH/DISPATCH_CONV_ID '
+            'not set — cannot send',
         )
 
+    from teaparty.messaging.conversations import SqliteMessageBus
+    import uuid as _uuid
+    bus = SqliteMessageBus(bus_path)
+    request_id = _uuid.uuid4().hex
     t0 = _time.monotonic()
-    reader, writer = await asyncio.open_unix_connection(socket_path)
-    try:
-        request = json.dumps({
-            'type': 'send', 'member': member,
-            'composite': composite, 'context_id': context_id,
-        })
-        writer.write(request.encode() + b'\n')
-        await writer.drain()
-        response_line = await reader.readline()
-        response = json.loads(response_line.decode())
-        _send_log.info('send_socket: member=%r total=%.2fs',
-                       member, _time.monotonic() - t0)
-        return json.dumps(response)
-    finally:
-        writer.close()
-        await writer.wait_closed()
+    since = _time.time()
+    bus.send(dispatch_conv, 'agent', json.dumps({
+        'type': 'send',
+        'member': member,
+        'composite': composite,
+        'context_id': context_id,
+        'request_id': request_id,
+    }))
+
+    while True:
+        messages = bus.receive(dispatch_conv, since_timestamp=since)
+        for msg in messages:
+            if msg.sender != 'orchestrator':
+                continue
+            try:
+                resp = json.loads(msg.content)
+            except (json.JSONDecodeError, ValueError):
+                continue
+            if resp.get('request_id') == request_id:
+                _send_log.info('send_bus: member=%r total=%.2fs',
+                               member, _time.monotonic() - t0)
+                return json.dumps(resp)
+        await asyncio.sleep(0.1)
 
 
 async def close_conversation_handler(
@@ -211,8 +219,10 @@ async def close_conversation_handler(
 async def _default_close_conv_post(context_id: str) -> str:
     """Default CloseConversation transport.
 
-    For dispatch: conversations, uses the in-process close_fn registry.
-    Falls back to bus or CLOSE_CONV_SOCKET for the CfA engine path.
+    For ``dispatch:`` conversations, uses the in-process close_fn
+    registry.  Falls back to the dispatch bus (DISPATCH_BUS_PATH /
+    DISPATCH_CONV_ID) for paths that run the MCP server as a separate
+    subprocess.
     """
     import logging as _logging
     _close_log = _logging.getLogger('teaparty.mcp.tools.messaging.close')
@@ -296,21 +306,7 @@ async def _default_close_conv_post(context_id: str) -> str:
                         pass
             await asyncio.sleep(0.1)
 
-    socket_path = os.environ.get('CLOSE_CONV_SOCKET', '')
-    if not socket_path:
-        raise RuntimeError('CLOSE_CONV_SOCKET not set — cannot close conversation')
-    reader, writer = await asyncio.open_unix_connection(socket_path)
-    try:
-        request = json.dumps({
-            'type': 'close_conversation',
-            'context_id': context_id,
-            'caller_agent_id': os.environ.get('AGENT_ID', ''),
-        })
-        writer.write(request.encode() + b'\n')
-        await writer.drain()
-        response_line = await reader.readline()
-        response = json.loads(response_line.decode())
-        return json.dumps(response)
-    finally:
-        writer.close()
-        await writer.wait_closed()
+    raise RuntimeError(
+        'No close_fn in registry and DISPATCH_BUS_PATH/DISPATCH_CONV_ID '
+        'not set — cannot close conversation',
+    )

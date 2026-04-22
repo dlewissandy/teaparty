@@ -394,13 +394,16 @@ class Orchestrator:
             # as sessions/dispatches start.  Seeded with this session.
             # Issue #249.
             self._intervention_resolver[self.session_id] = self.infra_dir
+            intervention_conv_id = f'intervention:{self.session_id}'
             self._intervention_listener = InterventionListener(
                 resolver=self._intervention_resolver,
-                teaparty_home=os.path.join(self.poc_root, '.teaparty'),
+                bus_db_path=ask_question_bus_db,
+                conv_id=intervention_conv_id,
                 on_withdraw=self._on_external_withdraw,
             )
-            intervention_socket = await self._intervention_listener.start()
-            mcp_env['INTERVENTION_SOCKET'] = intervention_socket
+            await self._intervention_listener.start()
+            mcp_env['INTERVENTION_BUS_DB'] = ask_question_bus_db
+            mcp_env['INTERVENTION_CONV_ID'] = intervention_conv_id
 
             # Start the bus event listener so agents can use Send/Reply for
             # bus-mediated agent-to-agent dispatch (Issue #351, #358).
@@ -439,9 +442,7 @@ class Orchestrator:
                 cleanup_fn=self._cleanup_bus_agent_worktree,
                 dispatcher=self._build_bus_dispatcher(),
             )
-            send_socket, close_socket = await self._bus_event_listener.start()
-            mcp_env['SEND_SOCKET'] = send_socket
-            mcp_env['CLOSE_CONV_SOCKET'] = close_socket
+            await self._bus_event_listener.start()
             mcp_env['AGENT_ID'] = lead_agent_id
 
             # Bus-based dispatch transport: agents can use the message bus
@@ -459,12 +460,6 @@ class Orchestrator:
             self._dispatch_poller_task = asyncio.create_task(
                 self._poll_dispatch_bus(bus_db_path, f'task:{dispatch_conv_id}'),
             )
-            # Write interjection socket path for bridge to use when human
-            # posts to an agent-to-agent conversation (issue #383)
-            _interjection_path_file = os.path.join(self.infra_dir, 'interjection_socket')
-            with open(_interjection_path_file, 'w') as _f:
-                _f.write(self._bus_event_listener.interjection_socket_path)
-
             self._mcp_config = {
                 'ask-question': {
                     'command': venv_python,
@@ -821,17 +816,16 @@ class Orchestrator:
             dispatcher=dispatcher,
         )
 
-        send_socket, close_socket = await listener.start()
+        await listener.start()
 
-        # Build MCP config pointing to child listener sockets
+        # Build MCP config for the child; Send/Close now go through the
+        # dispatch bus (DISPATCH_BUS_PATH + DISPATCH_CONV_ID), not sockets.
         venv_python = sys.executable
         mcp_config = {
             'ask-question': {
                 'command': venv_python,
                 'args': ['-m', 'teaparty.mcp.server.main'],
                 'env': {
-                    'SEND_SOCKET': send_socket,
-                    'CLOSE_CONV_SOCKET': close_socket,
                     'AGENT_ID': child_agent_id,
                     'CONTEXT_ID': child_context_id,
                     'BUS_DB_PATH': bus_db_path,

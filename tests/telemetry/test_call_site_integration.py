@@ -58,17 +58,22 @@ class ConfigCrudEmitsTelemetryTests(unittest.TestCase):
 class InterventionEmitsTelemetryTests(unittest.TestCase):
     """The intervention tool handler emits pause_all / resume_all /
     withdraw_clicked when the listener responds — even when we fake the
-    listener via a stubbed socket server."""
+    listener via a stubbed bus reply."""
 
     def setUp(self) -> None:
         self.home = _fresh_home()
-        self._prev_sock = os.environ.get('INTERVENTION_SOCKET')
+        self._prev_bus = os.environ.get('INTERVENTION_BUS_DB')
+        self._prev_conv = os.environ.get('INTERVENTION_CONV_ID')
 
     def tearDown(self) -> None:
-        if self._prev_sock is None:
-            os.environ.pop('INTERVENTION_SOCKET', None)
-        else:
-            os.environ['INTERVENTION_SOCKET'] = self._prev_sock
+        for key, prev in (
+            ('INTERVENTION_BUS_DB', self._prev_bus),
+            ('INTERVENTION_CONV_ID', self._prev_conv),
+        ):
+            if prev is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = prev
         telemetry.reset_for_tests()
 
     def test_intervention_handler_emits_telemetry_for_all_four_types(
@@ -78,6 +83,7 @@ class InterventionEmitsTelemetryTests(unittest.TestCase):
         import asyncio
         import json
         from teaparty.mcp.tools.intervention import intervention_handler
+        from teaparty.messaging.conversations import SqliteMessageBus
 
         cases = [
             ('pause_dispatch', E.PAUSE_ALL, {'dispatch_id': 'd1'}),
@@ -91,23 +97,27 @@ class InterventionEmitsTelemetryTests(unittest.TestCase):
             with self.subTest(request_type=request_type):
                 telemetry.reset_for_tests()
                 self.home = _fresh_home()
-                sock_path = os.path.join(self.home, 'intervention.sock')
-                os.environ['INTERVENTION_SOCKET'] = sock_path
+                bus_db = os.path.join(self.home, 'messages.db')
+                conv_id = f'intervention:test-{request_type}'
+                os.environ['INTERVENTION_BUS_DB'] = bus_db
+                os.environ['INTERVENTION_CONV_ID'] = conv_id
 
-                async def fake_listener():
-                    async def handle(reader, writer):
-                        _ = await reader.readline()
-                        writer.write(
-                            json.dumps({'status': 'ok'}).encode() + b'\n',
-                        )
-                        await writer.drain()
-                        writer.close()
-                    return await asyncio.start_unix_server(
-                        handle, path=sock_path,
-                    )
+                # Stub the orchestrator: poll for the agent message, post a
+                # canned 'ok' reply.
+                async def fake_orchestrator():
+                    bus = SqliteMessageBus(bus_db)
+                    for _ in range(100):
+                        msgs = bus.receive(conv_id, since_timestamp=0)
+                        if any(m.sender == 'agent' for m in msgs):
+                            bus.send(
+                                conv_id, 'orchestrator',
+                                json.dumps({'status': 'ok'}),
+                            )
+                            return
+                        await asyncio.sleep(0.01)
 
                 async def run():
-                    server = await fake_listener()
+                    server_task = asyncio.create_task(fake_orchestrator())
                     try:
                         await intervention_handler(
                             request_type,
@@ -115,8 +125,11 @@ class InterventionEmitsTelemetryTests(unittest.TestCase):
                             **extra_kwargs,
                         )
                     finally:
-                        server.close()
-                        await server.wait_closed()
+                        server_task.cancel()
+                        try:
+                            await server_task
+                        except (asyncio.CancelledError, Exception):
+                            pass
 
                 asyncio.run(run())
                 events = telemetry.query_events(event_type=expected_event)

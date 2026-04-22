@@ -15,7 +15,6 @@ from mcp.server import FastMCP
 
 from teaparty.mcp.tools.escalation import (
     ask_question_handler,
-    _default_flush,
     _scratch_path_from_env,
 )
 
@@ -142,7 +141,6 @@ def create_server(agent_tools: set[str] | None = None) -> FastMCP:
             question=question,
             context=context,
             scratch_path=_scratch_path_from_env(),
-            flush_fn=_default_flush,
         )
 
     @server.tool()
@@ -172,7 +170,6 @@ def create_server(agent_tools: set[str] | None = None) -> FastMCP:
             message=message,
             context_id=context_id,
             scratch_path=_scratch_path_from_env(),
-            flush_fn=_default_flush,
         )
 
     @server.tool()
