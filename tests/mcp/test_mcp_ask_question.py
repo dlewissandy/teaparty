@@ -377,17 +377,6 @@ class TestEscalationListener(unittest.TestCase):
 
         _run(_test())
 
-    @unittest.skip(
-        "Obsolete contract: this asserted that cold start forces escalation "
-        "to the human and records the differential.  Cold-start cap was "
-        "dropped (MEMORY_DEPTH_THRESHOLD=0), so the proxy may answer "
-        "directly instead of escalating.  Differential recording on "
-        "escalation is still covered via the confident-proxy path in "
-        "test_no_differential_when_proxy_is_confident and sibling tests."
-    )
-    def test_cold_start_records_differential(self):
-        pass
-
     def test_confident_proxy_returns_without_human(self):
         """When the proxy is confident, the human is never consulted."""
         import json as _json
