@@ -432,7 +432,7 @@ function render() {
         var jobHref = jobUrl(p.slug, convId, {lead: cfg.lead, phase: s.cfa_phase, state: s.cfa_state, needsInput: s.needs_input, request: s.task, worktree: s.worktree_path});
         projectsHtml += '<a href="' + jobHref + '" style="flex:1;display:flex;align-items:center;gap:6px;color:inherit;text-decoration:none;min-width:0">';
         projectsHtml += '<span style="flex-shrink:0;width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;color:var(--text)">' + jobName + '</span>';
-        projectsHtml += '<span style="flex:1">' + renderWorkflow(pIdx, false, s.needs_input || !!stickyConvId) + '</span>';
+        projectsHtml += '<span style="flex:1">' + renderWorkflow(pIdx, false, s.needs_input || !!stickyConvId, s.cfa_state) + '</span>';
         projectsHtml += '</a>';
         projectsHtml += '<button onclick="withdrawJob(\'' + s.session_id + '\',event)" title="Withdraw job" style="flex-shrink:0;background:transparent;border:none;color:var(--text-dim);font-size:13px;cursor:pointer;padding:0 2px;line-height:1" onmouseover="this.style.color=\'var(--text)\'" onmouseout="this.style.color=\'var(--text-dim)\'">&#10005;</button>';
         projectsHtml += '</div>';
@@ -523,7 +523,7 @@ function onStateChanged(sessionId, phase, cfaState) {
   if (barEl) {
     var tmp = document.createElement('div');
     var hasEsc = !!pageState.escalationConvMap[sessionId];
-    tmp.innerHTML = renderWorkflow(phaseIndex(phase, cfaState), false, hasEsc);
+    tmp.innerHTML = renderWorkflow(phaseIndex(phase, cfaState), false, hasEsc, cfaState);
     var newBar = tmp.firstChild;
     if (newBar) barEl.parentNode.replaceChild(newBar, barEl);
   }

@@ -199,6 +199,7 @@ body {
 .workflow-bar { display: flex; margin-top: 2px; align-items: center; gap: 0; }
 .wf-bar { height: 2px; flex: 1; background: var(--border); }
 .wf-bar.complete { background: var(--green); }
+.wf-bar.withdrawn { background: var(--text-dim); }
 .wf-bar.active { background: var(--yellow); }
 .wf-gate { flex: 0 0 8px; width: 8px; height: 8px; border-radius: 50%; background: var(--border); }
 .wf-gate.complete { background: var(--green); }

@@ -671,7 +671,7 @@
       // space in the job-strip row, matching the home page pattern.
       if (typeof renderWorkflow === 'function') {
         var pIdx = typeof phaseIndex === 'function' ? phaseIndex(_config.workflowPhase, _config.workflowState) : 0;
-        topStripHtml += '<span style="flex:1">' + renderWorkflow(pIdx, true, !!_config.needsInput) + '</span>';
+        topStripHtml += '<span style="flex:1">' + renderWorkflow(pIdx, true, !!_config.needsInput, _config.workflowState) + '</span>';
       }
       topStripHtml += '</div>';
     }

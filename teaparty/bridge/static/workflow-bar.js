@@ -25,15 +25,21 @@
     return phaseMap[phase] || 0;
   }
 
-  function renderWorkflow(phaseIdx, large, needsInput) {
+  function renderWorkflow(phaseIdx, large, needsInput, cfaState) {
+    // cfaState distinguishes DONE from WITHDRAWN — both collapse to the
+    // final phase index, but only DONE should show the completed-green
+    // colouring.  WITHDRAWN uses a muted gray so a glance at the bar
+    // tells you "job stopped" vs "job finished."
+    var withdrawn = cfaState === 'WITHDRAWN';
     var cls = large ? 'workflow-bar large' : 'workflow-bar';
     var html = '<div class="' + cls + '">';
     var isDone = phaseIdx >= PHASES.length - 1;
+    var completeCls = withdrawn ? 'withdrawn' : 'complete';
     for (var i = 0; i < PHASES.length; i++) {
       var ph = PHASES[i];
       var state;
       if (i < phaseIdx || (isDone && i === phaseIdx)) {
-        state = 'complete';
+        state = completeCls;
       } else if (i === phaseIdx) {
         state = 'active';
       } else {
