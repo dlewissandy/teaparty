@@ -856,12 +856,16 @@ class TestDispatchTreeProjectScopeRouting(unittest.TestCase):
             "TeaPartyBridge._find_sessions_dir must fall back to first candidate when session absent"
         )
 
-    def test_server_handle_dispatch_tree_calls_find_sessions_dir(self):
-        """_handle_dispatch_tree must call _find_sessions_dir, not a hardcoded path.
+    def test_server_handle_dispatch_tree_passes_all_sessions_dirs(self):
+        """_handle_dispatch_tree must pass every candidate sessions_dir to the
+        walker, not a single hardcoded path and not a single resolved dir.
 
-        Source-level check to catch the regression: the old code was
-        `sessions_dir = os.path.join(repo_root, '.teaparty', 'management', 'sessions')`.
-        After the fix, _handle_dispatch_tree delegates to _find_sessions_dir.
+        Proxy escalation sessions live at management scope even when the
+        caller is project-scope, so a conversation_map entry on the root
+        session can point at a session in a different sessions_dir.  The
+        walker is given the full set of candidates and crosses scopes when
+        resolving each child id; the endpoint's job is just to hand it
+        every directory.
         """
         import teaparty.bridge.server as srv_module
         src = Path(srv_module.__file__).read_text()
@@ -872,14 +876,15 @@ class TestDispatchTreeProjectScopeRouting(unittest.TestCase):
         self.assertIsNotNone(m, "_handle_dispatch_tree not found in server.py")
         handler_body = m.group(0)
         self.assertIn(
-            '_find_sessions_dir', handler_body,
-            "_handle_dispatch_tree does not call _find_sessions_dir — "
-            "project lead sessions won't be found (regression to hardcoded management path)"
+            '_all_sessions_dirs', handler_body,
+            "_handle_dispatch_tree does not call _all_sessions_dirs — "
+            "cross-scope dispatches (e.g. a project root linking a management "
+            "proxy child) won't be found. Pass every candidate to the walker."
         )
         self.assertNotIn(
             "'management', 'sessions'", handler_body,
             "_handle_dispatch_tree still hardcodes management/sessions — "
-            "project lead sessions won't be found. Delegate to _find_sessions_dir() instead."
+            "project lead sessions won't be found."
         )
 
 

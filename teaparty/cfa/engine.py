@@ -372,12 +372,13 @@ class Orchestrator:
             venv_python = 'python3'  # fallback
 
         # Start the MCP escalation listener so agents can call AskQuestion.
-        # CfA jobs go through the exact same /escalation skill path as
-        # chat-tier AgentSession — no duplicate route.  That requires a
-        # launcher.Session to stand in as the dispatcher (so escalations
-        # land in its conversation_map and the dispatch tree walker can
-        # see them) plus the proxy_invoker_fn + on_dispatch hooks from
-        # the bridge.
+        # Single route: every agent's AskQuestion spawns a proxy child
+        # session via the /escalation skill, same mechanism chat-tier
+        # uses.  The proxy is a management-level participant — its
+        # session always lives under management scope, regardless of
+        # who asked.  The caller's dispatcher session (project or
+        # management) records the proxy child in its conversation_map;
+        # the dispatch-tree walker crosses scopes to resolve it.
         if self.input_provider:
             from teaparty.runners.launcher import (
                 create_session as _create_session,
@@ -391,27 +392,32 @@ class Orchestrator:
             # The CfA job lives under .teaparty/jobs/ but the accordion's
             # dispatch-tree walker reads sessions from
             # .teaparty/{scope}/sessions/ — so we also materialise the
-            # job as a launcher.Session keyed by self.session_id.  The
-            # escalation listener records child proxy sessions into this
-            # session's conversation_map via record_child_session.
-            cfa_scope = 'project' if self.project_slug else 'management'
-            cfa_teaparty_home = (
+            # job as a launcher.Session keyed by self.session_id.  This
+            # is the caller's dispatcher: its conversation_map gains an
+            # entry per in-flight escalation.
+            caller_scope = 'project' if self.project_slug else 'management'
+            caller_teaparty_home = (
                 os.path.join(self.project_workdir, '.teaparty')
                 if self.project_workdir else self.poc_root
             )
             dispatcher = _load_session(
                 agent_name=self.config.project_lead or 'project-lead',
-                scope=cfa_scope,
-                teaparty_home=cfa_teaparty_home,
+                scope=caller_scope,
+                teaparty_home=caller_teaparty_home,
                 session_id=self.session_id,
             )
             if dispatcher is None:
                 dispatcher = _create_session(
                     agent_name=self.config.project_lead or 'project-lead',
-                    scope=cfa_scope,
-                    teaparty_home=cfa_teaparty_home,
+                    scope=caller_scope,
+                    teaparty_home=caller_teaparty_home,
                     session_id=self.session_id,
                 )
+
+            # The proxy's home — where the listener creates its session
+            # and where the proxy agent.md resolves.  Always management,
+            # always the org's teaparty_home, independent of caller scope.
+            proxy_teaparty_home = os.path.join(self.poc_root, '.teaparty')
 
             self._escalation_listener = EscalationListener(
                 event_bus=self.event_bus,
@@ -428,8 +434,8 @@ class Orchestrator:
                 proxy_invoker_fn=self._proxy_invoker_fn,
                 on_dispatch=self._on_dispatch,
                 dispatcher_session=dispatcher,
-                teaparty_home=cfa_teaparty_home,
-                scope=cfa_scope,
+                teaparty_home=proxy_teaparty_home,
+                scope='management',
             )
             await self._escalation_listener.start()
 

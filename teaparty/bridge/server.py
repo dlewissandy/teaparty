@@ -2064,13 +2064,6 @@ class TeaPartyBridge:
         ``build_dispatch_tree`` to walk into the escalation's child node.
         """
         from teaparty.proxy.hooks import proxy_post_invoke, proxy_build_prompt
-        # The proxy agent.md lives only in management scope.  When the
-        # caller is a project-scope session (project lead, CfA job),
-        # we still need the proxy's sessions to live under the caller's
-        # scope (so build_dispatch_tree finds them via conversation_map)
-        # — but the agent definition must be resolved from management.
-        # Passing ``org_home=self.teaparty_home`` lets the launcher fall
-        # back to management/agents/proxy/agent.md regardless of scope.
         await self._invoke_agent(
             session_key=f'proxy:{qualifier}',
             agent_name='proxy',
@@ -2080,7 +2073,6 @@ class TeaPartyBridge:
             cwd=cwd if cwd is not None else self._repo_root,
             launch_cwd_override=cwd or '',
             teaparty_home=teaparty_home,
-            org_home=self.teaparty_home,
             scope=scope,
             post_invoke_hook=proxy_post_invoke,
             build_prompt_hook=proxy_build_prompt,
@@ -3120,22 +3112,25 @@ class TeaPartyBridge:
         GET /api/dispatch-tree/{session_id}
         Returns a nested tree of dispatched conversations with their status.
 
-        Sessions can live in either management scope or a project's scope,
-        depending on which agent was invoked:
-          - OM sessions: {teaparty_home}/management/sessions/
-          - Project lead sessions: {project_path}/.teaparty/project/sessions/
+        Sessions live in multiple scopes:
+          - OM sessions:              {teaparty_home}/management/sessions/
+          - Project lead sessions:    {project_path}/.teaparty/project/sessions/
+          - Proxy escalation sessions always live at management scope,
+            regardless of which caller (project or management) spawned
+            them — so a project-scope root can have a management-scope
+            child via conversation_map.
 
-        Search all candidate directories and use the first one that contains
-        the requested session_id.
+        Pass every candidate sessions_dir to the walker so it can cross
+        scopes when resolving a child session id.
         """
         session_id = request.match_info['session_id']
         conv_id = request.query.get('conv', '')
         from teaparty.bridge.state.dispatch_tree import build_dispatch_tree
 
-        sessions_dir = self._find_sessions_dir(session_id)
-        tree = build_dispatch_tree(sessions_dir, session_id, conv_id=conv_id)
-        _log.debug('dispatch-tree %s: %d children, sessions_dir=%s',
-                   session_id, len(tree.get('children', [])), sessions_dir)
+        sessions_dirs = self._all_sessions_dirs()
+        tree = build_dispatch_tree(sessions_dirs, session_id, conv_id=conv_id)
+        _log.debug('dispatch-tree %s: %d children, sessions_dirs=%s',
+                   session_id, len(tree.get('children', [])), sessions_dirs)
         return web.json_response(tree)
 
     def _find_sessions_dir(self, session_id: str) -> str:

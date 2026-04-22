@@ -750,6 +750,15 @@ class AgentSession:
         input_provider = MessageBusInputProvider(
             self._bus, conversation_id=self.conversation_id,
         )
+        # The proxy is a management-level participant.  Its session (and
+        # its agent.md) always live at management scope, independent of
+        # who calls AskQuestion.  For project agents (e.g. project
+        # manager, project lead) ``_org_home`` is the bridge's management
+        # ``.teaparty/``; for management agents it's already their own
+        # teaparty_home.  The caller's ``_dispatch_session`` stays at the
+        # caller's scope — it's the conversation_map owner, which the
+        # dispatch-tree walker follows cross-scope to resolve children.
+        proxy_teaparty_home = self._org_home or self.teaparty_home
         self._escalation_listener = EscalationListener(
             event_bus=None,  # bridge path has no EventBus; will emit a warning
             input_provider=input_provider,
@@ -763,13 +772,9 @@ class AgentSession:
             team='',
             proxy_invoker_fn=self._proxy_invoker_fn,
             on_dispatch=self._on_dispatch,
-            # Accordion wiring: the escalation runs as a child session of
-            # the caller's dispatch session, so the dispatch tree walker
-            # can find it via conversation_map and render it as a nested
-            # blade under this agent.
             dispatcher_session=self._dispatch_session,
-            teaparty_home=self.teaparty_home,
-            scope=self.scope,
+            teaparty_home=proxy_teaparty_home,
+            scope='management',
         )
         await self._escalation_listener.start()
 
