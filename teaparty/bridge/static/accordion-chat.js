@@ -195,9 +195,15 @@
       var statusCls = node.status === 'active' ? 'badge-active' : 'badge-idle';
       var agentLabel = node.agent_name.replace(/-/g, ' ');
       agentLabel = agentLabel.charAt(0).toUpperCase() + agentLabel.slice(1);
+      // A proxy child under another agent is a human-escalation — style
+      // the section red so the human sees immediately that the chat is
+      // waiting on them.  A top-level proxy chat (depth 0 on the proxy
+      // home blade) is ordinary chat, not an escalation, so no marker.
+      var isEscalation = (depth > 0 && node.agent_name === 'proxy');
 
       var html = '';
-      var sectionCls = 'accord-section' + (isExpanded ? ' expanded' : '');
+      var sectionCls = 'accord-section' + (isExpanded ? ' expanded' : '') +
+        (isEscalation ? ' escalation' : '');
       html += '<div class="' + sectionCls + '" data-session="' + node.session_id + '" style="margin-left:' + indent + 'px">';
       html += '<div class="accord-header' + (isExpanded ? ' expanded' : '') + '" onclick="accordionToggle(\'' + node.session_id + '\')">';
       html += '<span class="accord-label">' + agentLabel + '</span>';
@@ -304,6 +310,13 @@
         try {
           var event = JSON.parse(e.data);
           if (event.type === 'dispatch_started') {
+            // Escalations (agent_name='proxy') need human attention right
+            // away — auto-expand so the dialog chat is visible without a
+            // click.  Other dispatch children stay collapsed so ongoing
+            // work doesn't preempt whatever the user is reading.
+            if (event.agent_name === 'proxy' && event.child_session_id) {
+              _accordionExpanded = event.child_session_id;
+            }
             _updateAccordion();
           } else if (event.type === 'dispatch_completed') {
             if (_dispatchTree) {

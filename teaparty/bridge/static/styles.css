@@ -567,5 +567,8 @@ body {
 }
 .accord-header:hover { background: rgba(78,204,163,0.05); }
 .accord-header.expanded { background: var(--surface2); border-left: 2px solid var(--green); }
+.accord-section.escalation .accord-header { background: rgba(139, 0, 0, 0.55); border-left: 3px solid var(--red); }
+.accord-section.escalation .accord-header:hover { background: rgba(139, 0, 0, 0.7); }
+.accord-section.escalation .accord-header.expanded { background: rgba(139, 0, 0, 0.7); border-left: 3px solid var(--red); }
 .accord-label { font-size: 10px; font-weight: 600; color: var(--text); text-transform: capitalize; }
 .accord-body { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
