@@ -621,12 +621,24 @@ class TestPauseResumeIntegration(unittest.IsolatedAsyncioTestCase):
 
         session = self._make_session()
 
-        with spawn_env(fake_launch, self._tmpdir):
-            # Override has_sub_roster to True for B→C dispatch chain.
-            with patch('teaparty.config.roster.has_sub_roster', return_value=True):
-                await session._ensure_bus_listener(self._tmpdir)
-                from teaparty.mcp.registry import get_spawn_fn
-                spawn_fn = get_spawn_fn('parent')
+        # B→C dispatch activates spawn_fn's has_sub_roster branch, which
+        # reaches past _launch (already mocked by spawn_env) into git
+        # operations on the dispatcher's worktree.  The fake worktree
+        # created by spawn_env's fake_create_wt is just an empty
+        # directory — not a real git repo — so head_commit_of /
+        # current_branch_of / default_branch_of must be mocked too.
+        with spawn_env(fake_launch, self._tmpdir), \
+                patch('teaparty.config.roster.has_sub_roster',
+                      return_value=True), \
+                patch('teaparty.workspace.worktree.head_commit_of',
+                      new=AsyncMock(return_value='deadbeef')), \
+                patch('teaparty.workspace.worktree.current_branch_of',
+                      new=AsyncMock(return_value='main')), \
+                patch('teaparty.workspace.worktree.default_branch_of',
+                      new=AsyncMock(return_value='main')):
+            await session._ensure_bus_listener(self._tmpdir)
+            from teaparty.mcp.registry import get_spawn_fn
+            spawn_fn = get_spawn_fn('parent')
 
             b_sid, _, _ = await spawn_fn('agent-b', 'task B', 'a-b')
 
