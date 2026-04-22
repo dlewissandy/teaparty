@@ -2064,6 +2064,13 @@ class TeaPartyBridge:
         ``build_dispatch_tree`` to walk into the escalation's child node.
         """
         from teaparty.proxy.hooks import proxy_post_invoke, proxy_build_prompt
+        # The proxy agent.md lives only in management scope.  When the
+        # caller is a project-scope session (project lead, CfA job),
+        # we still need the proxy's sessions to live under the caller's
+        # scope (so build_dispatch_tree finds them via conversation_map)
+        # — but the agent definition must be resolved from management.
+        # Passing ``org_home=self.teaparty_home`` lets the launcher fall
+        # back to management/agents/proxy/agent.md regardless of scope.
         await self._invoke_agent(
             session_key=f'proxy:{qualifier}',
             agent_name='proxy',
@@ -2073,6 +2080,7 @@ class TeaPartyBridge:
             cwd=cwd if cwd is not None else self._repo_root,
             launch_cwd_override=cwd or '',
             teaparty_home=teaparty_home,
+            org_home=self.teaparty_home,
             scope=scope,
             post_invoke_hook=proxy_post_invoke,
             build_prompt_hook=proxy_build_prompt,
