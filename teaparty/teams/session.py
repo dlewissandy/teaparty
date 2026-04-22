@@ -1444,9 +1444,14 @@ class AgentSession:
             self.teaparty_home, self.scope, self.agent_name, self.qualifier,
         )
 
-        # Start bus listener for agents that dispatch
+        # Start bus listener for agents that dispatch.  The returned dict
+        # carries the env vars (ASK_QUESTION_BUS_DB / ASK_QUESTION_CONV_ID,
+        # AGENT_ID) that the MCP tools inside the spawned Claude subprocess
+        # read — they must be threaded into launch()'s env_vars so the tool
+        # can locate the bus and the escalation conversation.
+        bus_listener_env: dict[str, str] = {}
         if self._dispatches:
-            await self._ensure_bus_listener(cwd)
+            bus_listener_env = await self._ensure_bus_listener(cwd)
 
         # Stream events to bus in real-time
         stream_callback, events = _make_live_stream_relay(
@@ -1474,6 +1479,7 @@ class AgentSession:
             mcp_port=mcp_port,
             session_id=session.id,
             on_stream_event=stream_callback,
+            env_vars=bus_listener_env or None,
         )
         if self._llm_caller is not None:
             launch_kwargs['llm_caller'] = self._llm_caller
