@@ -1948,6 +1948,15 @@ class TeaPartyBridge:
                         if project_slug else None
                     ),
                     org_home=org_home or None,
+                    # Issue #420: supply the bridge's proxy invocation hook
+                    # so AskQuestion routes through the proxy + /escalation
+                    # skill.  The proxy agent itself is excluded — its own
+                    # EscalationListener (if any) must not recurse through
+                    # itself.
+                    proxy_invoker_fn=(
+                        self._invoke_proxy
+                        if agent_name != 'proxy' else None
+                    ),
                 )
             session = self._agent_sessions[session_key]
             try:
@@ -2012,7 +2021,7 @@ class TeaPartyBridge:
             project_slug=project_slug,
         )
 
-    async def _invoke_proxy(self, qualifier: str) -> None:
+    async def _invoke_proxy(self, qualifier: str, cwd: str | None = None) -> None:
         """Invoke the proxy agent for the given conversation qualifier.
 
         Runs as a fire-and-forget asyncio task. The proxy agent reads the
@@ -2026,6 +2035,11 @@ class TeaPartyBridge:
 
         On runner failure, writes an error message to the bus so the human sees
         feedback rather than silence.
+
+        ``cwd`` defaults to the repo root for ordinary proxy chat. The
+        escalation path (issue #420) passes a per-escalation ephemeral
+        directory so the proxy sees ``QUESTION.md`` in its working
+        directory when the ``/escalation`` skill loads.
         """
         from teaparty.proxy.hooks import proxy_post_invoke, proxy_build_prompt
         await self._invoke_agent(
@@ -2034,7 +2048,7 @@ class TeaPartyBridge:
             agent_role='proxy',
             qualifier=qualifier,
             conversation_type=ConversationType.PROXY,
-            cwd=self._repo_root,
+            cwd=cwd if cwd is not None else self._repo_root,
             post_invoke_hook=proxy_post_invoke,
             build_prompt_hook=proxy_build_prompt,
         )

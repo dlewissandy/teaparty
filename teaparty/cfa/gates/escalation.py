@@ -28,18 +28,35 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import re
+import shutil
 import time
-from typing import Awaitable, Callable
+import uuid
+from typing import Any, Awaitable, Callable
 
 from teaparty.messaging.bus import (
     Event, EventBus, EventType, InputRequest,
 )
-from teaparty.messaging.conversations import SqliteMessageBus
+from teaparty.messaging.conversations import (
+    ConversationType,
+    SqliteMessageBus,
+    make_conversation_id,
+)
+from teaparty.proxy.hooks import proxy_bus_path
 
 _log = logging.getLogger('teaparty.cfa.gates.escalation')
 
 # Type for the input provider (same as actors.InputProvider)
 InputProvider = Callable[[InputRequest], Awaitable[str]]
+
+# Type for the proxy invoker hook supplied by the bridge.
+# Signature: async invoker(qualifier: str, cwd: str) -> None
+ProxyInvoker = Callable[..., Awaitable[None]]
+
+# Type for the dispatch-event hook used to surface the escalation as a
+# child node in the accordion.  Matches bridge._broadcast_dispatch.
+DispatchHook = Callable[[dict], Any]
 
 # How often the listener polls the bus for new agent messages.
 _POLL_INTERVAL = 0.1
@@ -81,6 +98,8 @@ class EscalationListener:
         infra_dir: str = '',
         team: str = '',
         proxy_enabled: bool = True,
+        proxy_invoker_fn: ProxyInvoker | None = None,
+        on_dispatch: DispatchHook | None = None,
     ):
         self.event_bus = event_bus
         self.input_provider = input_provider
@@ -94,6 +113,14 @@ class EscalationListener:
         self.infra_dir = infra_dir
         self.team = team
         self.proxy_enabled = proxy_enabled
+        # Issue #420: bridge-supplied hook that runs the proxy agent via the
+        # `/escalation` skill.  When set, every AskQuestion routes through
+        # the proxy; when None, the listener falls back to the legacy
+        # consult_proxy path (retired in #421).
+        self._proxy_invoker_fn = proxy_invoker_fn
+        # Issue #420: dispatch-event hook so the escalation appears as a
+        # child accordion node under the caller's session.
+        self._on_dispatch = on_dispatch
         self._task: asyncio.Task | None = None
         self._bus: SqliteMessageBus | None = None
         self._last_escalation_source: str = ''
@@ -194,7 +221,12 @@ class EscalationListener:
             pass
 
         try:
-            answer = await self._route_through_proxy(question, context)
+            if self._proxy_invoker_fn is not None:
+                answer = await self._route_through_escalation_skill(
+                    question, context,
+                )
+            else:
+                answer = await self._route_through_proxy(question, context)
         except Exception:
             _log.exception('Error routing escalation through proxy')
             answer = ''
@@ -376,3 +408,268 @@ class EscalationListener:
             artifact='',
             bridge_text=question,
         ))
+
+    # ── Escalation-skill path (issue #420) ───────────────────────────────
+
+    async def _route_through_escalation_skill(
+        self, question: str, context: str,
+    ) -> str:
+        """Run one escalation through the proxy + `/escalation` skill.
+
+        Per design decisions on #340:
+          DD2: the proxy conversation ``proxy:{session_id}:{escalation_id}``
+               IS the accordion — DIALOG turns land there, human replies
+               land there, the proxy resumes on each reply.
+          DD3: a per-escalation temp directory holds QUESTION.md; the
+               proxy runs with that directory as its cwd.  Torn down on
+               RESPONSE / WITHDRAW.
+          DD4: the conversation is seeded with `/escalation` as a
+               synthesized human message so Claude Code loads the skill.
+          DD5: dispatch_started / dispatch_completed events nest the
+               escalation under the caller session's accordion node.
+          DD6: the skill emits a JSON object
+               ``{"status": "DIALOG"|"RESPONSE"|"WITHDRAW", "message": ...}``.
+               DIALOG → wait for human reply, resume.  RESPONSE / WITHDRAW
+               terminate the loop.
+        """
+        if self._proxy_invoker_fn is None:
+            raise RuntimeError(
+                'escalation-skill path requires proxy_invoker_fn to be set'
+            )
+
+        escalation_id = uuid.uuid4().hex
+        qualifier = f'{self.session_id}:{escalation_id}'
+        proxy_conv_id = make_conversation_id(
+            ConversationType.PROXY, qualifier,
+        )
+
+        # DD3: ephemeral per-escalation directory with QUESTION.md.
+        base = self.infra_dir or '/tmp'
+        escalation_dir = os.path.join(base, 'escalations', escalation_id)
+        os.makedirs(escalation_dir, exist_ok=True)
+        question_md = os.path.join(escalation_dir, 'QUESTION.md')
+        body = question
+        if context:
+            body = f'{question}\n\n## Context\n\n{context}'
+        with open(question_md, 'w') as fh:
+            fh.write(body)
+
+        # DD5: emit dispatch_started so the accordion nests the escalation
+        # under the caller session.
+        self._emit_dispatch('dispatch_started', escalation_id)
+
+        # DD2: the proxy bus is where the accordion reads messages from.
+        # Resolve the proxy bus path from the conventional location (mirrors
+        # proxy_home()).  infra_dir points at .teaparty/{scope}/agents/{agent};
+        # walk up two levels to reach .teaparty/ then descend into proxy/.
+        proxy_bus = self._resolve_proxy_bus()
+
+        # DD4: seed the conversation with the /escalation slash command
+        # as the initial "human" message.  Claude Code's skill-dispatcher
+        # picks this up on the proxy's first turn.
+        proxy_bus.send(proxy_conv_id, 'human', '/escalation')
+
+        final_answer = ''
+        try:
+            while True:
+                # Capture the pre-invocation watermark so we can find the
+                # proxy's reply produced by *this* turn.
+                invocation_start = time.time()
+
+                await self._proxy_invoker_fn(
+                    qualifier=qualifier, cwd=escalation_dir,
+                )
+
+                # Pull the proxy's last turn output from the conversation.
+                proxy_text = self._read_last_proxy_message(
+                    proxy_bus, proxy_conv_id, since=invocation_start,
+                )
+                status, message = _parse_skill_output(proxy_text)
+
+                if status == 'RESPONSE':
+                    final_answer = message
+                    break
+                if status == 'WITHDRAW':
+                    final_answer = f'[WITHDRAW]\n{message}'
+                    break
+                if status == 'DIALOG':
+                    # Wait for a new human message on the proxy conversation
+                    # before re-invoking.  The human replies through the
+                    # accordion chat widget.
+                    await self._wait_for_human_reply(
+                        proxy_bus, proxy_conv_id, since=invocation_start,
+                    )
+                    continue
+                # Status unrecognised — treat as a malformed turn and
+                # return an empty answer.  The caller will surface this
+                # as an escalation failure rather than silently retry.
+                _log.error(
+                    'Escalation skill emitted unrecognised status; '
+                    'conv=%s text=%r',
+                    proxy_conv_id, proxy_text[:200],
+                )
+                final_answer = ''
+                break
+        finally:
+            self._emit_dispatch('dispatch_completed', escalation_id)
+            shutil.rmtree(escalation_dir, ignore_errors=True)
+
+        self._last_escalation_source = 'proxy_skill'
+        return final_answer
+
+    def _emit_dispatch(self, event_type: str, escalation_id: str) -> None:
+        """Fire a dispatch_started / dispatch_completed event.
+
+        Parent = caller session (``self.session_id``), child = the
+        escalation's id, agent_name = 'proxy'.  No-op when the hook is
+        not attached.
+        """
+        if self._on_dispatch is None:
+            return
+        try:
+            self._on_dispatch({
+                'type': event_type,
+                'parent_session_id': self.session_id,
+                'child_session_id': escalation_id,
+                'agent_name': 'proxy',
+            })
+        except Exception:
+            _log.debug(
+                'on_dispatch hook raised for %s', event_type, exc_info=True,
+            )
+
+    def _resolve_proxy_bus(self) -> SqliteMessageBus:
+        """Open the proxy's message bus at its canonical location.
+
+        ``infra_dir`` points at ``.teaparty/{scope}/agents/{agent}``.  The
+        proxy bus lives at ``.teaparty/proxy/proxy-messages.db``.  We walk
+        up to the ``.teaparty/`` root and resolve from there.
+        """
+        if not self.infra_dir:
+            raise RuntimeError(
+                'EscalationListener needs infra_dir to locate the proxy bus'
+            )
+        # .teaparty/{scope}/agents/{agent} → .teaparty/
+        teaparty_home = os.path.dirname(
+            os.path.dirname(os.path.dirname(self.infra_dir))
+        )
+        bus_path = proxy_bus_path(teaparty_home)
+        os.makedirs(os.path.dirname(bus_path), exist_ok=True)
+        return SqliteMessageBus(bus_path)
+
+    def _read_last_proxy_message(
+        self, bus: SqliteMessageBus, conv_id: str, since: float,
+    ) -> str:
+        """Return the content of the proxy's most recent message, or ''.
+
+        Scans messages posted since ``since`` and returns the last one
+        whose sender is ``proxy``.  The synthesized ``/escalation`` seed
+        is a ``human`` message and never matches.
+        """
+        try:
+            messages = bus.receive(conv_id, since_timestamp=since)
+        except Exception:
+            _log.debug('failed to read proxy bus %s', conv_id, exc_info=True)
+            return ''
+        for msg in reversed(messages):
+            if msg.sender == 'proxy':
+                return msg.content
+        return ''
+
+    async def _wait_for_human_reply(
+        self,
+        bus: SqliteMessageBus,
+        conv_id: str,
+        since: float,
+        poll_interval: float = _POLL_INTERVAL,
+    ) -> None:
+        """Block until a sender='human' message appears since ``since``."""
+        while True:
+            try:
+                messages = bus.receive(conv_id, since_timestamp=since)
+            except Exception:
+                messages = []
+            for msg in messages:
+                if msg.sender == 'human':
+                    return
+            await asyncio.sleep(poll_interval)
+
+
+# ── Skill output parsing (DD6) ───────────────────────────────────────────
+
+_STATUS_VALUES = ('DIALOG', 'RESPONSE', 'WITHDRAW')
+
+
+def _parse_skill_output(text: str) -> tuple[str, str]:
+    """Extract the outermost ``{"status": ..., "message": ...}`` object.
+
+    Tolerates surrounding prose and nested JSON inside ``message``.  We
+    walk the string locating each ``"status"`` key at the top level of a
+    ``{...}`` block, balance braces to find the object's end, and attempt
+    ``json.loads`` on the slice.  The last successfully-parsed object that
+    carries a recognised status wins — per DD6 the skill's terminal turn
+    is the one that matters when the model produces intermediate thinking
+    that also contains a JSON-looking fragment.
+
+    Returns ``(status, message)`` or ``('', '')`` if no object parses.
+    """
+    if not text:
+        return '', ''
+
+    results: list[tuple[str, str]] = []
+    # Iterate over each '{' and try to parse from there as a JSON object.
+    for start in (m.start() for m in re.finditer(r'\{', text)):
+        obj = _extract_json_object(text, start)
+        if obj is None:
+            continue
+        status = obj.get('status')
+        message = obj.get('message')
+        if (
+            isinstance(status, str)
+            and status in _STATUS_VALUES
+            and isinstance(message, str)
+        ):
+            results.append((status, message))
+
+    if not results:
+        return '', ''
+    # The skill's terminal turn is the last recognised object in the text.
+    return results[-1]
+
+
+def _extract_json_object(text: str, start: int) -> dict | None:
+    """Return the dict parsed from the JSON object starting at ``text[start]``.
+
+    Walks forward counting braces (respecting string literals and escapes)
+    until the matching ``}``, then attempts ``json.loads`` on the slice.
+    Returns None on any failure — malformed or non-object JSON.
+    """
+    if start >= len(text) or text[start] != '{':
+        return None
+    depth = 0
+    in_string = False
+    escape = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == '\\':
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+            continue
+        if ch == '{':
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+            if depth == 0:
+                try:
+                    obj = json.loads(text[start:i + 1])
+                except (json.JSONDecodeError, ValueError):
+                    return None
+                return obj if isinstance(obj, dict) else None
+    return None

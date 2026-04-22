@@ -486,5 +486,320 @@ class TestEscalationListener(unittest.TestCase):
         _run(_test())
 
 
+# ── Tests: EscalationListener skill path (issue #420) ──────────────────────
+
+class TestEscalationSkillPath(unittest.TestCase):
+    """Issue #420: when ``proxy_invoker_fn`` is supplied, every AskQuestion
+    routes through the proxy running the ``/escalation`` skill.
+
+    The mock proxy invoker stands in for the bridge's ``_invoke_proxy``.
+    It writes a canned response to the per-escalation proxy conversation
+    and (for DIALOG turns) waits for the human before returning, so the
+    listener observes the same message ordering it would in production.
+    """
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        # infra_dir layout matches .teaparty/{scope}/agents/{agent}/
+        self.teaparty_home = os.path.join(self.tmpdir, '.teaparty')
+        self.infra_dir = os.path.join(
+            self.teaparty_home, 'management', 'agents', 'proxy',
+        )
+        os.makedirs(self.infra_dir, exist_ok=True)
+        # Proxy bus lives at .teaparty/proxy/proxy-messages.db
+        proxy_dir = os.path.join(self.teaparty_home, 'proxy')
+        os.makedirs(proxy_dir, exist_ok=True)
+        self.proxy_bus_path = os.path.join(proxy_dir, 'proxy-messages.db')
+        self.bus_db = os.path.join(self.infra_dir, 'messages.db')
+        self.conv_id = 'escalation:test-session'
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _send_ask(self, question: str) -> None:
+        from teaparty.messaging.conversations import SqliteMessageBus
+        import json as _json
+        bus = SqliteMessageBus(self.bus_db)
+        bus.send(self.conv_id, 'agent', _json.dumps({
+            'type': 'ask_human', 'question': question,
+        }))
+
+    def _wait_for_reply(self, timeout: float = 10.0):
+        from teaparty.messaging.conversations import SqliteMessageBus
+        import json as _json
+        import time as _time
+        bus = SqliteMessageBus(self.bus_db)
+        deadline = _time.time() + timeout
+        while _time.time() < deadline:
+            msgs = bus.receive(self.conv_id, since_timestamp=0)
+            replies = [m for m in msgs if m.sender == 'orchestrator']
+            if replies:
+                return _json.loads(replies[0].content)
+            import asyncio as _a
+            _a.get_event_loop()  # ensure loop exists
+            return None  # fallthrough handled below
+        return None
+
+    def _make_listener(self, proxy_invoker, on_dispatch=None):
+        from teaparty.cfa.gates.escalation import EscalationListener
+
+        async def human_never_called(req):
+            raise AssertionError('input_provider must not be called on skill path')
+
+        return EscalationListener(
+            event_bus=None,
+            input_provider=human_never_called,
+            bus_db_path=self.bus_db,
+            conv_id=self.conv_id,
+            session_id='test-session',
+            infra_dir=self.infra_dir,
+            proxy_invoker_fn=proxy_invoker,
+            on_dispatch=on_dispatch,
+        )
+
+    def test_response_terminates_loop_with_message(self):
+        """RESPONSE from the skill → listener returns ``{"answer": message}``.
+        The proxy invoker is called exactly once."""
+        from teaparty.messaging.conversations import (
+            SqliteMessageBus,
+            ConversationType,
+            make_conversation_id,
+        )
+        import json as _json
+        import time as _time
+
+        invocations = []
+        dispatch_events = []
+
+        async def mock_invoker(qualifier: str, cwd: str) -> None:
+            invocations.append((qualifier, cwd))
+            # QUESTION.md must exist at the invoker's cwd.
+            assert os.path.isfile(os.path.join(cwd, 'QUESTION.md'))
+            proxy_bus = SqliteMessageBus(self.proxy_bus_path)
+            conv_id = make_conversation_id(ConversationType.PROXY, qualifier)
+            proxy_bus.send(conv_id, 'proxy', _json.dumps({
+                'status': 'RESPONSE', 'message': 'Use Postgres',
+            }))
+
+        def on_dispatch(evt):
+            dispatch_events.append(evt)
+
+        listener = self._make_listener(mock_invoker, on_dispatch=on_dispatch)
+
+        async def _test():
+            await listener.start()
+            try:
+                self._send_ask('What database?')
+                deadline = _time.time() + 10
+                response = None
+                while _time.time() < deadline:
+                    bus = SqliteMessageBus(self.bus_db)
+                    msgs = bus.receive(self.conv_id, since_timestamp=0)
+                    replies = [m for m in msgs if m.sender == 'orchestrator']
+                    if replies:
+                        response = _json.loads(replies[0].content)
+                        break
+                    await asyncio.sleep(0.05)
+                self.assertIsNotNone(response)
+                self.assertEqual(response['answer'], 'Use Postgres')
+                self.assertEqual(len(invocations), 1)
+                types = [e['type'] for e in dispatch_events]
+                self.assertIn('dispatch_started', types)
+                self.assertIn('dispatch_completed', types)
+                # The escalation dir is torn down after termination.
+                _qual, cwd = invocations[0]
+                self.assertFalse(os.path.exists(cwd))
+            finally:
+                await listener.stop()
+
+        _run(_test())
+
+    def test_withdraw_prefixes_answer_with_marker(self):
+        """WITHDRAW from the skill → answer is ``[WITHDRAW]\\n<reason>``."""
+        from teaparty.messaging.conversations import (
+            SqliteMessageBus,
+            ConversationType,
+            make_conversation_id,
+        )
+        import json as _json
+        import time as _time
+
+        async def mock_invoker(qualifier: str, cwd: str) -> None:
+            proxy_bus = SqliteMessageBus(self.proxy_bus_path)
+            conv_id = make_conversation_id(ConversationType.PROXY, qualifier)
+            proxy_bus.send(conv_id, 'proxy', _json.dumps({
+                'status': 'WITHDRAW', 'message': 'abandoned',
+            }))
+
+        listener = self._make_listener(mock_invoker)
+
+        async def _test():
+            await listener.start()
+            try:
+                self._send_ask('Still doing this?')
+                deadline = _time.time() + 10
+                response = None
+                while _time.time() < deadline:
+                    bus = SqliteMessageBus(self.bus_db)
+                    msgs = bus.receive(self.conv_id, since_timestamp=0)
+                    replies = [m for m in msgs if m.sender == 'orchestrator']
+                    if replies:
+                        response = _json.loads(replies[0].content)
+                        break
+                    await asyncio.sleep(0.05)
+                self.assertIsNotNone(response)
+                self.assertEqual(response['answer'], '[WITHDRAW]\nabandoned')
+            finally:
+                await listener.stop()
+
+        _run(_test())
+
+    def test_dialog_loop_waits_for_human_then_resumes(self):
+        """DIALOG from the skill → listener waits for a sender='human'
+        message on the proxy conversation, then re-invokes the proxy.
+        On the second turn the skill emits RESPONSE and the listener
+        terminates with the final answer."""
+        from teaparty.messaging.conversations import (
+            SqliteMessageBus,
+            ConversationType,
+            make_conversation_id,
+        )
+        import json as _json
+        import time as _time
+
+        invocations = []
+
+        async def mock_invoker(qualifier: str, cwd: str) -> None:
+            invocations.append(qualifier)
+            proxy_bus = SqliteMessageBus(self.proxy_bus_path)
+            conv_id = make_conversation_id(ConversationType.PROXY, qualifier)
+            if len(invocations) == 1:
+                # First turn: DIALOG — ask a clarifying question.
+                proxy_bus.send(conv_id, 'proxy', _json.dumps({
+                    'status': 'DIALOG',
+                    'message': 'Do you mean production or staging?',
+                }))
+            else:
+                # Second turn: RESPONSE — reply to teammate.
+                proxy_bus.send(conv_id, 'proxy', _json.dumps({
+                    'status': 'RESPONSE',
+                    'message': 'Use Postgres on production',
+                }))
+
+        listener = self._make_listener(mock_invoker)
+
+        async def _human_replies_after(delay: float):
+            """Simulate the accordion writing a human reply to the proxy
+            conversation after the first invocation."""
+            await asyncio.sleep(delay)
+            # Find the in-flight escalation qualifier from the first invocation.
+            deadline = _time.time() + 5
+            while _time.time() < deadline and not invocations:
+                await asyncio.sleep(0.05)
+            qualifier = invocations[0]
+            proxy_bus = SqliteMessageBus(self.proxy_bus_path)
+            conv_id = make_conversation_id(ConversationType.PROXY, qualifier)
+            proxy_bus.send(conv_id, 'human', 'production please')
+
+        async def _test():
+            await listener.start()
+            try:
+                # Kick the simulated human reply in parallel.
+                human_task = asyncio.create_task(_human_replies_after(0.2))
+                self._send_ask('What database?')
+                deadline = _time.time() + 10
+                response = None
+                while _time.time() < deadline:
+                    bus = SqliteMessageBus(self.bus_db)
+                    msgs = bus.receive(self.conv_id, since_timestamp=0)
+                    replies = [m for m in msgs if m.sender == 'orchestrator']
+                    if replies:
+                        response = _json.loads(replies[0].content)
+                        break
+                    await asyncio.sleep(0.05)
+                await human_task
+                self.assertIsNotNone(response)
+                self.assertEqual(
+                    response['answer'], 'Use Postgres on production',
+                )
+                self.assertEqual(len(invocations), 2,
+                                 'proxy must be invoked twice (DIALOG then RESPONSE)')
+            finally:
+                await listener.stop()
+
+        _run(_test())
+
+
+# ── Tests: skill output parser (DD6) ───────────────────────────────────────
+
+class TestSkillOutputParser(unittest.TestCase):
+    """``_parse_skill_output`` extracts the outermost
+    ``{"status": ..., "message": ...}`` from the proxy's last turn."""
+
+    def test_plain_json_object(self):
+        from teaparty.cfa.gates.escalation import _parse_skill_output
+        status, message = _parse_skill_output(
+            '{"status": "RESPONSE", "message": "Use Postgres"}',
+        )
+        self.assertEqual(status, 'RESPONSE')
+        self.assertEqual(message, 'Use Postgres')
+
+    def test_surrounded_by_prose(self):
+        from teaparty.cfa.gates.escalation import _parse_skill_output
+        text = (
+            'Thinking aloud here...\n'
+            'I will respond with:\n'
+            '{"status": "DIALOG", "message": "Which database?"}\n'
+            'done.'
+        )
+        status, message = _parse_skill_output(text)
+        self.assertEqual(status, 'DIALOG')
+        self.assertEqual(message, 'Which database?')
+
+    def test_withdraw_status(self):
+        from teaparty.cfa.gates.escalation import _parse_skill_output
+        status, message = _parse_skill_output(
+            '{"status": "WITHDRAW", "message": "abandoned"}',
+        )
+        self.assertEqual(status, 'WITHDRAW')
+        self.assertEqual(message, 'abandoned')
+
+    def test_unknown_status_returns_empty(self):
+        from teaparty.cfa.gates.escalation import _parse_skill_output
+        status, message = _parse_skill_output(
+            '{"status": "BOGUS", "message": "x"}',
+        )
+        self.assertEqual(status, '')
+        self.assertEqual(message, '')
+
+    def test_no_json_returns_empty(self):
+        from teaparty.cfa.gates.escalation import _parse_skill_output
+        status, message = _parse_skill_output('just prose, no json')
+        self.assertEqual(status, '')
+        self.assertEqual(message, '')
+
+    def test_message_with_nested_braces(self):
+        """A ``message`` string containing ``{`` / ``}`` must still parse
+        because the brace-walker respects string literals."""
+        from teaparty.cfa.gates.escalation import _parse_skill_output
+        status, message = _parse_skill_output(
+            '{"status": "RESPONSE", "message": "Use {db: postgres}"}',
+        )
+        self.assertEqual(status, 'RESPONSE')
+        self.assertEqual(message, 'Use {db: postgres}')
+
+    def test_last_recognised_object_wins(self):
+        """Intermediate JSON fragments should lose to the terminal turn."""
+        from teaparty.cfa.gates.escalation import _parse_skill_output
+        text = (
+            '{"status": "DIALOG", "message": "first"}\n'
+            'then later:\n'
+            '{"status": "RESPONSE", "message": "final"}'
+        )
+        status, message = _parse_skill_output(text)
+        self.assertEqual(status, 'RESPONSE')
+        self.assertEqual(message, 'final')
+
+
 if __name__ == '__main__':
     unittest.main()

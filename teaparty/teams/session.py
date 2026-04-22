@@ -75,6 +75,7 @@ class AgentSession:
         project_slug: str = '',
         paused_check: Callable[[], bool] | None = None,
         org_home: str | None = None,
+        proxy_invoker_fn: Callable[..., Awaitable[None]] | None = None,
     ):
         self.teaparty_home = os.path.expanduser(teaparty_home)
         self.agent_name = agent_name
@@ -93,6 +94,12 @@ class AgentSession:
         self._org_home = os.path.expanduser(org_home) if org_home else None
         self._telemetry_scope = project_slug or scope
         self._paused_check = paused_check
+        # Bridge-supplied callable invoked per escalation turn to run the
+        # proxy agent with the escalation-skill cwd. Signature:
+        #   async def invoker(qualifier: str, cwd: str) -> None
+        # When None, the EscalationListener falls back to the legacy
+        # consult_proxy code path (to be retired in #421).
+        self._proxy_invoker_fn = proxy_invoker_fn
 
         self.conversation_id = make_conversation_id(conversation_type, qualifier)
         self.claude_session_id: str | None = None
@@ -720,11 +727,12 @@ class AgentSession:
         # bus; its input_provider surfaces unresolved escalations into the
         # agent's main chat so the human sees them in the dashboard.
         #
-        # proxy_enabled=False: the bridge/teams path has no proxy model /
-        # cfa_state / project_slug to feed consult_proxy. Running the proxy
-        # agent with empty context spends an LLM call to produce a
-        # low-confidence answer that gets discarded — every question would
-        # fall through to the human anyway. Skip the round-trip.
+        # When the bridge supplies ``proxy_invoker_fn`` (issue #420), the
+        # listener routes each AskQuestion through the proxy running the
+        # ``/escalation`` skill in an ephemeral per-escalation directory.
+        # When the hook is absent (legacy tests / CfA-engine path), the
+        # listener falls back to the legacy consult_proxy behaviour —
+        # retired in #421.
         from teaparty.cfa.gates.escalation import EscalationListener
         from teaparty.messaging.conversations import MessageBusInputProvider
         self._ask_question_bus_db = bus_db_path
@@ -743,7 +751,8 @@ class AgentSession:
             session_worktree='',
             infra_dir=infra_dir,
             team='',
-            proxy_enabled=False,
+            proxy_invoker_fn=self._proxy_invoker_fn,
+            on_dispatch=self._on_dispatch,
         )
         await self._escalation_listener.start()
 

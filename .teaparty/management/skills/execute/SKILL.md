@@ -32,6 +32,7 @@ Conduct a dialog with the human using `mcp__teaparty-config__AskQuestion`.
 
 Dialog purpose: you are not certain that you understand how the human wants to do things, and you are seeking guidance. Dialog is necessary because your expectations may not be aligned with the human's — the questions you are asking may not be the relevant ones, and the only way to ensure alignment is to dialogue. This discussion may uncover additional questions, or produce unexpected clarifications.
 
+- If the response begins with the line `[WITHDRAW]`, go to WITHDRAW. The text after `[WITHDRAW]` is the reason — carry it into `.phase-outcome.json`.
 - If the conversation confirms that the intent does not capture the human's idea, go to REALIGN.
 - If the conversation confirms that the plan does not capture the desired workflow, go to REPLAN
 - If the conversation confirms that the human no longer wants to continue this job, go to WITHDRAW.
@@ -43,6 +44,7 @@ Conduct a dialog with the human regarding the current work using `mcp__teaparty-
 
 Dialog purpose: you expect that work is complete, and you are confirming with the human. Dialog is necessary because your expectations may not be aligned with the human's — the work may not actually be complete, and the only way to ensure alignment is to dialogue.
 
+- If the response begins with the line `[WITHDRAW]`, go to WITHDRAW. The text after `[WITHDRAW]` is the reason — carry it into `.phase-outcome.json`.
 - If the human approves the work, go to APPROVE.
 - If the dialog surfaces needed revisions, go to EXECUTE.
 - If the conversation confirms that the intent does not capture the human's idea, go to REALIGN.
