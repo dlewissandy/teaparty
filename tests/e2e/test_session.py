@@ -10,16 +10,11 @@ Backend selection (in priority order):
                can reach a terminal state regardless of LLM output.
   2. Scripted — deterministic caller; writes the artifact directly.
 
-Coverage:
-  Happy path (execute_only)
-  Happy path (skip_intent — planning + execution)
-  PLAN_ASSERT → refine-intent backtrack → COMPLETED_WORK
-  WORK_ASSERT → revise-plan backtrack   → COMPLETED_WORK
-  WORK_ASSERT → refine-intent backtrack → COMPLETED_WORK
-  Gate dialog: PLAN_ASSERT correct → re-run → approve
-  Gate dialog: WORK_ASSERT correct → re-run → approve
-  Proxy escalates to human (proxy has no model; input_provider IS called)
-  Proxy auto-approves   (consult_proxy patched to return confidence=0.95)
+Coverage (five-state CfA model: INTENT, PLAN, EXECUTE, DONE, WITHDRAWN):
+  Happy path (execute_only)               → DONE
+  Happy path (skip_intent — planning + execution) → DONE
+  EXECUTE → replan backtrack (re-runs planning + execution) → DONE
+  EXECUTE → realign backtrack (re-runs intent + planning + execution) → DONE
   Dry-run exits before any LLM call
   Session events: SESSION_STARTED, SESSION_COMPLETED published
   State transitions: STATE_CHANGED events match execution path
@@ -236,6 +231,63 @@ def _make_ollama_caller(transcript: _Transcript | None = None) -> Any:
     return caller
 
 
+def _make_scripted_outcome_caller(
+    exec_outcomes: list[str],
+    transcript: _Transcript | None = None,
+) -> Any:
+    """Phase-aware scripted caller whose execution-phase outcomes are scripted.
+
+    ``exec_outcomes`` is consumed in order for each execution-phase turn.
+    Typical use: ['REPLAN', 'APPROVE'] to force a backtrack-to-PLAN on the
+    first execute turn and approval on the re-run.
+
+    Intent and planning turns always emit APPROVE so those phases advance
+    cleanly — backtracks from those phases aren't exercised by these tests.
+    """
+    remaining = list(exec_outcomes)
+
+    async def caller(**kwargs) -> ClaudeResult:
+        import json as _json
+        cwd = kwargs.get('cwd', '')
+        stream_file = kwargs.get('stream_file', '')
+        on_stream_event = kwargs.get('on_stream_event')
+
+        sf = stream_file or ''
+        if '.intent-stream' in sf:
+            artifact, content, outcome = (
+                'INTENT.md', '# Intent\nBuild a summary tool.\n', 'APPROVE',
+            )
+        elif '.plan-stream' in sf:
+            artifact, content, outcome = (
+                'PLAN.md', '# Plan\nStep 1: write summary.\n', 'APPROVE',
+            )
+        else:
+            artifact, content = 'WORK_SUMMARY.md', '# Work Summary\nDone.\n'
+            outcome = remaining.pop(0) if remaining else 'APPROVE'
+
+        if cwd:
+            Path(cwd, artifact).write_text(content)
+            if transcript:
+                transcript.record_runner(artifact, cwd, content)
+            Path(cwd, '.phase-outcome.json').write_text(
+                _json.dumps({'outcome': outcome,
+                             'reason': f'scripted e2e {outcome.lower()}'})
+            )
+
+        if stream_file:
+            Path(stream_file).touch()
+
+        if on_stream_event:
+            on_stream_event({
+                'type': 'assistant',
+                'message': {'content': [{'type': 'text', 'text': content}]},
+            })
+
+        return ClaudeResult(exit_code=0, session_id='e2e-scripted')
+
+    return caller
+
+
 def _make_caller(transcript: _Transcript | None = None) -> Any:
     """Return the scripted caller by default.
 
@@ -321,16 +373,12 @@ class _SessionTestBase(unittest.TestCase):
             input_provider=gate_script,
             event_bus=transcript._bus,
             proxy_enabled=False,
-            # Force every gate to the human so ``gate_script`` controls
-            # the whole session.  The routing decision is now purely
-            # (escalation_mode, proxy_confidence).  Proxy tests that want
-            # the proxy path override this with ``escalation_modes={}``
-            # (or a more targeted dict) in kwargs.
-            escalation_modes={
-                'INTENT_ASSERT': 'always',
-                'PLAN_ASSERT':   'always',
-                'WORK_ASSERT':   'always',
-            },
+            # In the five-state CfA model the approval-gate actor is not
+            # invoked at all — each phase runs a skill that self-terminates
+            # by writing .phase-outcome.json.  ``escalation_modes`` is kept
+            # here for forward compatibility but has no effect on the e2e
+            # path exercised by these tests.
+            escalation_modes={},
         )
         defaults.update(kwargs)
         return Session(**defaults)
@@ -353,14 +401,19 @@ class _SessionTestBase(unittest.TestCase):
 
     def _assert_completed(self, result, transcript: _Transcript):
         self.assertEqual(
-            result.terminal_state, 'COMPLETED_WORK',
-            f'Expected COMPLETED_WORK, got {result.terminal_state!r}'
+            result.terminal_state, 'DONE',
+            f'Expected DONE, got {result.terminal_state!r}'
             f'{transcript.render()}',
         )
 
     def _assert_path_includes(self, transcript: _Transcript, *states: str):
-        """Assert that every listed state appears somewhere in the transitions."""
-        visited = {nxt for _, _, nxt in transcript.transitions}
+        """Assert that every listed state appears in the transitions.
+
+        Checks both sides of each edge so states that are entered via
+        ``set_state_direct`` (e.g., EXECUTE in execute_only mode) count as
+        visited even when they appear only as the source of the first edge.
+        """
+        visited = {s for edge in transcript.transitions for s in (edge[0], edge[2])}
         for state in states:
             self.assertIn(
                 state, visited,
@@ -395,7 +448,7 @@ class _SessionTestBase(unittest.TestCase):
 class TestSessionHappyPath(_SessionTestBase):
 
     def test_execute_only_reaches_completed_work(self):
-        """execute_only=True + pre-written PLAN.md → COMPLETED_WORK."""
+        """execute_only=True + pre-written PLAN.md → DONE."""
         plan_path = os.path.join(self._tmp, 'PLAN.md')
         Path(plan_path).write_text('# Plan\nWrite a one-line summary.\n')
 
@@ -414,16 +467,17 @@ class TestSessionHappyPath(_SessionTestBase):
             result = self._run_session(session, t)
 
         self._assert_completed(result, t)
-        self._assert_path_includes(t, 'WORK_ASSERT', 'COMPLETED_WORK')
+        self._assert_path_includes(t, 'EXECUTE', 'DONE')
         self._assert_artifacts_exist(t)
 
     def test_skip_intent_reaches_completed_work(self):
-        """skip_intent=True + pre-written INTENT.md → planning + execution → COMPLETED_WORK."""
+        """skip_intent=True + pre-written INTENT.md → planning + execution → DONE."""
         intent_path = os.path.join(self._tmp, 'INTENT.md')
         Path(intent_path).write_text('# Intent\nBuild a summary tool.\n')
 
         t, bus = self._make_transcript_and_bus()
-        # Gate calls: PLAN_ASSERT then WORK_ASSERT
+        # Gate script is unused in the five-state model (no approval-gate
+        # actor), but a valid input_provider is still required.
         gate = _GateScript('approve', 'approve')
 
         with patch('teaparty.cfa.actors.ApprovalGate._classify_review',
@@ -438,7 +492,7 @@ class TestSessionHappyPath(_SessionTestBase):
             result = self._run_session(session, t)
 
         self._assert_completed(result, t)
-        self._assert_path_includes(t, 'PLANNING', 'WORK_ASSERT', 'COMPLETED_WORK')
+        self._assert_path_includes(t, 'PLAN', 'EXECUTE', 'DONE')
         self._assert_artifacts_exist(t)
         # Verify both phases ran
         artifact_names = {name for name, *_ in t.runner_calls}
@@ -480,18 +534,13 @@ class TestSessionBacktrackPaths(_SessionTestBase):
         return p
 
     def test_work_assert_revise_plan_backtrack(self):
-        """WORK_ASSERT → revise-plan → re-runs planning → re-runs execution → COMPLETED_WORK.
+        """EXECUTE → replan → re-runs planning → re-runs execution → DONE.
 
-        Gate call sequence (execute_only starts at WORK_IN_PROGRESS):
-          1. WORK_ASSERT:   revise-plan    (backtrack to planning)
-          2. Planning skill approves via .phase-outcome.json
-          3. WORK_ASSERT:   approve
+        The execute skill emits REPLAN on the first run (via phase-outcome)
+        and APPROVE on the re-run after planning completes again.
         """
         t, bus = self._make_transcript_and_bus()
-        gate = _GateScript(
-            'revise-plan\tthe approach was wrong, use a different architecture',  # WORK_ASSERT
-            # WORK_ASSERT (2nd) → fallback 'approve'
-        )
+        gate = _GateScript()  # unused — skill self-terminates via phase-outcome
 
         with patch('teaparty.cfa.actors.ApprovalGate._classify_review',
                    side_effect=_stub_classify):
@@ -500,33 +549,29 @@ class TestSessionBacktrackPaths(_SessionTestBase):
                 task='Build a summary tool',
                 execute_only=True,
                 plan_file=self._plan_file(),
-                llm_caller=_make_phase_aware_caller(t),
+                llm_caller=_make_scripted_outcome_caller(
+                    exec_outcomes=['REPLAN', 'APPROVE'], transcript=t,
+                ),
             )
             result = self._run_session(session, t)
 
         self._assert_completed(result, t)
-        self._assert_path_includes(t, 'WORK_ASSERT', 'PLANNING', 'COMPLETED_WORK')
+        self._assert_path_includes(t, 'EXECUTE', 'PLAN', 'DONE')
         self.assertGreater(result.backtrack_count, 0,
                            f'backtrack_count must be > 0{t.render()}')
-        work_assert_visits = sum(1 for _, _, nxt in t.transitions
-                                 if nxt == 'WORK_ASSERT')
-        self.assertGreaterEqual(work_assert_visits, 2,
-                                f'WORK_ASSERT must be visited ≥2 times{t.render()}')
+        execute_visits = sum(1 for _, _, nxt in t.transitions
+                             if nxt == 'EXECUTE')
+        self.assertGreaterEqual(execute_visits, 1,
+                                f'EXECUTE must be re-entered after replan{t.render()}')
 
     def test_work_assert_refine_intent_backtrack(self):
-        """WORK_ASSERT → refine-intent → re-runs intent+planning+execution → COMPLETED_WORK.
+        """EXECUTE → realign → re-runs intent+planning+execution → DONE.
 
-        Gate call sequence (execute_only starts at WORK_IN_PROGRESS):
-          1. WORK_ASSERT:   refine-intent  (backtrack all the way to IDEA)
-          2. Intent skill approves via .phase-outcome.json
-          3. Planning skill approves via .phase-outcome.json
-          4. WORK_ASSERT:   approve        (fallback)
+        The execute skill emits REALIGN on the first run (via phase-outcome)
+        and APPROVE on the re-run after intent and planning complete again.
         """
         t, bus = self._make_transcript_and_bus()
-        gate = _GateScript(
-            'refine-intent\tactually the goal should be different',  # WORK_ASSERT
-            # WORK_ASSERT (2nd) → fallback 'approve'
-        )
+        gate = _GateScript()  # unused — skill self-terminates via phase-outcome
 
         with patch('teaparty.cfa.actors.ApprovalGate._classify_review',
                    side_effect=_stub_classify):
@@ -535,132 +580,37 @@ class TestSessionBacktrackPaths(_SessionTestBase):
                 task='Build a summary tool',
                 execute_only=True,
                 plan_file=self._plan_file(),
-                llm_caller=_make_phase_aware_caller(t),
+                llm_caller=_make_scripted_outcome_caller(
+                    exec_outcomes=['REALIGN', 'APPROVE'], transcript=t,
+                ),
             )
             result = self._run_session(session, t)
 
         self._assert_completed(result, t)
-        self._assert_path_includes(t, 'WORK_ASSERT', 'IDEA', 'COMPLETED_WORK')
+        self._assert_path_includes(t, 'EXECUTE', 'INTENT', 'DONE')
         self.assertGreater(result.backtrack_count, 0,
                            f'backtrack_count must be > 0{t.render()}')
 
 
 # ── Gate dialog tests ─────────────────────────────────────────────────────────
+#
+# The pre-collapse ``test_work_assert_correct_then_approve`` has been removed:
+# the ``correct`` action (WORK_ASSERT → WORK_IN_PROGRESS re-run) no longer
+# exists as a state-machine edge in the five-state model.  Mid-phase
+# correction is handled internally by the execute skill and is not visible
+# as a CfA transition — nothing for an end-to-end test at this layer to
+# assert against.
 
-class TestSessionGateDialog(_SessionTestBase):
-
-    def _plan_file(self) -> str:
-        p = os.path.join(self._tmp, 'PLAN.md')
-        Path(p).write_text('# Plan\nStep 1.\n')
-        return p
-
-    def test_work_assert_correct_then_approve(self):
-        """WORK_ASSERT → correct (re-run execution) → WORK_ASSERT → approve.
-
-        Gate call sequence (execute_only starts at WORK_IN_PROGRESS):
-          1. WORK_ASSERT:   correct        (re-run execution)
-          2. WORK_ASSERT:   approve
-        """
-        t, bus = self._make_transcript_and_bus()
-        gate = _GateScript(
-            'correct\tthe summary needs more detail',  # WORK_ASSERT
-            # WORK_ASSERT second visit → fallback 'approve'
-        )
-
-        with patch('teaparty.cfa.actors.ApprovalGate._classify_review',
-                   side_effect=_stub_classify):
-            session = self._make_session(
-                t, gate,
-                task='Write a detailed summary',
-                execute_only=True,
-                plan_file=self._plan_file(),
-                llm_caller=_make_phase_aware_caller(t),
-            )
-            result = self._run_session(session, t)
-
-        self._assert_completed(result, t)
-        # WORK_IN_PROGRESS must be re-entered after correct
-        self._assert_path_includes(t, 'WORK_IN_PROGRESS', 'WORK_ASSERT', 'COMPLETED_WORK')
-        work_assert_visits = sum(1 for _, _, nxt in t.transitions
-                                 if nxt == 'WORK_ASSERT')
-        self.assertGreaterEqual(work_assert_visits, 2,
-                                f'WORK_ASSERT must be visited ≥2 times{t.render()}')
 
 # ── Proxy path tests ──────────────────────────────────────────────────────────
-
-class TestSessionProxyPaths(_SessionTestBase):
-
-    def _plan_file(self) -> str:
-        p = os.path.join(self._tmp, 'PLAN.md')
-        Path(p).write_text('# Plan\nStep 1.\n')
-        return p
-
-    def test_proxy_escalates_calls_input_provider(self):
-        """escalation: always at every gate routes to input_provider.
-
-        With the default ``escalation_modes`` (``always`` at every gate
-        from the test helper), the gate skips the proxy and calls
-        ``input_provider`` directly.  This verifies input_provider is
-        the decision-maker when the project config sets ``always``.
-        """
-        t, bus = self._make_transcript_and_bus()
-        gate = _GateScript('approve')
-
-        with patch('teaparty.cfa.actors.ApprovalGate._classify_review',
-                   side_effect=_stub_classify):
-            session = self._make_session(
-                t, gate,
-                task='Proxy escalation test',
-                execute_only=True,
-                plan_file=self._plan_file(),
-                llm_caller=_make_phase_aware_caller(t),
-            )
-            result = self._run_session(session, t)
-
-        self._assert_completed(result, t)
-        # gate.calls accumulates (state, response) for every gate invocation
-        self.assertGreater(len(gate.calls), 0,
-                           f'input_provider must be called at every gate{t.render()}')
-
-    def test_proxy_auto_approves_skips_input_provider(self):
-        """High-confidence proxy answers at every gate — input_provider is NOT called.
-
-        ``escalation_modes={}`` overrides the test-helper default of
-        ``always`` at every gate so the proxy path becomes active.
-        ``consult_proxy`` is patched to return a confident 'approve'.
-        """
-        from teaparty.proxy.agent import ProxyResult
-
-        t, bus = self._make_transcript_and_bus()
-        provider_calls: list[str] = []
-
-        async def recording_provider(request) -> str:
-            provider_calls.append(request.state)
-            return 'approve'
-
-        high_confidence = ProxyResult(text='approve', confidence=0.95, from_agent=True)
-
-        async def mock_consult_high(*args, **kwargs) -> ProxyResult:
-            return high_confidence
-
-        with patch('teaparty.cfa.actors.ApprovalGate._classify_review',
-                   side_effect=_stub_classify):
-            with patch('teaparty.proxy.agent.consult_proxy', new=mock_consult_high):
-                session = self._make_session(
-                    t, recording_provider,
-                    task='Proxy auto-approve test',
-                    execute_only=True,
-                    plan_file=self._plan_file(),
-                    llm_caller=_make_phase_aware_caller(t),
-                    proxy_enabled=True,
-                    escalation_modes={},  # proxy path — default when_unsure
-                )
-                result = self._run_session(session, t)
-
-        self._assert_completed(result, t)
-        self.assertEqual(len(provider_calls), 0,
-                         f'input_provider must NOT be called when proxy is confident'
-                         f'{t.render()}')
+#
+# The pre-collapse ``TestSessionProxyPaths`` class has been removed.  Both
+# tests verified behaviour of the ApprovalGate actor (proxy vs. input_provider
+# routing at *_ASSERT gate states).  In the five-state model there are no
+# approval-gate actor states — phases self-terminate via .phase-outcome.json
+# and input_provider is not consulted at this layer.  Proxy/gate routing is
+# exercised by the unit tests in tests/proxy/ and tests/cfa/, which are the
+# right layer for that coverage.
 
 
 # ── Event tests ───────────────────────────────────────────────────────────────
@@ -704,8 +654,8 @@ class TestSessionEvents(_SessionTestBase):
 
         completed = next(e for e in all_events
                          if e.type == EventType.SESSION_COMPLETED)
-        self.assertEqual(completed.data.get('terminal_state'), 'COMPLETED_WORK',
-                         f'SESSION_COMPLETED must carry COMPLETED_WORK{t.render()}')
+        self.assertEqual(completed.data.get('terminal_state'), 'DONE',
+                         f'SESSION_COMPLETED must carry DONE{t.render()}')
 
     def test_state_changes_traverse_execution_path(self):
         """STATE_CHANGED events must show the execution-phase states."""
@@ -727,19 +677,15 @@ class TestSessionEvents(_SessionTestBase):
         self.assertGreater(len(t.transitions), 0,
                            f'No STATE_CHANGED events{t.render()}')
         final_states = [nxt for _, _, nxt in t.transitions]
-        self.assertIn('COMPLETED_WORK', final_states,
-                      f'COMPLETED_WORK never reached{t.render()}')
-        # WORK_IN_PROGRESS is entered via set_state_direct in execute_only
-        # mode, so it appears as the source of the first transition rather
-        # than as a target.  Cover both sides of each edge.
+        self.assertIn('DONE', final_states,
+                      f'DONE never reached{t.render()}')
+        # EXECUTE is entered via set_state_direct in execute_only mode, so it
+        # appears as the source of the first transition rather than as a
+        # target.  Cover both sides of each edge.
         visited = {s for edge in t.transitions for s in (edge[0], edge[2])}
         self.assertIn(
-            'WORK_IN_PROGRESS', visited,
-            f'WORK_IN_PROGRESS must appear in the execution path{t.render()}',
-        )
-        self.assertIn(
-            'WORK_ASSERT', visited,
-            f'WORK_ASSERT must appear in the execution path{t.render()}',
+            'EXECUTE', visited,
+            f'EXECUTE must appear in the execution path{t.render()}',
         )
 
 
