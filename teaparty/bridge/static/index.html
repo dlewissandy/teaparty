@@ -495,8 +495,16 @@ function connectWS() {
       } else if (event.type === 'project_resumed') {
         delete pageState.pausedProjects[event.project];
         fetchAll();
+      } else if (event.type === 'dispatch_started' || event.type === 'dispatch_completed') {
+        // Accordion updates are handled by accordion-chat.js, but the
+        // home page also surfaces escalations via the workflow-bar
+        // red dot (needs_input + input_conv_id on each session).
+        // Refetch so the bar reflects the new state immediately — a
+        // proxy child appearing/disappearing under a session is the
+        // /escalation-skill path's equivalent of the old
+        // awaiting_input flag flipping.
+        fetchAll();
       }
-      // dispatch_started / dispatch_completed: handled by accordion-chat.js WS.
     } catch (err) {}
   };
 

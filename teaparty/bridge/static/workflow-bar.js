@@ -35,11 +35,21 @@
       if (i < phaseIdx || (isDone && i === phaseIdx)) {
         state = 'complete';
       } else if (i === phaseIdx) {
-        state = needsInput ? 'active needs-input' : 'active';
+        state = 'active';
       } else {
         state = '';
       }
       html += '<div class="wf-bar ' + state + '" title="' + ph + '"></div>';
+      // Drop a pulsing red gate dot immediately after the active
+      // phase's bar whenever an escalation is in flight for the
+      // session.  INTENT phase + escalation → dot after INTENT;
+      // PLAN phase + escalation → dot after PLAN; etc.  The dot
+      // sits between bars (not inside one) so it reads as "the
+      // phase is paused on human input" rather than part of the
+      // bar itself.
+      if (needsInput && i === phaseIdx && !isDone) {
+        html += '<div class="wf-gate active" title="Escalation — human input required"></div>';
+      }
     }
     html += '</div>';
     return html;

@@ -3905,6 +3905,7 @@ class TeaPartyBridge:
         # Resolve the conversation_id that is currently awaiting human input,
         # so the home page can build the correct escalation click URL at render time.
         input_conv_id = ''
+        needs_input = s.needs_input
         if s.needs_input:
             bus = self._buses.get(s.session_id)
             if bus is not None:
@@ -3914,6 +3915,21 @@ class TeaPartyBridge:
                         input_conv_id = waiting[0].id
                 except Exception:
                     pass
+        # The /escalation skill path doesn't set the bus's
+        # ``awaiting_input`` flag — escalations surface through the
+        # active-escalation registry instead.  If any escalation is in
+        # flight for this session, mirror it onto the same fields the
+        # UI already reads (needs_input + input_conv_id) so the
+        # workflow-bar dot and escalation-click affordances light up
+        # without a separate frontend codepath.
+        if not needs_input:
+            from teaparty.mcp.registry import (
+                active_escalation_qualifier as _active_qual,
+            )
+            qual = _active_qual(s.session_id)
+            if qual:
+                needs_input = True
+                input_conv_id = f'proxy:{qual}'
         return {
             'session_id': s.session_id,
             'project': s.project,
@@ -3921,7 +3937,7 @@ class TeaPartyBridge:
             'cfa_phase': s.cfa_phase,
             'cfa_state': s.cfa_state,
             'cfa_actor': s.cfa_actor,
-            'needs_input': s.needs_input,
+            'needs_input': needs_input,
             'input_conv_id': input_conv_id,
             'task': s.task,
             'heartbeat_status': s.heartbeat_status,

@@ -130,6 +130,37 @@ def is_escalation_active(qualifier: str) -> bool:
     return qualifier in _active_escalations
 
 
+def session_has_active_escalation(caller_session_id: str) -> bool:
+    """Return True if any escalation is in flight for ``caller_session_id``.
+
+    The active-escalation registry stores qualifiers in the form
+    ``{caller_session_id}:{escalation_id}``.  The caller session id
+    prefix on that set answers the per-session question directly; no
+    disk walk, no registry lookup.
+    """
+    if not caller_session_id:
+        return False
+    prefix = f'{caller_session_id}:'
+    return any(q.startswith(prefix) for q in _active_escalations)
+
+
+def active_escalation_qualifier(caller_session_id: str) -> str:
+    """Return the in-flight escalation qualifier for ``caller_session_id``.
+
+    There is at most one active escalation per caller at a time
+    (AskQuestion is blocking), so this returns the single qualifier
+    or ``''`` if none is active.  Callers use this to construct the
+    proxy conversation id for click-through.
+    """
+    if not caller_session_id:
+        return ''
+    prefix = f'{caller_session_id}:'
+    for q in _active_escalations:
+        if q.startswith(prefix):
+            return q
+    return ''
+
+
 def clear() -> None:
     """Remove all registrations."""
     _spawn_fns.clear()
