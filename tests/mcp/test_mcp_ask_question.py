@@ -585,11 +585,26 @@ class TestEscalationSkillPath(unittest.TestCase):
 
         invocations = []
         dispatch_events = []
+        mid_loop_trees = []
 
         async def mock_invoker(qualifier: str, cwd: str, **_: object) -> None:
             invocations.append((qualifier, cwd))
             # QUESTION.md must exist at the invoker's cwd.
             assert os.path.isfile(os.path.join(cwd, 'QUESTION.md'))
+            # Accordion invariant: mid-loop, build_dispatch_tree rooted
+            # at the dispatcher sees the escalation as a child node with
+            # agent_name='proxy'.  Capturing the tree here (before the
+            # finally-block rmtree's the session) is the only moment the
+            # assertion is meaningful — after return, the child session
+            # directory is gone and the dispatcher's conversation_map
+            # has been cleared.
+            from teaparty.bridge.state.dispatch_tree import build_dispatch_tree
+            sessions_dir = os.path.join(
+                self.teaparty_home, 'management', 'sessions',
+            )
+            mid_loop_trees.append(
+                build_dispatch_tree(sessions_dir, 'test-dispatcher'),
+            )
             proxy_bus = SqliteMessageBus(self.proxy_bus_path)
             conv_id = make_conversation_id(ConversationType.PROXY, qualifier)
             proxy_bus.send(conv_id, 'proxy', _json.dumps({
@@ -624,6 +639,19 @@ class TestEscalationSkillPath(unittest.TestCase):
                 # The escalation dir is torn down after termination.
                 _qual, cwd = invocations[0]
                 self.assertFalse(os.path.exists(cwd))
+                # build_dispatch_tree, mid-loop, saw the escalation as
+                # a proxy child under the dispatcher.  Without the
+                # real-session refactor the tree walker would never
+                # find the child (it lived in a temp dir, was not in
+                # conversation_map) and the accordion would stay empty.
+                self.assertEqual(len(mid_loop_trees), 1)
+                tree = mid_loop_trees[0]
+                self.assertEqual(tree['session_id'], 'test-dispatcher')
+                self.assertEqual(len(tree['children']), 1,
+                                 'dispatcher must see exactly one escalation child')
+                child = tree['children'][0]
+                self.assertEqual(child['agent_name'], 'proxy')
+                self.assertTrue(child['session_id'].startswith('proxy-'))
             finally:
                 await listener.stop()
 
