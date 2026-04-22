@@ -314,9 +314,7 @@
             // away — auto-expand so the dialog chat is visible without a
             // click.  Other dispatch children stay collapsed so ongoing
             // work doesn't preempt whatever the user is reading.
-            if (event.agent_name === 'proxy' && event.child_session_id) {
-              _accordionExpanded = event.child_session_id;
-            }
+            if (event.agent_name === 'proxy' && event.child_session_id) _accordionExpanded = event.child_session_id;
             _updateAccordion();
           } else if (event.type === 'dispatch_completed') {
             if (_dispatchTree) {

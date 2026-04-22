@@ -367,6 +367,8 @@ class Orchestrator:
         if self.input_provider:
             ask_question_bus_db = os.path.join(self.infra_dir, 'messages.db')
             ask_question_conv_id = f'escalation:{self.session_id}'
+            self._ask_question_bus_db = ask_question_bus_db
+            self._ask_question_conv_id = ask_question_conv_id
             self._escalation_listener = EscalationListener(
                 event_bus=self.event_bus,
                 input_provider=self.input_provider,
@@ -1295,6 +1297,25 @@ class Orchestrator:
         """Run a single CfA phase to completion or backtrack."""
         spec = self._phase_spec(phase_name)
         phase_start_time = time.monotonic()
+
+        # Register the escalation route for this phase's lead so the
+        # AskQuestion MCP tool can find the listener's bus when the
+        # lead's subprocess calls it.  #420 migrated the chat-tier path
+        # from ASK_QUESTION_BUS_DB/_CONV_ID env vars to an in-process
+        # registry keyed by agent_name; the CfA engine was left on the
+        # old env-var contract, so AskQuestion from a CfA-launched
+        # agent (e.g. intent-alignment running under joke-book-lead)
+        # raised "No escalation route registered".  Register per phase
+        # so phase-specific leads and phase-specific overrides work.
+        if (self._escalation_listener is not None
+                and getattr(self, '_ask_question_bus_db', '')
+                and spec.lead):
+            from teaparty.mcp.registry import register_escalation_route
+            register_escalation_route(
+                spec.lead,
+                self._ask_question_bus_db,
+                self._ask_question_conv_id,
+            )
 
         await self.event_bus.publish(Event(
             type=EventType.PHASE_STARTED,
