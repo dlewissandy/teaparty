@@ -389,35 +389,35 @@ class Orchestrator:
             self._ask_question_bus_db = ask_question_bus_db
             self._ask_question_conv_id = ask_question_conv_id
 
-            # The CfA job lives under .teaparty/jobs/ but the accordion's
-            # dispatch-tree walker reads sessions from
-            # .teaparty/{scope}/sessions/ — so we also materialise the
-            # job as a launcher.Session keyed by self.session_id.  This
-            # is the caller's dispatcher: its conversation_map gains an
-            # entry per in-flight escalation.
-            caller_scope = 'project' if self.project_slug else 'management'
-            caller_teaparty_home = (
-                os.path.join(self.project_workdir, '.teaparty')
-                if self.project_workdir else self.poc_root
-            )
+            # The CfA job's coordination state lives at the bridge's
+            # management scope — the job is orchestrated by the bridge,
+            # not by the target project.  The project itself owns its
+            # work under .teaparty/jobs/{job}/; the launcher.Session
+            # created here is only a conversation_map holder for the
+            # dispatch-tree walker.  Putting it at management scope
+            # means the walker's first candidate (management/sessions)
+            # always finds it — no registry lookup or project-scope
+            # handling needed, including for projects not registered
+            # in the bridge's teaparty.yaml.
+            mgmt_teaparty_home = os.path.join(self.poc_root, '.teaparty')
             dispatcher = _load_session(
                 agent_name=self.config.project_lead or 'project-lead',
-                scope=caller_scope,
-                teaparty_home=caller_teaparty_home,
+                scope='management',
+                teaparty_home=mgmt_teaparty_home,
                 session_id=self.session_id,
             )
             if dispatcher is None:
                 dispatcher = _create_session(
                     agent_name=self.config.project_lead or 'project-lead',
-                    scope=caller_scope,
-                    teaparty_home=caller_teaparty_home,
+                    scope='management',
+                    teaparty_home=mgmt_teaparty_home,
                     session_id=self.session_id,
                 )
 
             # The proxy's home — where the listener creates its session
-            # and where the proxy agent.md resolves.  Always management,
-            # always the org's teaparty_home, independent of caller scope.
-            proxy_teaparty_home = os.path.join(self.poc_root, '.teaparty')
+            # and where the proxy agent.md resolves.  Same management
+            # home; same invariant.
+            proxy_teaparty_home = mgmt_teaparty_home
 
             self._escalation_listener = EscalationListener(
                 event_bus=self.event_bus,
