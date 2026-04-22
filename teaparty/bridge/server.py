@@ -3201,6 +3201,11 @@ class TeaPartyBridge:
             project_override=project_slug,
             session_id=session_id,
             escalation_modes=escalation_modes,
+            # Hooks for the unified /escalation skill path — CfA job
+            # escalations now route through the same mechanism as
+            # chat-tier AgentSession (proxy + skill + accordion blade).
+            proxy_invoker_fn=self._invoke_proxy,
+            on_dispatch=self._broadcast_dispatch,
         )
 
         async def _run_session():

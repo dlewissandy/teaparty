@@ -181,6 +181,8 @@ class Session:
         humans: list | None = None,
         escalation_modes: dict[str, str] | None = None,
         llm_caller: Any = None,
+        proxy_invoker_fn: Any = None,
+        on_dispatch: Any = None,
     ):
         self.task = task
         self.poc_root = poc_root
@@ -208,6 +210,11 @@ class Session:
         self._role_enforcer = RoleEnforcer.from_humans(humans) if humans else None
         self.escalation_modes = escalation_modes or {}
         self._llm_caller = llm_caller
+        # Bridge-supplied hooks used by the CfA engine's EscalationListener
+        # so AskQuestion from a job agent routes through the same
+        # /escalation skill + accordion path as chat-tier AgentSession.
+        self._proxy_invoker_fn = proxy_invoker_fn
+        self._on_dispatch = on_dispatch
 
         # Resolved during run
         self.project_slug = ''
@@ -425,6 +432,8 @@ class Session:
                 intervention_queue=self._intervention_queue,
                 llm_backend=os.environ.get('TEAPARTY_LLM_BACKEND', 'claude'),
                 llm_caller=self._llm_caller,
+                proxy_invoker_fn=self._proxy_invoker_fn,
+                on_dispatch=self._on_dispatch,
             )
 
             result = await orchestrator.run()
@@ -789,6 +798,8 @@ class Session:
         input_provider: InputProvider | None = None,
         humans: list | None = None,
         escalation_modes: dict[str, str] | None = None,
+        proxy_invoker_fn: Any = None,
+        on_dispatch: Any = None,
     ) -> SessionResult:
         """Reconstruct a session from persisted disk state and resume orchestration.
 
@@ -972,6 +983,8 @@ class Session:
                 escalation_modes=escalation_modes,
                 cost_tracker=_resolve_cost_tracker_impl(project_dir),
                 intervention_queue=intervention_queue,
+                proxy_invoker_fn=proxy_invoker_fn,
+                on_dispatch=on_dispatch,
             )
 
             result = await orchestrator.run()

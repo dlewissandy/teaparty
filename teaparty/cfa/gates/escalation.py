@@ -3,17 +3,15 @@
 The orchestrator starts this listener before launching Claude Code.
 The MCP server (running as a Claude Code subprocess) writes a question
 message to the configured bus conversation; this listener polls the
-same conversation, routes each question through the proxy and (if
-needed) the human input_provider, and writes the answer back.
+same conversation, invokes the proxy running the `/escalation` skill,
+and writes the answer back.
 
-Flow:
-  1. Agent calls AskQuestion → MCP server writes {"type":"ask_human", ...}
-     to the bus with sender='agent'
-  2. Listener picks it up, runs consult_proxy for a prediction
-  3. If proxy is confident → returns prediction directly (human never asked)
-  4. If not confident → asks human via input_provider, records differential
-  5. Listener writes {"answer": ...} back with sender='orchestrator';
-     MCP tool returns it to the agent.
+One codepath — chat-tier AgentSession and CfA Orchestrator both go
+through ``_route_through_escalation_skill``.  The listener requires a
+``proxy_invoker_fn`` (bridge's ``_invoke_proxy``) and a
+``dispatcher_session`` (launcher.Session) so each escalation becomes a
+real proxy child session under the caller, renderable as an accordion
+blade.
 
 Protocol (JSON in the ``content`` field of each bus message):
 
@@ -36,7 +34,7 @@ import uuid
 from typing import Any, Awaitable, Callable
 
 from teaparty.messaging.bus import (
-    Event, EventBus, EventType, InputRequest,
+    EventBus, InputRequest,
 )
 from teaparty.messaging.conversations import (
     ConversationType,
@@ -47,7 +45,9 @@ from teaparty.proxy.hooks import proxy_bus_path
 
 _log = logging.getLogger('teaparty.cfa.gates.escalation')
 
-# Type for the input provider (same as actors.InputProvider)
+# Type for the input provider (same as actors.InputProvider).
+# Retained for constructor compat with existing callers; unused by the
+# skill path.
 InputProvider = Callable[[InputRequest], Awaitable[str]]
 
 # Type for the proxy invoker hook supplied by the bridge.
@@ -90,7 +90,7 @@ class EscalationListener:
     def __init__(
         self,
         event_bus: EventBus | None,
-        input_provider: InputProvider,
+        input_provider: InputProvider | None,
         bus_db_path: str,
         conv_id: str,
         session_id: str = '',
@@ -100,7 +100,6 @@ class EscalationListener:
         session_worktree: str = '',
         infra_dir: str = '',
         team: str = '',
-        proxy_enabled: bool = True,
         proxy_invoker_fn: ProxyInvoker | None = None,
         on_dispatch: DispatchHook | None = None,
         dispatcher_session: Any = None,
@@ -108,7 +107,7 @@ class EscalationListener:
         scope: str = 'management',
     ):
         self.event_bus = event_bus
-        self.input_provider = input_provider
+        self.input_provider = input_provider  # unused; kept for compat
         self.bus_db_path = bus_db_path
         self.conv_id = conv_id
         self.session_id = session_id
@@ -118,20 +117,18 @@ class EscalationListener:
         self.session_worktree = session_worktree
         self.infra_dir = infra_dir
         self.team = team
-        self.proxy_enabled = proxy_enabled
-        # Issue #420: bridge-supplied hook that runs the proxy agent via the
-        # `/escalation` skill.  When set, every AskQuestion routes through
-        # the proxy; when None, the listener falls back to the legacy
-        # consult_proxy path (retired in #421).
+        # Bridge-supplied hook that runs the proxy agent via the
+        # ``/escalation`` skill.  Required — the legacy consult_proxy
+        # fallback is gone.  The only route for AskQuestion is the
+        # proxy skill path (#420, chat-tier and CfA unified).
         self._proxy_invoker_fn = proxy_invoker_fn
-        # Issue #420: dispatch-event hook so the escalation appears as a
-        # child accordion node under the caller's session.
+        # Dispatch-event hook so the escalation appears as a child
+        # accordion node under the caller's session.
         self._on_dispatch = on_dispatch
-        # Accordion wiring (issue #420 follow-up): the escalation must
-        # appear as a real child session under the caller's dispatch
-        # session so ``build_dispatch_tree`` can walk to it via the
-        # caller's ``conversation_map``.  Required whenever
-        # ``proxy_invoker_fn`` is set.
+        # The escalation must appear as a real child session under the
+        # caller's dispatch session so ``build_dispatch_tree`` can walk
+        # to it via the caller's ``conversation_map``.  Required
+        # whenever ``proxy_invoker_fn`` is set.
         self._dispatcher_session = dispatcher_session
         self._teaparty_home = teaparty_home
         self._scope = scope
@@ -235,12 +232,9 @@ class EscalationListener:
             pass
 
         try:
-            if self._proxy_invoker_fn is not None:
-                answer = await self._route_through_escalation_skill(
-                    question, context,
-                )
-            else:
-                answer = await self._route_through_proxy(question, context)
+            answer = await self._route_through_escalation_skill(
+                question, context,
+            )
         except Exception:
             _log.exception('Error routing escalation through proxy')
             answer = ''
@@ -268,160 +262,6 @@ class EscalationListener:
         if self._bus is None:
             return
         self._bus.send(self.conv_id, 'orchestrator', json.dumps(payload))
-
-    async def _publish_event(self, event: Event) -> None:
-        """Publish a LOG/INPUT event if an EventBus is attached, else no-op.
-
-        The CfA-engine path attaches a real EventBus so phase logs flow.
-        The bridge/teams path has no EventBus — the listener still runs
-        but its log/input-event publishes silently drop.
-        """
-        if self.event_bus is None:
-            return
-        await self.event_bus.publish(event)
-
-    async def _route_through_proxy(self, question: str, context: str = '') -> str:
-        """Route a question through the proxy, escalating to human if needed.
-
-        Uses the same proxy agent path as the approval gate — consult_proxy
-        runs the statistical pre-filters, invokes the Claude agent if they
-        pass, and returns (text, confidence).  If confident, the agent's text
-        is the answer.  If not, the human is asked and the differential is
-        recorded.
-
-        When ``self.proxy_enabled`` is False, skip the proxy entirely and
-        go straight to the human — the proxy path is only useful when there
-        is a real proxy_model_path / cfa_state / project_slug to feed it.
-        """
-        if not self.proxy_enabled:
-            self._last_escalation_source = 'human'
-            return await self._ask_human(question)
-
-        from teaparty.proxy.agent import (
-            consult_proxy, PROXY_AGENT_CONFIDENCE_THRESHOLD,
-        )
-        from teaparty.proxy.approval_gate import (
-            load_model,
-            record_outcome,
-            save_model,
-        )
-
-        proxy_result = await consult_proxy(
-            question=question,
-            state=self.cfa_state,
-            project_slug=self.project_slug,
-            proxy_model_path=self.proxy_model_path,
-            session_worktree=self.session_worktree,
-            infra_dir=self.infra_dir,
-            team=self.team,
-        )
-
-        prediction = proxy_result.text
-        confident = (
-            proxy_result.from_agent
-            and proxy_result.confidence >= PROXY_AGENT_CONFIDENCE_THRESHOLD
-        )
-
-        await self._publish_event(Event(
-            type=EventType.LOG,
-            data={
-                'category': 'ask_question_proxy',
-                'question': question,
-                'prediction': prediction[:200] if prediction else '',
-                'confident': confident,
-                'state': self.cfa_state,
-            },
-            session_id=self.session_id,
-        ))
-
-        # Telemetry: proxy_considered (Issue #405)
-        try:
-            from teaparty.telemetry import record_event
-            from teaparty.telemetry import events as _telem_events
-            record_event(
-                _telem_events.PROXY_CONSIDERED,
-                scope=self.project_slug or 'management',
-                session_id=self.session_id,
-                data={'proxy_name': 'proxy', 'wait_ms': 0},
-            )
-        except Exception:
-            pass
-
-        # Confident → return proxy answer directly
-        if confident and prediction:
-            _log.info('Proxy answered question confidently: %s', question[:80])
-            self._last_escalation_source = 'proxy'
-            # Telemetry: proxy_answered (Issue #405)
-            try:
-                record_event(
-                    _telem_events.PROXY_ANSWERED,
-                    scope=self.project_slug or 'management',
-                    session_id=self.session_id,
-                    data={
-                        'proxy_name': 'proxy',
-                        'response_len': len(prediction),
-                    },
-                )
-            except Exception:
-                pass
-            return prediction
-
-        # Not confident → ask human
-        # Telemetry: proxy_escalated_to_human (Issue #405)
-        try:
-            record_event(
-                _telem_events.PROXY_ESCALATED_TO_HUMAN,
-                scope=self.project_slug or 'management',
-                session_id=self.session_id,
-                data={
-                    'proxy_name': 'proxy',
-                    'reason_for_escalation': 'not_confident',
-                },
-            )
-        except Exception:
-            pass
-        human_answer = await self._ask_human(question)
-        self._last_escalation_source = 'human'
-        # Telemetry: human_answered (Issue #405)
-        try:
-            record_event(
-                _telem_events.HUMAN_ANSWERED,
-                scope=self.project_slug or 'management',
-                session_id=self.session_id,
-                data={'response_len': len(human_answer)},
-            )
-        except Exception:
-            pass
-
-        # Record the differential for learning
-        if self.proxy_model_path:
-            try:
-                model = load_model(self.proxy_model_path)
-                model = record_outcome(
-                    model,
-                    state=self.cfa_state,
-                    task_type=self.project_slug,
-                    outcome='clarify',
-                    differential_summary=human_answer[:500],
-                    differential_reasoning=question,
-                    prediction=prediction or '(no prediction)',
-                    predicted_response=prediction,
-                )
-                save_model(model, self.proxy_model_path)
-                _log.info('Recorded escalation differential for %s', self.cfa_state)
-            except Exception:
-                _log.debug('Failed to record differential', exc_info=True)
-
-        return human_answer
-
-    async def _ask_human(self, question: str) -> str:
-        """Surface a question to the human via the input_provider."""
-        return await self.input_provider(InputRequest(
-            type='agent_question',
-            state='AGENT_QUESTION',
-            artifact='',
-            bridge_text=question,
-        ))
 
     # ── Escalation-skill path (issue #420) ───────────────────────────────
 

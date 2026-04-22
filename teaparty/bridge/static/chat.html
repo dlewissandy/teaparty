@@ -6,6 +6,7 @@
 <title>TeaParty — Chat</title>
 <link rel="stylesheet" href="styles.css">
 <script src="breadcrumb.js"></script>
+<script src="accordion-chat.js"></script>
 <style>
   /* Markdown rendering in chat messages */
   .msg-text h1,.msg-text h2,.msg-text h3 { color: var(--text); margin: 8px 0 4px 0; }
@@ -27,8 +28,13 @@
 </head>
 <body>
 
+<div class="blade-layout">
+<div style="flex:1;min-width:0;display:flex;flex-direction:column">
 <div id="breadcrumb-slot" style="padding:6px 12px"></div>
 <div id="content" class="app-pane active"></div>
+</div>
+<div class="blade" id="blade" style="display:none"></div>
+</div>
 
 <div id="withdraw-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:100;justify-content:center;align-items:center">
   <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;width:360px;padding:16px">
@@ -961,6 +967,20 @@ function onSessionCompleted(ev) {
 // frame carries the same cursor that was captured by the HTTP fetch.
 fetchAll().then(function() {
   connectWS();
+  // Job chats get the accordion blade so AskQuestion escalations from the
+  // project lead render as nested proxy child sessions (the same
+  // /escalation skill path chat-tier uses).  Non-job chats (participant
+  // and minimal iframes) don't dispatch, so no blade.
+  if (isJobChat && !minimal) {
+    var blade = document.getElementById('blade');
+    if (blade) {
+      blade.style.display = '';
+      AccordionChat.mount(blade, {
+        convId: convId,
+        title: 'Job Escalations',
+      });
+    }
+  }
 });
 </script>
 </body>

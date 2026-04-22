@@ -11,7 +11,7 @@ import json
 import os
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 import logging
 
@@ -240,6 +240,8 @@ class Orchestrator:
         cost_tracker: CostTracker | None = None,
         llm_backend: str = 'claude',
         llm_caller: Any = None,
+        proxy_invoker_fn: Callable[..., Awaitable[None]] | None = None,
+        on_dispatch: Callable[[dict], Any] | None = None,
     ):
         self.cfa = cfa_state
         self.config = phase_config
@@ -273,6 +275,12 @@ class Orchestrator:
         self._cost_tracker = cost_tracker
         self._cost_warning_emitted = False  # Only emit once per job
         self._project_cost_warning_emitted = False
+        # Hooks wired from the bridge so EscalationListener can use the
+        # same proxy-skill mechanism as chat-tier AgentSession.  When
+        # supplied, escalations route through the /escalation skill and
+        # render as nested accordion blades.
+        self._proxy_invoker_fn = proxy_invoker_fn
+        self._on_dispatch = on_dispatch
         self._project_cost_ledger: ProjectCostLedger | None = (
             ProjectCostLedger(project_workdir) if cost_tracker else None
         )
@@ -363,12 +371,48 @@ class Orchestrator:
         if not os.path.isfile(venv_python):
             venv_python = 'python3'  # fallback
 
-        # Start the MCP escalation listener so agents can call AskQuestion
+        # Start the MCP escalation listener so agents can call AskQuestion.
+        # CfA jobs go through the exact same /escalation skill path as
+        # chat-tier AgentSession — no duplicate route.  That requires a
+        # launcher.Session to stand in as the dispatcher (so escalations
+        # land in its conversation_map and the dispatch tree walker can
+        # see them) plus the proxy_invoker_fn + on_dispatch hooks from
+        # the bridge.
         if self.input_provider:
+            from teaparty.runners.launcher import (
+                create_session as _create_session,
+                load_session as _load_session,
+            )
             ask_question_bus_db = os.path.join(self.infra_dir, 'messages.db')
             ask_question_conv_id = f'escalation:{self.session_id}'
             self._ask_question_bus_db = ask_question_bus_db
             self._ask_question_conv_id = ask_question_conv_id
+
+            # The CfA job lives under .teaparty/jobs/ but the accordion's
+            # dispatch-tree walker reads sessions from
+            # .teaparty/{scope}/sessions/ — so we also materialise the
+            # job as a launcher.Session keyed by self.session_id.  The
+            # escalation listener records child proxy sessions into this
+            # session's conversation_map via record_child_session.
+            cfa_scope = 'project' if self.project_slug else 'management'
+            cfa_teaparty_home = (
+                os.path.join(self.project_workdir, '.teaparty')
+                if self.project_workdir else self.poc_root
+            )
+            dispatcher = _load_session(
+                agent_name=self.config.project_lead or 'project-lead',
+                scope=cfa_scope,
+                teaparty_home=cfa_teaparty_home,
+                session_id=self.session_id,
+            )
+            if dispatcher is None:
+                dispatcher = _create_session(
+                    agent_name=self.config.project_lead or 'project-lead',
+                    scope=cfa_scope,
+                    teaparty_home=cfa_teaparty_home,
+                    session_id=self.session_id,
+                )
+
             self._escalation_listener = EscalationListener(
                 event_bus=self.event_bus,
                 input_provider=self.input_provider,
@@ -381,12 +425,19 @@ class Orchestrator:
                 session_worktree=self.session_worktree,
                 infra_dir=self.infra_dir,
                 team=self.team_override,
+                proxy_invoker_fn=self._proxy_invoker_fn,
+                on_dispatch=self._on_dispatch,
+                dispatcher_session=dispatcher,
+                teaparty_home=cfa_teaparty_home,
+                scope=cfa_scope,
             )
             await self._escalation_listener.start()
 
+            # PYTHONPATH still needed so the agent subprocess can import
+            # teaparty modules.  ASK_QUESTION_BUS_DB / _CONV_ID env vars
+            # are gone — the MCP tool handler uses the in-process
+            # registry keyed by agent_name, populated in _run_phase.
             mcp_env = {
-                'ASK_QUESTION_BUS_DB': ask_question_bus_db,
-                'ASK_QUESTION_CONV_ID': ask_question_conv_id,
                 'PYTHONPATH': repo_root,
             }
 

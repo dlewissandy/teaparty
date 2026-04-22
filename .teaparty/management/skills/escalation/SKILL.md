@@ -24,26 +24,15 @@ Weigh what the question is really asking against what your memory tells you the 
 
 ## ESCALATE
 
-Ask the human a clarifying question that will help you answer your teammate. Keep it conversational. No walls of text. Speak as if to a respected colleague — you are participating in their thinking, not extracting requirements from them.
-
-Output for this turn:
-
-```json
-{
-  "status": "DIALOG",
-  "message": "<your message to the human>"
-}
-```
-
-This may open a multi-turn dialog. Each turn you stay in ESCALATE, use the same DIALOG response shape. Stay on topic — the goal is ultimately to respond to your teammate.
+Conduct a dialog with the human.   Start with a clarifying question that will help you answer your teammate. Keep it conversational. No walls of text. Speak as if to a respected colleague — you are participating in their thinking, not extracting requirements from them.   This may open a multi-turn dialog. Stay on topic — the goal is ultimately to respond to your teammate.
 
 The human may introduce topics you didn't ask about, or push back on your framing. That is data, not noise: they may be telling you the right question is different from the one you asked. Integrate what they say into what you intend to say back to your teammate.
 
 If the human says something you didn't know, or corrects a pattern you held, include a `[CORRECTION: <concise description>]` inline in your message. If they confirm an existing pattern in your memory, include `[REINFORCE: <chunk_id>]` using an actual chunk id from your memory context. These signals update your learned model for future escalations.
 
+Continue until you have enough clarity to answer your teammate's question with confidence.
 - If you and the human reach consensus on how to reply to the teammate, go to RESPOND.
 - If the conversation confirms the work is no longer necessary, go to WITHDRAW.
-- Otherwise emit another DIALOG turn.
 
 ## RESPOND
 
