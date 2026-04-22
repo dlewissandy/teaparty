@@ -501,6 +501,25 @@ class EscalationListener:
         child_session.initial_message = question
         _save_meta(child_session)
 
+        # Write ``conversation_id`` into metadata.json upfront so
+        # build_dispatch_tree returns the real proxy conversation id from
+        # the first fetch.  Without this, the tree walker falls back to
+        # ``dispatch:{session_id}`` (an id with no messages on any bus)
+        # and the accordion iframe renders that stale URL — it fetches 0
+        # messages and never re-fetches even after the proxy's
+        # AgentSession.save_state() later writes the real conversation_id
+        # to disk.  ``Session`` has no conversation_id field, so this is
+        # a read-modify-write on the JSON; launcher.save_state and
+        # AgentSession.save_state both preserve fields they don't own.
+        _meta_path = os.path.join(child_session.path, 'metadata.json')
+        with open(_meta_path) as fh:
+            _meta = json.load(fh)
+        _meta['conversation_id'] = proxy_conv_id
+        _tmp = _meta_path + '.tmp'
+        with open(_tmp, 'w') as fh:
+            json.dump(_meta, fh, indent=2)
+        os.replace(_tmp, _meta_path)
+
         # Write QUESTION.md into the session dir.  The proxy launches
         # with cwd = session.path, so the skill's ``Read ./QUESTION.md``
         # resolves here.
