@@ -36,6 +36,13 @@ _reply_fns: dict[str, Callable] = {}
 # close_fn(conversation_id) -> None
 _close_fns: dict[str, Callable] = {}
 
+# {agent_name: (bus_db_path, conv_id)}
+# Escalation routing — the MCP tool in-process reads this to find the
+# EscalationListener's bus conversation for the calling agent.  Set by
+# the AgentSession at _ensure_bus_listener time; read by the AskQuestion
+# tool via current_agent_name contextvar.
+_escalation_routes: dict[str, tuple[str, str]] = {}
+
 
 def register_spawn_fn(agent_name: str, fn: Callable) -> None:
     """Register a spawn function for an agent's bus listener."""
@@ -73,8 +80,29 @@ def get_close_fn(agent_name: str = '') -> Callable | None:
     return _close_fns.get(name)
 
 
+def register_escalation_route(
+    agent_name: str, bus_db_path: str, conv_id: str,
+) -> None:
+    """Register the AskQuestion bus conversation for an agent's MCP calls.
+
+    The in-process MCP tool handler looks this up via ``current_agent_name``
+    to locate the EscalationListener's bus.  Env vars don't work here —
+    the MCP server runs in the bridge process, not in the agent's
+    subprocess, so the tool handler can't read per-subprocess environment.
+    """
+    _log.info('Registered escalation route for %s: conv=%s', agent_name, conv_id)
+    _escalation_routes[agent_name] = (bus_db_path, conv_id)
+
+
+def get_escalation_route(agent_name: str = '') -> tuple[str, str] | None:
+    """Return (bus_db_path, conv_id) for an agent's AskQuestion, or None."""
+    name = agent_name or current_agent_name.get('')
+    return _escalation_routes.get(name)
+
+
 def clear() -> None:
     """Remove all registrations."""
     _spawn_fns.clear()
     _reply_fns.clear()
     _close_fns.clear()
+    _escalation_routes.clear()

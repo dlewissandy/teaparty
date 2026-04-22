@@ -756,6 +756,18 @@ class AgentSession:
         )
         await self._escalation_listener.start()
 
+        # Register the escalation route so the in-process AskQuestion tool
+        # handler can locate this agent's bus conversation.  The MCP server
+        # runs inside the bridge, not the agent's subprocess, so env vars
+        # don't reach the tool — the tool reads the registry keyed by
+        # ``current_agent_name`` (set by the ASGI middleware from the URL).
+        from teaparty.mcp.registry import register_escalation_route
+        register_escalation_route(
+            self.agent_name,
+            self._ask_question_bus_db,
+            self._ask_question_conv_id,
+        )
+
         return {
             'ASK_QUESTION_BUS_DB': self._ask_question_bus_db,
             'ASK_QUESTION_CONV_ID': self._ask_question_conv_id,
@@ -1444,14 +1456,13 @@ class AgentSession:
             self.teaparty_home, self.scope, self.agent_name, self.qualifier,
         )
 
-        # Start bus listener for agents that dispatch.  The returned dict
-        # carries the env vars (ASK_QUESTION_BUS_DB / ASK_QUESTION_CONV_ID,
-        # AGENT_ID) that the MCP tools inside the spawned Claude subprocess
-        # read — they must be threaded into launch()'s env_vars so the tool
-        # can locate the bus and the escalation conversation.
-        bus_listener_env: dict[str, str] = {}
+        # Start bus listener for agents that dispatch.  The listener
+        # also registers the agent's escalation route in the in-process
+        # MCP registry — the AskQuestion tool (which runs inside the
+        # bridge process, not the agent's subprocess) reads the route
+        # by looking up the caller's agent name via contextvars.
         if self._dispatches:
-            bus_listener_env = await self._ensure_bus_listener(cwd)
+            await self._ensure_bus_listener(cwd)
 
         # Stream events to bus in real-time
         stream_callback, events = _make_live_stream_relay(
@@ -1479,7 +1490,6 @@ class AgentSession:
             mcp_port=mcp_port,
             session_id=session.id,
             on_stream_event=stream_callback,
-            env_vars=bus_listener_env or None,
         )
         if self._llm_caller is not None:
             launch_kwargs['llm_caller'] = self._llm_caller

@@ -66,24 +66,29 @@ async def _default_proxy(question: str, context: str) -> dict[str, Any]:
 async def _default_human(question: str) -> str:
     """Default human input: communicate via the orchestrator over the message bus.
 
-    Posts an ``{"type":"ask_human","question":...}`` message from sender
-    ``agent`` onto ``ASK_QUESTION_CONV_ID`` in the bus at ``ASK_QUESTION_BUS_DB``,
-    then polls the same conversation for an ``{"answer":...}`` message from
+    Looks up the caller agent's escalation route (bus DB + conversation id)
+    from the in-process registry, posts ``{"type":"ask_human","question":...}``
+    as sender ``agent``, then polls for an ``{"answer":...}`` message from
     sender ``orchestrator`` and returns its ``answer`` field.
-    """
-    bus_db = os.environ.get('ASK_QUESTION_BUS_DB', '')
-    conv_id = os.environ.get('ASK_QUESTION_CONV_ID', '')
-    if not bus_db or not conv_id:
-        raise RuntimeError(
-            'ASK_QUESTION_BUS_DB / ASK_QUESTION_CONV_ID not set — '
-            'cannot escalate to human'
-        )
 
+    The MCP server runs inside the bridge process — the same process that
+    registers routes when an AgentSession boots.  Env vars don't reach the
+    tool handler because it doesn't run in the agent's subprocess; the
+    registry lookup does.  See teaparty.mcp.registry.
+    """
     # Import lazily so the MCP tool module doesn't pull in the whole
     # teaparty package at import time.
+    from teaparty.mcp.registry import get_escalation_route  # noqa: PLC0415
     from teaparty.messaging.conversations import SqliteMessageBus  # noqa: PLC0415
-
     import time as _time  # noqa: PLC0415
+
+    route = get_escalation_route()
+    if route is None:
+        raise RuntimeError(
+            'No escalation route registered for the calling agent — '
+            'AgentSession._ensure_bus_listener must run before AskQuestion'
+        )
+    bus_db, conv_id = route
 
     bus = SqliteMessageBus(bus_db)
     since = _time.time()
