@@ -1374,6 +1374,29 @@ class Orchestrator:
                 self._ask_question_conv_id,
             )
 
+        # Register the lead's Send spawn_fn in the in-process MCP
+        # registry.  The Send MCP tool handler runs inside the bridge
+        # process (the subprocess talks HTTP MCP to it), so it can't
+        # read DISPATCH_BUS_PATH / DISPATCH_CONV_ID env vars set on
+        # ``mcp_env`` for a stdio server — those env vars reach no
+        # handler at all.  The registry is the channel the handler
+        # does reach.  Same pattern #420 used for escalation routes.
+        if self._bus_event_listener is not None and spec.lead:
+            from teaparty.mcp.registry import register_spawn_fn
+            _bus_spawn = self._bus_spawn_agent
+
+            async def _spawn_fn_adapter(
+                member: str, composite: str, context_id: str,
+            ) -> tuple[str, str, str]:
+                """Adapt _bus_spawn_agent's (sid, dir) to Send's (sid, dir, refusal)."""
+                session_id, agent_dir = await _bus_spawn(
+                    member, composite, context_id,
+                )
+                refusal = '' if session_id else f'spawn_failed:{member}'
+                return (session_id, agent_dir, refusal)
+
+            register_spawn_fn(spec.lead, _spawn_fn_adapter)
+
         await self.event_bus.publish(Event(
             type=EventType.PHASE_STARTED,
             data={'phase': phase_name, 'stream_file': spec.stream_file},
