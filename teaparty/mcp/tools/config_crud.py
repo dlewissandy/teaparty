@@ -188,15 +188,27 @@ def scaffold_project_yaml_handler(
 # ── Artifact pin tools ────────────────────────────────────────────────────────
 
 def _load_project_registry(teaparty_home: str) -> dict:
-    """Load the root teaparty.yaml (canonical project registry).
+    """Load the management team's canonical registry.
 
-    Falls back to management/teaparty.yaml if the root file doesn't exist.
+    The management team config at ``{teaparty_home}/management/teaparty.yaml``
+    is the sole source of truth for the project catalog (same file the
+    home page reads via ``load_management_team``).  External/gitignored
+    projects recorded in ``.teaparty.local/external_projects.yaml`` are
+    merged in so machine-local additions show up here too.
     """
-    root_yaml = os.path.join(teaparty_home, 'teaparty.yaml')
-    if os.path.exists(root_yaml):
-        with open(root_yaml) as f:
-            return yaml.safe_load(f) or {}
-    return _load_teaparty_yaml(teaparty_home)
+    from teaparty.config.config_reader import (
+        load_management_team as _load_team,
+    )
+    team = _load_team(teaparty_home=teaparty_home)
+    return {
+        'name': team.name,
+        'description': team.description,
+        'lead': team.lead,
+        'projects': [
+            {'name': p['name'], 'path': p['path']}
+            for p in team.projects
+        ],
+    }
 
 
 def _find_project_path(name: str, teaparty_home: str) -> str | None:
