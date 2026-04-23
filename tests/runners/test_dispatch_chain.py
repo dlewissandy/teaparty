@@ -378,15 +378,11 @@ class TestThreeDeepDispatchChain(unittest.TestCase):
             async def reinvoke_fn(ctx_id, session_id, message):
                 pass
 
-            async def cleanup_fn(wt):
-                pass
-
             listener = BusEventListener(
                 bus_db_path=bus_db,
                 spawn_fn=spawn_fn,
                 reply_fn=reply_fn,
                 reinvoke_fn=reinvoke_fn,
-                cleanup_fn=cleanup_fn,
                 current_context_id='agent:root:agent-a:init',
                 initiator_agent_id='agent-a',
             )
