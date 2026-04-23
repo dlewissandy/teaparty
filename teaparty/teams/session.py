@@ -120,6 +120,11 @@ class AgentSession:
         self._escalation_listener = None
         self._ask_question_bus_db: str = ''
         self._ask_question_conv_id: str = ''
+        # MCP routes bundle installed at every launch in this session's
+        # subtree (lead self-invoke, dispatched children, grandchildren).
+        # Built in _ensure_bus_listener for dispatching agents; remains
+        # None for leaf workers that neither dispatch nor close.
+        self._mcp_routes = None
 
         # Serialize concurrent invocations — only one claude process per
         # agent session at a time. When multiple children reply at once,
@@ -335,7 +340,6 @@ class AgentSession:
                 create_subchat_worktree,
             )
             from teaparty.mcp.registry import (
-                register_spawn_fn as _register,
                 current_session_id as _current_session_var,
             )
 
@@ -505,13 +509,10 @@ class AgentSession:
                     'agent_name': member,
                 })
 
-            # If the child can dispatch, register the same spawn_fn.
-            try:
-                from teaparty.config.roster import has_sub_roster
-                if has_sub_roster(member, self.teaparty_home):
-                    _register(member, spawn_fn)
-            except Exception:
-                _log.debug('Sub-roster check failed for %s', member, exc_info=True)
+            # Child's MCP routes (spawn_fn, close_fn, escalation) are
+            # registered by launch() when the child subprocess spawns
+            # via the shared self._mcp_routes bundle — issue #422.  No
+            # inline registration needed here.
 
             # Write the parent's request to the bus (visible in child chat).
             self._bus.send(child_conv_id, self.agent_name, composite)
@@ -601,6 +602,7 @@ class AgentSession:
                 worktree=existing.worktree_path,
                 resume_session=session_id, mcp_port=mcp_port,
                 session_id=child_session_id,
+                mcp_routes=self._mcp_routes,
             )
             return result.session_id
 
@@ -646,9 +648,6 @@ class AgentSession:
         )
         await self._bus_listener.start()
 
-        from teaparty.mcp.registry import register_spawn_fn, register_close_fn
-        register_spawn_fn(self.agent_name, spawn_fn)
-
         from teaparty.workspace.close_conversation import build_close_fn
         close_fn = build_close_fn(
             dispatch_session=self._dispatch_session,
@@ -658,7 +657,6 @@ class AgentSession:
             on_dispatch=self._on_dispatch,
             agent_name=self.agent_name,
         )
-        register_close_fn(self.agent_name, close_fn)
 
         # Start the EscalationListener for AskQuestion routing (issue #419).
         # The listener watches `escalation:{session_key}` on the agent's own
@@ -706,17 +704,23 @@ class AgentSession:
         )
         await self._escalation_listener.start()
 
-        # Register the escalation route so the in-process AskQuestion tool
-        # handler can locate this agent's bus conversation.  The MCP server
-        # runs inside the bridge, not the agent's subprocess, so env vars
-        # don't reach the tool — the tool reads the registry keyed by
-        # ``current_agent_name`` (set by the ASGI middleware from the URL).
-        from teaparty.mcp.registry import register_escalation_route
-        register_escalation_route(
-            self.agent_name,
-            self._ask_question_bus_db,
-            self._ask_question_conv_id,
+        # Build the MCPRoutes bundle this session installs at every
+        # launch — for itself, for dispatched children, for grandchildren.
+        # launch() is the single registration site (issue #422); the MCP
+        # server runs inside the bridge, not in the agent's subprocess, so
+        # env vars don't reach the handler — the handler reads the registry
+        # keyed by current_agent_name (set by ASGI middleware from the URL).
+        from teaparty.mcp.registry import MCPRoutes
+        self._mcp_routes = MCPRoutes(
+            spawn_fn=spawn_fn,
+            close_fn=close_fn,
+            escalation_bus_db=self._ask_question_bus_db,
+            escalation_conv_id=self._ask_question_conv_id,
         )
+        # Register the bundle for the lead itself.  Dispatched children
+        # are registered by launch() when their subprocess spawns.
+        from teaparty.mcp.registry import register_agent_mcp_routes
+        register_agent_mcp_routes(self.agent_name, self._mcp_routes)
 
         return {
             'ASK_QUESTION_BUS_DB': self._ask_question_bus_db,
@@ -1161,6 +1165,7 @@ class AgentSession:
                 launch_kwargs['resume_session'] = current_claude_session
             if self._llm_caller is not None:
                 launch_kwargs['llm_caller'] = self._llm_caller
+            launch_kwargs['mcp_routes'] = self._mcp_routes
 
             try:
                 _mark_launching(child_session, current_message)
@@ -1469,6 +1474,7 @@ class AgentSession:
         )
         if self._llm_caller is not None:
             launch_kwargs['llm_caller'] = self._llm_caller
+        launch_kwargs['mcp_routes'] = self._mcp_routes
         result = await launch(**launch_kwargs)
 
         response_text = '\n'.join(
