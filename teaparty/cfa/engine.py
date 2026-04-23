@@ -413,6 +413,12 @@ class Orchestrator:
                     teaparty_home=mgmt_teaparty_home,
                     session_id=self.session_id,
                 )
+            # Stash the dispatcher session so the Send spawn_fn adapter
+            # (registered in _run_phase) can record_child_session and emit
+            # dispatch_started events against it — same wiring chat-tier
+            # spawn_fn uses to surface a dispatched child as an accordion
+            # node.
+            self._dispatcher_session = dispatcher
 
             # The proxy's home — where the listener creates its session
             # and where the proxy agent.md resolves.  Same management
@@ -1383,15 +1389,55 @@ class Orchestrator:
         # does reach.  Same pattern #420 used for escalation routes.
         if self._bus_event_listener is not None and spec.lead:
             from teaparty.mcp.registry import register_spawn_fn
+            from teaparty.runners.launcher import record_child_session
             _bus_spawn = self._bus_spawn_agent
+            _dispatcher = getattr(self, '_dispatcher_session', None)
+            _on_dispatch = self._on_dispatch
 
             async def _spawn_fn_adapter(
                 member: str, composite: str, context_id: str,
             ) -> tuple[str, str, str]:
-                """Adapt _bus_spawn_agent's (sid, dir) to Send's (sid, dir, refusal)."""
-                session_id, agent_dir = await _bus_spawn(
+                """Adapt _bus_spawn_agent for the Send MCP tool contract.
+
+                ``_bus_spawn_agent`` returns a 3-tuple ``(session_id,
+                worktree, _)``; Send also expects a 3-tuple
+                ``(session_id, worktree, refusal_reason)``.  On success
+                we also record the child in the dispatcher session's
+                conversation_map and emit ``dispatch_started`` so the
+                accordion surfaces the dispatched subteam the same way
+                chat-tier spawn_fn does.
+                """
+                session_id, agent_dir, _raw = await _bus_spawn(
                     member, composite, context_id,
                 )
+                if session_id:
+                    if _dispatcher is not None:
+                        try:
+                            record_child_session(
+                                _dispatcher,
+                                request_id=context_id,
+                                child_session_id=session_id,
+                            )
+                        except Exception:
+                            _log.debug(
+                                'record_child_session failed for %s',
+                                member, exc_info=True,
+                            )
+                    if _on_dispatch is not None:
+                        try:
+                            _on_dispatch({
+                                'type': 'dispatch_started',
+                                'parent_session_id': (
+                                    _dispatcher.id if _dispatcher else ''
+                                ),
+                                'child_session_id': session_id,
+                                'agent_name': member,
+                            })
+                        except Exception:
+                            _log.debug(
+                                'on_dispatch hook raised for dispatch_started',
+                                exc_info=True,
+                            )
                 refusal = '' if session_id else f'spawn_failed:{member}'
                 return (session_id, agent_dir, refusal)
 
