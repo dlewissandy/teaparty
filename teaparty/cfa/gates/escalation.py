@@ -104,6 +104,7 @@ class EscalationListener:
         proxy_invoker_fn: ProxyInvoker | None = None,
         on_dispatch: DispatchHook | None = None,
         dispatcher_session: Any = None,
+        dispatcher_conv_id: str = '',
         teaparty_home: str = '',
         scope: str = 'management',
     ):
@@ -131,6 +132,16 @@ class EscalationListener:
         # to it via the caller's ``conversation_map``.  Required
         # whenever ``proxy_invoker_fn`` is set.
         self._dispatcher_session = dispatcher_session
+        # The dispatcher's *bus conversation id* — the parent_conversation_id
+        # to stamp on the escalation's DISPATCH row so the tree walker
+        # finds it as a child.  Different tiers name this differently
+        # (chat: ``dispatch:{sid}`` or ``lead:{name}:{q}`` or ``om:...``;
+        # CfA: ``job:{project_slug}:{sid}``) so the caller must supply it;
+        # we can't reconstruct it from ``session.id`` alone.  Empty means
+        # "fall back to ``dispatch:{dispatcher.id}``" for pre-#422
+        # callers that haven't migrated — but new callers should pass
+        # the real conv_id.
+        self._dispatcher_conv_id = dispatcher_conv_id
         self._teaparty_home = teaparty_home
         self._scope = scope
         self._task: asyncio.Task | None = None
@@ -185,7 +196,7 @@ class EscalationListener:
         except Exception:
             return
         try:
-            parent_conv_id = f'dispatch:{self._dispatcher_session.id}'
+            parent_conv_id = self._resolve_parent_conv_id()
             for child in bus.children_of(parent_conv_id):
                 if child.agent_name != 'proxy':
                     continue
@@ -409,8 +420,7 @@ class EscalationListener:
                 _esc_bus.create_conversation(
                     ConversationType.DISPATCH, child_session.id,
                     agent_name='proxy',
-                    parent_conversation_id=(
-                        f'dispatch:{self._dispatcher_session.id}'),
+                    parent_conversation_id=self._resolve_parent_conv_id(),
                     request_id=escalation_id,
                     project_slug=self.project_slug or '',
                     state=ConversationState.ACTIVE,
@@ -576,6 +586,34 @@ class EscalationListener:
             _log.debug(
                 'on_dispatch hook raised for %s', event_type, exc_info=True,
             )
+
+    def _resolve_parent_conv_id(self) -> str:
+        """Return the bus conv_id the escalation's DISPATCH row attaches to.
+
+        The dispatch-tree walker is rooted at the *dispatcher's* bus
+        conv_id and walks via ``bus.children_of``.  The escalation is a
+        child of the agent that called AskQuestion — so its parent
+        conv_id must equal that agent's own conv_id, whatever form it
+        takes in that tier:
+
+          - chat tier (dispatched agent): ``dispatch:{session_id}``
+          - chat tier (top-level blade):  ``lead:{name}:{qualifier}``,
+                                          ``om:{...}``, ``pm:{...}``, etc.
+          - CfA job:                      ``job:{project_slug}:{sid}``
+
+        The caller supplies the right value via ``dispatcher_conv_id``.
+        When empty — the pre-#422 construction path — we fall back to
+        ``dispatch:{dispatcher.id}`` so older call sites keep working,
+        but new sites should pass it explicitly.  The fall-through is
+        the reason CfA-job escalations used to disappear from the
+        accordion: ``job:joke-book:...`` was the real parent, but the
+        fallback stamped ``dispatch:...`` and the walker never matched.
+        """
+        if self._dispatcher_conv_id:
+            return self._dispatcher_conv_id
+        if self._dispatcher_session is not None:
+            return f'dispatch:{self._dispatcher_session.id}'
+        return ''
 
     def _resolve_escalation_policy(self) -> str:
         """Return the project's escalation policy for the caller's CfA state.

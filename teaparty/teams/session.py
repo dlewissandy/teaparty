@@ -700,6 +700,13 @@ class AgentSession:
             proxy_invoker_fn=self._proxy_invoker_fn,
             on_dispatch=self._on_dispatch,
             dispatcher_session=self._dispatch_session,
+            # This AgentSession's bus conv_id is the parent the
+            # escalation attaches to — whatever form it takes (OM's
+            # ``om:{q}``, a project lead's ``lead:{name}:{q}``, or a
+            # dispatched ``dispatch:{sid}``).  The dispatch-tree walker
+            # is rooted at this conv, so the escalation must be keyed
+            # to it or the accordion blade never materializes.
+            dispatcher_conv_id=self.conversation_id,
             teaparty_home=proxy_teaparty_home,
             scope='management',
         )

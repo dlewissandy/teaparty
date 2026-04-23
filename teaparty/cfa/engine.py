@@ -458,6 +458,12 @@ class Orchestrator:
                 proxy_invoker_fn=self._proxy_invoker_fn,
                 on_dispatch=self._on_dispatch,
                 dispatcher_session=dispatcher,
+                # The dispatcher's bus conv_id is the JOB conv
+                # ``job:{project_slug}:{session_id}`` — what the job
+                # page's dispatch-tree walker starts at.  Without this,
+                # the escalation attaches under ``dispatch:{sid}`` and
+                # never appears in the accordion.
+                dispatcher_conv_id=self._stream_conv_id,
                 teaparty_home=proxy_teaparty_home,
                 scope='management',
             )
