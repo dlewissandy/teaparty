@@ -516,6 +516,28 @@ class TeaPartyBridge:
         return response
 
     async def _on_startup(self, app: web.Application) -> None:
+        # Recovery sweep (#422): every conversation that was pending or
+        # active when the bridge last shut down is now orphaned — no
+        # live subprocess, no heartbeat producer.  Mark them paused so
+        # the UI surfaces them with the paused pill; the user decides
+        # whether to resume, close, or withdraw.  No auto-recovery.
+        mgmt_db = os.path.join(
+            self.teaparty_home, 'management', 'messages.db')
+        if os.path.isfile(mgmt_db):
+            try:
+                _sweep_bus = SqliteMessageBus(mgmt_db)
+                try:
+                    n = _sweep_bus.pause_live_conversations()
+                    if n:
+                        _log.info(
+                            'startup recovery sweep: %d conversation(s) '
+                            'marked paused', n)
+                finally:
+                    _sweep_bus.close()
+            except Exception:
+                _log.warning(
+                    'startup recovery sweep failed', exc_info=True)
+
         # Start the shared MCP server (same event loop, no threading)
         from teaparty.mcp.server.main import create_http_app
         self._mcp_asgi_app, mcp_starlette, mcp_server = create_http_app()
