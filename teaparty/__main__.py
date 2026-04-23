@@ -129,10 +129,6 @@ class CLIEventPrinter:
                 print(f'  [artifact] found: {artifact} → {action}', file=sys.stderr)
             else:
                 print(f'  [artifact] none configured → {action}', file=sys.stderr)
-        elif category == 'auto_bridge':
-            state = data.get('state', '')
-            action = data.get('action', '')
-            print(f'  [bridge] {state} → {action}', file=sys.stderr)
         elif category == 'generative_response':
             result = data.get('result', '')
             state = data.get('state', '')

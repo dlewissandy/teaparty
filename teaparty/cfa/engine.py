@@ -18,7 +18,6 @@ import logging
 from teaparty.cfa.statemachine.cfa_state import (
     CfaState,
     InvalidTransition,
-    TRANSITIONS,
     is_globally_terminal,
     is_phase_terminal,
     phase_for_state,
@@ -1110,9 +1109,6 @@ class Orchestrator:
 
             # Phase 2: Planning (skip if execute-only)
             if not self.execute_only:
-                # Bridge intent → planning (INTENT has one forward edge: approve → PLAN)
-                await self._auto_bridge()
-
                 # System 1 fast path: if a learned skill covers this task,
                 # pre-seed PLAN.md with the skill template so the planning
                 # skill runs ALIGN instead of DRAFT on its first turn and
@@ -1162,10 +1158,6 @@ class Orchestrator:
                 if self.plan_only:
                     return self._make_result('DONE')
 
-                # Bridge planning → execution (no-op if planning already
-                # terminated at EXECUTE via the skill's APPROVE outcome)
-                await self._auto_bridge()
-
                 # Prospective learning: generate premortem before execution (Issue #199)
                 self._write_premortem()
             # else: CfA is already at EXECUTE (set_state_direct in Session.run)
@@ -1211,27 +1203,6 @@ class Orchestrator:
 
             # Should not reach here — but treat as completion
             return self._make_result(self.cfa.state)
-
-    async def _auto_bridge(self) -> None:
-        """Apply deterministic transition at a phase-terminal state to enter the next phase.
-
-        Phase-terminal states with exactly one outgoing edge are structural
-        bridges, not agent decisions.  Apply them automatically so _run_phase
-        for the next phase starts inside its own phase's state space.
-        """
-        edges = TRANSITIONS.get(self.cfa.state, [])
-        if len(edges) == 1:
-            action = edges[0][0]
-            await self.event_bus.publish(Event(
-                type=EventType.LOG,
-                data={
-                    'category': 'auto_bridge',
-                    'state': self.cfa.state,
-                    'action': action,
-                },
-                session_id=self.session_id,
-            ))
-            await self._transition(action, ActorResult(action=action))
 
     async def _try_skill_lookup(self) -> bool:
         """System 1 fast path: check the skill library for a matching skill.

@@ -344,12 +344,12 @@ class Session:
                 # Skip intent + planning: jump directly to execution start
                 cfa = set_state_direct(cfa, 'EXECUTE')
             elif self.intent_file or self.skip_intent:
-                # Skip intent: set state to INTENT (planning entry point)
-                # _auto_bridge() in Orchestrator will apply INTENT → PLANNING
+                # Skip intent: set state to INTENT (the intent phase
+                # will run, but the caller has pre-supplied INTENT.md).
                 cfa = set_state_direct(cfa, 'INTENT')
-            # Normal path: stay at IDEA. The intent-alignment skill runs
-            # at IDEA and terminates via .phase-outcome.json (approve or
-            # withdraw) — no sub-state machine to traverse anymore.
+            # Normal path: stay at INTENT. The intent-alignment skill
+            # runs and terminates via .phase-outcome.json (approve or
+            # withdraw).
 
             save_state(cfa, os.path.join(infra_dir, '.cfa-state.json'))
 
