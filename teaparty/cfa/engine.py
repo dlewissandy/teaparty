@@ -655,10 +655,22 @@ class Orchestrator:
         # Register the dispatch in the bus — the single source of truth
         # for tree / lead / parent (issue #422).  The accordion walker
         # reads this record; no disk lookup for the blade caption.
-        # Parent conv_id comes from the MCP caller's session_id contextvar
-        # (set by the MCP middleware from the URL), falling back to the
-        # dispatcher session for non-MCP callers (tests, etc.).
+        #
+        # Parent conv_id: the MCP middleware set
+        # ``current_conversation_id`` from the caller's URL
+        # (``?conv=`` written by ``launch()`` using the caller's own
+        # conv_id — job conv for the lead, dispatch conv for every
+        # descendant).  Reading the contextvar replaces all the
+        # tier-specific derivation — same codepath whether the caller
+        # is the job lead (conv_id = ``job:{slug}:{sid}``) or a
+        # dispatched descendant (conv_id = ``dispatch:{sid}``).
+        #
+        # Empty contextvar is the legacy path (tests, pre-migration
+        # callers).  Fall back to the old derivation so those keep
+        # working; every production caller now sets the contextvar via
+        # ``launch(caller_conversation_id=...)``.
         from teaparty.mcp.registry import (
+            current_conversation_id as _current_conv_var,
             current_session_id as _current_session_var,
         )
         from teaparty.messaging.conversations import (
@@ -666,10 +678,18 @@ class Orchestrator:
             ConversationType as _ConvType,
             SqliteMessageBus as _Bus,
         )
-        caller_sid = _current_session_var.get('')
-        if not caller_sid and self._dispatcher_session is not None:
-            caller_sid = self._dispatcher_session.id
-        parent_conv_id = f'dispatch:{caller_sid}' if caller_sid else ''
+        parent_conv_id = _current_conv_var.get('')
+        if not parent_conv_id:
+            caller_sid = _current_session_var.get('')
+            if not caller_sid and self._dispatcher_session is not None:
+                caller_sid = self._dispatcher_session.id
+            _stream_conv = getattr(self, '_stream_conv_id', '')
+            if (self._dispatcher_session is not None
+                    and caller_sid == self._dispatcher_session.id
+                    and _stream_conv):
+                parent_conv_id = _stream_conv
+            elif caller_sid:
+                parent_conv_id = f'dispatch:{caller_sid}'
         if self._bus_event_listener is not None and self._bus_event_listener.bus_db_path:
             _bus = _Bus(self._bus_event_listener.bus_db_path)
             try:
@@ -755,6 +775,11 @@ class Orchestrator:
                     mcp_port=mcp_port,
                     session_id=child_session.id,
                     mcp_routes=self._mcp_routes,
+                    # Child's own conv_id — parent of any dispatches
+                    # it makes.  Middleware wires this into the
+                    # ``current_conversation_id`` contextvar the next
+                    # spawn_fn reads.
+                    caller_conversation_id=f'dispatch:{child_session.id}',
                 )
                 return getattr(result, 'response_text', '') or ''
             except Exception:
@@ -905,6 +930,7 @@ class Orchestrator:
                 mcp_port=mcp_port,
                 session_id=child_session.id,
                 mcp_routes=self._mcp_routes,
+                caller_conversation_id=f'dispatch:{child_session.id}',
             )
             return (child_session.id, child_wt, '')
 
@@ -933,6 +959,7 @@ class Orchestrator:
                 resume_session=session_id,
                 mcp_port=mcp_port,
                 mcp_routes=self._mcp_routes,
+                caller_conversation_id=f'dispatch:{session_id}',
             )
             return result.session_id
 
@@ -1025,6 +1052,7 @@ class Orchestrator:
             resume_session=session_id,
             mcp_port=mcp_port,
             mcp_routes=self._mcp_routes,
+            caller_conversation_id=f'dispatch:{session_id}',
         )
         return result.session_id
 

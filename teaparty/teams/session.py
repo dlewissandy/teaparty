@@ -506,11 +506,26 @@ class AgentSession:
             # is, and which Send request created it (issue #422).  The
             # accordion walker reads this record; no disk lookup for
             # the blade caption, no agent_name='unknown' fallback.
-            parent_conv_id = (
-                self.conversation_id
-                if dispatcher_session is self._dispatch_session
-                else f'dispatch:{dispatcher_session.id}'
+            #
+            # Parent conv_id: the MCP middleware set
+            # ``current_conversation_id`` from the caller's URL
+            # (``?conv=`` written by ``launch()``).  Reading the
+            # contextvar replaces the old derivation
+            # (``dispatch:{sid}`` vs ``self.conversation_id`` based on
+            # ``dispatcher_session is self._dispatch_session``) — same
+            # answer, one source of truth.  Empty contextvar means
+            # the caller didn't propagate it (legacy launches / tests);
+            # fall back to the old derivation so nothing breaks.
+            from teaparty.mcp.registry import (
+                current_conversation_id as _current_conv_var,
             )
+            parent_conv_id = _current_conv_var.get('')
+            if not parent_conv_id:
+                parent_conv_id = (
+                    self.conversation_id
+                    if dispatcher_session is self._dispatch_session
+                    else f'dispatch:{dispatcher_session.id}'
+                )
             from teaparty.messaging.conversations import ConversationState
             self._bus.create_conversation(
                 ConversationType.DISPATCH, child_session.id,
@@ -609,6 +624,12 @@ class AgentSession:
                 resume_session=session_id, mcp_port=mcp_port,
                 session_id=child_session_id,
                 mcp_routes=self._mcp_routes,
+                # Child's own conv_id — the parent of any dispatches
+                # it makes via Send.  Middleware sets this as the
+                # ``current_conversation_id`` contextvar; the child's
+                # own spawn_fn reads it when registering grandchildren
+                # in the bus.
+                caller_conversation_id=f'dispatch:{child_session_id}',
             )
             return result.session_id
 
@@ -1175,6 +1196,10 @@ class AgentSession:
             if self._llm_caller is not None:
                 launch_kwargs['llm_caller'] = self._llm_caller
             launch_kwargs['mcp_routes'] = self._mcp_routes
+            # The child's own conv_id — parent of any dispatches it
+            # makes.  Middleware wires this into the contextvar the
+            # spawn_fn reads.
+            launch_kwargs['caller_conversation_id'] = child_conv_id
 
             try:
                 _mark_launching(child_session, current_message)
@@ -1488,6 +1513,12 @@ class AgentSession:
         if self._llm_caller is not None:
             launch_kwargs['llm_caller'] = self._llm_caller
         launch_kwargs['mcp_routes'] = self._mcp_routes
+        # This AgentSession's own conv_id — every dispatch it makes
+        # has this as parent.  Handles OM (``om:{q}``), PM, project
+        # lead (``lead:{name}:{q}``), proxy, config-lead without
+        # per-role special-casing: each AgentSession knows its own
+        # ``conversation_id``.
+        launch_kwargs['caller_conversation_id'] = self.conversation_id
         result = await launch(**launch_kwargs)
 
         response_text = '\n'.join(

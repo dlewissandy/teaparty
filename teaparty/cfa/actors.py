@@ -294,6 +294,17 @@ class AgentRunner:
             env_vars=ctx.env_vars,
             permission_mode_override=ctx.phase_spec.permission_mode,
             mcp_routes=ctx.mcp_routes,
+            # The lead's own conv_id — the JOB conv.  MCP middleware
+            # uses this to set ``current_conversation_id`` so any Send
+            # the lead makes is parented under the JOB conv (which is
+            # what the job page's dispatch tree walks from).  Without
+            # this the lead's dispatches would be parented under the
+            # wrong conv_id and their blades never render.
+            caller_conversation_id=(
+                f'job:{ctx.env_vars.get("POC_PROJECT", "")}:{ctx.session_id}'
+                if ctx.env_vars.get('POC_PROJECT') and ctx.session_id
+                else ''
+            ),
             **launch_kwargs,
         )
 

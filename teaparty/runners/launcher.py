@@ -382,6 +382,7 @@ def compose_launch_worktree(
     org_home: str | None = None,
     mcp_port: int = 0,
     session_id: str = '',
+    caller_conversation_id: str = '',
 ) -> None:
     """Compose the .claude/ directory in a worktree for an agent launch.
 
@@ -463,6 +464,17 @@ def compose_launch_worktree(
             mcp_url = f'http://localhost:{mcp_port}/mcp/{scope}/{agent_name}/{session_id}'
         else:
             mcp_url = f'http://localhost:{mcp_port}/mcp/{scope}/{agent_name}'
+        # The caller's own bus conv_id — MCP middleware parses this
+        # ``?conv=`` param and sets the ``current_conversation_id``
+        # contextvar.  Every spawn_fn reads that contextvar to stamp
+        # ``parent_conversation_id`` on new dispatches — the single
+        # codepath that replaces three independent ``f'dispatch:{sid}'``
+        # derivations (chat tier, CfA engine, escalation).
+        if caller_conversation_id:
+            from urllib.parse import quote
+            mcp_url = (
+                f'{mcp_url}?conv={quote(caller_conversation_id, safe="")}'
+            )
         mcp_data = {
             'mcpServers': {
                 'teaparty-config': {
@@ -595,6 +607,7 @@ def compose_launch_config(
     teaparty_home: str,
     mcp_port: int = 0,
     session_id: str = '',
+    caller_conversation_id: str = '',
 ) -> dict[str, str]:
     """Compose per-launch config files for a chat-tier agent launch.
 
@@ -659,12 +672,21 @@ def compose_launch_config(
     )
 
     # MCP endpoint — scoped to this agent/session so tools can route.
+    # Also carries the caller's conv_id as ``?conv=`` so the MCP
+    # middleware can set ``current_conversation_id`` — the single
+    # source of truth for "what conv owns this MCP call" (see
+    # ``teaparty.mcp.registry.current_conversation_id``).
     mcp_path = ''
     if mcp_port:
         if session_id:
             mcp_url = f'http://localhost:{mcp_port}/mcp/{scope}/{agent_name}/{session_id}'
         else:
             mcp_url = f'http://localhost:{mcp_port}/mcp/{scope}/{agent_name}'
+        if caller_conversation_id:
+            from urllib.parse import quote
+            mcp_url = (
+                f'{mcp_url}?conv={quote(caller_conversation_id, safe="")}'
+            )
         mcp_data = {
             'mcpServers': {
                 'teaparty-config': {
@@ -1063,6 +1085,15 @@ async def launch(
     # are immediately reachable by agent_name.  Single registration
     # site shared by both tiers (see issue #422).
     mcp_routes: Any = None,
+    # The conv_id this agent owns in the bus — included in the MCP
+    # URL as ``?conv=``.  The MCP middleware reads it and sets the
+    # ``current_conversation_id`` contextvar, which every spawn_fn
+    # uses as ``parent_conversation_id`` for new dispatches.  Callers
+    # must pass their own caller's conv_id; derivation sites (any code
+    # that builds ``f'dispatch:{something.id}'`` as parent) are the
+    # bug class this fix eliminates.  Empty => MCP handlers fall back
+    # to session-id derivation (preserves test paths).
+    caller_conversation_id: str = '',
 ) -> ClaudeResult:
     """Launch an agent through the unified codepath.
 
@@ -1103,6 +1134,7 @@ async def launch(
             teaparty_home=teaparty_home,
             mcp_port=mcp_port,
             session_id=session_id,
+            caller_conversation_id=caller_conversation_id,
         )
         chat_settings_path = cfg['settings_path']
         chat_mcp_path = cfg['mcp_path']
@@ -1117,6 +1149,7 @@ async def launch(
             org_home=org_home,
             mcp_port=mcp_port,
             session_id=session_id,
+            caller_conversation_id=caller_conversation_id,
         )
 
     # Read agent frontmatter for tools and permission mode

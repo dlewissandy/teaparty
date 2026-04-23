@@ -24,6 +24,23 @@ current_agent_name: contextvars.ContextVar[str] = contextvars.ContextVar(
 current_session_id: contextvars.ContextVar[str] = contextvars.ContextVar(
     'current_session_id', default='',
 )
+# The caller's bus conversation_id.  Set by the MCP middleware from the
+# URL's ``?conv=`` query param (which ``launch()`` writes at spawn time
+# from the caller's own conv_id).  Read by every spawn_fn that needs to
+# stamp ``parent_conversation_id`` on a new dispatch row — the caller's
+# conv_id is the parent.
+#
+# This is the single source of truth for "what conv_id is making this
+# MCP call?"  Before this existed, three different sites (chat tier,
+# CfA engine, escalation listener) independently derived the caller's
+# conv_id from ``session.id`` — and at least one was always wrong for
+# some tier (job leads ended up parented to ``dispatch:{sid}`` instead
+# of ``job:{slug}:{sid}`` and their children's blades never rendered).
+# Derivation is the bug.  Propagation — one write at launch, one read
+# at spawn — is the fix.
+current_conversation_id: contextvars.ContextVar[str] = contextvars.ContextVar(
+    'current_conversation_id', default='',
+)
 
 # {agent_name: spawn_fn}
 # spawn_fn(member, composite, context_id) -> (session_id, worktree, result)

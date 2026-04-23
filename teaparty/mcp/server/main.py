@@ -1170,11 +1170,26 @@ def create_http_app(port: int = 8082):
         cache_key = f'{scope_name}/{agent_name}'
 
         # Set the agent context so tool handlers know who's calling
-        from teaparty.mcp.registry import current_agent_name, current_session_id
+        from teaparty.mcp.registry import (
+            current_agent_name,
+            current_conversation_id,
+            current_session_id,
+        )
         current_agent_name.set(agent_name)
         # Session ID present in 4-part paths: /mcp/{scope}/{agent}/{session_id}
         if len(parts) >= 4:
             current_session_id.set(parts[3])
+        # The caller's bus conv_id — passed via ``?conv=`` by ``launch()``.
+        # Consumers that need to stamp ``parent_conversation_id`` on a
+        # new dispatch row read this value.  Deriving it from session_id
+        # is the bug; propagating it from the launcher is the fix.
+        query_string = scope.get('query_string', b'').decode('utf-8', 'replace')
+        if query_string:
+            from urllib.parse import parse_qs
+            qs = parse_qs(query_string)
+            conv_vals = qs.get('conv') or qs.get('conversation_id')
+            if conv_vals:
+                current_conversation_id.set(conv_vals[0])
 
         # Load allowlist
         if cache_key not in _allowlist_cache:
