@@ -791,32 +791,49 @@ class AgentSession:
             except Exception:
                 dispatch_session = None
 
-        if dispatch_session is not None and dispatch_session.conversation_map:
+        # Enumerate the top-level dispatches from the bus (#422) — the
+        # single source of truth.  The old code walked
+        # dispatch_session.conversation_map (disk metadata); the bus is
+        # now authoritative for the tree.
+        from teaparty.workspace.close_conversation import (
+            collect_descendants_with_parents_from_bus,
+        )
+        root_conv_id = self.conversation_id
+        top_level_children = (
+            self._bus.children_of(root_conv_id)
+            if dispatch_session is not None else []
+        )
+
+        if dispatch_session is not None and top_level_children:
             sessions_dir = os.path.join(
                 self.teaparty_home, self.scope, 'sessions')
-            top_level_ids = list(
-                dispatch_session.conversation_map.values())
 
-            for child_sid in top_level_ids:
-                # Walk subtree to enumerate every descendant that
-                # needs a dispatch_completed event.
-                subtree = collect_descendants_with_parents(
-                    sessions_dir, child_sid,
-                    root_parent=dispatch_session.id)
+            for child_conv in top_level_children:
+                if not child_conv.id.startswith('dispatch:'):
+                    continue
+                child_sid = child_conv.id[len('dispatch:'):]
 
-                # Read agent_name from each descendant's metadata
-                # before close_conversation removes the dir.
+                # Walk subtree via the bus to enumerate every descendant
+                # that needs a dispatch_completed event.
+                subtree_convs = collect_descendants_with_parents_from_bus(
+                    self._bus, child_conv.id,
+                    root_parent_conv_id=root_conv_id,
+                )
+                subtree: list[tuple[str, str]] = []
                 agent_names: dict[str, str] = {}
-                for csid, _parent in subtree:
-                    meta_path = os.path.join(
-                        sessions_dir, csid, 'metadata.json')
-                    try:
-                        import json as _json
-                        with open(meta_path) as f:
-                            agent_names[csid] = _json.load(f).get(
-                                'agent_name', '')
-                    except (OSError, ValueError):
-                        agent_names[csid] = ''
+                for conv, parent_conv_id in subtree_convs:
+                    _, _, csid = conv.id.partition(':')
+                    # Parent session_id comes from the parent's
+                    # ``dispatch:{sid}`` conv_id.  For top-level
+                    # children of this root (parent_conv_id is
+                    # non-dispatch, e.g. 'om:...' or 'lead:...:...'),
+                    # the parent is the dispatcher's session.
+                    if parent_conv_id.startswith('dispatch:'):
+                        parent_sid = parent_conv_id[len('dispatch:'):]
+                    else:
+                        parent_sid = dispatch_session.id
+                    subtree.append((csid, parent_sid))
+                    agent_names[csid] = conv.agent_name
 
                 # Cancel any live tasks in this subtree (fresh-server
                 # case has no live tasks; re-invocation case might).
@@ -825,26 +842,18 @@ class AgentSession:
                     if t is not None and not t.done():
                         t.cancel()
 
-                # Filesystem teardown: rmtree session dirs, remove
-                # entry from parent's conversation_map on disk.
-                #
                 # /clear is operator-initiated "throw it away" — it must
-                # leave no on-disk state behind. close_conversation
-                # returns a structured result (ok/conflict/error/noop)
-                # and only updates conversation_map when status == 'ok'.
-                # A stale child whose worktree can't merge (conflict,
-                # missing branch, etc.) would otherwise stay in the
-                # parent's conversation_map forever and reappear as a
-                # blade on page reload. When close_conversation fails
-                # we fall through to force-teardown: drop the worktree
-                # and branch without merging, rmtree the session dir,
-                # and strip the entry from conversation_map by request_id.
+                # leave no on-disk state behind.  close_conversation
+                # returns a structured result (ok/conflict/error/noop).
+                # When it fails we fall through to force-teardown: drop
+                # the worktree and branch without merging, rmtree the
+                # session dir.
                 close_ok = False
                 try:
                     result = await close_conversation(
                         dispatch_session, f'dispatch:{child_sid}',
                         teaparty_home=self.teaparty_home,
-                        scope=self.scope)
+                        scope=self.scope, bus=self._bus)
                     close_ok = isinstance(result, dict) and result.get(
                         'status') in ('ok', 'noop')
                     if not close_ok:
@@ -1121,7 +1130,15 @@ class AgentSession:
                     current_message = '\n'.join(gc_replies)
 
         while True:
-            before_ids = set(child_session.conversation_map.values())
+            # Fan-in tracking (#422): bus is the single source of truth
+            # for "what has this child dispatched?"  Diffing before/after
+            # identifies new grandchildren to gather replies from.
+            child_conv_id = f'dispatch:{child_session.id}'
+            before_ids = {
+                c.id[len('dispatch:'):]
+                for c in self._bus.children_of(child_conv_id)
+                if c.id.startswith('dispatch:')
+            }
             response_parts.clear()
 
             if worktree_path:
@@ -1179,7 +1196,11 @@ class AgentSession:
                 _log.exception('Child %s failed', member)
                 break
 
-            after_ids = set(child_session.conversation_map.values())
+            after_ids = {
+                c.id[len('dispatch:'):]
+                for c in self._bus.children_of(child_conv_id)
+                if c.id.startswith('dispatch:')
+            }
             new_gc_ids = after_ids - before_ids
             if not new_gc_ids:
                 break
