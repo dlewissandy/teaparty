@@ -499,20 +499,7 @@ class AgentSession:
             # in its own conversation_map.
             session_registry[child_session.id] = child_session
 
-            # Record in dispatcher's conversation_map so the accordion
-            # shows the child while running.
             child_conv_id = f'dispatch:{child_session.id}'
-            _record_child(dispatcher_session,
-                          request_id=context_id,
-                          child_session_id=child_session.id)
-
-            if self._on_dispatch:
-                self._on_dispatch({
-                    'type': 'dispatch_started',
-                    'parent_session_id': dispatcher_session.id,
-                    'child_session_id': child_session.id,
-                    'agent_name': member,
-                })
 
             # Child's MCP routes (spawn_fn, close_fn, escalation) are
             # registered by launch() when the child subprocess spawns
@@ -548,23 +535,17 @@ class AgentSession:
                 )
 
             self._run_child_factories[child_session.id] = _run_child
-            task = _asyncio.create_task(_run_child())
-            self._background_tasks.add(task)
-            self._tasks_by_child[child_session.id] = task
-            # Only discard from _background_tasks on done; keep the
-            # entry in tasks_by_child so a parent _run_child's loop
-            # can still find the (already completed) grandchild task
-            # and collect its result via `await task`. The race here
-            # is: a grandchild often completes while its parent is
-            # still inside its first _launch call (they run concurrently
-            # on the event loop), so by the time the parent's loop gets
-            # to gc_tasks the grandchild's task may already be done.
-            # Popping eagerly dropped the task reference and broke the
-            # resume chain — the parent thought there was nothing to
-            # wait for and finalized with stale first-turn text.
-            # close_fn / _cancel_background_tasks clean up the dict on
-            # explicit teardown; /clear clears it at session reset.
-            task.add_done_callback(self._background_tasks.discard)
+            # Shared with CfA (#422): record child in conversation_map,
+            # emit dispatch_started, create task, register in tasks_by_child.
+            self._bus_listener.schedule_child_task(
+                child_session_id=child_session.id,
+                launch_coro=_run_child(),
+                dispatcher_session=dispatcher_session,
+                context_id=context_id,
+                agent_name=member,
+                on_dispatch=self._on_dispatch,
+                background_tasks=self._background_tasks,
+            )
 
             # Return immediately — child runs in background. The second
             # element used to be a worktree path; chat tier returns the

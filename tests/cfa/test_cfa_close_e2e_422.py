@@ -34,6 +34,7 @@ import unittest
 
 from teaparty.cfa.engine import Orchestrator
 from teaparty.mcp.registry import MCPRoutes
+from teaparty.messaging.listener import BusEventListener
 from teaparty.runners.launcher import (
     create_session, load_session, _save_session_metadata as _save_meta,
 )
@@ -115,7 +116,9 @@ class TestCfACloseE2E(unittest.IsolatedAsyncioTestCase):
     def _make_orchestrator(self, dispatcher) -> Orchestrator:
         """Build an Orchestrator stub exposing only the attributes
         _bus_spawn_agent reads.  Full __init__ wants an EventBus, CfaState,
-        PhaseConfig, etc. — none of which this test exercises.
+        PhaseConfig, etc. — none of which this test exercises.  A real
+        BusEventListener is attached because _bus_spawn_agent delegates
+        to its schedule_child_task (the shared helper with chat tier).
         """
         o = Orchestrator.__new__(Orchestrator)
         o.poc_root = self._project
@@ -129,6 +132,8 @@ class TestCfACloseE2E(unittest.IsolatedAsyncioTestCase):
         o._on_dispatch = None  # set per-test
         o._mcp_routes = None   # not used by _bus_spawn_agent itself
         o._tasks_by_child = {}
+        o._bus_event_listener = BusEventListener(bus_db_path='')
+        o._bus_event_listener.tasks_by_child = o._tasks_by_child
         return o
 
     async def test_close_merges_child_commit_into_parent_branch(self):
@@ -289,6 +294,8 @@ class TestCfASpawnReturnsSessionRecordId(unittest.IsolatedAsyncioTestCase):
         o._on_dispatch = None
         o._mcp_routes = None
         o._tasks_by_child = {}
+        o._bus_event_listener = BusEventListener(bus_db_path='')
+        o._bus_event_listener.tasks_by_child = o._tasks_by_child
 
         import teaparty.runners.launcher as launcher_mod
         orig = launcher_mod.launch

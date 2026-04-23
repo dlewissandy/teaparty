@@ -124,6 +124,61 @@ class BusEventListener:
         # chat and CfA share one registry.
         self.tasks_by_child: dict[str, asyncio.Task] = {}
 
+    def schedule_child_task(
+        self,
+        *,
+        child_session_id: str,
+        launch_coro,
+        dispatcher_session,
+        context_id: str,
+        agent_name: str,
+        on_dispatch=None,
+        background_tasks: set | None = None,
+    ) -> asyncio.Task:
+        """Record a dispatched child, emit dispatch_started, schedule its task.
+
+        Shared by both tiers (issue #422).  The caller has already created
+        the child session record and set its merge metadata; this method
+        performs the rest of the spawn boilerplate:
+
+          1. record the child in the dispatcher's conversation_map so the
+             accordion and the dispatch-tree walker can reach it
+          2. emit ``dispatch_started`` so the UI renders the subteam blade
+          3. wrap the caller's launch coroutine in an asyncio.Task
+          4. register that task in ``self.tasks_by_child`` keyed by
+             ``child_session_id`` so the shared ``close_fn`` can cancel
+             the subtree cleanly
+
+        The caller passes ``background_tasks`` if it maintains its own
+        set (chat tier does; CfA does not).  Without it the task is
+        tracked solely by ``tasks_by_child``.
+        """
+        from teaparty.runners.launcher import record_child_session
+        record_child_session(
+            dispatcher_session,
+            request_id=context_id,
+            child_session_id=child_session_id,
+        )
+        if on_dispatch is not None:
+            try:
+                on_dispatch({
+                    'type': 'dispatch_started',
+                    'parent_session_id': dispatcher_session.id,
+                    'child_session_id': child_session_id,
+                    'agent_name': agent_name,
+                })
+            except Exception:
+                _log.debug(
+                    'on_dispatch raised for dispatch_started',
+                    exc_info=True,
+                )
+        task = asyncio.create_task(launch_coro)
+        self.tasks_by_child[child_session_id] = task
+        if background_tasks is not None:
+            background_tasks.add(task)
+            task.add_done_callback(background_tasks.discard)
+        return task
+
     async def start(self) -> None:
         """No-op — kept for lifecycle symmetry with earlier callers.
 
