@@ -531,6 +531,14 @@ class Orchestrator:
             # emits dispatch_completed per removed session.
             from teaparty.mcp.registry import MCPRoutes, register_agent_mcp_routes
             from teaparty.workspace.close_conversation import build_close_fn
+            # The CfA engine's dispatch bus — same db the MCPRoutes
+            # spawn_fn writes to and the accordion walker reads from
+            # (#422).  Passing it here is what makes close_fn walk the
+            # bus's children_of instead of session metadata on disk.
+            from teaparty.messaging.conversations import (
+                SqliteMessageBus as _CloseBus,
+            )
+            _close_bus = _CloseBus(self._bus_event_listener.bus_db_path)
             close_fn = build_close_fn(
                 dispatch_session=self._dispatcher_session,
                 teaparty_home=self.teaparty_home,
@@ -538,6 +546,7 @@ class Orchestrator:
                 tasks_by_child=self._tasks_by_child,
                 on_dispatch=self._on_dispatch,
                 agent_name=lead_agent_id,
+                bus=_close_bus,
             )
             self._mcp_routes = MCPRoutes(
                 spawn_fn=self._bus_spawn_agent,

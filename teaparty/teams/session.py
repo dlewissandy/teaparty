@@ -656,6 +656,7 @@ class AgentSession:
             tasks_by_child=self._tasks_by_child,
             on_dispatch=self._on_dispatch,
             agent_name=self.agent_name,
+            bus=self._bus,
         )
 
         # Start the EscalationListener for AskQuestion routing (issue #419).
