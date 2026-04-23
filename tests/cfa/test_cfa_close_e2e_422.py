@@ -122,6 +122,7 @@ class TestCfACloseE2E(unittest.IsolatedAsyncioTestCase):
         """
         o = Orchestrator.__new__(Orchestrator)
         o.poc_root = self._project
+        o.teaparty_home = self._tp
         o.project_workdir = self._project
         # Lead's session worktree == the project repo root for this test.
         # Child worktrees are forked from here and merge back to this.
@@ -301,6 +302,7 @@ class TestCfASpawnIsVisibleToBridgeWalker(unittest.IsolatedAsyncioTestCase):
         # (find_poc_root returns repo root, not .teaparty).
         o = Orchestrator.__new__(Orchestrator)
         o.poc_root = self._project
+        o.teaparty_home = self._tp
         o.project_workdir = self._project
         o.session_worktree = self._project
         o.infra_dir = tempfile.mkdtemp(prefix='tp422-infra-')
@@ -397,6 +399,7 @@ class TestCfASpawnReturnsSessionRecordId(unittest.IsolatedAsyncioTestCase):
         )
         o = Orchestrator.__new__(Orchestrator)
         o.poc_root = self._project
+        o.teaparty_home = self._tp
         o.project_workdir = self._project
         o.session_worktree = self._project
         o.infra_dir = tempfile.mkdtemp(prefix='tp422-infra-')

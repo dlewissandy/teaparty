@@ -68,6 +68,19 @@ class ActorContext:
     phase_spec: 'PhaseSpec'
     poc_root: str
     event_bus: EventBus
+
+    @property
+    def teaparty_home(self) -> str:
+        """Management-scope .teaparty/ directory.
+
+        ``poc_root`` is the repo root (from ``find_poc_root()``).  The
+        bridge's session walker, the CfA engine's session records, and
+        every agent config path are rooted under ``{repo_root}/.teaparty/``.
+        This property is the single derived expression — never build the
+        path ad-hoc.
+        """
+        return os.path.join(self.poc_root, '.teaparty')
+
     session_id: str = ''
     resume_session: str | None = None
     env_vars: dict[str, str] = field(default_factory=dict)
@@ -190,7 +203,7 @@ class AgentRunner:
         agents_json = ''
         agents_path = ''
         wg_name = ctx.phase_spec.agent_file
-        wg_yaml = os.path.join(ctx.poc_root, '.teaparty', 'project', 'workgroups', f'{wg_name}.yaml')
+        wg_yaml = os.path.join(ctx.teaparty_home, 'project', 'workgroups', f'{wg_name}.yaml')
         if os.path.isfile(wg_yaml):
             config = PhaseConfig(ctx.poc_root)
             agents_json = config.resolve_agents_json(wg_name)
@@ -263,7 +276,7 @@ class AgentRunner:
             # Agent definitions live in the project's own .teaparty/project/agents/
             # directory; the org management catalog is the fallback (Issue #408).
             teaparty_home=os.path.join(ctx.project_workdir, '.teaparty'),
-            org_home=os.path.join(ctx.poc_root, '.teaparty'),
+            org_home=ctx.teaparty_home,
             worktree=ctx.session_worktree,
             resume_session=ctx.resume_session or '',
             on_stream_event=self.on_stream_event,
