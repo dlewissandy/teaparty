@@ -395,11 +395,13 @@ class TestEscalationSkillPath(unittest.TestCase):
             # directory is gone and the dispatcher's conversation_map
             # has been cleared.
             from teaparty.bridge.state.dispatch_tree import build_dispatch_tree
-            sessions_dir = os.path.join(
-                self.teaparty_home, 'management', 'sessions',
-            )
+            # Single source of truth (#422).
             mid_loop_trees.append(
-                build_dispatch_tree(sessions_dir, 'test-dispatcher'),
+                build_dispatch_tree(
+                    SqliteMessageBus(self.bus_db),
+                    'dispatch:test-dispatcher',
+                    root_session_id='test-dispatcher',
+                ),
             )
             proxy_bus = SqliteMessageBus(self.proxy_bus_path)
             conv_id = make_conversation_id(ConversationType.PROXY, qualifier)

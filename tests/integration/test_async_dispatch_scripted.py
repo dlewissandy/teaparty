@@ -398,10 +398,11 @@ class TestLinearDispatchScripted(unittest.TestCase):
         # close it. The accordion should therefore show the nested
         # blades with a 'completed' status until the caller cleans up.
         from teaparty.bridge.state.dispatch_tree import build_dispatch_tree
-        sessions_dir = os.path.join(
-            _module_env[0], 'management', 'sessions')
+        # Single source of truth (#422): the bus's conversations table.
         tree = build_dispatch_tree(
-            sessions_dir, session._dispatch_session.id)
+            session._bus, session.conversation_id,
+            root_session_id=session._dispatch_session.id,
+        )
         children = tree.get('children', [])
         self.assertEqual(
             len(children), 1,

@@ -37,6 +37,7 @@ from teaparty.messaging.bus import (
     EventBus, InputRequest,
 )
 from teaparty.messaging.conversations import (
+    ConversationState,
     ConversationType,
     SqliteMessageBus,
     make_conversation_id,
@@ -404,6 +405,30 @@ class EscalationListener:
             request_id=escalation_id,
             child_session_id=child_session.id,
         )
+
+        # Register the escalation as a DISPATCH conversation in the bus
+        # (#422) — single source of truth for tree / name / state.  The
+        # accordion walker reads children_of(parent_conv_id) here rather
+        # than the dispatcher's conversation_map on disk.  Parent conv_id
+        # follows the dispatch: convention.
+        try:
+            _esc_bus = SqliteMessageBus(self.bus_db_path)
+            try:
+                _esc_bus.create_conversation(
+                    ConversationType.DISPATCH, child_session.id,
+                    agent_name='proxy',
+                    parent_conversation_id=(
+                        f'dispatch:{self._dispatcher_session.id}'),
+                    request_id=escalation_id,
+                    state=ConversationState.ACTIVE,
+                )
+            finally:
+                _esc_bus.close()
+        except Exception:
+            _log.debug(
+                'escalation: failed to register DISPATCH row for %s',
+                child_session.id, exc_info=True,
+            )
 
         # Emit dispatch_started so the dashboard animates the new blade.
         # Parent = dispatcher.id so the event agrees with the tree-walker

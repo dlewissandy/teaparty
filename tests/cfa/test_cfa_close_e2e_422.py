@@ -133,7 +133,8 @@ class TestCfACloseE2E(unittest.IsolatedAsyncioTestCase):
         o._on_dispatch = None  # set per-test
         o._mcp_routes = None   # not used by _bus_spawn_agent itself
         o._tasks_by_child = {}
-        o._bus_event_listener = BusEventListener(bus_db_path='')
+        bus_db = os.path.join(o.infra_dir, 'messages.db')
+        o._bus_event_listener = BusEventListener(bus_db_path=bus_db)
         o._bus_event_listener.tasks_by_child = o._tasks_by_child
         return o
 
@@ -311,7 +312,8 @@ class TestCfASpawnIsVisibleToBridgeWalker(unittest.IsolatedAsyncioTestCase):
         o._on_dispatch = None
         o._mcp_routes = None
         o._tasks_by_child = {}
-        o._bus_event_listener = BusEventListener(bus_db_path='')
+        bus_db = os.path.join(o.infra_dir, 'messages.db')
+        o._bus_event_listener = BusEventListener(bus_db_path=bus_db)
         o._bus_event_listener.tasks_by_child = o._tasks_by_child
 
         import teaparty.runners.launcher as launcher_mod
@@ -351,19 +353,23 @@ class TestCfASpawnIsVisibleToBridgeWalker(unittest.IsolatedAsyncioTestCase):
             'is invisible to the bridge walker.',
         )
 
-        # End-to-end: build_dispatch_tree using the same sessions_dirs
-        # the bridge computes resolves the child with its agent_name.
-        sessions_dirs = [os.path.join(self._tp, 'management', 'sessions')]
-        tree = build_dispatch_tree(sessions_dirs, dispatcher.id)
+        # End-to-end: build_dispatch_tree reads from the bus (#422) and
+        # resolves the child with its real agent_name — no disk walks,
+        # no 'unknown' stubs.
+        from teaparty.messaging.conversations import SqliteMessageBus
+        bus = SqliteMessageBus(
+            os.path.join(o.infra_dir, 'messages.db'))
+        tree = build_dispatch_tree(bus, f'dispatch:{dispatcher.id}',
+                                   root_session_id=dispatcher.id)
         children = tree.get('children', [])
         self.assertEqual(len(children), 1,
                          f'dispatcher must have one child in the tree: {tree}')
         self.assertEqual(children[0]['session_id'], session_id)
         self.assertEqual(
             children[0]['agent_name'], 'coding-team',
-            'walker must resolve the child with its real agent_name — '
-            'an "unknown" stub means the metadata.json is not in any '
-            'sessions_dirs, which is what causes the missing accordion blade.',
+            "walker must resolve the child's agent_name from the bus row "
+            "— an 'unknown' blade means spawn_fn failed to register the "
+            'dispatch in bus.conversations.',
         )
 
 
@@ -408,7 +414,8 @@ class TestCfASpawnReturnsSessionRecordId(unittest.IsolatedAsyncioTestCase):
         o._on_dispatch = None
         o._mcp_routes = None
         o._tasks_by_child = {}
-        o._bus_event_listener = BusEventListener(bus_db_path='')
+        bus_db = os.path.join(o.infra_dir, 'messages.db')
+        o._bus_event_listener = BusEventListener(bus_db_path=bus_db)
         o._bus_event_listener.tasks_by_child = o._tasks_by_child
 
         import teaparty.runners.launcher as launcher_mod

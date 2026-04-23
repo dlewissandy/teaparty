@@ -3135,13 +3135,31 @@ class TeaPartyBridge:
         scopes when resolving a child session id.
         """
         session_id = request.match_info['session_id']
-        conv_id = request.query.get('conv', '')
+        conv_id = request.query.get('conv', '') or f'dispatch:{session_id}'
         from teaparty.bridge.state.dispatch_tree import build_dispatch_tree
 
-        sessions_dirs = self._all_sessions_dirs()
-        tree = build_dispatch_tree(sessions_dirs, session_id, conv_id=conv_id)
-        _log.debug('dispatch-tree %s: %d children, sessions_dirs=%s',
-                   session_id, len(tree.get('children', [])), sessions_dirs)
+        # Bus query (#422) — single source of truth for the tree.
+        bus = self._bus_for_conversation(conv_id)
+        if bus is None:
+            # Fall back to the management bus for roots that may not have
+            # been seen by _bus_for_conversation's prefix routing yet.
+            mgmt_db = os.path.join(self.teaparty_home, 'management', 'messages.db')
+            if os.path.isfile(mgmt_db):
+                bus = SqliteMessageBus(mgmt_db)
+            else:
+                return web.json_response({
+                    'conversation_id': conv_id,
+                    'session_id': session_id,
+                    'agent_name': '',
+                    'status': 'unknown',
+                    'children': [],
+                })
+
+        tree = build_dispatch_tree(
+            bus, conv_id, root_session_id=session_id,
+        )
+        _log.debug('dispatch-tree %s: %d children',
+                   session_id, len(tree.get('children', [])))
         return web.json_response(tree)
 
     def _find_sessions_dir(self, session_id: str) -> str:
