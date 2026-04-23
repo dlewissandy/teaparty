@@ -364,6 +364,12 @@ class TestEscalationSkillPath(unittest.TestCase):
             proxy_invoker_fn=proxy_invoker,
             on_dispatch=on_dispatch,
             dispatcher_session=dispatcher,
+            # The listener now refuses construction without the
+            # caller's real bus conv_id — no silent fallback to
+            # ``dispatch:{dispatcher.id}``.  For this test the
+            # dispatcher IS a dispatched agent, so its conv_id is
+            # ``dispatch:{dispatcher.id}``.
+            dispatcher_conv_id=f'dispatch:{dispatcher.id}',
             teaparty_home=self.teaparty_home,
             scope='management',
         )

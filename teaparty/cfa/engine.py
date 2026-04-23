@@ -656,22 +656,17 @@ class Orchestrator:
         # for tree / lead / parent (issue #422).  The accordion walker
         # reads this record; no disk lookup for the blade caption.
         #
-        # Parent conv_id: the MCP middleware set
-        # ``current_conversation_id`` from the caller's URL
-        # (``?conv=`` written by ``launch()`` using the caller's own
-        # conv_id — job conv for the lead, dispatch conv for every
-        # descendant).  Reading the contextvar replaces all the
-        # tier-specific derivation — same codepath whether the caller
-        # is the job lead (conv_id = ``job:{slug}:{sid}``) or a
-        # dispatched descendant (conv_id = ``dispatch:{sid}``).
-        #
-        # Empty contextvar is the legacy path (tests, pre-migration
-        # callers).  Fall back to the old derivation so those keep
-        # working; every production caller now sets the contextvar via
-        # ``launch(caller_conversation_id=...)``.
+        # Parent conv_id comes from exactly ONE place: the MCP
+        # middleware set ``current_conversation_id`` from the caller's
+        # URL ``?conv=`` param, which ``launch()`` wrote from the
+        # caller's own conv_id.  Every production caller passes that.
+        # There is no fallback — fallbacks hide bugs by silently
+        # producing wrong answers when the contextvar isn't set, which
+        # is how "derive parent from session.id" kept creeping back in.
+        # If the contextvar is empty, something upstream is broken;
+        # refuse the dispatch with a loud error so the miss is visible.
         from teaparty.mcp.registry import (
             current_conversation_id as _current_conv_var,
-            current_session_id as _current_session_var,
         )
         from teaparty.messaging.conversations import (
             ConversationState as _ConvState,
@@ -680,16 +675,16 @@ class Orchestrator:
         )
         parent_conv_id = _current_conv_var.get('')
         if not parent_conv_id:
-            caller_sid = _current_session_var.get('')
-            if not caller_sid and self._dispatcher_session is not None:
-                caller_sid = self._dispatcher_session.id
-            _stream_conv = getattr(self, '_stream_conv_id', '')
-            if (self._dispatcher_session is not None
-                    and caller_sid == self._dispatcher_session.id
-                    and _stream_conv):
-                parent_conv_id = _stream_conv
-            elif caller_sid:
-                parent_conv_id = f'dispatch:{caller_sid}'
+            raise RuntimeError(
+                '_bus_spawn_agent: current_conversation_id is empty. '
+                "The caller's conv_id must reach the spawn_fn via the "
+                'MCP URL ``?conv=`` (set by ``launch(caller_conversation_id=...)``) '
+                'and the middleware.  An empty contextvar means the '
+                'launch site forgot the argument or the middleware did '
+                'not parse it — either way we cannot stamp a correct '
+                'parent_conversation_id and must refuse rather than '
+                'silently produce the wrong tree.',
+            )
         if self._bus_event_listener is not None and self._bus_event_listener.bus_db_path:
             _bus = _Bus(self._bus_event_listener.bus_db_path)
             try:

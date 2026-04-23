@@ -140,23 +140,26 @@ class TestResolveParentConvId(unittest.TestCase):
             'lead:joke-book-lead:q42',
         )
 
-    def test_fallback_when_conv_id_missing(self) -> None:
-        """Pre-migration caller with no dispatcher_conv_id — fall back.
+    def test_missing_conv_id_raises_loudly(self) -> None:
+        """No fallback: empty dispatcher_conv_id raises, it doesn't guess.
 
-        The legacy form agreed with chat-tier dispatched children by
-        accident; keeping the fallback preserves any call site that
-        hasn't been migrated yet.  The fix's correctness comes from
-        the two production call sites (chat session, CfA engine) now
-        passing the real value; the fallback exists so tests and any
-        stragglers don't break outright.
+        Previous implementations fell back to ``dispatch:{dispatcher.id}``
+        when ``dispatcher_conv_id`` was empty.  That fallback was the
+        silent-error pathway — it produced wrong conv_ids for any
+        caller whose real conv_id was not ``dispatch:{sid}`` (job
+        leads, OM, project-lead blades).  The class of bug
+        resurrected itself repeatedly from this silent derivation.
+        The listener now refuses the lookup when the caller forgot to
+        supply its conv_id, so the miss is visible at the caller site.
         """
         listener = _make_listener(
             bus_db=self._bus_db,
             dispatcher_session=_FakeSession('legacy-sid'),
             dispatcher_conv_id='',
         )
-        self.assertEqual(
-            listener._resolve_parent_conv_id(), 'dispatch:legacy-sid')
+        with self.assertRaises(RuntimeError) as ctx:
+            listener._resolve_parent_conv_id()
+        self.assertIn('dispatcher_conv_id', str(ctx.exception))
 
 
 class TestEscalationAppearsInTreeForCfaJob(unittest.TestCase):

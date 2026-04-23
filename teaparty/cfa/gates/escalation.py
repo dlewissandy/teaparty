@@ -621,19 +621,25 @@ class EscalationListener:
                                           ``om:{...}``, ``pm:{...}``, etc.
           - CfA job:                      ``job:{project_slug}:{sid}``
 
-        The caller supplies the right value via ``dispatcher_conv_id``.
-        When empty — the pre-#422 construction path — we fall back to
-        ``dispatch:{dispatcher.id}`` so older call sites keep working,
-        but new sites should pass it explicitly.  The fall-through is
-        the reason CfA-job escalations used to disappear from the
-        accordion: ``job:joke-book:...`` was the real parent, but the
-        fallback stamped ``dispatch:...`` and the walker never matched.
+        The caller MUST supply the right value via ``dispatcher_conv_id``
+        at construction time.  No fallback derivation: a fallback would
+        silently produce the wrong conv_id for any tier where the
+        caller's conv isn't ``dispatch:{session.id}`` (which is how
+        CfA-job escalations kept disappearing from the accordion —
+        ``job:joke-book:...`` was the real parent, but the fallback
+        stamped ``dispatch:...`` and the walker never matched).  If
+        this returns empty, the listener was constructed without a
+        conv_id — that's a caller bug we want to surface, not paper
+        over.
         """
-        if self._dispatcher_conv_id:
-            return self._dispatcher_conv_id
-        if self._dispatcher_session is not None:
-            return f'dispatch:{self._dispatcher_session.id}'
-        return ''
+        if not self._dispatcher_conv_id:
+            raise RuntimeError(
+                'EscalationListener: dispatcher_conv_id was not supplied '
+                'at construction time.  Every caller must pass its own '
+                'bus conv_id so the escalation row has the correct '
+                'parent.  Empty would silently misroute the accordion.',
+            )
+        return self._dispatcher_conv_id
 
     def _resolve_escalation_policy(self) -> str:
         """Return the project's escalation policy for the caller's CfA state.

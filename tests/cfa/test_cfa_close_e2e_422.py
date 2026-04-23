@@ -157,6 +157,12 @@ class TestCfACloseE2E(unittest.IsolatedAsyncioTestCase):
             return _StubLLMResult()
 
         launcher_mod.launch = fake_launch
+        # Production sets current_conversation_id via MCP middleware
+        # from the ``?conv=`` URL.  Direct-call tests must set it
+        # themselves — the spawn_fn refuses rather than silently
+        # deriving a wrong parent_conv_id.
+        from teaparty.mcp.registry import current_conversation_id
+        current_conversation_id.set(f'dispatch:{dispatcher.id}')
         try:
             session_id, wt_path, refusal = await o._bus_spawn_agent(
                 member='worker', composite='do the thing',
@@ -324,6 +330,8 @@ class TestCfASpawnIsVisibleToBridgeWalker(unittest.IsolatedAsyncioTestCase):
             return _StubLLMResult()
 
         launcher_mod.launch = fake_launch
+        from teaparty.mcp.registry import current_conversation_id
+        current_conversation_id.set(f'dispatch:{dispatcher.id}')
         try:
             session_id, wt_path, refusal = await o._bus_spawn_agent(
                 member='coding-team', composite='do the thing',
@@ -426,6 +434,8 @@ class TestCfASpawnReturnsSessionRecordId(unittest.IsolatedAsyncioTestCase):
             return _StubLLMResult()
 
         launcher_mod.launch = fake_launch
+        from teaparty.mcp.registry import current_conversation_id
+        current_conversation_id.set(f'dispatch:{dispatcher.id}')
         try:
             session_id, _, _ = await o._bus_spawn_agent(
                 member='worker', composite='do',

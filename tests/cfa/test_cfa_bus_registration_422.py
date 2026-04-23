@@ -111,6 +111,13 @@ class TestBusSpawnAgentRegistersDispatch(unittest.IsolatedAsyncioTestCase):
             return _StubLLMResult()
 
         launcher_mod.launch = fake_launch
+        # The production call site sets current_conversation_id via
+        # the MCP middleware from the ``?conv=`` URL param that
+        # ``launch()`` writes.  Tests that invoke _bus_spawn_agent
+        # directly (bypassing MCP) MUST set the contextvar themselves
+        # — no fallback derivation catches a miss.
+        from teaparty.mcp.registry import current_conversation_id
+        current_conversation_id.set(f'dispatch:{dispatcher.id}')
         try:
             session_id, _wt, refusal = await o._bus_spawn_agent(
                 member='coding-team', composite='do',

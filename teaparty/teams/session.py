@@ -507,24 +507,24 @@ class AgentSession:
             # accordion walker reads this record; no disk lookup for
             # the blade caption, no agent_name='unknown' fallback.
             #
-            # Parent conv_id: the MCP middleware set
-            # ``current_conversation_id`` from the caller's URL
-            # (``?conv=`` written by ``launch()``).  Reading the
-            # contextvar replaces the old derivation
-            # (``dispatch:{sid}`` vs ``self.conversation_id`` based on
-            # ``dispatcher_session is self._dispatch_session``) — same
-            # answer, one source of truth.  Empty contextvar means
-            # the caller didn't propagate it (legacy launches / tests);
-            # fall back to the old derivation so nothing breaks.
+            # Parent conv_id comes from exactly ONE place: the MCP
+            # middleware sets ``current_conversation_id`` from the
+            # caller's URL ``?conv=``, which ``launch()`` wrote from
+            # the caller's own conv_id.  No fallback derivation —
+            # fallbacks hide bugs by silently producing wrong answers.
+            # If the contextvar is empty, upstream is broken; refuse.
             from teaparty.mcp.registry import (
                 current_conversation_id as _current_conv_var,
             )
             parent_conv_id = _current_conv_var.get('')
             if not parent_conv_id:
-                parent_conv_id = (
-                    self.conversation_id
-                    if dispatcher_session is self._dispatch_session
-                    else f'dispatch:{dispatcher_session.id}'
+                raise RuntimeError(
+                    f'{self.agent_name} spawn_fn: current_conversation_id '
+                    'is empty.  ``launch()`` must pass '
+                    '``caller_conversation_id=`` so the MCP middleware '
+                    'can set the contextvar; an empty value means the '
+                    'launch site forgot it.  Refusing rather than '
+                    'silently parenting under the wrong conv_id.',
                 )
             from teaparty.messaging.conversations import ConversationState
             self._bus.create_conversation(
