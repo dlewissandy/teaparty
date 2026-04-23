@@ -525,37 +525,37 @@ class TestConcurrencyConstraints(_TempDirMixin, unittest.TestCase):
         super().setUp()
         self._tp = _make_teaparty_tree(self._tmpdir)
 
-    def test_conversation_map_tracks_open_slots(self):
-        """metadata.json must maintain a conversation_map tracking open sessions."""
-        from teaparty.runners.launcher import create_session, record_child_session
-        session = create_session(
-            agent_name='test-agent',
-            scope='management',
-            teaparty_home=self._tp,
-        )
-        record_child_session(session, request_id='req-1', child_session_id='child-1')
-        meta_path = os.path.join(session.path, 'metadata.json')
-        with open(meta_path) as f:
-            meta = json.load(f)
-        conv_map = meta.get('conversation_map', {})
-        self.assertEqual(conv_map['req-1'], 'child-1')
-
     def test_per_agent_limit_of_three(self):
-        """A fourth child session must not be allowed (per-agent limit of 3)."""
+        """A fourth child dispatch must not be allowed (#422 — bus-backed).
+
+        ``check_slot_available`` queries the bus for live DISPATCH
+        conversations under the dispatcher's conv_id.  The single source
+        of truth for slot count — no disk conversation_map.
+        """
         from teaparty.runners.launcher import (
             create_session,
-            record_child_session,
             check_slot_available,
         )
+        from teaparty.messaging.conversations import (
+            ConversationState, ConversationType, SqliteMessageBus,
+        )
+        import tempfile
         session = create_session(
             agent_name='test-agent',
             scope='management',
             teaparty_home=self._tp,
         )
+        bus_path = os.path.join(tempfile.mkdtemp(), 'bus.db')
+        bus = SqliteMessageBus(bus_path)
+        parent_conv = 'lead:test-agent:q'
         for i in range(3):
-            record_child_session(session, request_id=f'req-{i}', child_session_id=f'child-{i}')
+            bus.create_conversation(
+                ConversationType.DISPATCH, f'child-{i}',
+                parent_conversation_id=parent_conv,
+                state=ConversationState.ACTIVE,
+            )
         self.assertFalse(
-            check_slot_available(session),
+            check_slot_available(session, bus=bus, conv_id=parent_conv),
             'Fourth slot should not be available (per-agent limit of 3)',
         )
 

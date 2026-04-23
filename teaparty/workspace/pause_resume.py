@@ -1,4 +1,4 @@
-"""Project-scoped pause / resume for dispatched session trees (issue #403).
+"""Project-scoped pause / resume for dispatched session trees (#403, #422).
 
 Pause All and Resume All on the project card are direct operational controls,
 not agent-interpreted requests. This module implements the mechanics.
@@ -12,6 +12,10 @@ The subtree loop in ``teams.session._run_child`` writes the session's
 phase continuously (see ``runners.launcher.mark_launching/awaiting/complete``),
 so at any cancellation point each session on disk is unambiguously in one
 of the three phases. The walker here relies on that invariant.
+
+Since #422 the bus's ``conversations`` table is the single source of
+truth for the dispatch tree.  ``collect_project_subtree`` consults it
+via ``bus.project_conversations(slug)`` — no disk metadata walk.
 """
 from __future__ import annotations
 
@@ -23,65 +27,36 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from teaparty.teams.session import AgentSession
+    from teaparty.messaging.conversations import SqliteMessageBus
 
 _log = logging.getLogger('teaparty.workspace.pause_resume')
 
 
-# ── Disk walk ───────────────────────────────────────────────────────────────
+# ── Bus-backed project walk (#422) ─────────────────────────────────────────
 
 def collect_project_subtree(
-    sessions_dir: str,
+    bus: 'SqliteMessageBus',
     project_slug: str,
 ) -> list[tuple[str, str]]:
-    """Return (session_id, parent_id) pairs for every session in a project.
+    """Return (session_id, parent_session_id) pairs for every DISPATCH
+    conversation belonging to *project_slug* (issue #422).
 
-    Depth-first, roots first. A root is any session whose metadata has
-    ``project_slug == project_slug`` and whose ``parent_session_id`` is
-    empty *or* points to a session outside the project (i.e. the
-    dispatcher that owns the top-level job).
+    Queries ``bus.project_conversations(slug)`` and maps to session ids.
+    Depth-first order by creation time.  For top-level children
+    (parent_conversation_id is not a ``dispatch:...`` form) the parent
+    id is returned as empty string — the caller knows the root.
     """
+    convs = bus.project_conversations(project_slug)
     result: list[tuple[str, str]] = []
-    if not os.path.isdir(sessions_dir):
-        return result
-
-    # First pass: read every session's metadata once.
-    meta_by_sid: dict[str, dict] = {}
-    for entry in os.scandir(sessions_dir):
-        if not entry.is_dir():
+    for conv in convs:
+        if not conv.id.startswith('dispatch:'):
             continue
-        meta_path = os.path.join(entry.path, 'metadata.json')
-        if not os.path.isfile(meta_path):
-            continue
-        try:
-            with open(meta_path) as f:
-                meta_by_sid[entry.name] = json.load(f)
-        except (json.JSONDecodeError, OSError):
-            continue
-
-    # Find roots: in-project sessions whose parent is not in-project.
-    def _is_root(sid: str) -> bool:
-        meta = meta_by_sid.get(sid, {})
-        if meta.get('project_slug') != project_slug:
-            return False
-        parent = meta.get('parent_session_id', '')
-        if not parent:
-            return True
-        parent_meta = meta_by_sid.get(parent)
-        if parent_meta is None:
-            return True
-        return parent_meta.get('project_slug') != project_slug
-
-    def _walk(sid: str, parent: str) -> None:
-        meta = meta_by_sid.get(sid)
-        if meta is None or meta.get('project_slug') != project_slug:
-            return
-        result.append((sid, parent))
-        for grandchild in meta.get('conversation_map', {}).values():
-            _walk(grandchild, sid)
-
-    for sid, meta in meta_by_sid.items():
-        if _is_root(sid):
-            _walk(sid, meta.get('parent_session_id', ''))
+        sid = conv.id[len('dispatch:'):]
+        if conv.parent_conversation_id.startswith('dispatch:'):
+            parent_sid = conv.parent_conversation_id[len('dispatch:'):]
+        else:
+            parent_sid = ''
+        result.append((sid, parent_sid))
     return result
 
 
@@ -103,7 +78,7 @@ async def pause_project_subtree(
 
     Returns the list of session ids that were found in the project.
     """
-    subtree = collect_project_subtree(sessions_dir, project_slug)
+    subtree = collect_project_subtree(agent_session._bus, project_slug)
     session_ids = [sid for sid, _ in subtree]
     tasks: list[asyncio.Task] = []
     for sid in session_ids:
@@ -133,41 +108,33 @@ async def pause_project_subtree(
 
 
 def collect_session_subtree(
-    sessions_dir: str,
+    bus: 'SqliteMessageBus',
     root_session_id: str,
 ) -> list[tuple[str, str]]:
-    """Walk a single session's subtree on disk and return (sid, parent) pairs.
+    """Walk a single session's subtree via the bus (issue #422).
 
-    Depth-first, root first. Used by the implicit-resume-on-message path
-    to resume just the smallest subtree containing the message target,
-    rather than the entire project (issue #403).
+    Depth-first, root first.  Used by the implicit-resume-on-message
+    path to resume just the smallest subtree containing the message
+    target, rather than the entire project (issue #403).
     """
     result: list[tuple[str, str]] = []
+    visited: set[str] = set()
 
     def _walk(sid: str, parent: str) -> None:
-        meta_path = os.path.join(sessions_dir, sid, 'metadata.json')
-        if not os.path.isfile(meta_path):
+        if sid in visited:
             return
-        try:
-            with open(meta_path) as f:
-                meta = json.load(f)
-        except (json.JSONDecodeError, OSError):
-            return
+        visited.add(sid)
         result.append((sid, parent))
-        for gc in meta.get('conversation_map', {}).values():
-            _walk(gc, sid)
+        for child in bus.children_of(f'dispatch:{sid}'):
+            if child.id.startswith('dispatch:'):
+                _walk(child.id[len('dispatch:'):], sid)
 
-    # Look up the root's parent from its metadata so callers don't have
-    # to pass it in.
-    root_meta_path = os.path.join(
-        sessions_dir, root_session_id, 'metadata.json')
-    root_parent = ''
-    if os.path.isfile(root_meta_path):
-        try:
-            with open(root_meta_path) as f:
-                root_parent = json.load(f).get('parent_session_id', '')
-        except (json.JSONDecodeError, OSError):
-            pass
+    # The root's parent is whatever its bus record points at.
+    conv = bus.get_conversation(f'dispatch:{root_session_id}')
+    if conv is not None and conv.parent_conversation_id.startswith('dispatch:'):
+        root_parent = conv.parent_conversation_id[len('dispatch:'):]
+    else:
+        root_parent = ''
     _walk(root_session_id, root_parent)
     return result
 
@@ -243,7 +210,7 @@ async def resume_session_subtree(
     ``_tasks_by_child``. Used by implicit-resume-on-message to resume
     only the smallest subtree containing the message target.
     """
-    subtree = collect_session_subtree(sessions_dir, root_session_id)
+    subtree = collect_session_subtree(agent_session._bus, root_session_id)
     leaves_first = list(reversed(subtree))
     resumed: list[str] = []
     for sid, _parent in leaves_first:
@@ -270,7 +237,7 @@ async def resume_project_subtree(
 
     Returns the session ids whose tasks were re-scheduled.
     """
-    subtree = collect_project_subtree(sessions_dir, project_slug)
+    subtree = collect_project_subtree(agent_session._bus, project_slug)
     leaves_first = list(reversed(subtree))
     resumed: list[str] = []
     for sid, _parent in leaves_first:

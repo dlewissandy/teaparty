@@ -163,7 +163,6 @@ class TestThreeDeepDispatchChain(unittest.TestCase):
             launch,
             compose_launch_worktree,
             create_session,
-            record_child_session,
             check_slot_available,
         )
 
@@ -327,26 +326,8 @@ class TestThreeDeepDispatchChain(unittest.TestCase):
                 scope='management',
                 teaparty_home=self._tp,
             )
-            # A dispatches to B
-            record_child_session(session_a, request_id='req-b',
-                                 child_session_id=result_b.session_id)
+            # Slot count is bus-based now (#422); with no bus, always OK.
             self.assertTrue(check_slot_available(session_a))
-
-            # A dispatches to two more (filling 3 slots)
-            record_child_session(session_a, request_id='req-b2',
-                                 child_session_id='other-1')
-            record_child_session(session_a, request_id='req-b3',
-                                 child_session_id='other-2')
-            self.assertFalse(check_slot_available(session_a),
-                             'Per-agent limit of 3 must block fourth dispatch')
-
-            # Read metadata.json to verify persistence
-            meta_path = os.path.join(session_a.path, 'metadata.json')
-            with open(meta_path) as f:
-                meta = json.load(f)
-            self.assertEqual(len(meta['conversation_map']), 3)
-            self.assertEqual(meta['conversation_map']['req-b'],
-                             result_b.session_id)
 
         asyncio.run(run_chain())
 

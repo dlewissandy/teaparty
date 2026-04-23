@@ -166,29 +166,34 @@ class EscalationListener:
         )
 
     def _rehydrate_active_escalations(self) -> None:
-        """Re-register in-flight escalations from the dispatcher's
-        conversation_map.
+        """Re-register in-flight escalations from the bus (#422).
 
         The ``_active_escalations`` registry is in-memory and is lost
-        across bridge restarts, but the escalation's on-disk state
-        (proxy session dir, dispatcher's conversation_map entry) is
-        preserved on cancellation — so the next listener startup can
-        repopulate the registry by scanning what's already there.
-        Without this, the workflow-bar dot and the
-        ``is_escalation_active`` guard in the bridge's HTTP auto-invoke
-        would be blank for escalations that survived a restart.
+        across bridge restarts, but the bus record for each escalation
+        is durable — so the next listener startup repopulates the
+        registry by querying children_of the dispatcher's conversation
+        and filtering for ``agent_name='proxy'``.  Without this the
+        workflow-bar dot and the ``is_escalation_active`` guard in the
+        bridge's HTTP auto-invoke would be blank for escalations that
+        survived a restart.
         """
         if self._dispatcher_session is None:
             return
         from teaparty.mcp.registry import mark_escalation_active as _mark
-        conv_map = getattr(self._dispatcher_session, 'conversation_map', {}) or {}
-        for request_id, child_session_id in conv_map.items():
-            if not isinstance(child_session_id, str):
-                continue
-            if not child_session_id.startswith('proxy-'):
-                continue
-            qualifier = f'{self._dispatcher_session.id}:{request_id}'
-            _mark(qualifier)
+        try:
+            bus = SqliteMessageBus(self.bus_db_path)
+        except Exception:
+            return
+        try:
+            parent_conv_id = f'dispatch:{self._dispatcher_session.id}'
+            for child in bus.children_of(parent_conv_id):
+                if child.agent_name != 'proxy':
+                    continue
+                # request_id stored on the bus row IS the escalation_id.
+                qualifier = f'{self._dispatcher_session.id}:{child.request_id}'
+                _mark(qualifier)
+        finally:
+            bus.close()
 
     async def stop(self) -> None:
         """Cancel the polling task."""
@@ -337,8 +342,6 @@ class EscalationListener:
 
         from teaparty.runners.launcher import (
             create_session as _create_session,
-            record_child_session as _record_child,
-            remove_child_session as _remove_child,
             _save_session_metadata as _save_meta,
         )
 
@@ -397,20 +400,9 @@ class EscalationListener:
         with open(question_md, 'w') as fh:
             fh.write(body)
 
-        # Link the child into the caller's conversation_map so
-        # ``build_dispatch_tree`` walks into it.  Using escalation_id as
-        # the request_id keeps multiple concurrent escalations distinct.
-        _record_child(
-            self._dispatcher_session,
-            request_id=escalation_id,
-            child_session_id=child_session.id,
-        )
-
         # Register the escalation as a DISPATCH conversation in the bus
         # (#422) — single source of truth for tree / name / state.  The
-        # accordion walker reads children_of(parent_conv_id) here rather
-        # than the dispatcher's conversation_map on disk.  Parent conv_id
-        # follows the dispatch: convention.
+        # accordion walker reads children_of(parent_conv_id) here.
         try:
             _esc_bus = SqliteMessageBus(self.bus_db_path)
             try:
@@ -420,6 +412,7 @@ class EscalationListener:
                     parent_conversation_id=(
                         f'dispatch:{self._dispatcher_session.id}'),
                     request_id=escalation_id,
+                    project_slug=self.project_slug or '',
                     state=ConversationState.ACTIVE,
                 )
             finally:
@@ -531,18 +524,32 @@ class EscalationListener:
         finally:
             if terminal:
                 _mark_done(qualifier)
-                _remove_child(
-                    self._dispatcher_session, request_id=escalation_id,
-                )
+                # Mark the escalation's bus record closed so the
+                # accordion drops the blade — single source of truth
+                # for conversation state (#422).
+                try:
+                    _term_bus = SqliteMessageBus(self.bus_db_path)
+                    try:
+                        _term_bus.update_conversation_state(
+                            f'dispatch:{child_session.id}',
+                            ConversationState.CLOSED,
+                        )
+                    finally:
+                        _term_bus.close()
+                except Exception:
+                    _log.debug(
+                        'escalation: failed to close bus record for %s',
+                        child_session.id, exc_info=True,
+                    )
                 self._emit_dispatch(
                     'dispatch_completed',
                     parent_sid=self._dispatcher_session.id,
                     child_sid=child_session.id,
                 )
                 shutil.rmtree(child_session.path, ignore_errors=True)
-            # On non-terminal exit (cancellation) the registry entry is
-            # in-memory and is about to be lost with the process; the
-            # next engine startup repopulates it by scanning disk state.
+            # On non-terminal exit (cancellation) the bus record stays
+            # active; the next engine startup's recovery sweep marks
+            # it paused so the user can resume or withdraw.
 
         self._last_escalation_source = 'proxy_skill'
         return final_answer

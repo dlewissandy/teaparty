@@ -94,15 +94,11 @@ async def close_conversation(
 
     # Telemetry: close_conversation + session_closed for the target and
     # every descendant brought down by the recursive cascade (Issue #405).
-    # collect_descendants is inclusive — it returns [target, ...descendants].
+    # collect_descendants_from_bus is inclusive — returns [target, ...descendants].
     try:
         from teaparty.telemetry import record_event
         from teaparty.telemetry import events as _telem_events
-        walk = (
-            collect_descendants_from_bus(bus, conversation_id)
-            if bus is not None
-            else collect_descendants(sessions_dir, child_session_id)
-        )
+        walk = collect_descendants_from_bus(bus, conversation_id)
         record_event(
             _telem_events.CLOSE_CONVERSATION,
             scope=scope,
@@ -135,19 +131,6 @@ async def close_conversation(
     result = await _close_recursive(sessions_dir, child_session_id, bus)
     if result['status'] != 'ok':
         return result
-
-    # All merges succeeded — remove the child from the parent's
-    # conversation_map so the dispatcher can reuse the slot.
-    # (Legacy conversation_map cleanup; the bus row is the authoritative
-    # record and is marked closed by update_conversation_state below.)
-    request_id = None
-    for rid, csid in list(parent_session.conversation_map.items()):
-        if csid == child_session_id:
-            request_id = rid
-            break
-    if request_id is not None:
-        from teaparty.runners.launcher import remove_child_session
-        remove_child_session(parent_session, request_id=request_id)
 
     # Mark the bus record closed — single source of truth (#422).
     if bus is not None:
@@ -194,15 +177,13 @@ async def _close_recursive(
             meta = {}
 
     # Close grandchildren first so their work is inside the child's
-    # worktree by the time we squash-merge the child.
-    if bus is not None:
-        grandchildren = [
-            c.id[len('dispatch:'):]
-            for c in bus.children_of(f'dispatch:{session_id}')
-            if c.id.startswith('dispatch:')
-        ]
-    else:
-        grandchildren = list(meta.get('conversation_map', {}).values())
+    # worktree by the time we squash-merge the child.  Bus is the
+    # single source of truth for the dispatch tree (#422).
+    grandchildren = [
+        c.id[len('dispatch:'):]
+        for c in bus.children_of(f'dispatch:{session_id}')
+        if c.id.startswith('dispatch:')
+    ]
     for grandchild_id in grandchildren:
         sub = await _close_recursive(sessions_dir, grandchild_id, bus)
         if sub['status'] != 'ok' and sub['status'] != 'noop':
@@ -340,38 +321,21 @@ def build_close_fn(
         subtree: list[tuple[str, str]] = []
         agent_names: dict[str, str] = {}
         if conversation_id.startswith('dispatch:'):
-            root_csid = conversation_id[len('dispatch:'):]
-            if bus is not None:
-                # Bus walk — single source of truth for tree + name (#422).
-                subtree_convs = collect_descendants_with_parents_from_bus(
-                    bus, conversation_id,
-                    root_parent_conv_id=f'dispatch:{dispatch_session.id}',
-                )
-                subtree = []
-                for conv, parent_conv in subtree_convs:
-                    _, _, csid = conv.id.partition(':')
-                    _, _, parent_sid = parent_conv.partition(':')
-                    # Top-level parent is the dispatcher's session id,
-                    # not a 'dispatch:{id}' form.
-                    if not parent_sid:
-                        parent_sid = dispatch_session.id
-                    subtree.append((csid, parent_sid))
-                    agent_names[csid] = conv.agent_name
-            else:
-                sessions_dir = os.path.join(teaparty_home, scope, 'sessions')
-                subtree = collect_descendants_with_parents(
-                    sessions_dir, root_csid,
-                    root_parent=dispatch_session.id)
-                # Fall back to disk for agent_name resolution.
-                for csid, _parent in subtree:
-                    meta_path = os.path.join(
-                        sessions_dir, csid, 'metadata.json')
-                    try:
-                        with open(meta_path) as f:
-                            agent_names[csid] = json.load(f).get(
-                                'agent_name', '')
-                    except (OSError, json.JSONDecodeError):
-                        agent_names[csid] = ''
+            # Bus walk — single source of truth for tree + name (#422).
+            subtree_convs = collect_descendants_with_parents_from_bus(
+                bus, conversation_id,
+                root_parent_conv_id=f'dispatch:{dispatch_session.id}',
+            )
+            subtree = []
+            for conv, parent_conv in subtree_convs:
+                _, _, csid = conv.id.partition(':')
+                _, _, parent_sid = parent_conv.partition(':')
+                # Top-level parent is the dispatcher's session id,
+                # not a 'dispatch:{id}' form.
+                if not parent_sid:
+                    parent_sid = dispatch_session.id
+                subtree.append((csid, parent_sid))
+                agent_names[csid] = conv.agent_name
 
             tasks = []
             for csid, _parent in subtree:
@@ -460,41 +424,3 @@ def _session_id_of(conv_id: str) -> str:
     return conv_id
 
 
-def collect_descendants(sessions_dir: str, root_session_id: str) -> list[str]:
-    """Walk the conversation tree rooted at root_session_id.
-
-    Returns all session_ids in the subtree (root first, then descendants
-    in depth-first order). Reads metadata.json files on disk — does not
-    modify anything.
-    """
-    return [sid for sid, _parent in collect_descendants_with_parents(
-        sessions_dir, root_session_id, root_parent='')]
-
-
-def collect_descendants_with_parents(
-    sessions_dir: str,
-    root_session_id: str,
-    *,
-    root_parent: str,
-) -> list[tuple[str, str]]:
-    """Walk the conversation tree and return (session_id, parent_id) pairs.
-
-    Depth-first, root first.
-    """
-    result: list[tuple[str, str]] = []
-
-    def _walk(sid: str, parent: str) -> None:
-        result.append((sid, parent))
-        meta_path = os.path.join(sessions_dir, sid, 'metadata.json')
-        if not os.path.isfile(meta_path):
-            return
-        try:
-            with open(meta_path) as f:
-                meta = json.load(f)
-        except (json.JSONDecodeError, OSError):
-            return
-        for child_sid in meta.get('conversation_map', {}).values():
-            _walk(child_sid, sid)
-
-    _walk(root_session_id, root_parent)
-    return result

@@ -210,7 +210,6 @@ class Session:
     agent_name: str
     scope: str
     claude_session_id: str = ''
-    conversation_map: dict[str, str] = field(default_factory=dict)
     launch_cwd: str = ''
     worktree_path: str = ''
     worktree_branch: str = ''
@@ -819,7 +818,6 @@ def load_session(
             agent_name=meta.get('agent_name', agent_name),
             scope=meta.get('scope', scope),
             claude_session_id=meta.get('claude_session_id', ''),
-            conversation_map=meta.get('conversation_map', {}),
             launch_cwd=meta.get('launch_cwd', ''),
             worktree_path=meta.get('worktree_path', ''),
             worktree_branch=meta.get('worktree_branch', ''),
@@ -845,7 +843,6 @@ def _save_session_metadata(session: Session) -> None:
         'agent_name': session.agent_name,
         'scope': session.scope,
         'claude_session_id': session.claude_session_id,
-        'conversation_map': session.conversation_map,
         'launch_cwd': session.launch_cwd,
         'worktree_path': session.worktree_path,
         'worktree_branch': session.worktree_branch,
@@ -932,50 +929,28 @@ def mark_complete(session: Session, response_text: str) -> None:
     )
 
 
-def record_child_session(
-    session: Session,
-    *,
-    request_id: str,
-    child_session_id: str,
-) -> None:
-    """Record a child session in the dispatching agent's conversation map.
+def check_slot_available(
+    session: Session, bus=None, conv_id: str = '',
+) -> bool:
+    """Check whether the agent has a free conversation slot (#422).
 
-    Uses read-modify-write on just the conversation_map field to avoid
-    overwriting claude_session_id or other fields that may have been
-    updated by a concurrent invoke.
+    Slot count comes from the bus — the single source of truth for the
+    dispatch tree.  ``conv_id`` is the dispatcher's conversation id
+    (e.g. ``'om'``, ``'lead:project:qualifier'``) — children under this
+    id are this session's live dispatches.  Terminal-state children
+    (closed/withdrawn) do not count.
+
+    If bus is None, returns True (no enforcement possible without the
+    source of truth).
     """
-    session.conversation_map[request_id] = child_session_id
-    _update_conversation_map(session)
-
-
-def remove_child_session(session: Session, *, request_id: str) -> None:
-    """Remove a child session from the conversation map (free a slot)."""
-    session.conversation_map.pop(request_id, None)
-    _update_conversation_map(session)
-
-
-def _update_conversation_map(session: Session) -> None:
-    """Read-modify-write only the conversation_map in metadata.json.
-
-    Other fields (claude_session_id, etc.) are preserved from disk,
-    not from the in-memory Session object which may be stale.
-    """
-    meta_path = os.path.join(session.path, 'metadata.json')
-    try:
-        with open(meta_path) as f:
-            meta = json.load(f)
-    except (json.JSONDecodeError, OSError):
-        meta = {}
-    meta['conversation_map'] = session.conversation_map
-    tmp = meta_path + '.tmp'
-    with open(tmp, 'w') as f:
-        json.dump(meta, f, indent=2)
-    os.replace(tmp, meta_path)
-
-
-def check_slot_available(session: Session) -> bool:
-    """Check whether the agent has a free conversation slot."""
-    return len(session.conversation_map) < MAX_CONVERSATIONS_PER_AGENT
+    if bus is None:
+        return True
+    live_states = {'pending', 'active', 'paused'}
+    query_conv = conv_id or f'dispatch:{session.id}'
+    live = [
+        c for c in bus.children_of(query_conv) if c.state.value in live_states
+    ]
+    return len(live) < MAX_CONVERSATIONS_PER_AGENT
 
 
 # ── Session health ───────────────────────────────────────────────────────────

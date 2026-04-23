@@ -672,6 +672,7 @@ class Orchestrator:
                     agent_name=member,
                     parent_conversation_id=parent_conv_id,
                     request_id=context_id,
+                    project_slug=self.project_slug or '',
                     state=_ConvState.ACTIVE,
                 )
             finally:

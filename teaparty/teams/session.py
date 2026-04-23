@@ -211,7 +211,6 @@ class AgentSession:
             'agent_name': session.agent_name,
             'scope': session.scope,
             'claude_session_id': self.claude_session_id or '',
-            'conversation_map': session.conversation_map,
             'conversation_title': self.conversation_title or '',
             'qualifier': self.qualifier,
             'conversation_id': self.conversation_id,
@@ -294,8 +293,6 @@ class AgentSession:
         from teaparty.runners.launcher import (
             launch as _launch,
             create_session as _create_session,
-            record_child_session as _record_child,
-            remove_child_session as _remove_child,
             check_slot_available as _check_slot,
             _save_session_metadata as _save_meta,
             mark_launching as _mark_launching,
@@ -353,7 +350,10 @@ class AgentSession:
             dispatcher_session = session_registry.get(
                 caller_sid, self._dispatch_session)
 
-            if not _check_slot(dispatcher_session):
+            if not _check_slot(
+                dispatcher_session, bus=self._bus,
+                conv_id=self.conversation_id,
+            ):
                 _log.warning(
                     '%s spawn_fn: at conversation limit, dispatch to %s blocked',
                     self.agent_name, member,
@@ -517,6 +517,7 @@ class AgentSession:
                 agent_name=member,
                 parent_conversation_id=parent_conv_id,
                 request_id=context_id,
+                project_slug=self.project_slug,
                 state=ConversationState.ACTIVE,
             )
 
@@ -615,7 +616,6 @@ class AgentSession:
             _log.info('%s reply_fn: delivering reply for context %s',
                       self.agent_name, context_id)
             self._bus.send(self.conversation_id, self.agent_role, message)
-            _remove_child(dispatch_session, request_id=context_id)
 
         async def reinvoke_fn(context_id, session_id, message):
             _log.info('%s reinvoke_fn: fan-in complete for context %s',
@@ -764,7 +764,7 @@ class AgentSession:
         import subprocess as _sp
         from teaparty.runners.launcher import load_session as _load_session
         from teaparty.workspace.close_conversation import (
-            close_conversation, collect_descendants_with_parents,
+            close_conversation,
         )
 
         # 0. Close every open top-level dispatch the same way the agent
@@ -955,7 +955,7 @@ class AgentSession:
             remove_session_worktree, delete_branch,
         )
         from teaparty.runners.launcher import (
-            load_session as _load_session, remove_child_session,
+            load_session as _load_session,
         )
 
         # Walk leaves-first so we remove children before parents.
@@ -997,34 +997,18 @@ class AgentSession:
                 import shutil as _shutil
                 _shutil.rmtree(session_path, ignore_errors=True)
 
-            # Strip the entry from the parent's conversation_map.
-            # For the top-level of this subtree the parent is
-            # dispatch_session; for grandchildren it's their recorded
-            # parent_sid — load that session fresh from disk and edit
-            # its map so the walk terminates on reload.
-            if parent_sid == dispatch_session.id:
-                parent = dispatch_session
-            else:
-                parent = _load_session(
-                    agent_name='',  # ignored — read from meta
-                    scope=self.scope,
-                    teaparty_home=self.teaparty_home,
-                    session_id=parent_sid,
-                )
-                if parent is None:
-                    continue
-            request_id = None
-            for rid, csid in list(parent.conversation_map.items()):
-                if csid == child_sid:
-                    request_id = rid
-                    break
-            if request_id is not None:
-                try:
-                    remove_child_session(parent, request_id=request_id)
-                except Exception:
-                    _log.exception(
-                        '%s _clear: remove_child_session rid=%r',
-                        self.agent_name, request_id)
+            # Mark the bus record withdrawn so the accordion drops the
+            # blade and the force-teardown is reflected in the single
+            # source of truth (#422).  No conversation_map on disk to
+            # strip — that field is gone.
+            try:
+                from teaparty.messaging.conversations import ConversationState
+                self._bus.update_conversation_state(
+                    f'dispatch:{child_sid}', ConversationState.WITHDRAWN)
+            except Exception:
+                _log.exception(
+                    '%s _clear: bus state update for %s',
+                    self.agent_name, child_sid)
 
     async def stop(self):
         """Stop the session: cancel background dispatches, stop bus listener.

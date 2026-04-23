@@ -496,16 +496,15 @@ class TestClearForcesTeardownOnMergeFailure(unittest.TestCase):
             'Force-teardown must rmtree the child session dir '
             'when close_conversation fails to merge')
 
-        # Parent's conversation_map on disk must no longer reference it
-        parent_meta_path = os.path.join(
-            sessions_dir, self._session._session_key(), 'metadata.json')
-        import json as _json
-        with open(parent_meta_path) as f:
-            parent_meta = _json.load(f)
-        self.assertEqual(parent_meta.get('conversation_map', {}), {},
-                         'Force-teardown must strip the entry from the '
-                         'parent conversation_map on disk so the blade '
-                         'does not resurrect on page reload')
+        # The bus record is now withdrawn — single source of truth (#422).
+        # The accordion walker queries the bus, so the blade does not
+        # resurrect on page reload.
+        from teaparty.messaging.conversations import ConversationState
+        conv = self._session._bus.get_conversation('dispatch:stale-child')
+        self.assertIsNotNone(conv)
+        self.assertEqual(conv.state, ConversationState.WITHDRAWN,
+                         'Force-teardown must mark the bus record '
+                         'withdrawn so the accordion drops the blade.')
 
     def test_clear_purges_child_when_close_raises(self):
         """If close_conversation raises, /clear must still force-teardown."""

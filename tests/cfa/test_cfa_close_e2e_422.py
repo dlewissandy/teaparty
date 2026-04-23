@@ -202,6 +202,7 @@ class TestCfACloseE2E(unittest.IsolatedAsyncioTestCase):
 
         # ── Close via the shared close_fn (same factory the engine uses) ──
         events: list[dict] = []
+        from teaparty.messaging.conversations import SqliteMessageBus
         close_fn = build_close_fn(
             dispatch_session=dispatcher,
             teaparty_home=self._tp,
@@ -209,6 +210,7 @@ class TestCfACloseE2E(unittest.IsolatedAsyncioTestCase):
             tasks_by_child=o._tasks_by_child,
             on_dispatch=events.append,
             agent_name='lead',
+            bus=SqliteMessageBus(os.path.join(o.infra_dir, 'messages.db')),
         )
         result = await close_fn(f'dispatch:{session_id}')
 
@@ -237,16 +239,15 @@ class TestCfACloseE2E(unittest.IsolatedAsyncioTestCase):
             branches, '',
             f'session branch {loaded.worktree_branch!r} must be deleted',
         )
-        # Dispatcher's conversation_map no longer holds the child.
-        dispatcher_fresh = load_session(
-            agent_name='lead', scope='management',
-            teaparty_home=self._tp, session_id=dispatcher.id,
+        # Bus state is now 'closed' — single source of truth (#422).
+        from teaparty.messaging.conversations import (
+            ConversationState, SqliteMessageBus as _Bus,
         )
-        self.assertNotIn(
-            session_id,
-            list(dispatcher_fresh.conversation_map.values()),
-            "closed child must be removed from dispatcher's conversation_map",
-        )
+        _verify_bus = _Bus(os.path.join(o.infra_dir, 'messages.db'))
+        _closed_conv = _verify_bus.get_conversation(f'dispatch:{session_id}')
+        self.assertIsNotNone(_closed_conv)
+        self.assertEqual(_closed_conv.state, ConversationState.CLOSED,
+                         'bus record must reflect the close')
         # Exactly one dispatch_completed event for the child.
         completed = [e for e in events if e.get('type') == 'dispatch_completed']
         self.assertEqual(len(completed), 1,

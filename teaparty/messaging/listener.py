@@ -153,12 +153,10 @@ class BusEventListener:
         set (chat tier does; CfA does not).  Without it the task is
         tracked solely by ``tasks_by_child``.
         """
-        from teaparty.runners.launcher import record_child_session
-        record_child_session(
-            dispatcher_session,
-            request_id=context_id,
-            child_session_id=child_session_id,
-        )
+        # Bus registration happens at the caller's create_conversation
+        # site (#422) — the bus record carries parent_conversation_id,
+        # request_id, agent_name, and project_slug.  No session-metadata
+        # conversation_map to touch.
         if on_dispatch is not None:
             try:
                 on_dispatch({

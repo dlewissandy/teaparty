@@ -24,11 +24,24 @@ import tempfile
 import unittest
 import uuid
 
+from teaparty.messaging.conversations import (
+    ConversationState, ConversationType, SqliteMessageBus,
+)
 from teaparty.runners.launcher import (
     create_session, _save_session_metadata as _save_meta,
-    record_child_session,
 )
 from teaparty.workspace.close_conversation import build_close_fn
+
+
+def _register_dispatch(bus, parent, child, agent_name='child'):
+    """Register a DISPATCH conversation in the bus so build_close_fn
+    can walk the tree (#422 — single source of truth)."""
+    bus.create_conversation(
+        ConversationType.DISPATCH, child.id,
+        agent_name=agent_name,
+        parent_conversation_id=f'dispatch:{parent.id}',
+        state=ConversationState.ACTIVE,
+    )
 
 
 def _init_git_repo() -> str:
@@ -91,7 +104,6 @@ class TestBuildCloseFnMerge(unittest.IsolatedAsyncioTestCase):
         _save_meta(child)
 
         ctx_id = f'req-{uuid.uuid4().hex[:8]}'
-        record_child_session(parent, request_id=ctx_id, child_session_id=child.id)
         return child
 
     async def test_close_fn_merges_child_worktree_and_emits_event(self):
@@ -99,6 +111,8 @@ class TestBuildCloseFnMerge(unittest.IsolatedAsyncioTestCase):
         parent = create_session(agent_name='lead', scope='management',
                                 teaparty_home=self._tp)
         child = await self._make_child_with_worktree(parent)
+        bus = SqliteMessageBus(os.path.join(self._tp, 'bus.db'))
+        _register_dispatch(bus, parent, child)
 
         events: list[dict] = []
         close_fn = build_close_fn(
@@ -108,6 +122,7 @@ class TestBuildCloseFnMerge(unittest.IsolatedAsyncioTestCase):
             tasks_by_child={},
             on_dispatch=events.append,
             agent_name='lead',
+            bus=bus,
         )
 
         result = await close_fn(f'dispatch:{child.id}')
@@ -137,6 +152,8 @@ class TestBuildCloseFnMerge(unittest.IsolatedAsyncioTestCase):
         parent = create_session(agent_name='lead', scope='management',
                                 teaparty_home=self._tp)
         child = await self._make_child_with_worktree(parent)
+        bus = SqliteMessageBus(os.path.join(self._tp, 'bus.db'))
+        _register_dispatch(bus, parent, child)
 
         started = asyncio.Event()
 
@@ -158,6 +175,7 @@ class TestBuildCloseFnMerge(unittest.IsolatedAsyncioTestCase):
             tasks_by_child=tasks_by_child,
             on_dispatch=None,
             agent_name='lead',
+            bus=bus,
         )
         result = await close_fn(f'dispatch:{child.id}')
 
@@ -217,9 +235,8 @@ class TestBuildCloseFnConflict(unittest.IsolatedAsyncioTestCase):
         child.merge_target_branch = 'main'
         child.parent_session_id = parent.id
         _save_meta(child)
-
-        record_child_session(parent, request_id='req-1',
-                             child_session_id=child.id)
+        bus = SqliteMessageBus(os.path.join(self._tp, 'bus.db'))
+        _register_dispatch(bus, parent, child)
 
         events: list[dict] = []
         close_fn = build_close_fn(
@@ -229,6 +246,7 @@ class TestBuildCloseFnConflict(unittest.IsolatedAsyncioTestCase):
             tasks_by_child={},
             on_dispatch=events.append,
             agent_name='lead',
+            bus=bus,
         )
         result = await close_fn(f'dispatch:{child.id}')
 
