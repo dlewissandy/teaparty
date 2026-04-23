@@ -57,6 +57,7 @@ class ConversationType(Enum):
     PROJECT_MANAGER = 'project_manager'  # One per project+human, persistent
     PROJECT_SESSION = 'project_session'  # One per session, closes when session ends
     SUBTEAM = 'subteam'                  # One per dispatch, proxy participates
+    DISPATCH = 'dispatch'                # One per Send from a parent to a child (#422)
     JOB = 'job'                          # One per project+job, lives with the job
     TASK = 'task'                        # One per project+job+task, lives with the task
     PROXY = 'proxy'                       # One per decider, indefinite persistence
@@ -113,6 +114,7 @@ _PREFIXES = {
     ConversationType.PROJECT_MANAGER: 'pm',
     ConversationType.PROJECT_SESSION: 'session',
     ConversationType.SUBTEAM: 'team',
+    ConversationType.DISPATCH: 'dispatch',
     ConversationType.JOB: 'job',
     ConversationType.TASK: 'task',
     ConversationType.PROXY: 'proxy',

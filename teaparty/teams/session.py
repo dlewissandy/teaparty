@@ -501,6 +501,25 @@ class AgentSession:
 
             child_conv_id = f'dispatch:{child_session.id}'
 
+            # Register the dispatch in the bus — the single source of
+            # truth for who leads this conversation, what its parent
+            # is, and which Send request created it (issue #422).  The
+            # accordion walker reads this record; no disk lookup for
+            # the blade caption, no agent_name='unknown' fallback.
+            parent_conv_id = (
+                self.conversation_id
+                if dispatcher_session is self._dispatch_session
+                else f'dispatch:{dispatcher_session.id}'
+            )
+            from teaparty.messaging.conversations import ConversationState
+            self._bus.create_conversation(
+                ConversationType.DISPATCH, child_session.id,
+                agent_name=member,
+                parent_conversation_id=parent_conv_id,
+                request_id=context_id,
+                state=ConversationState.ACTIVE,
+            )
+
             # Child's MCP routes (spawn_fn, close_fn, escalation) are
             # registered by launch() when the child subprocess spawns
             # via the shared self._mcp_routes bundle — issue #422.  No

@@ -637,6 +637,37 @@ class Orchestrator:
         worktree_path = os.path.join(child_session.path, 'worktree')
         session_branch = f'session/{child_session.id}'
 
+        # Register the dispatch in the bus — the single source of truth
+        # for tree / lead / parent (issue #422).  The accordion walker
+        # reads this record; no disk lookup for the blade caption.
+        # Parent conv_id comes from the MCP caller's session_id contextvar
+        # (set by the MCP middleware from the URL), falling back to the
+        # dispatcher session for non-MCP callers (tests, etc.).
+        from teaparty.mcp.registry import (
+            current_session_id as _current_session_var,
+        )
+        from teaparty.messaging.conversations import (
+            ConversationState as _ConvState,
+            ConversationType as _ConvType,
+            SqliteMessageBus as _Bus,
+        )
+        caller_sid = _current_session_var.get('')
+        if not caller_sid and self._dispatcher_session is not None:
+            caller_sid = self._dispatcher_session.id
+        parent_conv_id = f'dispatch:{caller_sid}' if caller_sid else ''
+        if self._bus_event_listener is not None and self._bus_event_listener.bus_db_path:
+            _bus = _Bus(self._bus_event_listener.bus_db_path)
+            try:
+                _bus.create_conversation(
+                    _ConvType.DISPATCH, child_session.id,
+                    agent_name=member,
+                    parent_conversation_id=parent_conv_id,
+                    request_id=context_id,
+                    state=_ConvState.ACTIVE,
+                )
+            finally:
+                _bus.close()
+
         # Fork source + merge target = the lead's session worktree, falling
         # back to the project repo root for bootstrap paths that don't yet
         # have a session worktree.  Matches chat tier's same-repo branch.
