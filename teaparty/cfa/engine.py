@@ -759,42 +759,59 @@ class Orchestrator:
 
         return spawn_fn
 
-    async def _bus_spawn_agent(self, member: str, composite: str, context_id: str) -> tuple[str, str]:
-        """Spawn a recipient agent for bus-mediated dispatch (Issue #351).
+    async def _bus_spawn_agent(self, member: str, composite: str, context_id: str) -> tuple[str, str, str]:
+        """Spawn a recipient agent for bus-mediated dispatch (#351, #422).
 
-        Creates a git worktree for the agent, composes its skill set, launches it
-        as an independent claude -p process.  Runs the blocking subprocess call in
-        an executor so the event loop is not blocked.  The worktree is NOT cleaned
-        up after spawn — it is retained so follow-up sends can resume the agent in
-        the same worktree (Issue #383).
+        Mirrors chat tier's spawn_fn ``session.py:spawn_fn`` end-to-end so
+        the generalized close_fn can merge the child's worktree back:
+        creates a per-session worktree on a ``session/{id}`` branch forked
+        from the lead's current HEAD, records the merge target on the
+        child's session metadata, launches the agent inside the worktree,
+        and returns the **session-record id** (not the claude session id)
+        so ``dispatch:{sid}`` maps to ``{scope}/sessions/{sid}/`` for the
+        shared close_conversation() walker.
 
-        If the recipient has a sub-roster (it's a lead with agents under it),
-        a child BusEventListener is created for it so it can dispatch to its own
-        agents via Send. This is the recursive spawn path described in the
-        recursive-dispatch proposal.
-
-        Returns (session_id, agent_dir).  session_id may be empty string if capture
-        fails (non-fatal; context record is still created).  agent_dir is the
-        worktree path that must be preserved for multi-turn use.
+        Returns ``(child_session.id, worktree_path, refusal_reason)``.
         """
-        import subprocess
-        from teaparty.runners.launcher import launch as _launch, create_session as _create_session
+        from teaparty.runners.launcher import (
+            launch as _launch,
+            create_session as _create_session,
+            _save_session_metadata as _save_meta,
+        )
+        from teaparty.workspace.worktree import (
+            create_subchat_worktree, current_branch_of, head_commit_of,
+        )
 
-        # Check if the recipient has a sub-roster and needs its own listener
+        # Optional child bus listener when the recipient has a sub-roster.
         child_listener = None
-        child_mcp_config = None
 
-        # Session = worktree (1:1). Create session, worktree inside it.
+        # Session record first so the worktree lives under it (1:1).
         child_session = _create_session(
             agent_name=member, scope='management',
             teaparty_home=self.poc_root,
         )
         worktree_path = os.path.join(child_session.path, 'worktree')
+        session_branch = f'session/{child_session.id}'
+
+        # Fork source + merge target = the lead's session worktree, falling
+        # back to the project repo root for bootstrap paths that don't yet
+        # have a session worktree.  Matches chat tier's same-repo branch.
+        source_repo = self.session_worktree or self.project_workdir
+        merge_target_worktree = source_repo
+        merge_target_repo = self.project_workdir
+        try:
+            source_ref = await head_commit_of(source_repo) or 'HEAD'
+        except Exception:
+            source_ref = 'HEAD'
+        try:
+            merge_target_branch = await current_branch_of(source_repo)
+        except Exception:
+            merge_target_branch = ''
 
         try:
             from teaparty.config.roster import has_sub_roster
             if has_sub_roster(member, self.poc_root, project_dir=self.project_workdir):
-                child_listener, child_mcp_config = await self._make_child_listener(
+                child_listener, _ = await self._make_child_listener(
                     member, context_id, worktree_path,
                 )
         except Exception:
@@ -803,27 +820,47 @@ class Orchestrator:
                 member, exc_info=True,
             )
 
-        wt_result = subprocess.run(
-            ['git', 'worktree', 'add', worktree_path, 'HEAD'],
-            cwd=self.project_workdir,
-            capture_output=True, text=True,
-        )
-        if wt_result.returncode != 0:
-            _log.warning(
-                'git worktree add failed for %s: %s — falling back to plain directory',
-                worktree_path, wt_result.stderr.strip(),
+        try:
+            await create_subchat_worktree(
+                source_repo=source_repo,
+                source_ref=source_ref,
+                dest_path=worktree_path,
+                branch_name=session_branch,
+                parent_worktree=source_repo,
             )
-            os.makedirs(worktree_path, exist_ok=True)
+        except Exception:
+            _log.exception(
+                '_bus_spawn_agent: create_subchat_worktree failed for %s',
+                member,
+            )
+            if child_listener:
+                await child_listener.stop()
+            return ('', '', 'worktree_failed')
+
+        # Record the merge target on the child so close_conversation can
+        # squash-merge the session branch back into the lead's branch.
+        child_session.launch_cwd = worktree_path
+        child_session.worktree_path = worktree_path
+        child_session.worktree_branch = session_branch
+        child_session.merge_target_repo = merge_target_repo
+        child_session.merge_target_branch = merge_target_branch
+        child_session.merge_target_worktree = merge_target_worktree
+        child_session.parent_session_id = (
+            self._dispatcher_session.id if self._dispatcher_session else ''
+        )
+        child_session.initial_message = composite
+        _save_meta(child_session)
 
         mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
         try:
-            result = await _launch(
+            await _launch(
                 agent_name=member,
                 message=composite,
                 scope='management',
                 teaparty_home=self.poc_root,
                 worktree=worktree_path,
                 mcp_port=mcp_port,
+                session_id=child_session.id,
                 mcp_routes=self._mcp_routes,
             )
         except Exception:
@@ -834,7 +871,7 @@ class Orchestrator:
             if child_listener:
                 await child_listener.stop()
 
-        return (result.session_id, worktree_path, '')
+        return (child_session.id, worktree_path, '')
 
     async def _make_child_listener(
         self,
@@ -895,33 +932,70 @@ class Orchestrator:
         # Build child spawn/resume/reinvoke closures
         async def child_spawn_fn(
             child_member: str, composite: str, child_ctx_id: str,
-        ) -> tuple[str, str]:
-            import subprocess as _sp
-            from teaparty.runners.launcher import create_session as _cs
-            # Session = worktree (1:1).
+        ) -> tuple[str, str, str]:
+            from teaparty.runners.launcher import (
+                create_session as _cs,
+                _save_session_metadata as _save_meta,
+            )
+            from teaparty.workspace.worktree import (
+                create_subchat_worktree, current_branch_of, head_commit_of,
+            )
+            # Session = worktree (1:1).  Set merge metadata like
+            # _bus_spawn_agent does so close_fn can squash-merge
+            # recursive subteam work back into the lead (#422).
             child_session = _cs(
                 agent_name=child_member, scope='management',
                 teaparty_home=self.poc_root,
             )
             child_wt = os.path.join(child_session.path, 'worktree')
-            wt_result = _sp.run(
-                ['git', 'worktree', 'add', child_wt, 'HEAD'],
-                cwd=self.project_workdir,
-                capture_output=True, text=True,
+            session_branch = f'session/{child_session.id}'
+            source_repo = self.session_worktree or self.project_workdir
+            try:
+                source_ref = await head_commit_of(source_repo) or 'HEAD'
+            except Exception:
+                source_ref = 'HEAD'
+            try:
+                target_branch = await current_branch_of(source_repo)
+            except Exception:
+                target_branch = ''
+            try:
+                await create_subchat_worktree(
+                    source_repo=source_repo,
+                    source_ref=source_ref,
+                    dest_path=child_wt,
+                    branch_name=session_branch,
+                    parent_worktree=source_repo,
+                )
+            except Exception:
+                _log.exception(
+                    'child_spawn_fn: create_subchat_worktree failed for %s',
+                    child_member,
+                )
+                return ('', '', 'worktree_failed')
+            child_session.launch_cwd = child_wt
+            child_session.worktree_path = child_wt
+            child_session.worktree_branch = session_branch
+            child_session.merge_target_repo = self.project_workdir
+            child_session.merge_target_branch = target_branch
+            child_session.merge_target_worktree = source_repo
+            child_session.parent_session_id = (
+                self._dispatcher_session.id if self._dispatcher_session else ''
             )
-            if wt_result.returncode != 0:
-                os.makedirs(child_wt, exist_ok=True)
+            child_session.initial_message = composite
+            _save_meta(child_session)
+
             mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
-            result = await _launch(
+            await _launch(
                 agent_name=child_member,
                 message=composite,
                 scope='management',
                 teaparty_home=self.poc_root,
                 worktree=child_wt,
                 mcp_port=mcp_port,
+                session_id=child_session.id,
                 mcp_routes=self._mcp_routes,
             )
-            return (result.session_id, child_wt, '')
+            return (child_session.id, child_wt, '')
 
         async def child_resume_fn(
             child_member: str, composite: str, session_id: str, child_ctx_id: str,
