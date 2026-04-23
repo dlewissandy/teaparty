@@ -1083,19 +1083,27 @@ async def launch(
     tools_override: str | None = None,
     # LLM backend — default is real claude, tests inject scripted caller.
     llm_caller: LLMCaller = _default_claude_caller,
+    # MCP handler routes — installed in the in-process registry before
+    # the subprocess spawns so Send / CloseConversation / AskQuestion
+    # are immediately reachable by agent_name.  Single registration
+    # site shared by both tiers (see issue #422).
+    mcp_routes: Any = None,
 ) -> ClaudeResult:
     """Launch an agent through the unified codepath.
 
     1. Composes the worktree .claude/ from .teaparty/ config
     2. Reads agent frontmatter for tools and permissions
     3. Builds a sanitized environment
-    4. Runs the subprocess via ClaudeRunner, streams events, returns result
+    4. Registers MCP handler routes for this agent (if supplied)
+    5. Runs the subprocess via ClaudeRunner, streams events, returns result
 
     This is the only function that spawns agent subprocesses.
 
     The *_override parameters allow callers to layer additional settings
     (e.g. CfA jail hooks) on top of the config-derived baseline.
     """
+    from teaparty.mcp.registry import register_agent_mcp_routes
+    register_agent_mcp_routes(agent_name, mcp_routes)
     from teaparty.config.config_reader import read_agent_frontmatter
     from teaparty.runners.claude import ClaudeRunner
 
