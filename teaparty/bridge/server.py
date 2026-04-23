@@ -516,6 +516,28 @@ class TeaPartyBridge:
         return response
 
     async def _on_startup(self, app: web.Application) -> None:
+        # Recovery sweep (#422): every conversation that was pending or
+        # active when the bridge last shut down is now orphaned — no
+        # live subprocess, no heartbeat producer.  Mark them paused so
+        # the UI surfaces them with the paused pill; the user decides
+        # whether to resume, close, or withdraw.  No auto-recovery.
+        mgmt_db = os.path.join(
+            self.teaparty_home, 'management', 'messages.db')
+        if os.path.isfile(mgmt_db):
+            try:
+                _sweep_bus = SqliteMessageBus(mgmt_db)
+                try:
+                    n = _sweep_bus.pause_live_conversations()
+                    if n:
+                        _log.info(
+                            'startup recovery sweep: %d conversation(s) '
+                            'marked paused', n)
+                finally:
+                    _sweep_bus.close()
+            except Exception:
+                _log.warning(
+                    'startup recovery sweep failed', exc_info=True)
+
         # Start the shared MCP server (same event loop, no threading)
         from teaparty.mcp.server.main import create_http_app
         self._mcp_asgi_app, mcp_starlette, mcp_server = create_http_app()
@@ -1716,23 +1738,44 @@ class TeaPartyBridge:
         if bus is None:
             return web.json_response({'error': f'conversation not found: {conv_id}'}, status=404)
 
-        # Auto-create the conversation on first POST so it appears in active_conversations()
-        # (sidebar) and the human doesn't need to reload the page.
+        # Auto-create the conversation on first POST so it appears in
+        # active_conversations() (sidebar) and the human doesn't need
+        # to reload the page.  Every row carries the agent_name the UI
+        # will display — writer-side single source of truth (#422).
         if conv_id == 'om':
-            bus.create_conversation(ConversationType.OFFICE_MANAGER, '')
+            bus.create_conversation(
+                ConversationType.OFFICE_MANAGER, '',
+                agent_name='office-manager')
         elif conv_id.startswith('pm:'):
             qualifier = conv_id[len('pm:'):]
-            bus.create_conversation(ConversationType.PROJECT_MANAGER, qualifier)
+            bus.create_conversation(
+                ConversationType.PROJECT_MANAGER, qualifier,
+                agent_name='project-manager',
+                project_slug=qualifier)
         elif conv_id.startswith('proxy:'):
             qualifier = conv_id[len('proxy:'):]
-            bus.create_conversation(ConversationType.PROXY, qualifier)
+            bus.create_conversation(
+                ConversationType.PROXY, qualifier,
+                agent_name='proxy')
         elif conv_id.startswith('config:'):
             qualifier = conv_id[len('config:'):]
-            bus.create_conversation(ConversationType.CONFIG_LEAD, qualifier)
+            bus.create_conversation(
+                ConversationType.CONFIG_LEAD, qualifier,
+                agent_name='configuration-lead')
         elif conv_id.startswith('lead:'):
             parts = conv_id.split(':', 2)
+            lead_name = parts[1] if len(parts) > 1 else ''
             qualifier = parts[2] if len(parts) > 2 else ''
-            bus.create_conversation(ConversationType.PROJECT_LEAD, qualifier)
+            # lead:{lead-name}:{qualifier} — the {lead-name} IS the
+            # agent_name the accordion displays (e.g. 'joke-book-lead').
+            project_slug = (
+                lead_name[:-len('-lead')]
+                if lead_name.endswith('-lead') else ''
+            )
+            bus.create_conversation(
+                ConversationType.PROJECT_LEAD, qualifier,
+                agent_name=lead_name,
+                project_slug=project_slug)
 
         try:
             msg_id = bus.send(conv_id, 'human', content)
@@ -3135,13 +3178,31 @@ class TeaPartyBridge:
         scopes when resolving a child session id.
         """
         session_id = request.match_info['session_id']
-        conv_id = request.query.get('conv', '')
+        conv_id = request.query.get('conv', '') or f'dispatch:{session_id}'
         from teaparty.bridge.state.dispatch_tree import build_dispatch_tree
 
-        sessions_dirs = self._all_sessions_dirs()
-        tree = build_dispatch_tree(sessions_dirs, session_id, conv_id=conv_id)
-        _log.debug('dispatch-tree %s: %d children, sessions_dirs=%s',
-                   session_id, len(tree.get('children', [])), sessions_dirs)
+        # Bus query (#422) — single source of truth for the tree.
+        bus = self._bus_for_conversation(conv_id)
+        if bus is None:
+            # Fall back to the management bus for roots that may not have
+            # been seen by _bus_for_conversation's prefix routing yet.
+            mgmt_db = os.path.join(self.teaparty_home, 'management', 'messages.db')
+            if os.path.isfile(mgmt_db):
+                bus = SqliteMessageBus(mgmt_db)
+            else:
+                return web.json_response({
+                    'conversation_id': conv_id,
+                    'session_id': session_id,
+                    'agent_name': '',
+                    'status': 'unknown',
+                    'children': [],
+                })
+
+        tree = build_dispatch_tree(
+            bus, conv_id, root_session_id=session_id,
+        )
+        _log.debug('dispatch-tree %s: %d children',
+                   session_id, len(tree.get('children', [])))
         return web.json_response(tree)
 
     def _find_sessions_dir(self, session_id: str) -> str:

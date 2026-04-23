@@ -579,9 +579,19 @@ function renderJobLayout() {
   pageState.taskConvs.forEach(function(tc) {
     var taskId = tc.dispatch_id || tc.id.split(':').slice(3).join(':');
     var indent = (tc.depth || 0) * 12;
-    var statusDot = tc.status === 'active'
-      ? '<span style="color:var(--green);font-size:7px;margin-right:3px">●</span>'
-      : '<span style="color:var(--text-dim);font-size:7px;margin-right:3px">●</span>';
+    // Status dot — reflects the bus state column directly (#422).
+    // active    → green (live subprocess / heartbeat)
+    // paused    → yellow (was live, user can resume)
+    // pending   → yellow (committed but never reached active)
+    // closed    → dim (terminal, merged cleanly)
+    // withdrawn → dim (terminal, user withdrew)
+    var _dotColor = (
+      tc.status === 'active' ? 'var(--green)' :
+      (tc.status === 'paused' || tc.status === 'pending') ? 'var(--yellow)' :
+      'var(--text-dim)'
+    );
+    var statusDot = '<span title="' + tc.status + '" style="color:' +
+      _dotColor + ';font-size:7px;margin-right:3px">●</span>';
     var teamLabel = tc.team ? '<span style="color:var(--purple);font-size:8px">' + tc.team + '</span> ' : '';
     var taskDesc = tc.task
       ? '<span style="font-size:8px;color:var(--text-dim);display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + tc.task.slice(0, 60) + '</span>'

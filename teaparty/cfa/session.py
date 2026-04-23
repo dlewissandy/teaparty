@@ -263,8 +263,18 @@ class Session:
             self._conversation_id = make_conversation_id(
                 ConversationType.JOB, f'{self.project_slug}:{self.session_id}',
             )
+            # Writer-side single source of truth (#422): the JOB row
+            # carries the project lead's agent_name so the accordion
+            # blade displays it without prefix-derivation guesswork.
+            _lead_name = (
+                self.config.project_lead
+                or f'{self.project_slug}-lead'
+            )
             self._message_bus.create_conversation(
-                ConversationType.JOB, f'{self.project_slug}:{self.session_id}',
+                ConversationType.JOB,
+                f'{self.project_slug}:{self.session_id}',
+                agent_name=_lead_name,
+                project_slug=self.project_slug,
             )
             # Post the initial task as the first human message so it appears in
             # the chat window immediately.
@@ -344,12 +354,12 @@ class Session:
                 # Skip intent + planning: jump directly to execution start
                 cfa = set_state_direct(cfa, 'EXECUTE')
             elif self.intent_file or self.skip_intent:
-                # Skip intent: set state to INTENT (planning entry point)
-                # _auto_bridge() in Orchestrator will apply INTENT → PLANNING
+                # Skip intent: set state to INTENT (the intent phase
+                # will run, but the caller has pre-supplied INTENT.md).
                 cfa = set_state_direct(cfa, 'INTENT')
-            # Normal path: stay at IDEA. The intent-alignment skill runs
-            # at IDEA and terminates via .phase-outcome.json (approve or
-            # withdraw) — no sub-state machine to traverse anymore.
+            # Normal path: stay at INTENT. The intent-alignment skill
+            # runs and terminates via .phase-outcome.json (approve or
+            # withdraw).
 
             save_state(cfa, os.path.join(infra_dir, '.cfa-state.json'))
 
@@ -863,9 +873,14 @@ class Session:
             conversation_id = make_conversation_id(
                 ConversationType.JOB, f'{project_slug}:{session_id}',
             )
-            message_bus.create_conversation(ConversationType.JOB, f'{project_slug}:{session_id}')
-            # Resolve project lead for gate-prompt attribution (Issue #408).
+            # Writer-side single source of truth (#422).
             _resume_sender = _resolve_project_lead_sender(project_dir)
+            message_bus.create_conversation(
+                ConversationType.JOB,
+                f'{project_slug}:{session_id}',
+                agent_name=_resume_sender or f'{project_slug}-lead',
+                project_slug=project_slug,
+            )
             bus_input_provider = MessageBusInputProvider(
                 bus=message_bus,
                 conversation_id=conversation_id,

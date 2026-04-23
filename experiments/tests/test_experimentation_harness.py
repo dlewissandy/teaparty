@@ -1346,11 +1346,7 @@ class TestSuppressBacktracks(unittest.TestCase):
                     return PhaseResult(terminal=True, terminal_state='COMPLETED_WORK')
             return PhaseResult(terminal=True, terminal_state='COMPLETED_WORK')
 
-        async def mock_auto_bridge():
-            pass  # no-op
-
         orch._run_phase = mock_run_phase
-        orch._auto_bridge = mock_auto_bridge
         orch.skip_intent = False
 
         result = _run(orch.run())

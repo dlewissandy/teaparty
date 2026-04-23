@@ -155,29 +155,42 @@ class CloseConversationEmitsTelemetryTests(unittest.TestCase):
         self,
     ) -> None:
         import asyncio
-        import json as _json
         from teaparty.workspace.close_conversation import close_conversation
+        from teaparty.messaging.conversations import (
+            ConversationState, ConversationType, SqliteMessageBus,
+        )
 
         scope = 'management'
         sessions_base = os.path.join(self.home, scope, 'sessions')
 
-        # Two-level tree: child-1 → grandchild-1 via conversation_map.
+        # Two-level tree registered in the bus (#422 — single source of truth).
         child_dir = os.path.join(sessions_base, 'child-1')
         gc_dir = os.path.join(sessions_base, 'grandchild-1')
         os.makedirs(child_dir, exist_ok=True)
         os.makedirs(gc_dir, exist_ok=True)
-        with open(os.path.join(child_dir, 'metadata.json'), 'w') as f:
-            _json.dump({'conversation_map': {'req-1': 'grandchild-1'}}, f)
+        bus = SqliteMessageBus(os.path.join(self.home, 'bus.db'))
+        bus.create_conversation(
+            ConversationType.DISPATCH, 'child-1',
+            agent_name='child',
+            parent_conversation_id='dispatch:parent-1',
+            state=ConversationState.ACTIVE,
+        )
+        bus.create_conversation(
+            ConversationType.DISPATCH, 'grandchild-1',
+            agent_name='grandchild',
+            parent_conversation_id='dispatch:child-1',
+            state=ConversationState.ACTIVE,
+        )
 
         class _FakeSession:
             id = 'parent-1'
-            conversation_map: dict = {}
 
         result = close_conversation(
             _FakeSession(),
             'dispatch:child-1',
             teaparty_home=self.home,
             scope=scope,
+            bus=bus,
         )
         if asyncio.iscoroutine(result):
             asyncio.run(result)

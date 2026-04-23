@@ -24,9 +24,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import shutil
-from typing import Any
+from typing import Any, Callable
+
+_log = logging.getLogger(__name__)
 
 
 def close_conversation_sync(
@@ -54,15 +57,21 @@ async def close_conversation(
     *,
     teaparty_home: str,
     scope: str,
+    bus=None,
 ) -> dict[str, Any]:
     """Close a dispatch conversation, merging the child's work back.
 
     Args:
-        parent_session: The dispatcher's Session (its conversation_map
-            holds the child reference we must remove on success).
+        parent_session: The dispatcher's Session.  Retained for its
+            ``id`` (used in telemetry) and as a legacy handle.
         conversation_id: The conversation handle (``dispatch:{child_id}``).
         teaparty_home: Path to .teaparty directory.
         scope: 'management' or 'project'.
+        bus: The ``SqliteMessageBus`` where this conversation lives.
+            Required.  The walker traverses children via
+            ``bus.children_of(parent_id)`` — the single source of truth
+            for the dispatch tree (issue #422).  Left ``None`` for a
+            brief transition window while callers are migrated.
 
     Returns:
         A dict with at least ``status`` and ``message``. Statuses:
@@ -85,11 +94,11 @@ async def close_conversation(
 
     # Telemetry: close_conversation + session_closed for the target and
     # every descendant brought down by the recursive cascade (Issue #405).
-    # collect_descendants is inclusive — it returns [target, ...descendants].
+    # collect_descendants_from_bus is inclusive — returns [target, ...descendants].
     try:
         from teaparty.telemetry import record_event
         from teaparty.telemetry import events as _telem_events
-        walk = collect_descendants(sessions_dir, child_session_id)
+        walk = collect_descendants_from_bus(bus, conversation_id)
         record_event(
             _telem_events.CLOSE_CONVERSATION,
             scope=scope,
@@ -119,20 +128,21 @@ async def close_conversation(
         pass
 
     # Recursively close child + descendants, merging from the leaves up.
-    result = await _close_recursive(sessions_dir, child_session_id)
+    result = await _close_recursive(sessions_dir, child_session_id, bus)
     if result['status'] != 'ok':
         return result
 
-    # All merges succeeded — remove the child from the parent's
-    # conversation_map so the dispatcher can reuse the slot.
-    request_id = None
-    for rid, csid in list(parent_session.conversation_map.items()):
-        if csid == child_session_id:
-            request_id = rid
-            break
-    if request_id is not None:
-        from teaparty.runners.launcher import remove_child_session
-        remove_child_session(parent_session, request_id=request_id)
+    # Mark the bus record closed — single source of truth (#422).
+    if bus is not None:
+        try:
+            from teaparty.messaging.conversations import ConversationState
+            bus.update_conversation_state(
+                conversation_id, ConversationState.CLOSED)
+        except Exception:
+            _log.debug(
+                'close_conversation: failed to mark bus state closed for %s',
+                conversation_id, exc_info=True,
+            )
 
     return {
         'status': 'ok',
@@ -140,10 +150,20 @@ async def close_conversation(
     }
 
 
-async def _close_recursive(sessions_dir: str, session_id: str) -> dict[str, Any]:
+async def _close_recursive(
+    sessions_dir: str,
+    session_id: str,
+    bus=None,
+) -> dict[str, Any]:
     """Close *session_id* and all its descendants, merging from leaves up.
 
     Returns the same status dict shape as ``close_conversation``.
+
+    When ``bus`` is supplied, children are enumerated via
+    ``bus.children_of(f'dispatch:{session_id}')`` — the single source
+    of truth for the dispatch tree (issue #422).  Merge metadata
+    (worktree path, target branch, etc.) still comes from the child's
+    session metadata on disk; that's not tree structure.
     """
     session_path = os.path.join(sessions_dir, session_id)
     meta_path = os.path.join(session_path, 'metadata.json')
@@ -157,9 +177,15 @@ async def _close_recursive(sessions_dir: str, session_id: str) -> dict[str, Any]
             meta = {}
 
     # Close grandchildren first so their work is inside the child's
-    # worktree by the time we squash-merge the child.
-    for grandchild_id in list(meta.get('conversation_map', {}).values()):
-        sub = await _close_recursive(sessions_dir, grandchild_id)
+    # worktree by the time we squash-merge the child.  Bus is the
+    # single source of truth for the dispatch tree (#422).
+    grandchildren = [
+        c.id[len('dispatch:'):]
+        for c in bus.children_of(f'dispatch:{session_id}')
+        if c.id.startswith('dispatch:')
+    ]
+    for grandchild_id in grandchildren:
+        sub = await _close_recursive(sessions_dir, grandchild_id, bus)
         if sub['status'] != 'ok' and sub['status'] != 'noop':
             # Bubble the failure up. The child keeps its worktree,
             # and every ancestor of the failure stays open until the
@@ -264,41 +290,137 @@ async def _commit_and_merge(
     return {'status': 'ok', 'message': f'Merged {session_branch}.'}
 
 
-def collect_descendants(sessions_dir: str, root_session_id: str) -> list[str]:
-    """Walk the conversation tree rooted at root_session_id.
-
-    Returns all session_ids in the subtree (root first, then descendants
-    in depth-first order). Reads metadata.json files on disk — does not
-    modify anything.
-    """
-    return [sid for sid, _parent in collect_descendants_with_parents(
-        sessions_dir, root_session_id, root_parent='')]
-
-
-def collect_descendants_with_parents(
-    sessions_dir: str,
-    root_session_id: str,
+def build_close_fn(
     *,
-    root_parent: str,
-) -> list[tuple[str, str]]:
-    """Walk the conversation tree and return (session_id, parent_id) pairs.
+    dispatch_session,
+    teaparty_home: str,
+    scope: str,
+    tasks_by_child: dict[str, asyncio.Task],
+    on_dispatch: Callable[[dict], None] | None,
+    agent_name: str = '',
+    bus=None,
+) -> Callable:
+    """Build the close_fn that the CloseConversation MCP tool invokes.
 
-    Depth-first, root first.
+    The returned coroutine closes a ``dispatch:{session_id}`` conversation:
+    cancels every in-flight child task in the subtree, reads each
+    descendant's agent_name from the bus (#422) for UI events, calls
+    :func:`close_conversation` to squash-merge each subtree worktree back
+    into its parent, and emits ``dispatch_completed`` through
+    ``on_dispatch`` so the accordion re-renders.
+
+    The same function is installed by both the chat-tier session and the
+    CfA orchestrator. All state it needs is passed in here at listener
+    init time — it does not reference any tier-specific object.
+
+    ``bus`` is the ``SqliteMessageBus`` where this session's dispatches
+    are registered.  When present, the subtree walk and agent_name
+    resolution both use the bus — the single source of truth (#422).
     """
-    result: list[tuple[str, str]] = []
+    async def close_fn(conversation_id: str):
+        subtree: list[tuple[str, str]] = []
+        agent_names: dict[str, str] = {}
+        if conversation_id.startswith('dispatch:'):
+            # Bus walk — single source of truth for tree + name (#422).
+            subtree_convs = collect_descendants_with_parents_from_bus(
+                bus, conversation_id,
+                root_parent_conv_id=f'dispatch:{dispatch_session.id}',
+            )
+            subtree = []
+            for conv, parent_conv in subtree_convs:
+                _, _, csid = conv.id.partition(':')
+                _, _, parent_sid = parent_conv.partition(':')
+                # Top-level parent is the dispatcher's session id,
+                # not a 'dispatch:{id}' form.
+                if not parent_sid:
+                    parent_sid = dispatch_session.id
+                subtree.append((csid, parent_sid))
+                agent_names[csid] = conv.agent_name
 
-    def _walk(sid: str, parent: str) -> None:
-        result.append((sid, parent))
-        meta_path = os.path.join(sessions_dir, sid, 'metadata.json')
-        if not os.path.isfile(meta_path):
-            return
-        try:
-            with open(meta_path) as f:
-                meta = json.load(f)
-        except (json.JSONDecodeError, OSError):
-            return
-        for child_sid in meta.get('conversation_map', {}).values():
-            _walk(child_sid, sid)
+            tasks = []
+            for csid, _parent in subtree:
+                task = tasks_by_child.pop(csid, None)
+                if task is not None and not task.done():
+                    task.cancel()
+                    tasks.append(task)
+            if tasks:
+                try:
+                    await asyncio.wait_for(
+                        asyncio.shield(
+                            asyncio.gather(*tasks, return_exceptions=True)),
+                        timeout=2.0)
+                except asyncio.TimeoutError:
+                    _log.warning(
+                        '%s close_fn: tasks did not cancel within 2s',
+                        agent_name)
 
-    _walk(root_session_id, root_parent)
+        close_result = await close_conversation(
+            dispatch_session, conversation_id,
+            teaparty_home=teaparty_home, scope=scope, bus=bus,
+        )
+        if close_result.get('status') not in ('ok', 'noop'):
+            return close_result
+
+        if on_dispatch:
+            for csid, parent_sid in reversed(subtree):
+                on_dispatch({
+                    'type': 'dispatch_completed',
+                    'parent_session_id': parent_sid,
+                    'child_session_id': csid,
+                    'agent_name': agent_names.get(csid, ''),
+                })
+        return close_result
+
+    return close_fn
+
+
+def collect_descendants_from_bus(bus, root_conv_id: str) -> list[str]:
+    """Walk the dispatch tree via the bus and return session_ids (#422).
+
+    Bus-native replacement for ``collect_descendants``.  Returns session
+    ids in depth-first, root-first order.  ``root_conv_id`` follows the
+    ``dispatch:{session_id}`` convention.
+    """
+    pairs = collect_descendants_with_parents_from_bus(
+        bus, root_conv_id, root_parent_conv_id='')
+    return [_session_id_of(conv.id) for conv, _parent in pairs]
+
+
+def collect_descendants_with_parents_from_bus(
+    bus,
+    root_conv_id: str,
+    *,
+    root_parent_conv_id: str,
+) -> list[tuple]:
+    """Walk the dispatch tree via ``bus.children_of`` (#422).
+
+    Returns [(Conversation, parent_conv_id), ...] in depth-first,
+    root-first order.  The root itself is included with its supplied
+    parent; every descendant is attributed to its actual parent_conv_id
+    as recorded in the bus.
+    """
+    result: list[tuple] = []
+    visited: set[str] = set()
+
+    def _walk(conv_id: str, parent_conv_id: str) -> None:
+        if conv_id in visited:
+            return
+        visited.add(conv_id)
+        conv = bus.get_conversation(conv_id)
+        if conv is None:
+            return
+        result.append((conv, parent_conv_id))
+        for child in bus.children_of(conv_id):
+            _walk(child.id, conv_id)
+
+    _walk(root_conv_id, root_parent_conv_id)
     return result
+
+
+def _session_id_of(conv_id: str) -> str:
+    """Extract session_id from a ``dispatch:{session_id}`` conv_id."""
+    if conv_id.startswith('dispatch:'):
+        return conv_id[len('dispatch:'):]
+    return conv_id
+
+

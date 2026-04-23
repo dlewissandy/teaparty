@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import contextvars
 import logging
+from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
 _log = logging.getLogger('teaparty.mcp.registry')
@@ -159,6 +160,44 @@ def active_escalation_qualifier(caller_session_id: str) -> str:
         if q.startswith(prefix):
             return q
     return ''
+
+
+@dataclass
+class MCPRoutes:
+    """Bundle of MCP handler routes for a launched agent.
+
+    The MCP handler (in the bridge process) can't read per-subprocess env
+    vars, so Send / CloseConversation / AskQuestion all route through an
+    in-process registry keyed by agent_name. This bundle collects the
+    routes an agent needs; ``launch()`` installs them before spawning
+    the subprocess, giving the handler everything it needs in one place.
+
+    Fields are optional: a leaf worker that neither dispatches nor
+    closes conversations just leaves ``spawn_fn`` / ``close_fn`` unset.
+    """
+    spawn_fn: Callable | None = None
+    close_fn: Callable | None = None
+    escalation_bus_db: str = ''
+    escalation_conv_id: str = ''
+
+
+def register_agent_mcp_routes(agent_name: str, routes: MCPRoutes | None) -> None:
+    """Install an agent's MCP routes in the in-process registry.
+
+    Called by ``launch()`` before each agent subprocess spawns. A None
+    or empty bundle is a no-op (not every launch needs routes — e.g.
+    a scripted test caller, or a leaf that doesn't dispatch).
+    """
+    if routes is None:
+        return
+    if routes.spawn_fn is not None:
+        register_spawn_fn(agent_name, routes.spawn_fn)
+    if routes.close_fn is not None:
+        register_close_fn(agent_name, routes.close_fn)
+    if routes.escalation_bus_db and routes.escalation_conv_id:
+        register_escalation_route(
+            agent_name, routes.escalation_bus_db, routes.escalation_conv_id,
+        )
 
 
 def clear() -> None:

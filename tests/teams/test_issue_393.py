@@ -425,7 +425,8 @@ class TestClearForcesTeardownOnMergeFailure(unittest.TestCase):
         # is 'office-manager-test-user'.
         if parent_session_id is None:
             parent_session_id = self._session._session_key()
-        """Write parent + child metadata.json so /clear walks them."""
+        """Write parent + child metadata.json AND register in the bus so
+        /clear walks them (#422 — bus is authoritative)."""
         import json as _json
         sessions_dir = os.path.join(
             self._tmpdir, 'management', 'sessions')
@@ -452,6 +453,21 @@ class TestClearForcesTeardownOnMergeFailure(unittest.TestCase):
                 # No worktree_path — nothing to merge, but simulate
                 # close_conversation returning a non-ok status.
             }, f)
+
+        # Register the stale child in the bus so /clear's bus-first
+        # walker finds it (#422).  This is how the real spawn_fn would
+        # have left things before the crash/restart scenario that
+        # "stale child" represents.
+        from teaparty.messaging.conversations import (
+            ConversationState, ConversationType,
+        )
+        self._session._bus.create_conversation(
+            ConversationType.DISPATCH, child_session_id,
+            agent_name='teaparty-lead',
+            parent_conversation_id=self._session.conversation_id,
+            request_id=request_id,
+            state=ConversationState.ACTIVE,
+        )
         return sessions_dir
 
     def test_clear_purges_child_when_close_returns_conflict(self):
@@ -480,16 +496,15 @@ class TestClearForcesTeardownOnMergeFailure(unittest.TestCase):
             'Force-teardown must rmtree the child session dir '
             'when close_conversation fails to merge')
 
-        # Parent's conversation_map on disk must no longer reference it
-        parent_meta_path = os.path.join(
-            sessions_dir, self._session._session_key(), 'metadata.json')
-        import json as _json
-        with open(parent_meta_path) as f:
-            parent_meta = _json.load(f)
-        self.assertEqual(parent_meta.get('conversation_map', {}), {},
-                         'Force-teardown must strip the entry from the '
-                         'parent conversation_map on disk so the blade '
-                         'does not resurrect on page reload')
+        # The bus record is now withdrawn — single source of truth (#422).
+        # The accordion walker queries the bus, so the blade does not
+        # resurrect on page reload.
+        from teaparty.messaging.conversations import ConversationState
+        conv = self._session._bus.get_conversation('dispatch:stale-child')
+        self.assertIsNotNone(conv)
+        self.assertEqual(conv.state, ConversationState.WITHDRAWN,
+                         'Force-teardown must mark the bus record '
+                         'withdrawn so the accordion drops the blade.')
 
     def test_clear_purges_child_when_close_raises(self):
         """If close_conversation raises, /clear must still force-teardown."""

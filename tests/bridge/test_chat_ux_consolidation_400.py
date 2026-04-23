@@ -875,16 +875,23 @@ class TestDispatchTreeProjectScopeRouting(unittest.TestCase):
         )
         self.assertIsNotNone(m, "_handle_dispatch_tree not found in server.py")
         handler_body = m.group(0)
+        # Since #422 the walker queries the bus's conversations table;
+        # cross-scope dispatches are protected by the bus being the
+        # single source of truth (writers register their DISPATCH rows
+        # at spawn time, regardless of which scope the session lives
+        # in).  The handler must look up the bus for the root conv_id
+        # and pass it to build_dispatch_tree — no more sessions_dirs
+        # enumeration, no hardcoded scope paths.
         self.assertIn(
-            '_all_sessions_dirs', handler_body,
-            "_handle_dispatch_tree does not call _all_sessions_dirs — "
-            "cross-scope dispatches (e.g. a project root linking a management "
-            "proxy child) won't be found. Pass every candidate to the walker."
+            'build_dispatch_tree', handler_body,
+            '_handle_dispatch_tree must call build_dispatch_tree.',
         )
-        self.assertNotIn(
-            "'management', 'sessions'", handler_body,
-            "_handle_dispatch_tree still hardcodes management/sessions — "
-            "project lead sessions won't be found."
+        self.assertIn(
+            '_bus_for_conversation', handler_body,
+            '_handle_dispatch_tree must resolve the bus for the root '
+            'conv_id and pass it to build_dispatch_tree — #422 makes '
+            'the bus authoritative for tree structure, so no scope '
+            'enumeration is needed.',
         )
 
 

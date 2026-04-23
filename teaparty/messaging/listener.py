@@ -43,8 +43,6 @@ SpawnFn = Callable[[str, str, str], Awaitable[tuple[str, str, str]]]
 ResumeFn = Callable[[str, str, str, str], Awaitable[str]]
 # reinvoke_fn(context_id, session_id, message) -> None
 ReinvokeFn = Callable[[str, str, str], Awaitable[None]]
-# cleanup_fn(worktree_path) -> None
-CleanupFn = Callable[[str], Awaitable[None]]
 
 
 def make_agent_context_id(initiator_agent_id: str, recipient_agent_id: str) -> str:
@@ -101,7 +99,6 @@ class BusEventListener:
         resume_fn: ResumeFn | None = None,
         reply_fn: ReinvokeFn | None = None,
         reinvoke_fn: ReinvokeFn | None = None,
-        cleanup_fn: CleanupFn | None = None,
         current_context_id: str = '',
         initiator_agent_id: str = '',
         dispatcher: object | None = None,
@@ -111,7 +108,6 @@ class BusEventListener:
         self.resume_fn = resume_fn
         self.reply_fn = reply_fn
         self.reinvoke_fn = reinvoke_fn
-        self.cleanup_fn = cleanup_fn
         self.current_context_id = current_context_id
         self.initiator_agent_id = initiator_agent_id
         self.dispatcher = dispatcher  # BusDispatcher | None
@@ -119,6 +115,67 @@ class BusEventListener:
         # Per-agent re-invocation locks: serializes concurrent --resume calls for
         # the same agent (see conversation-model.md — Fan-In vs. Mid-Task Clarification).
         self._reinvoke_locks: dict[str, asyncio.Lock] = {}
+
+        # In-flight child tasks, keyed by child session_id.  Both tiers
+        # populate this from their spawn_fn: the close_fn cancels any
+        # entry whose session is inside the subtree being torn down so
+        # no task writes into a directory that close_conversation is
+        # about to rmtree.  Issue #422 moved this to the listener so
+        # chat and CfA share one registry.
+        self.tasks_by_child: dict[str, asyncio.Task] = {}
+
+    def schedule_child_task(
+        self,
+        *,
+        child_session_id: str,
+        launch_coro,
+        dispatcher_session,
+        context_id: str,
+        agent_name: str,
+        on_dispatch=None,
+        background_tasks: set | None = None,
+    ) -> asyncio.Task:
+        """Record a dispatched child, emit dispatch_started, schedule its task.
+
+        Shared by both tiers (issue #422).  The caller has already created
+        the child session record and set its merge metadata; this method
+        performs the rest of the spawn boilerplate:
+
+          1. record the child in the dispatcher's conversation_map so the
+             accordion and the dispatch-tree walker can reach it
+          2. emit ``dispatch_started`` so the UI renders the subteam blade
+          3. wrap the caller's launch coroutine in an asyncio.Task
+          4. register that task in ``self.tasks_by_child`` keyed by
+             ``child_session_id`` so the shared ``close_fn`` can cancel
+             the subtree cleanly
+
+        The caller passes ``background_tasks`` if it maintains its own
+        set (chat tier does; CfA does not).  Without it the task is
+        tracked solely by ``tasks_by_child``.
+        """
+        # Bus registration happens at the caller's create_conversation
+        # site (#422) — the bus record carries parent_conversation_id,
+        # request_id, agent_name, and project_slug.  No session-metadata
+        # conversation_map to touch.
+        if on_dispatch is not None:
+            try:
+                on_dispatch({
+                    'type': 'dispatch_started',
+                    'parent_session_id': dispatcher_session.id,
+                    'child_session_id': child_session_id,
+                    'agent_name': agent_name,
+                })
+            except Exception:
+                _log.debug(
+                    'on_dispatch raised for dispatch_started',
+                    exc_info=True,
+                )
+        task = asyncio.create_task(launch_coro)
+        self.tasks_by_child[child_session_id] = task
+        if background_tasks is not None:
+            background_tasks.add(task)
+            task.add_done_callback(background_tasks.discard)
+        return task
 
     async def start(self) -> None:
         """No-op — kept for lifecycle symmetry with earlier callers.

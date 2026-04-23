@@ -120,6 +120,11 @@ class AgentSession:
         self._escalation_listener = None
         self._ask_question_bus_db: str = ''
         self._ask_question_conv_id: str = ''
+        # MCP routes bundle installed at every launch in this session's
+        # subtree (lead self-invoke, dispatched children, grandchildren).
+        # Built in _ensure_bus_listener for dispatching agents; remains
+        # None for leaf workers that neither dispatch nor close.
+        self._mcp_routes = None
 
         # Serialize concurrent invocations — only one claude process per
         # agent session at a time. When multiple children reply at once,
@@ -132,6 +137,11 @@ class AgentSession:
         self._background_tasks: set[asyncio.Task] = set()
         # child_session_id → running _run_child task, so close_fn can
         # cancel a specific in-flight conversation.
+        # In-flight child tasks, keyed by child session_id.  The
+        # BusEventListener aliases this same dict on start (issue #422
+        # — close_fn reads it via the listener, so both tiers share one
+        # registry).  Kept accessible here for legacy callers and for
+        # the non-dispatching path where no listener is built.
         self._tasks_by_child: dict[str, asyncio.Task] = {}
         # child_session_id → factory that re-creates the _run_child
         # coroutine for that child. Populated by spawn_fn; consulted by
@@ -201,7 +211,6 @@ class AgentSession:
             'agent_name': session.agent_name,
             'scope': session.scope,
             'claude_session_id': self.claude_session_id or '',
-            'conversation_map': session.conversation_map,
             'conversation_title': self.conversation_title or '',
             'qualifier': self.qualifier,
             'conversation_id': self.conversation_id,
@@ -284,8 +293,6 @@ class AgentSession:
         from teaparty.runners.launcher import (
             launch as _launch,
             create_session as _create_session,
-            record_child_session as _record_child,
-            remove_child_session as _remove_child,
             check_slot_available as _check_slot,
             _save_session_metadata as _save_meta,
             mark_launching as _mark_launching,
@@ -335,7 +342,6 @@ class AgentSession:
                 create_subchat_worktree,
             )
             from teaparty.mcp.registry import (
-                register_spawn_fn as _register,
                 current_session_id as _current_session_var,
             )
 
@@ -344,7 +350,10 @@ class AgentSession:
             dispatcher_session = session_registry.get(
                 caller_sid, self._dispatch_session)
 
-            if not _check_slot(dispatcher_session):
+            if not _check_slot(
+                dispatcher_session, bus=self._bus,
+                conv_id=self.conversation_id,
+            ):
                 _log.warning(
                     '%s spawn_fn: at conversation limit, dispatch to %s blocked',
                     self.agent_name, member,
@@ -490,28 +499,32 @@ class AgentSession:
             # in its own conversation_map.
             session_registry[child_session.id] = child_session
 
-            # Record in dispatcher's conversation_map so the accordion
-            # shows the child while running.
             child_conv_id = f'dispatch:{child_session.id}'
-            _record_child(dispatcher_session,
-                          request_id=context_id,
-                          child_session_id=child_session.id)
 
-            if self._on_dispatch:
-                self._on_dispatch({
-                    'type': 'dispatch_started',
-                    'parent_session_id': dispatcher_session.id,
-                    'child_session_id': child_session.id,
-                    'agent_name': member,
-                })
+            # Register the dispatch in the bus — the single source of
+            # truth for who leads this conversation, what its parent
+            # is, and which Send request created it (issue #422).  The
+            # accordion walker reads this record; no disk lookup for
+            # the blade caption, no agent_name='unknown' fallback.
+            parent_conv_id = (
+                self.conversation_id
+                if dispatcher_session is self._dispatch_session
+                else f'dispatch:{dispatcher_session.id}'
+            )
+            from teaparty.messaging.conversations import ConversationState
+            self._bus.create_conversation(
+                ConversationType.DISPATCH, child_session.id,
+                agent_name=member,
+                parent_conversation_id=parent_conv_id,
+                request_id=context_id,
+                project_slug=self.project_slug,
+                state=ConversationState.ACTIVE,
+            )
 
-            # If the child can dispatch, register the same spawn_fn.
-            try:
-                from teaparty.config.roster import has_sub_roster
-                if has_sub_roster(member, self.teaparty_home):
-                    _register(member, spawn_fn)
-            except Exception:
-                _log.debug('Sub-roster check failed for %s', member, exc_info=True)
+            # Child's MCP routes (spawn_fn, close_fn, escalation) are
+            # registered by launch() when the child subprocess spawns
+            # via the shared self._mcp_routes bundle — issue #422.  No
+            # inline registration needed here.
 
             # Write the parent's request to the bus (visible in child chat).
             self._bus.send(child_conv_id, self.agent_name, composite)
@@ -542,23 +555,17 @@ class AgentSession:
                 )
 
             self._run_child_factories[child_session.id] = _run_child
-            task = _asyncio.create_task(_run_child())
-            self._background_tasks.add(task)
-            self._tasks_by_child[child_session.id] = task
-            # Only discard from _background_tasks on done; keep the
-            # entry in _tasks_by_child so a parent _run_child's loop
-            # can still find the (already completed) grandchild task
-            # and collect its result via `await task`. The race here
-            # is: a grandchild often completes while its parent is
-            # still inside its first _launch call (they run concurrently
-            # on the event loop), so by the time the parent's loop gets
-            # to gc_tasks the grandchild's task may already be done.
-            # Popping eagerly dropped the task reference and broke the
-            # resume chain — the parent thought there was nothing to
-            # wait for and finalized with stale first-turn text.
-            # close_fn / _cancel_background_tasks clean up the dict on
-            # explicit teardown; /clear clears it at session reset.
-            task.add_done_callback(self._background_tasks.discard)
+            # Shared with CfA (#422): record child in conversation_map,
+            # emit dispatch_started, create task, register in tasks_by_child.
+            self._bus_listener.schedule_child_task(
+                child_session_id=child_session.id,
+                launch_coro=_run_child(),
+                dispatcher_session=dispatcher_session,
+                context_id=context_id,
+                agent_name=member,
+                on_dispatch=self._on_dispatch,
+                background_tasks=self._background_tasks,
+            )
 
             # Return immediately — child runs in background. The second
             # element used to be a worktree path; chat tier returns the
@@ -601,6 +608,7 @@ class AgentSession:
                 worktree=existing.worktree_path,
                 resume_session=session_id, mcp_port=mcp_port,
                 session_id=child_session_id,
+                mcp_routes=self._mcp_routes,
             )
             return result.session_id
 
@@ -608,19 +616,10 @@ class AgentSession:
             _log.info('%s reply_fn: delivering reply for context %s',
                       self.agent_name, context_id)
             self._bus.send(self.conversation_id, self.agent_role, message)
-            _remove_child(dispatch_session, request_id=context_id)
 
         async def reinvoke_fn(context_id, session_id, message):
             _log.info('%s reinvoke_fn: fan-in complete for context %s',
                       self.agent_name, context_id)
-
-        async def cleanup_fn(worktree_path):
-            # Chat tier no longer creates git worktrees for dispatched
-            # children — the cwd is the real repo and must not be
-            # removed. Session dir teardown is handled separately by
-            # close_conversation. This function is a no-op for chat,
-            # retained so the bus listener contract stays stable.
-            return
 
         if not self._bus_context_id:
             self._bus_context_id = f'agent:{self.agent_name}:lead:{uuid.uuid4()}'
@@ -642,95 +641,23 @@ class AgentSession:
             resume_fn=resume_fn,
             reply_fn=reply_fn,
             reinvoke_fn=reinvoke_fn,
-            cleanup_fn=cleanup_fn,
         )
+        # Alias the session's tasks_by_child onto the listener so the
+        # shared close_fn (workspace/close_conversation.py::build_close_fn)
+        # can read the same dict — issue #422.  Same object, two names.
+        self._bus_listener.tasks_by_child = self._tasks_by_child
         await self._bus_listener.start()
 
-        from teaparty.mcp.registry import register_spawn_fn, register_close_fn
-        register_spawn_fn(self.agent_name, spawn_fn)
-
-        async def close_fn(conversation_id):
-            from teaparty.workspace.close_conversation import (
-                close_conversation, collect_descendants_with_parents,
-            )
-            # Collect every (session, parent) pair in the subtree rooted
-            # at this conversation (walks metadata on disk, depth-first).
-            # Needed to (a) cancel every in-flight _run_child task before
-            # close_conversation rmtrees the dirs and (b) emit one
-            # dispatch_completed event per removed session so the UI
-            # accordion auto-activates the parent of whatever the user
-            # is currently viewing.
-            subtree: list[tuple[str, str]] = []
-            if conversation_id.startswith('dispatch:'):
-                root_csid = conversation_id[len('dispatch:'):]
-                sessions_dir = os.path.join(
-                    self.teaparty_home, self.scope, 'sessions')
-                subtree = collect_descendants_with_parents(
-                    sessions_dir, root_csid,
-                    root_parent=self._dispatch_session.id)
-                tasks = []
-                for csid, _parent in subtree:
-                    task = self._tasks_by_child.pop(csid, None)
-                    if task is not None and not task.done():
-                        task.cancel()
-                        tasks.append(task)
-                if tasks:
-                    try:
-                        await asyncio.wait_for(
-                            asyncio.shield(
-                                asyncio.gather(*tasks, return_exceptions=True)),
-                            timeout=2.0)
-                    except asyncio.TimeoutError:
-                        _log.warning(
-                            '%s close_fn: tasks did not cancel within 2s',
-                            self.agent_name)
-
-            # Read each descendant's agent_name from metadata BEFORE
-            # close_conversation removes the session dirs — we need the
-            # label for the UI event payload.
-            agent_names: dict[str, str] = {}
-            if subtree:
-                import json as _json
-                sessions_dir = os.path.join(
-                    self.teaparty_home, self.scope, 'sessions')
-                for csid, _parent in subtree:
-                    meta_path = os.path.join(
-                        sessions_dir, csid, 'metadata.json')
-                    try:
-                        with open(meta_path) as f:
-                            agent_names[csid] = _json.load(f).get(
-                                'agent_name', '')
-                    except (OSError, _json.JSONDecodeError):
-                        agent_names[csid] = ''
-
-            close_result = await close_conversation(
-                self._dispatch_session, conversation_id,
-                teaparty_home=self.teaparty_home, scope=self.scope,
-            )
-            # If the merge failed, return the structured result so the
-            # calling agent's CloseConversation tool surface can show
-            # the conflict details. Do NOT emit dispatch_completed
-            # events — the subchat is still open, its worktree is
-            # still on disk, and the accordion must keep it visible.
-            if close_result.get('status') not in ('ok', 'noop'):
-                return close_result
-
-            # Notify the UI so the accordion re-renders and auto-expands
-            # the parent of each removed session (in particular, the
-            # parent of whichever subtree node the user is viewing).
-            # Depth-first order means leaves first — the UI receives
-            # each removal before the ancestor that would override it.
-            if self._on_dispatch:
-                for csid, parent_sid in reversed(subtree):
-                    self._on_dispatch({
-                        'type': 'dispatch_completed',
-                        'parent_session_id': parent_sid,
-                        'child_session_id': csid,
-                        'agent_name': agent_names.get(csid, ''),
-                    })
-            return close_result
-
-        register_close_fn(self.agent_name, close_fn)
+        from teaparty.workspace.close_conversation import build_close_fn
+        close_fn = build_close_fn(
+            dispatch_session=self._dispatch_session,
+            teaparty_home=self.teaparty_home,
+            scope=self.scope,
+            tasks_by_child=self._tasks_by_child,
+            on_dispatch=self._on_dispatch,
+            agent_name=self.agent_name,
+            bus=self._bus,
+        )
 
         # Start the EscalationListener for AskQuestion routing (issue #419).
         # The listener watches `escalation:{session_key}` on the agent's own
@@ -778,17 +705,23 @@ class AgentSession:
         )
         await self._escalation_listener.start()
 
-        # Register the escalation route so the in-process AskQuestion tool
-        # handler can locate this agent's bus conversation.  The MCP server
-        # runs inside the bridge, not the agent's subprocess, so env vars
-        # don't reach the tool — the tool reads the registry keyed by
-        # ``current_agent_name`` (set by the ASGI middleware from the URL).
-        from teaparty.mcp.registry import register_escalation_route
-        register_escalation_route(
-            self.agent_name,
-            self._ask_question_bus_db,
-            self._ask_question_conv_id,
+        # Build the MCPRoutes bundle this session installs at every
+        # launch — for itself, for dispatched children, for grandchildren.
+        # launch() is the single registration site (issue #422); the MCP
+        # server runs inside the bridge, not in the agent's subprocess, so
+        # env vars don't reach the handler — the handler reads the registry
+        # keyed by current_agent_name (set by ASGI middleware from the URL).
+        from teaparty.mcp.registry import MCPRoutes
+        self._mcp_routes = MCPRoutes(
+            spawn_fn=spawn_fn,
+            close_fn=close_fn,
+            escalation_bus_db=self._ask_question_bus_db,
+            escalation_conv_id=self._ask_question_conv_id,
         )
+        # Register the bundle for the lead itself.  Dispatched children
+        # are registered by launch() when their subprocess spawns.
+        from teaparty.mcp.registry import register_agent_mcp_routes
+        register_agent_mcp_routes(self.agent_name, self._mcp_routes)
 
         return {
             'ASK_QUESTION_BUS_DB': self._ask_question_bus_db,
@@ -831,7 +764,7 @@ class AgentSession:
         import subprocess as _sp
         from teaparty.runners.launcher import load_session as _load_session
         from teaparty.workspace.close_conversation import (
-            close_conversation, collect_descendants_with_parents,
+            close_conversation,
         )
 
         # 0. Close every open top-level dispatch the same way the agent
@@ -858,32 +791,49 @@ class AgentSession:
             except Exception:
                 dispatch_session = None
 
-        if dispatch_session is not None and dispatch_session.conversation_map:
+        # Enumerate the top-level dispatches from the bus (#422) — the
+        # single source of truth.  The old code walked
+        # dispatch_session.conversation_map (disk metadata); the bus is
+        # now authoritative for the tree.
+        from teaparty.workspace.close_conversation import (
+            collect_descendants_with_parents_from_bus,
+        )
+        root_conv_id = self.conversation_id
+        top_level_children = (
+            self._bus.children_of(root_conv_id)
+            if dispatch_session is not None else []
+        )
+
+        if dispatch_session is not None and top_level_children:
             sessions_dir = os.path.join(
                 self.teaparty_home, self.scope, 'sessions')
-            top_level_ids = list(
-                dispatch_session.conversation_map.values())
 
-            for child_sid in top_level_ids:
-                # Walk subtree to enumerate every descendant that
-                # needs a dispatch_completed event.
-                subtree = collect_descendants_with_parents(
-                    sessions_dir, child_sid,
-                    root_parent=dispatch_session.id)
+            for child_conv in top_level_children:
+                if not child_conv.id.startswith('dispatch:'):
+                    continue
+                child_sid = child_conv.id[len('dispatch:'):]
 
-                # Read agent_name from each descendant's metadata
-                # before close_conversation removes the dir.
+                # Walk subtree via the bus to enumerate every descendant
+                # that needs a dispatch_completed event.
+                subtree_convs = collect_descendants_with_parents_from_bus(
+                    self._bus, child_conv.id,
+                    root_parent_conv_id=root_conv_id,
+                )
+                subtree: list[tuple[str, str]] = []
                 agent_names: dict[str, str] = {}
-                for csid, _parent in subtree:
-                    meta_path = os.path.join(
-                        sessions_dir, csid, 'metadata.json')
-                    try:
-                        import json as _json
-                        with open(meta_path) as f:
-                            agent_names[csid] = _json.load(f).get(
-                                'agent_name', '')
-                    except (OSError, ValueError):
-                        agent_names[csid] = ''
+                for conv, parent_conv_id in subtree_convs:
+                    _, _, csid = conv.id.partition(':')
+                    # Parent session_id comes from the parent's
+                    # ``dispatch:{sid}`` conv_id.  For top-level
+                    # children of this root (parent_conv_id is
+                    # non-dispatch, e.g. 'om:...' or 'lead:...:...'),
+                    # the parent is the dispatcher's session.
+                    if parent_conv_id.startswith('dispatch:'):
+                        parent_sid = parent_conv_id[len('dispatch:'):]
+                    else:
+                        parent_sid = dispatch_session.id
+                    subtree.append((csid, parent_sid))
+                    agent_names[csid] = conv.agent_name
 
                 # Cancel any live tasks in this subtree (fresh-server
                 # case has no live tasks; re-invocation case might).
@@ -892,26 +842,18 @@ class AgentSession:
                     if t is not None and not t.done():
                         t.cancel()
 
-                # Filesystem teardown: rmtree session dirs, remove
-                # entry from parent's conversation_map on disk.
-                #
                 # /clear is operator-initiated "throw it away" — it must
-                # leave no on-disk state behind. close_conversation
-                # returns a structured result (ok/conflict/error/noop)
-                # and only updates conversation_map when status == 'ok'.
-                # A stale child whose worktree can't merge (conflict,
-                # missing branch, etc.) would otherwise stay in the
-                # parent's conversation_map forever and reappear as a
-                # blade on page reload. When close_conversation fails
-                # we fall through to force-teardown: drop the worktree
-                # and branch without merging, rmtree the session dir,
-                # and strip the entry from conversation_map by request_id.
+                # leave no on-disk state behind.  close_conversation
+                # returns a structured result (ok/conflict/error/noop).
+                # When it fails we fall through to force-teardown: drop
+                # the worktree and branch without merging, rmtree the
+                # session dir.
                 close_ok = False
                 try:
                     result = await close_conversation(
                         dispatch_session, f'dispatch:{child_sid}',
                         teaparty_home=self.teaparty_home,
-                        scope=self.scope)
+                        scope=self.scope, bus=self._bus)
                     close_ok = isinstance(result, dict) and result.get(
                         'status') in ('ok', 'noop')
                     if not close_ok:
@@ -1013,7 +955,7 @@ class AgentSession:
             remove_session_worktree, delete_branch,
         )
         from teaparty.runners.launcher import (
-            load_session as _load_session, remove_child_session,
+            load_session as _load_session,
         )
 
         # Walk leaves-first so we remove children before parents.
@@ -1055,34 +997,18 @@ class AgentSession:
                 import shutil as _shutil
                 _shutil.rmtree(session_path, ignore_errors=True)
 
-            # Strip the entry from the parent's conversation_map.
-            # For the top-level of this subtree the parent is
-            # dispatch_session; for grandchildren it's their recorded
-            # parent_sid — load that session fresh from disk and edit
-            # its map so the walk terminates on reload.
-            if parent_sid == dispatch_session.id:
-                parent = dispatch_session
-            else:
-                parent = _load_session(
-                    agent_name='',  # ignored — read from meta
-                    scope=self.scope,
-                    teaparty_home=self.teaparty_home,
-                    session_id=parent_sid,
-                )
-                if parent is None:
-                    continue
-            request_id = None
-            for rid, csid in list(parent.conversation_map.items()):
-                if csid == child_sid:
-                    request_id = rid
-                    break
-            if request_id is not None:
-                try:
-                    remove_child_session(parent, request_id=request_id)
-                except Exception:
-                    _log.exception(
-                        '%s _clear: remove_child_session rid=%r',
-                        self.agent_name, request_id)
+            # Mark the bus record withdrawn so the accordion drops the
+            # blade and the force-teardown is reflected in the single
+            # source of truth (#422).  No conversation_map on disk to
+            # strip — that field is gone.
+            try:
+                from teaparty.messaging.conversations import ConversationState
+                self._bus.update_conversation_state(
+                    f'dispatch:{child_sid}', ConversationState.WITHDRAWN)
+            except Exception:
+                _log.exception(
+                    '%s _clear: bus state update for %s',
+                    self.agent_name, child_sid)
 
     async def stop(self):
         """Stop the session: cancel background dispatches, stop bus listener.
@@ -1188,7 +1114,15 @@ class AgentSession:
                     current_message = '\n'.join(gc_replies)
 
         while True:
-            before_ids = set(child_session.conversation_map.values())
+            # Fan-in tracking (#422): bus is the single source of truth
+            # for "what has this child dispatched?"  Diffing before/after
+            # identifies new grandchildren to gather replies from.
+            child_conv_id = f'dispatch:{child_session.id}'
+            before_ids = {
+                c.id[len('dispatch:'):]
+                for c in self._bus.children_of(child_conv_id)
+                if c.id.startswith('dispatch:')
+            }
             response_parts.clear()
 
             if worktree_path:
@@ -1233,6 +1167,7 @@ class AgentSession:
                 launch_kwargs['resume_session'] = current_claude_session
             if self._llm_caller is not None:
                 launch_kwargs['llm_caller'] = self._llm_caller
+            launch_kwargs['mcp_routes'] = self._mcp_routes
 
             try:
                 _mark_launching(child_session, current_message)
@@ -1245,7 +1180,11 @@ class AgentSession:
                 _log.exception('Child %s failed', member)
                 break
 
-            after_ids = set(child_session.conversation_map.values())
+            after_ids = {
+                c.id[len('dispatch:'):]
+                for c in self._bus.children_of(child_conv_id)
+                if c.id.startswith('dispatch:')
+            }
             new_gc_ids = after_ids - before_ids
             if not new_gc_ids:
                 break
@@ -1541,6 +1480,7 @@ class AgentSession:
         )
         if self._llm_caller is not None:
             launch_kwargs['llm_caller'] = self._llm_caller
+        launch_kwargs['mcp_routes'] = self._mcp_routes
         result = await launch(**launch_kwargs)
 
         response_text = '\n'.join(

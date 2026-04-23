@@ -116,90 +116,54 @@ def _spawn_refusal_reason(reason_code: str, member: str) -> str:
 async def _default_send_post(member: str, composite: str, context_id: str) -> str:
     """Default Send transport: direct call to bus listener via registry.
 
-    The MCP server runs in the same process as the bridge. The bus
-    listener's spawn_fn is registered in the registry, keyed by agent
-    name. The current agent name is set per-request via contextvars.
-
-    Falls back to the dispatch bus (DISPATCH_BUS_PATH / DISPATCH_CONV_ID)
-    for paths that run the MCP server as a separate subprocess.
+    The MCP server runs in the same process as the bridge.  Each launched
+    agent's spawn_fn is installed in the in-process registry by
+    ``launch()`` (via ``MCPRoutes`` — issue #422), keyed by agent name,
+    with the current agent name supplied per-request via contextvars.
     """
     import time as _time
     import logging as _logging
     _send_log = _logging.getLogger('teaparty.mcp.tools.messaging.send')
 
-    # Try the in-process registry first (bridge path)
     from teaparty.mcp.registry import get_spawn_fn
     spawn_fn = get_spawn_fn()
-    if spawn_fn is not None:
-        t0 = _time.monotonic()
-        try:
-            session_id, worktree, result_text = await spawn_fn(member, composite, context_id)
-            if not session_id:
-                # spawn_fn reports why it refused in the third slot. Surface
-                # that reason to the agent faithfully — reporting every
-                # failure as "slot limit" hides roster errors and pause
-                # state behind a message that suggests the fix is to
-                # close a conversation.
-                reason = _spawn_refusal_reason(result_text, member)
-                _send_log.warning(
-                    'send_registry: member=%r refused (%s)',
-                    member, result_text or 'unknown')
-                return json.dumps({'status': 'failed', 'reason': reason})
-            conv_id = f'dispatch:{session_id}'
-            _send_log.info('send_registry: member=%r conv=%s elapsed=%.2fs',
-                           member, conv_id, _time.monotonic() - t0)
-            return json.dumps({
-                'status': 'message_sent',
-                'conversation_id': conv_id,
-                'message': 'Any changes the recipient makes to the codebase '
-                           'will not take effect until you close this '
-                           'conversation. When the work is complete and you '
-                           'are satisfied with the result, use '
-                           'CloseConversation to merge their changes.',
-            })
-        except Exception as exc:
-            _send_log.warning('send_registry failed for %r: %s', member, exc)
-            return json.dumps({'status': 'error', 'reason': str(exc)})
-
-    # Fallback: dispatch bus (CfA engine path).  The engine's dispatch
-    # poller consumes agent-sender 'send' messages and writes back with
-    # sender 'orchestrator'.
-    bus_path = os.environ.get('DISPATCH_BUS_PATH', '')
-    dispatch_conv = os.environ.get('DISPATCH_CONV_ID', '')
-    if not bus_path or not dispatch_conv:
+    if spawn_fn is None:
         raise RuntimeError(
-            'No spawn_fn in registry and DISPATCH_BUS_PATH/DISPATCH_CONV_ID '
-            'not set — cannot send',
+            'No spawn_fn in registry — launch() did not install MCPRoutes '
+            'for this agent.',
         )
 
-    from teaparty.messaging.conversations import SqliteMessageBus
-    import uuid as _uuid
-    bus = SqliteMessageBus(bus_path)
-    request_id = _uuid.uuid4().hex
     t0 = _time.monotonic()
-    since = _time.time()
-    bus.send(dispatch_conv, 'agent', json.dumps({
-        'type': 'send',
-        'member': member,
-        'composite': composite,
-        'context_id': context_id,
-        'request_id': request_id,
-    }))
+    try:
+        session_id, worktree, result_text = await spawn_fn(
+            member, composite, context_id)
+    except Exception as exc:
+        _send_log.warning('send_registry failed for %r: %s', member, exc)
+        return json.dumps({'status': 'error', 'reason': str(exc)})
 
-    while True:
-        messages = bus.receive(dispatch_conv, since_timestamp=since)
-        for msg in messages:
-            if msg.sender != 'orchestrator':
-                continue
-            try:
-                resp = json.loads(msg.content)
-            except (json.JSONDecodeError, ValueError):
-                continue
-            if resp.get('request_id') == request_id:
-                _send_log.info('send_bus: member=%r total=%.2fs',
-                               member, _time.monotonic() - t0)
-                return json.dumps(resp)
-        await asyncio.sleep(0.1)
+    if not session_id:
+        # spawn_fn reports why it refused in the third slot. Surface
+        # that reason to the agent faithfully — reporting every
+        # failure as "slot limit" hides roster errors and pause
+        # state behind a message that suggests the fix is to
+        # close a conversation.
+        reason = _spawn_refusal_reason(result_text, member)
+        _send_log.warning(
+            'send_registry: member=%r refused (%s)',
+            member, result_text or 'unknown')
+        return json.dumps({'status': 'failed', 'reason': reason})
+    conv_id = f'dispatch:{session_id}'
+    _send_log.info('send_registry: member=%r conv=%s elapsed=%.2fs',
+                   member, conv_id, _time.monotonic() - t0)
+    return json.dumps({
+        'status': 'message_sent',
+        'conversation_id': conv_id,
+        'message': 'Any changes the recipient makes to the codebase '
+                   'will not take effect until you close this '
+                   'conversation. When the work is complete and you '
+                   'are satisfied with the result, use '
+                   'CloseConversation to merge their changes.',
+    })
 
 
 async def close_conversation_handler(
@@ -278,35 +242,11 @@ async def _default_close_conv_post(context_id: str) -> str:
                 'conversation_id': context_id,
             })
 
-    bus_path = os.environ.get('DISPATCH_BUS_PATH', '')
-    dispatch_conv = os.environ.get('DISPATCH_CONV_ID', '')
-
-    if bus_path and dispatch_conv:
-        from teaparty.messaging.conversations import SqliteMessageBus
-        bus = SqliteMessageBus(bus_path)
-        request_id = str(__import__('uuid').uuid4())
-        request = json.dumps({
-            'type': 'close_conversation',
-            'context_id': context_id,
-            'request_id': request_id,
-        })
-        bus.send(dispatch_conv, 'agent', request)
-
-        import time as _time
-        since = _time.time()
-        while True:
-            messages = bus.receive(dispatch_conv, since_timestamp=since)
-            for msg in messages:
-                if msg.sender == 'orchestrator':
-                    try:
-                        resp = json.loads(msg.content)
-                        if resp.get('request_id') == request_id:
-                            return json.dumps(resp)
-                    except (json.JSONDecodeError, ValueError):
-                        pass
-            await asyncio.sleep(0.1)
-
+    # Both chat tier and CfA now register close_fn in the in-process
+    # registry (#422), so the dispatch-bus fallback is unreachable for
+    # any dispatch: conversation.  The only way to get here is a
+    # non-dispatch context_id, which is a bug in the caller.
     raise RuntimeError(
-        'No close_fn in registry and DISPATCH_BUS_PATH/DISPATCH_CONV_ID '
-        'not set — cannot close conversation',
+        f'No close_fn in registry for context_id={context_id!r} — '
+        'caller did not initiate this conversation.',
     )
