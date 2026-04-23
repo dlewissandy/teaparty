@@ -16,10 +16,18 @@ exists but may lack ``agent_name`` (bridge auto-create predates the
 #422 column set).  In that case we derive the name from the conv_id
 prefix — a bounded fallback for a small, closed set of root types,
 not a general synthesis point.
+
+Terminal children (state ``closed`` or ``withdrawn``) are elided from
+the tree.  The accordion renders one blade per node, so a closed blade
+reappearing in the response makes it come back in the UI even after
+the user watched it close.  The bus row stays on disk for audit and
+recursive close bookkeeping; it just isn't a live blade anymore.
 """
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+
+from teaparty.messaging.conversations import ConversationState
 
 if TYPE_CHECKING:
     from teaparty.messaging.conversations import SqliteMessageBus
@@ -31,6 +39,15 @@ _ROOT_PREFIX_NAMES = {
     'proxy': 'proxy',
     'config': 'configuration-lead',
 }
+
+# States a conversation must NOT be in to appear in the dispatch tree.
+# Closed: work merged back, worktree gone.
+# Withdrawn: user explicitly killed it.
+# Both are terminal — the blade should not reappear in the accordion.
+_TERMINAL_STATES = frozenset({
+    ConversationState.CLOSED,
+    ConversationState.WITHDRAWN,
+})
 
 
 def agent_name_from_conv_id(conv_id: str) -> str:
@@ -105,6 +122,12 @@ def _build_node(
 
     children = []
     for child in bus.children_of(conv_id):
+        # Terminal children never become accordion blades — otherwise a
+        # just-closed blade re-materializes on the next /api/dispatch-tree
+        # fetch and the user sees it at the bottom of the list.  The bus
+        # row is retained; it just isn't part of the live UI tree.
+        if child.state in _TERMINAL_STATES:
+            continue
         # Convention: dispatch conv_id is ``dispatch:{session_id}``.
         # Extract session_id from the conv_id for the tree node.
         _, _, child_sid = child.id.partition(':')

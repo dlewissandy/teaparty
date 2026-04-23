@@ -119,6 +119,83 @@ class TestBuildDispatchTreeFromBus(unittest.TestCase):
         tree = build_dispatch_tree(self._bus, a, root_session_id='a')
         self.assertIsInstance(tree, dict)
 
+    def test_closed_child_is_elided(self) -> None:
+        """Closed conversations must not appear in the tree.
+
+        Reproducer: OM dispatches teaparty-lead, teaparty-lead finishes,
+        OM calls CloseConversation.  close_fn marks the bus record
+        CLOSED.  The next /api/dispatch-tree fetch must not return the
+        closed child — otherwise the accordion blade reappears at the
+        bottom after the user already saw it close.
+        """
+        root = self._register('root', 'lead')
+        self._register('active-child', 'team-a', parent_conv_id=root)
+        closed = self._register('closed-child', 'team-b', parent_conv_id=root)
+        self._bus.update_conversation_state(closed, ConversationState.CLOSED)
+
+        tree = build_dispatch_tree(self._bus, root, root_session_id='root')
+        child_names = [c['agent_name'] for c in tree['children']]
+        self.assertEqual(
+            child_names, ['team-a'],
+            'Closed children must be elided from the dispatch tree — '
+            'they reappeared as phantom blades at the bottom of the '
+            'accordion.  The bus row survives for audit; the UI does not.',
+        )
+
+    def test_withdrawn_child_is_elided(self) -> None:
+        """Withdrawn conversations are terminal — also elided."""
+        root = self._register('root', 'lead')
+        withdrawn = self._register(
+            'withdrawn-child', 'team-c', parent_conv_id=root)
+        self._bus.update_conversation_state(
+            withdrawn, ConversationState.WITHDRAWN)
+
+        tree = build_dispatch_tree(self._bus, root, root_session_id='root')
+        self.assertEqual(
+            tree['children'], [],
+            'Withdrawn children must be elided from the dispatch tree',
+        )
+
+    def test_closed_subtree_is_elided_entirely(self) -> None:
+        """When a parent is closed, its descendants are hidden too.
+
+        The parent is elided, so its entire subtree disappears from
+        the tree.  Any grandchildren rooted below still exist in the
+        bus (close_conversation closes leaves-up so they're CLOSED as
+        well) — this test just pins that the walker doesn't surface
+        them via some other path.
+        """
+        root = self._register('root', 'lead')
+        closed = self._register(
+            'closed-child', 'team-d', parent_conv_id=root)
+        # Grandchild under the closed node, also closed.
+        gc = self._register('gc', 'team-e', parent_conv_id=closed)
+        self._bus.update_conversation_state(closed, ConversationState.CLOSED)
+        self._bus.update_conversation_state(gc, ConversationState.CLOSED)
+
+        tree = build_dispatch_tree(self._bus, root, root_session_id='root')
+        self.assertEqual(tree['children'], [])
+
+    def test_active_child_remains_visible(self) -> None:
+        """Baseline: the filter doesn't erase active children by mistake."""
+        root = self._register('root', 'lead')
+        self._register('active-child', 'team-live', parent_conv_id=root)
+        tree = build_dispatch_tree(self._bus, root, root_session_id='root')
+        self.assertEqual(len(tree['children']), 1)
+        self.assertEqual(tree['children'][0]['agent_name'], 'team-live')
+
+    def test_paused_child_remains_visible(self) -> None:
+        """Paused is not terminal — the user has to decide resume/close/withdraw
+        so the blade must keep showing with its paused pill.
+        """
+        root = self._register('root', 'lead')
+        paused = self._register('paused-child', 'team-p', parent_conv_id=root)
+        self._bus.update_conversation_state(
+            paused, ConversationState.PAUSED)
+        tree = build_dispatch_tree(self._bus, root, root_session_id='root')
+        self.assertEqual(len(tree['children']), 1)
+        self.assertEqual(tree['children'][0]['status'], 'paused')
+
 
 class TestAgentNameFromConvId(unittest.TestCase):
     """Bounded fallback for unregistered top-level roots."""
