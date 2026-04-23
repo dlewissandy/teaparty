@@ -162,6 +162,18 @@ class ClaudeRunner:
                 cwd=self.cwd,
                 env=env,
                 limit=4 * 1024 * 1024,  # 4MB — stream-json lines with large Edit tool calls exceed the 64KB default
+                # Put the Claude CLI in its own process group / session.
+                # Without this the subprocess inherits OUR process group.
+                # Every _kill_process_tree call below does
+                # ``killpg(getpgid(pid), SIGTERM)`` — and if the target
+                # shares our pgid, SIGTERM fans out to the bridge server
+                # too.  Result: the bridge catches SIGTERM, closes its
+                # HTTP listener, hangs in cleanup, and the user sees
+                # "localhost refused to connect" mid-dispatch.  Isolating
+                # the subprocess into its own session makes killpg on it
+                # structurally unable to reach us.  (Same fix withdraw.py
+                # uses; see also issue #159.)
+                start_new_session=True,
             )
 
             # Feed prompt via stdin
@@ -715,9 +727,37 @@ class _StallTimeout(Exception):
 
 
 def _kill_process_tree(pid: int) -> None:
-    """Kill a process and all its children."""
+    """Kill a process and all its children.
+
+    Guards against self-kill.  When we spawn the Claude CLI with
+    ``start_new_session=True`` it has its own pgid, so ``killpg`` on
+    the target is isolated to that tree.  But in any code path where a
+    subprocess ended up in our process group (legacy callers, tests,
+    or a regression that drops ``start_new_session``), ``killpg`` would
+    SIGTERM the bridge too and the HTTP listener would quietly close.
+    This guard makes that class of bug impossible: if the target
+    shares our pgid, we signal only the single PID.  Mirrors the
+    guard in ``teaparty/workspace/withdraw.py`` (issue #159).
+    """
+    if pid == os.getpid():
+        return
     try:
-        os.killpg(os.getpgid(pid), signal.SIGTERM)
+        target_pgid = os.getpgid(pid)
+    except (ProcessLookupError, PermissionError, OSError):
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            pass
+        return
+    if target_pgid == os.getpgid(os.getpid()):
+        # Shared process group — signaling the group would kill us.
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            pass
+        return
+    try:
+        os.killpg(target_pgid, signal.SIGTERM)
     except (ProcessLookupError, PermissionError, OSError):
         try:
             os.kill(pid, signal.SIGTERM)
