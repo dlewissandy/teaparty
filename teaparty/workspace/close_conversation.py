@@ -24,9 +24,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import shutil
-from typing import Any
+from typing import Any, Callable
+
+_log = logging.getLogger(__name__)
 
 
 def close_conversation_sync(
@@ -262,6 +265,106 @@ async def _commit_and_merge(
     await delete_branch(source_repo or target_worktree, session_branch)
 
     return {'status': 'ok', 'message': f'Merged {session_branch}.'}
+
+
+def build_close_fn(
+    *,
+    dispatch_session,
+    teaparty_home: str,
+    scope: str,
+    tasks_by_child: dict[str, asyncio.Task],
+    on_dispatch: Callable[[dict], None] | None,
+    agent_name: str = '',
+) -> Callable:
+    """Build the close_fn that the CloseConversation MCP tool invokes.
+
+    The returned coroutine closes a ``dispatch:{session_id}`` conversation:
+    cancels every in-flight child task in the subtree, records each
+    descendant's agent_name for UI events, calls :func:`close_conversation`
+    to squash-merge each subtree worktree back into its parent, and emits
+    ``dispatch_completed`` through ``on_dispatch`` so the accordion
+    re-renders.
+
+    The same function is installed by both the chat-tier session and the
+    CfA orchestrator. All state it needs is passed in here at listener
+    init time — it does not reference any tier-specific object.
+
+    Parameters
+    ----------
+    dispatch_session
+        Session object whose ``conversation_map`` owns the subtree root.
+        Passed to :func:`close_conversation` so the merged-out child is
+        removed from the dispatcher's conversation_map.
+    teaparty_home, scope
+        Root for ``{teaparty_home}/{scope}/sessions/`` — used to locate
+        descendant metadata files and as the arg to
+        :func:`close_conversation`.
+    tasks_by_child
+        Registry of in-flight child tasks (``{child_session_id: Task}``).
+        Entries for the subtree being closed are popped and cancelled
+        before the worktrees are removed, so no task writes into a
+        directory that's about to be rmtree'd.
+    on_dispatch
+        Optional UI callback. On success this is called once per removed
+        session, deepest-first, with a ``dispatch_completed`` event.
+    agent_name
+        Log-only identifier for the calling agent.
+    """
+    async def close_fn(conversation_id: str):
+        subtree: list[tuple[str, str]] = []
+        if conversation_id.startswith('dispatch:'):
+            root_csid = conversation_id[len('dispatch:'):]
+            sessions_dir = os.path.join(teaparty_home, scope, 'sessions')
+            subtree = collect_descendants_with_parents(
+                sessions_dir, root_csid,
+                root_parent=dispatch_session.id)
+            tasks = []
+            for csid, _parent in subtree:
+                task = tasks_by_child.pop(csid, None)
+                if task is not None and not task.done():
+                    task.cancel()
+                    tasks.append(task)
+            if tasks:
+                try:
+                    await asyncio.wait_for(
+                        asyncio.shield(
+                            asyncio.gather(*tasks, return_exceptions=True)),
+                        timeout=2.0)
+                except asyncio.TimeoutError:
+                    _log.warning(
+                        '%s close_fn: tasks did not cancel within 2s',
+                        agent_name)
+
+        agent_names: dict[str, str] = {}
+        if subtree:
+            sessions_dir = os.path.join(teaparty_home, scope, 'sessions')
+            for csid, _parent in subtree:
+                meta_path = os.path.join(
+                    sessions_dir, csid, 'metadata.json')
+                try:
+                    with open(meta_path) as f:
+                        agent_names[csid] = json.load(f).get('agent_name', '')
+                except (OSError, json.JSONDecodeError):
+                    agent_names[csid] = ''
+
+        close_result = await close_conversation(
+            dispatch_session, conversation_id,
+            teaparty_home=teaparty_home, scope=scope,
+        )
+        if close_result.get('status') not in ('ok', 'noop'):
+            return close_result
+
+        if on_dispatch:
+            for csid, parent_sid in reversed(subtree):
+                on_dispatch({
+                    'type': 'dispatch_completed',
+                    'parent_session_id': parent_sid,
+                    'child_session_id': csid,
+                    'agent_name': agent_names.get(csid, ''),
+                })
+        return close_result
+
+    return close_fn
 
 
 def collect_descendants(sessions_dir: str, root_session_id: str) -> list[str]:
