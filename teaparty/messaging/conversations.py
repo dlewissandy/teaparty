@@ -66,8 +66,17 @@ class ConversationType(Enum):
 
 
 class ConversationState(Enum):
+    # Lifecycle (issue #422):
+    #   pending   — record committed; work may or may not have started
+    #   active    — subprocess running / heartbeat observed
+    #   paused    — was live, not currently running; user can resume
+    #   closed    — merged/terminated cleanly
+    #   withdrawn — explicit human withdraw
+    PENDING = 'pending'
     ACTIVE = 'active'
+    PAUSED = 'paused'
     CLOSED = 'closed'
+    WITHDRAWN = 'withdrawn'
 
 
 @dataclass
@@ -82,12 +91,21 @@ class Message:
 
 @dataclass
 class Conversation:
-    """A conversation with stable identity and lifecycle state."""
+    """A conversation with stable identity and lifecycle state.
+
+    Single source of truth (issue #422): every reader that asks "what
+    is this conversation's lead agent?", "who are its children?", or
+    "what request created it?" goes through the bus record.  No
+    session metadata walks, no conv-id parsing, no disk resolution.
+    """
     id: str
     type: ConversationType
     state: ConversationState
     created_at: float
     awaiting_input: bool = False
+    agent_name: str = ''                   # lead agent — the accordion blade caption
+    parent_conversation_id: str = ''       # empty for roots; set for every dispatch
+    request_id: str = ''                   # the parent's Send request that created this
 
 
 _PREFIXES = {
@@ -191,6 +209,27 @@ class SqliteMessageBus:
             )
         except sqlite3.OperationalError:
             pass  # Column already exists
+        # Migrate existing DBs that predate the single-source-of-truth columns (#422).
+        # These three columns make the conversations table the one answer to:
+        #   "who leads this conversation?"       → agent_name
+        #   "who is this conversation under?"   → parent_conversation_id
+        #   "what request created this?"        → request_id
+        # Readers used to derive these from session metadata on disk; every
+        # path mismatch produced agent_name='unknown' stubs.  Now the record
+        # is authoritative.
+        for col_ddl in (
+            "ALTER TABLE conversations ADD COLUMN agent_name TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE conversations ADD COLUMN parent_conversation_id TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE conversations ADD COLUMN request_id TEXT NOT NULL DEFAULT ''",
+        ):
+            try:
+                self._conn.execute(col_ddl)
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+        self._conn.execute(
+            'CREATE INDEX IF NOT EXISTS idx_conversations_parent '
+            'ON conversations (parent_conversation_id)'
+        )
 
         # Agent context records for bus-mediated agent-to-agent dispatch (issue #351)
         self._conn.execute('''
@@ -330,9 +369,29 @@ class SqliteMessageBus:
     # ── Conversation management ──
 
     def create_conversation(
-        self, conv_type: ConversationType, qualifier: str,
+        self,
+        conv_type: ConversationType,
+        qualifier: str,
+        *,
+        agent_name: str = '',
+        parent_conversation_id: str = '',
+        request_id: str = '',
+        state: ConversationState = ConversationState.ACTIVE,
     ) -> Conversation:
-        """Create a conversation or return the existing one if it already exists."""
+        """Create a conversation or return the existing one if it already exists.
+
+        ``agent_name`` is the lead agent of this conversation — what the
+        accordion blade displays.  ``parent_conversation_id`` is the
+        conversation this one was dispatched from (empty for roots).
+        ``request_id`` is the originating Send request id, used for reply
+        matching.  These are the single source of truth (issue #422);
+        readers must consult this record rather than deriving them.
+
+        Idempotent: if a record exists under the same id, it is returned
+        unchanged.  The caller MUST NOT pass different agent_name or
+        parent values for the same id — conversation identity is frozen
+        at creation.
+        """
         cid = make_conversation_id(conv_type, qualifier)
         existing = self.get_conversation(cid)
         if existing is not None:
@@ -340,20 +399,28 @@ class SqliteMessageBus:
 
         ts = time.time()
         self._conn.execute(
-            'INSERT INTO conversations (id, type, state, created_at) '
-            'VALUES (?, ?, ?, ?)',
-            (cid, conv_type.value, ConversationState.ACTIVE.value, ts),
+            'INSERT INTO conversations '
+            '(id, type, state, created_at, agent_name, '
+            ' parent_conversation_id, request_id) '
+            'VALUES (?, ?, ?, ?, ?, ?, ?)',
+            (cid, conv_type.value, state.value, ts,
+             agent_name, parent_conversation_id, request_id),
         )
         self._conn.commit()
         return Conversation(
             id=cid, type=conv_type,
-            state=ConversationState.ACTIVE, created_at=ts,
+            state=state, created_at=ts,
+            agent_name=agent_name,
+            parent_conversation_id=parent_conversation_id,
+            request_id=request_id,
         )
 
     def get_conversation(self, conversation_id: str) -> Conversation | None:
         """Retrieve conversation metadata by ID, or None if not found."""
         row = self._conn.execute(
-            'SELECT id, type, state, created_at, awaiting_input FROM conversations WHERE id = ?',
+            'SELECT id, type, state, created_at, awaiting_input, '
+            'agent_name, parent_conversation_id, request_id '
+            'FROM conversations WHERE id = ?',
             (conversation_id,),
         ).fetchone()
         if row is None:
@@ -364,7 +431,68 @@ class SqliteMessageBus:
             state=ConversationState(row[2]),
             created_at=row[3],
             awaiting_input=bool(row[4]),
+            agent_name=row[5],
+            parent_conversation_id=row[6],
+            request_id=row[7],
         )
+
+    def children_of(self, parent_conversation_id: str) -> list[Conversation]:
+        """Return every conversation whose parent is *parent_conversation_id*.
+
+        The single answer to "what are the children of this conversation?"
+        (issue #422).  Replaces ``session.conversation_map`` disk walks
+        and the dispatch_tree walker's metadata resolution.
+        """
+        cursor = self._conn.execute(
+            'SELECT id, type, state, created_at, awaiting_input, '
+            'agent_name, parent_conversation_id, request_id '
+            'FROM conversations WHERE parent_conversation_id = ? '
+            'ORDER BY created_at',
+            (parent_conversation_id,),
+        )
+        return [
+            Conversation(
+                id=row[0], type=ConversationType(row[1]),
+                state=ConversationState(row[2]), created_at=row[3],
+                awaiting_input=bool(row[4]),
+                agent_name=row[5],
+                parent_conversation_id=row[6],
+                request_id=row[7],
+            )
+            for row in cursor.fetchall()
+        ]
+
+    def update_conversation_state(
+        self, conversation_id: str, state: ConversationState,
+    ) -> None:
+        """Transition a conversation to *state*."""
+        self._conn.execute(
+            'UPDATE conversations SET state = ? WHERE id = ?',
+            (state.value, conversation_id),
+        )
+        self._conn.commit()
+
+    def pause_live_conversations(self) -> int:
+        """Mark every pending/active conversation as paused (#422).
+
+        Called once on bridge startup.  Any conversation whose subprocess
+        was in flight when the bridge shut down is now orphaned — mark it
+        paused so the user sees it in the accordion with the paused pill
+        and can explicitly resume, close, or withdraw.  No auto-recovery.
+
+        Returns the count of conversations transitioned.
+        """
+        cursor = self._conn.execute(
+            'UPDATE conversations SET state = ? '
+            'WHERE state IN (?, ?)',
+            (
+                ConversationState.PAUSED.value,
+                ConversationState.PENDING.value,
+                ConversationState.ACTIVE.value,
+            ),
+        )
+        self._conn.commit()
+        return cursor.rowcount
 
     def close_conversation(self, conversation_id: str) -> None:
         """Transition a conversation to CLOSED state."""
@@ -390,7 +518,9 @@ class SqliteMessageBus:
     def conversations_awaiting_input(self) -> list[Conversation]:
         """Return active conversations with awaiting_input=1."""
         cursor = self._conn.execute(
-            'SELECT id, type, state, created_at, awaiting_input FROM conversations '
+            'SELECT id, type, state, created_at, awaiting_input, '
+            'agent_name, parent_conversation_id, request_id '
+            'FROM conversations '
             'WHERE state = ? AND awaiting_input = 1 ORDER BY created_at',
             (ConversationState.ACTIVE.value,),
         )
@@ -399,6 +529,9 @@ class SqliteMessageBus:
                 id=row[0], type=ConversationType(row[1]),
                 state=ConversationState(row[2]), created_at=row[3],
                 awaiting_input=bool(row[4]),
+                agent_name=row[5],
+                parent_conversation_id=row[6],
+                request_id=row[7],
             )
             for row in cursor.fetchall()
         ]
@@ -409,13 +542,17 @@ class SqliteMessageBus:
         """List all active conversations, optionally filtered by type."""
         if conv_type is not None:
             cursor = self._conn.execute(
-                'SELECT id, type, state, created_at, awaiting_input FROM conversations '
+                'SELECT id, type, state, created_at, awaiting_input, '
+                'agent_name, parent_conversation_id, request_id '
+                'FROM conversations '
                 'WHERE state = ? AND type = ? ORDER BY created_at',
                 (ConversationState.ACTIVE.value, conv_type.value),
             )
         else:
             cursor = self._conn.execute(
-                'SELECT id, type, state, created_at, awaiting_input FROM conversations '
+                'SELECT id, type, state, created_at, awaiting_input, '
+                'agent_name, parent_conversation_id, request_id '
+                'FROM conversations '
                 'WHERE state = ? ORDER BY created_at',
                 (ConversationState.ACTIVE.value,),
             )
@@ -424,6 +561,9 @@ class SqliteMessageBus:
                 id=row[0], type=ConversationType(row[1]),
                 state=ConversationState(row[2]), created_at=row[3],
                 awaiting_input=bool(row[4]),
+                agent_name=row[5],
+                parent_conversation_id=row[6],
+                request_id=row[7],
             )
             for row in cursor.fetchall()
         ]
