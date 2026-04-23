@@ -623,10 +623,15 @@ class Orchestrator:
             create_subchat_worktree, current_branch_of, head_commit_of,
         )
 
+        # Management-scope .teaparty (what the bridge's session walker
+        # reads).  self.poc_root is the repo root, NOT the .teaparty
+        # dir, so every {scope}/sessions/ path must be rooted here.
+        mgmt_teaparty_home = os.path.join(self.poc_root, '.teaparty')
+
         # Session record first so the worktree lives under it (1:1).
         child_session = _create_session(
             agent_name=member, scope='management',
-            teaparty_home=self.poc_root,
+            teaparty_home=mgmt_teaparty_home,
         )
         worktree_path = os.path.join(child_session.path, 'worktree')
         session_branch = f'session/{child_session.id}'
@@ -678,7 +683,8 @@ class Orchestrator:
         child_listener = None
         try:
             from teaparty.config.roster import has_sub_roster
-            if has_sub_roster(member, self.poc_root, project_dir=self.project_workdir):
+            if has_sub_roster(member, mgmt_teaparty_home,
+                              project_dir=self.project_workdir):
                 child_listener, _ = await self._make_child_listener(
                     member, context_id, worktree_path,
                 )
@@ -696,7 +702,7 @@ class Orchestrator:
                     agent_name=member,
                     message=composite,
                     scope='management',
-                    teaparty_home=self.poc_root,
+                    teaparty_home=mgmt_teaparty_home,
                     worktree=worktree_path,
                     mcp_port=mcp_port,
                     session_id=child_session.id,
@@ -800,9 +806,10 @@ class Orchestrator:
             # Session = worktree (1:1).  Set merge metadata like
             # _bus_spawn_agent does so close_fn can squash-merge
             # recursive subteam work back into the lead (#422).
+            mgmt_teaparty_home = os.path.join(self.poc_root, '.teaparty')
             child_session = _cs(
                 agent_name=child_member, scope='management',
-                teaparty_home=self.poc_root,
+                teaparty_home=mgmt_teaparty_home,
             )
             child_wt = os.path.join(child_session.path, 'worktree')
             session_branch = f'session/{child_session.id}'
@@ -846,7 +853,7 @@ class Orchestrator:
                 agent_name=child_member,
                 message=composite,
                 scope='management',
-                teaparty_home=self.poc_root,
+                teaparty_home=mgmt_teaparty_home,
                 worktree=child_wt,
                 mcp_port=mcp_port,
                 session_id=child_session.id,
@@ -874,7 +881,7 @@ class Orchestrator:
                 agent_name=child_member,
                 message=composite,
                 scope='management',
-                teaparty_home=self.poc_root,
+                teaparty_home=os.path.join(self.poc_root, '.teaparty'),
                 worktree=child_agent_dir,
                 resume_session=session_id,
                 mcp_port=mcp_port,
@@ -966,7 +973,7 @@ class Orchestrator:
             agent_name=member,
             message=composite,
             scope='management',
-            teaparty_home=self.poc_root,
+            teaparty_home=os.path.join(self.poc_root, '.teaparty'),
             worktree=agent_dir,
             resume_session=session_id,
             mcp_port=mcp_port,

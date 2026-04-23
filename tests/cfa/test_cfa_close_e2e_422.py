@@ -98,7 +98,7 @@ class TestCfACloseE2E(unittest.IsolatedAsyncioTestCase):
         self._project = _init_repo()
         # .teaparty/ lives inside the project repo, mirroring real layout.
         self._tp = os.path.join(self._project, '.teaparty')
-        os.makedirs(os.path.join(self._project, 'management', 'sessions'),
+        os.makedirs(os.path.join(self._tp, 'management', 'sessions'),
                     exist_ok=True)
         # Minimal workgroups dir so has_sub_roster() never explodes.
         os.makedirs(os.path.join(self._tp, 'management', 'workgroups'),
@@ -140,7 +140,7 @@ class TestCfACloseE2E(unittest.IsolatedAsyncioTestCase):
         """The critical DoD sentence: close merges the subchat back."""
         # ── Dispatcher session on disk so record_child_session works ──
         dispatcher = create_session(
-            agent_name='lead', scope='management', teaparty_home=self._project,
+            agent_name='lead', scope='management', teaparty_home=self._tp,
         )
         o = self._make_orchestrator(dispatcher)
 
@@ -172,13 +172,13 @@ class TestCfACloseE2E(unittest.IsolatedAsyncioTestCase):
         # claude session id.  That means a directory named {session_id}
         # exists under management/sessions/ with real metadata.
         sess_dir = os.path.join(
-            self._project, 'management', 'sessions', session_id)
+            self._tp, 'management', 'sessions', session_id)
         self.assertTrue(os.path.isdir(sess_dir),
                         f'session dir must exist at {sess_dir}')
 
         loaded = load_session(
             agent_name='worker', scope='management',
-            teaparty_home=self._project, session_id=session_id,
+            teaparty_home=self._tp, session_id=session_id,
         )
         self.assertIsNotNone(loaded,
                              'metadata.json must be loadable for close_fn')
@@ -202,7 +202,7 @@ class TestCfACloseE2E(unittest.IsolatedAsyncioTestCase):
         events: list[dict] = []
         close_fn = build_close_fn(
             dispatch_session=dispatcher,
-            teaparty_home=self._project,
+            teaparty_home=self._tp,
             scope='management',
             tasks_by_child=o._tasks_by_child,
             on_dispatch=events.append,
@@ -238,7 +238,7 @@ class TestCfACloseE2E(unittest.IsolatedAsyncioTestCase):
         # Dispatcher's conversation_map no longer holds the child.
         dispatcher_fresh = load_session(
             agent_name='lead', scope='management',
-            teaparty_home=self._project, session_id=dispatcher.id,
+            teaparty_home=self._tp, session_id=dispatcher.id,
         )
         self.assertNotIn(
             session_id,
@@ -254,6 +254,117 @@ class TestCfACloseE2E(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(completed[0]['agent_name'], 'worker')
 
 
+class TestCfASpawnIsVisibleToBridgeWalker(unittest.IsolatedAsyncioTestCase):
+    """The child session must land where the bridge's UI walker looks.
+
+    Regression for the accordion-never-opens bug: the CfA engine has
+    ``self.poc_root`` = repo root (NOT ``.teaparty``).  The bridge's
+    dispatch-tree walker reads ``{teaparty_home}/management/sessions/``
+    where ``teaparty_home`` is ``{repo_root}/.teaparty``.  If
+    _bus_spawn_agent passes ``teaparty_home=self.poc_root`` to
+    _create_session, the child lands at
+    ``{repo_root}/management/sessions/`` (without ``.teaparty``) and
+    the walker cannot resolve it — the accordion blade never opens.
+    """
+
+    def setUp(self) -> None:
+        self._project = _init_repo()
+        self._tp = os.path.join(self._project, '.teaparty')
+        os.makedirs(os.path.join(self._tp, 'management', 'sessions'),
+                    exist_ok=True)
+        os.makedirs(os.path.join(self._tp, 'management', 'workgroups'),
+                    exist_ok=True)
+        os.makedirs(os.path.join(self._tp, 'management', 'agents'),
+                    exist_ok=True)
+        os.makedirs(os.path.join(self._tp, 'project'), exist_ok=True)
+        with open(os.path.join(self._tp, 'project', 'project.yaml'), 'w') as f:
+            f.write('name: test\ndescription: test\nlead: lead\n')
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self._project, ignore_errors=True)
+
+    async def test_child_session_lives_under_dot_teaparty(self) -> None:
+        """The child session dir must be under ``.teaparty/`` (#422).
+
+        This is what makes the accordion blade open — the bridge walker
+        looks in ``{bridge.teaparty_home}/management/sessions/`` where
+        bridge.teaparty_home = ``{repo_root}/.teaparty``.
+        """
+        from teaparty.bridge.state.dispatch_tree import build_dispatch_tree
+
+        # Dispatcher session at the production location (.teaparty).
+        dispatcher = create_session(
+            agent_name='lead', scope='management', teaparty_home=self._tp,
+        )
+
+        # Engine stub: poc_root = repo root, matching production
+        # (find_poc_root returns repo root, not .teaparty).
+        o = Orchestrator.__new__(Orchestrator)
+        o.poc_root = self._project
+        o.project_workdir = self._project
+        o.session_worktree = self._project
+        o.infra_dir = tempfile.mkdtemp(prefix='tp422-infra-')
+        o.project_slug = 'test'
+        o._dispatcher_session = dispatcher
+        o._on_dispatch = None
+        o._mcp_routes = None
+        o._tasks_by_child = {}
+        o._bus_event_listener = BusEventListener(bus_db_path='')
+        o._bus_event_listener.tasks_by_child = o._tasks_by_child
+
+        import teaparty.runners.launcher as launcher_mod
+        orig = launcher_mod.launch
+
+        async def fake_launch(**kwargs):
+            return _StubLLMResult()
+
+        launcher_mod.launch = fake_launch
+        try:
+            session_id, wt_path, refusal = await o._bus_spawn_agent(
+                member='coding-team', composite='do the thing',
+                context_id='req-1',
+            )
+        finally:
+            launcher_mod.launch = orig
+
+        self.assertEqual(refusal, '')
+
+        # The child session must live where the bridge walker looks:
+        # {teaparty_home}/management/sessions/{id}  — with .teaparty.
+        expected = os.path.join(
+            self._tp, 'management', 'sessions', session_id)
+        self.assertTrue(
+            os.path.isdir(expected),
+            f'child session must be at {expected} (under .teaparty) so '
+            'the bridge walker can resolve it — without this the '
+            'accordion blade never opens.',
+        )
+
+        # And it must NOT be at the pre-bugfix location (no .teaparty).
+        wrong = os.path.join(
+            self._project, 'management', 'sessions', session_id)
+        self.assertFalse(
+            os.path.isdir(wrong),
+            f'child session must not be created at {wrong} — that path '
+            'is invisible to the bridge walker.',
+        )
+
+        # End-to-end: build_dispatch_tree using the same sessions_dirs
+        # the bridge computes resolves the child with its agent_name.
+        sessions_dirs = [os.path.join(self._tp, 'management', 'sessions')]
+        tree = build_dispatch_tree(sessions_dirs, dispatcher.id)
+        children = tree.get('children', [])
+        self.assertEqual(len(children), 1,
+                         f'dispatcher must have one child in the tree: {tree}')
+        self.assertEqual(children[0]['session_id'], session_id)
+        self.assertEqual(
+            children[0]['agent_name'], 'coding-team',
+            'walker must resolve the child with its real agent_name — '
+            'an "unknown" stub means the metadata.json is not in any '
+            'sessions_dirs, which is what causes the missing accordion blade.',
+        )
+
+
 class TestCfASpawnReturnsSessionRecordId(unittest.IsolatedAsyncioTestCase):
     """Regression: _bus_spawn_agent must return the session RECORD id.
 
@@ -267,7 +378,7 @@ class TestCfASpawnReturnsSessionRecordId(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         self._project = _init_repo()
         self._tp = os.path.join(self._project, '.teaparty')
-        os.makedirs(os.path.join(self._project, 'management', 'sessions'),
+        os.makedirs(os.path.join(self._tp, 'management', 'sessions'),
                     exist_ok=True)
         os.makedirs(os.path.join(self._tp, 'management', 'workgroups'),
                     exist_ok=True)
@@ -282,7 +393,7 @@ class TestCfASpawnReturnsSessionRecordId(unittest.IsolatedAsyncioTestCase):
 
     async def test_returned_id_names_an_on_disk_session_dir(self) -> None:
         dispatcher = create_session(
-            agent_name='lead', scope='management', teaparty_home=self._project,
+            agent_name='lead', scope='management', teaparty_home=self._tp,
         )
         o = Orchestrator.__new__(Orchestrator)
         o.poc_root = self._project
@@ -321,7 +432,7 @@ class TestCfASpawnReturnsSessionRecordId(unittest.IsolatedAsyncioTestCase):
         )
         # It MUST name a real session directory on disk.
         sess_dir = os.path.join(
-            self._project, 'management', 'sessions', session_id)
+            self._tp, 'management', 'sessions', session_id)
         self.assertTrue(
             os.path.isdir(sess_dir),
             f'returned session id must name a directory under '
