@@ -74,7 +74,6 @@ class ActorContext:
     add_dirs: list[str] = field(default_factory=list)
     backtrack_context: str = ''
     phase_start_time: float = 0.0  # monotonic timestamp when phase started
-    mcp_config: dict[str, Any] | None = None
     # MCPRoutes bundle (spawn_fn, close_fn, escalation) the engine
     # builds once at listener setup; launch() installs it for each
     # agent it spawns so Send / CloseConversation / AskQuestion are

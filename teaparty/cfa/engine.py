@@ -332,7 +332,6 @@ class Orchestrator:
         # Bus event listener — bridges Send/Reply MCP calls to bus-mediated
         # agent dispatch (Issue #351).  Started alongside other MCP listeners.
         self._bus_event_listener: Any | None = None  # BusEventListener
-        self._mcp_config: dict | None = None
         # Fan-in synchronization: set when the turn loop is waiting for all
         # dispatched workers to complete; cleared and set by _bus_reinvoke_agent.
         self._fan_in_event: asyncio.Event | None = None
@@ -458,14 +457,6 @@ class Orchestrator:
             )
             await self._escalation_listener.start()
 
-            # PYTHONPATH still needed so the agent subprocess can import
-            # teaparty modules.  ASK_QUESTION_BUS_DB / _CONV_ID env vars
-            # are gone — the MCP tool handler uses the in-process
-            # registry keyed by agent_name, populated in _run_phase.
-            mcp_env = {
-                'PYTHONPATH': repo_root,
-            }
-
             # Start the intervention listener so office manager tools
             # (WithdrawSession, PauseDispatch, etc.) can execute.  The
             # resolver is a mutable dict — the orchestrator adds entries
@@ -480,8 +471,6 @@ class Orchestrator:
                 on_withdraw=self._on_external_withdraw,
             )
             await self._intervention_listener.start()
-            mcp_env['INTERVENTION_BUS_DB'] = ask_question_bus_db
-            mcp_env['INTERVENTION_CONV_ID'] = intervention_conv_id
 
             # Start the bus event listener so agents can use Send/Reply for
             # bus-mediated agent-to-agent dispatch (Issue #351, #358).
@@ -557,31 +546,6 @@ class Orchestrator:
                 self._mcp_routes,
             )
 
-            mcp_env['AGENT_ID'] = lead_agent_id
-
-            # Bus-based dispatch transport: agents can use the message bus
-            # instead of Unix sockets for Send/Reply/CloseConversation.
-            dispatch_conv_id = f'dispatch:{self.session_id}'
-            from teaparty.messaging.conversations import SqliteMessageBus as _Bus  # noqa: PLC0415
-            _dispatch_bus = _Bus(bus_db_path)
-            _dispatch_bus.create_conversation(
-                __import__('teaparty.messaging.conversations', fromlist=['ConversationType']).ConversationType.TASK,
-                dispatch_conv_id,
-            )
-            _dispatch_bus.close()
-            mcp_env['DISPATCH_BUS_PATH'] = bus_db_path
-            mcp_env['DISPATCH_CONV_ID'] = f'task:{dispatch_conv_id}'
-            self._dispatch_poller_task = asyncio.create_task(
-                self._poll_dispatch_bus(bus_db_path, f'task:{dispatch_conv_id}'),
-            )
-            self._mcp_config = {
-                'ask-question': {
-                    'command': venv_python,
-                    'args': ['-m', 'teaparty.mcp.server.main'],
-                    'env': mcp_env,
-                },
-            }
-
         # Subscribe to stream events for scratch file extraction (Issue #261).
         self.event_bus.subscribe(self._on_scratch_event)
 
@@ -596,12 +560,6 @@ class Orchestrator:
                 await self._intervention_listener.stop()
             if self._bus_event_listener:
                 await self._bus_event_listener.stop()
-            if hasattr(self, '_dispatch_poller_task'):
-                self._dispatch_poller_task.cancel()
-                try:
-                    await self._dispatch_poller_task
-                except asyncio.CancelledError:
-                    pass
 
     def _build_bus_dispatcher(self) -> object | None:
         """Build a BusDispatcher from project workgroup config, or None if not available.
@@ -639,71 +597,6 @@ class Orchestrator:
         project_name = self.project_slug or os.path.basename(self.project_dir)
         routing_table = RoutingTable.from_workgroups(wg_dicts, project_name=project_name)
         return BusDispatcher(routing_table)
-
-    async def _poll_dispatch_bus(self, bus_db_path: str, dispatch_conv_id: str) -> None:
-        """Poll the dispatch conversation for Send/Reply/Close requests from agents.
-
-        This is the bus-based replacement for BusEventListener's socket servers.
-        Agents write JSON requests to the dispatch conversation; this poller reads
-        them and delegates to the same handler logic (spawn, reply, close).
-        """
-        from teaparty.messaging.conversations import SqliteMessageBus
-        import time as _time
-        _poll_log = _log.getChild('dispatch_poll')
-        bus = SqliteMessageBus(bus_db_path)
-        since = _time.time()
-        _poll_log.info('dispatch poller started: conv=%s', dispatch_conv_id)
-        try:
-            while True:
-                messages = bus.receive(dispatch_conv_id, since_timestamp=since)
-                for msg in messages:
-                    since = max(since, msg.timestamp + 0.001)
-                    if msg.sender != 'agent':
-                        continue
-                    try:
-                        request = json.loads(msg.content)
-                    except (json.JSONDecodeError, ValueError):
-                        continue
-                    req_type = request.get('type', '')
-                    request_id = request.get('request_id', '')
-                    try:
-                        if req_type == 'send':
-                            response = await self._handle_bus_send(request)
-                        else:
-                            response = {'status': 'error', 'reason': f'unknown type: {req_type}'}
-                    except Exception as exc:
-                        _poll_log.exception('dispatch handler error for %s', req_type)
-                        response = {'status': 'error', 'reason': str(exc)}
-                    response['request_id'] = request_id
-                    bus.send(dispatch_conv_id, 'orchestrator', json.dumps(response))
-                await asyncio.sleep(0.1)
-        except asyncio.CancelledError:
-            _poll_log.info('dispatch poller stopped')
-        finally:
-            bus.close()
-
-    async def _handle_bus_send(self, request: dict) -> dict:
-        """Handle a Send request from the dispatch bus."""
-        member = request.get('member', '')
-        composite = request.get('composite', '')
-        context_id = request.get('context_id', '')
-
-        if not context_id:
-            from teaparty.messaging.listener import make_agent_context_id
-            context_id = make_agent_context_id(
-                self._bus_event_listener.initiator_agent_id if self._bus_event_listener else 'unknown',
-                member,
-            )
-
-        # Delegate to existing BusEventListener logic for context management
-        listener = self._bus_event_listener
-        if listener and listener.bus_db_path:
-            listener._create_context_record(context_id, member)
-
-        if listener and listener.spawn_fn is not None:
-            result_text = await listener._spawn_and_record(member, composite, context_id)
-            return {'status': 'ok', 'context_id': context_id, 'result': result_text}
-        return {'status': 'queued', 'context_id': context_id}
 
     async def _bus_spawn_agent(self, member: str, composite: str, context_id: str) -> tuple[str, str, str]:
         """Spawn a recipient agent for bus-mediated dispatch (#351, #422).
@@ -1630,7 +1523,6 @@ class Orchestrator:
             env_vars=self._build_env_vars(),
             add_dirs=self._build_add_dirs(),
             phase_start_time=phase_start_time,
-            mcp_config=self._mcp_config,
             mcp_routes=self._mcp_routes,
             # Heartbeat liveness (issue #149)
             heartbeat_file=os.path.join(self.infra_dir, '.heartbeat'),

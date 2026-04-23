@@ -178,18 +178,25 @@ class TestCfaCloseSpecialCaseRemoved(unittest.TestCase):
             '(#422).',
         )
 
-    def test_poll_dispatch_bus_no_close_branch(self) -> None:
+    def test_poll_dispatch_bus_is_gone(self) -> None:
+        """The bus-transport dispatch poller is deleted entirely (#422).
+
+        With MCPRoutes installed by ``launch()`` for every spawned
+        agent, Send/CloseConversation always reach the in-process
+        registry; nothing writes to the dispatch bus.  Both the
+        poller and its handlers (``_handle_bus_send``,
+        ``_handle_bus_close``) are dead code and must be gone.
+        """
         engine = _read(_ENGINE)
-        m = re.search(
-            r"async def _poll_dispatch_bus\b.*?(?=\n    (?:async )?def )",
-            engine, re.DOTALL,
-        )
-        self.assertIsNotNone(m, 'could not locate _poll_dispatch_bus')
-        body = m.group(0)
         self.assertNotIn(
-            "'close_conversation'", body,
-            "_poll_dispatch_bus must not have a 'close_conversation' branch — "
-            'the in-process registry handles close for both tiers (#422).',
+            'async def _poll_dispatch_bus', engine,
+            '_poll_dispatch_bus must be deleted — nothing writes to the '
+            'dispatch bus now that MCPRoutes installs in-process routes '
+            'for every agent at launch() time (#422).',
+        )
+        self.assertNotIn(
+            'async def _handle_bus_send', engine,
+            '_handle_bus_send must be deleted along with the poller (#422).',
         )
 
     def test_no_dispatch_bus_fallback_for_close(self) -> None:
