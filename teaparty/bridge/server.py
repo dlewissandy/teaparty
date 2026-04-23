@@ -3241,7 +3241,15 @@ class TeaPartyBridge:
         })
 
     # CfA gate states that accept a per-gate escalation mode.
+    # Must match the frontend ESCALATION_GATES declaration in index.html —
+    # the UI renders a slider for each of these states and round-trips the
+    # chosen mode through /api/projects/{slug}/escalation.  A mismatch
+    # means the UI can set a mode the backend then silently drops on
+    # load, which is exactly the bug joke-book hit (UI wrote 'IDEA' and
+    # other states that the backend refused to keep).
     _ESCALATION_GATES: tuple[str, ...] = (
+        'INTENT',
+        'PLAN',
         'EXECUTE',
     )
     _ESCALATION_VALID_MODES: frozenset[str] = frozenset(

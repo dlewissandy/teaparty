@@ -437,8 +437,14 @@ class EscalationListener:
 
         # Seed the conversation with the /escalation slash command as the
         # initial "human" message.  Claude Code's skill dispatcher picks
-        # this up on the proxy's first turn and loads the skill.
-        proxy_bus.send(proxy_conv_id, 'human', '/escalation')
+        # this up on the proxy's first turn and loads the skill.  The
+        # argument is the project's escalation policy for the caller's
+        # current CfA state — the /escalation SKILL.md dispatches on it
+        # to delegate.md / collaborate.md / escalate.md (or unknown.md
+        # when empty / unrecognized).
+        policy = self._resolve_escalation_policy()
+        seed = f'/escalation {policy}' if policy else '/escalation'
+        proxy_bus.send(proxy_conv_id, 'human', seed)
 
         # Take ownership of this proxy qualifier so the bridge's HTTP
         # handler stops auto-invoking the proxy while the escalation
@@ -538,6 +544,52 @@ class EscalationListener:
             _log.debug(
                 'on_dispatch hook raised for %s', event_type, exc_info=True,
             )
+
+    def _resolve_escalation_policy(self) -> str:
+        """Return the project's escalation policy for the caller's CfA state.
+
+        Walks two files:
+          - ``{infra_dir}/.cfa-state.json`` — the CfA engine's current
+            state machine position for the caller.  Read ``state`` to
+            find out which gate we're at (INTENT / PLAN / EXECUTE).
+          - ``{project_root}/.teaparty/project/project.yaml`` — the
+            project's ``escalation:`` map from CfA state → mode.
+
+        Returns the mode string for the current state (``always`` /
+        ``when_unsure`` / ``never``) or ``''`` when either file is
+        missing or has no entry for this state.  Chat-tier callers
+        (AgentSession, not a CfA job) have no ``.cfa-state.json`` and
+        get ``''`` — the skill's dispatcher treats that as the fallback
+        policy.
+        """
+        if not self.infra_dir:
+            return ''
+        cfa_path = os.path.join(self.infra_dir, '.cfa-state.json')
+        try:
+            with open(cfa_path) as fh:
+                cfa = json.load(fh)
+        except (OSError, json.JSONDecodeError):
+            return ''
+        state = cfa.get('state', '')
+        if not state:
+            return ''
+        # ``infra_dir`` is {project_root}/.teaparty/jobs/{job-dir}.
+        # Walk up three levels to reach {project_root}.
+        project_root = os.path.dirname(
+            os.path.dirname(os.path.dirname(self.infra_dir))
+        )
+        project_yaml = os.path.join(
+            project_root, '.teaparty', 'project', 'project.yaml',
+        )
+        try:
+            import yaml  # noqa: PLC0415
+            with open(project_yaml) as fh:
+                config = yaml.safe_load(fh) or {}
+        except (OSError, Exception):
+            return ''
+        escalation = config.get('escalation') or {}
+        value = escalation.get(state, '')
+        return value if isinstance(value, str) else ''
 
     def _resolve_proxy_bus(self) -> SqliteMessageBus:
         """Open the proxy's message bus at its canonical location.

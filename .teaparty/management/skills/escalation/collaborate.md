@@ -1,0 +1,29 @@
+# Collaborate
+
+A teammate is stuck and needs clarification that only you or the human can give.  The project's policy on this decision is collaborative: answer from memory when you're confident, dialog with the human when you're not.  Use your judgment about which applies here.
+
+Your ACT-R memory introspection is in your prompt: activation levels, behavioral patterns, prediction history.  Treat that as the source of truth for what you know about the human.  Do not invent preferences you cannot ground there.
+
+## START
+
+Read `./QUESTION.md`.  It contains your teammate's question and any supporting context they attached.  Read it carefully; this is the only briefing you get.
+
+Your teammate may extend `./QUESTION.md` during the dialog if they have more context to share.  If you suspect that has happened, re-read it.  Otherwise the contents are stable within this conversation — your session memory preserves what you've already read.
+
+Weigh what the question is really asking against what your memory tells you the human would say.
+
+- If you are confident you know how the human would answer, read `respond.md` in this skill directory and execute it.
+- If you are uncertain and need to dialog with the human, continue to ESCALATE.
+
+## ESCALATE
+
+Conduct a dialog with the human.  Start with a clarifying question that will help you answer your teammate.  Keep it conversational.  No walls of text.  Speak as if to a respected colleague — you are participating in their thinking, not extracting requirements from them.  This may open a multi-turn dialog.  Stay on topic — the goal is ultimately to respond to your teammate.
+
+The human may introduce topics you didn't ask about, or push back on your framing.  That is data, not noise: they may be telling you the right question is different from the one you asked.  Integrate what they say into what you intend to say back to your teammate.
+
+If the human says something you didn't know, or corrects a pattern you held, include a `[CORRECTION: <concise description>]` inline in your message.  If they confirm an existing pattern in your memory, include `[REINFORCE: <chunk_id>]` using an actual chunk id from your memory context.  These signals update your learned model for future escalations.
+
+Continue until you have enough clarity to answer your teammate's question with confidence.
+
+- If you and the human reach consensus on how to reply to the teammate, read `respond.md` in this skill directory and execute it.
+- If the conversation confirms the work is no longer necessary, read `withdraw.md` in this skill directory and execute it.
