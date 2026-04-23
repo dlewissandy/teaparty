@@ -449,7 +449,17 @@ class TestEscalationSkillPath(unittest.TestCase):
                                  'dispatcher must see exactly one escalation child')
                 child = tree['children'][0]
                 self.assertEqual(child['agent_name'], 'proxy')
-                self.assertTrue(child['session_id'].startswith('proxy-'))
+                # One-identity invariant: the tree's conversation_id
+                # MUST equal the proxy bus conv_id where messages live.
+                # The accordion iframe queries the server with this
+                # value; a mismatch produces "No messages in this
+                # conversation" even though the escalation is running.
+                self.assertTrue(
+                    child['conversation_id'].startswith('proxy:'),
+                    "escalation's bus row id must be the proxy conv_id — "
+                    "otherwise the iframe hits the wrong bus and shows "
+                    'no messages',
+                )
             finally:
                 await listener.stop()
 

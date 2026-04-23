@@ -411,14 +411,25 @@ class EscalationListener:
         with open(question_md, 'w') as fh:
             fh.write(body)
 
-        # Register the escalation as a DISPATCH conversation in the bus
-        # (#422) — single source of truth for tree / name / state.  The
-        # accordion walker reads children_of(parent_conv_id) here.
+        # Register the escalation in the caller's bus — single source of
+        # truth for tree / name / state (#422).  The accordion walker
+        # reads children_of(parent_conv_id) here.
+        #
+        # Critical: the row id MUST equal ``proxy_conv_id``.  Messages
+        # for this escalation live in the proxy bus at ``proxy:{qualifier}``,
+        # and the accordion iframe targets whatever id the tree walker
+        # returns.  If we minted a different id (e.g. ``dispatch:{sid}``)
+        # the iframe would route to a bus that has no messages and the
+        # blade would render "No messages in this conversation" — one
+        # logical conversation with two ids is the whole class of bug
+        # #422 was meant to kill.  Using ``ConversationType.PROXY`` +
+        # ``qualifier`` here produces the same id the proxy bus keys its
+        # messages under, so the two records share one identity.
         try:
             _esc_bus = SqliteMessageBus(self.bus_db_path)
             try:
                 _esc_bus.create_conversation(
-                    ConversationType.DISPATCH, child_session.id,
+                    ConversationType.PROXY, qualifier,
                     agent_name='proxy',
                     parent_conversation_id=self._resolve_parent_conv_id(),
                     request_id=escalation_id,
@@ -429,17 +440,23 @@ class EscalationListener:
                 _esc_bus.close()
         except Exception:
             _log.debug(
-                'escalation: failed to register DISPATCH row for %s',
-                child_session.id, exc_info=True,
+                'escalation: failed to register PROXY row for %s',
+                proxy_conv_id, exc_info=True,
             )
 
         # Emit dispatch_started so the dashboard animates the new blade.
-        # Parent = dispatcher.id so the event agrees with the tree-walker
-        # view (which reads parent_session_id off disk).
+        # The accordion auto-expands the escalation by matching
+        # ``event.child_session_id`` against the tree node's
+        # ``session_id`` field.  ``build_dispatch_tree`` derives that
+        # field from ``conv.id.partition(':')[2]``, so for a proxy
+        # conv_id ``proxy:{qualifier}`` the tree's session_id is
+        # ``qualifier``.  Emitting anything else (e.g. the on-disk
+        # session dir name) makes the lookup miss and the blade stays
+        # collapsed — a cosmetic miss but still a two-ids bug.
         self._emit_dispatch(
             'dispatch_started',
             parent_sid=self._dispatcher_session.id,
-            child_sid=child_session.id,
+            child_sid=qualifier,
         )
 
         # The proxy bus is where the accordion reads dialog messages from.
@@ -536,12 +553,15 @@ class EscalationListener:
                 _mark_done(qualifier)
                 # Mark the escalation's bus record closed so the
                 # accordion drops the blade — single source of truth
-                # for conversation state (#422).
+                # for conversation state (#422).  The row id is
+                # ``proxy_conv_id`` (same id messages are keyed under);
+                # closing any other id would leave the row active and
+                # the blade would persist after the escalation ended.
                 try:
                     _term_bus = SqliteMessageBus(self.bus_db_path)
                     try:
                         _term_bus.update_conversation_state(
-                            f'dispatch:{child_session.id}',
+                            proxy_conv_id,
                             ConversationState.CLOSED,
                         )
                     finally:
@@ -549,12 +569,12 @@ class EscalationListener:
                 except Exception:
                     _log.debug(
                         'escalation: failed to close bus record for %s',
-                        child_session.id, exc_info=True,
+                        proxy_conv_id, exc_info=True,
                     )
                 self._emit_dispatch(
                     'dispatch_completed',
                     parent_sid=self._dispatcher_session.id,
-                    child_sid=child_session.id,
+                    child_sid=qualifier,
                 )
                 shutil.rmtree(child_session.path, ignore_errors=True)
             # On non-terminal exit (cancellation) the bus record stays

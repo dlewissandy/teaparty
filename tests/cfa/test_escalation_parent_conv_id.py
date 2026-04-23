@@ -240,5 +240,107 @@ class TestEscalationAppearsInTreeForCfaJob(unittest.TestCase):
         )
 
 
+class TestEscalationHasOneIdentity(unittest.TestCase):
+    """Pin the root invariant: the escalation is ONE conversation.
+
+    An escalation conceptually is a single chat with a human via the
+    proxy.  Before the fix there were two bus records with two
+    different conv_ids for the same logical conversation:
+
+      - ``dispatch:{child_session.id}`` in the caller's bus — used by
+        the tree walker to find the blade.
+      - ``proxy:{qualifier}`` in the proxy bus — where the actual
+        messages live.
+
+    The accordion iframe rendered with the tree-walker's id, routed
+    through ``_bus_for_conversation`` (the ``dispatch:`` prefix lands
+    on the office-manager bus, which has nothing for this id), and
+    showed "No messages in this conversation."
+
+    The one-identity fix: the escalation's bus row id in the caller's
+    bus MUST equal the proxy conv_id.  Then the same id appears as:
+
+      - the tree node's ``conversation_id``
+      - the iframe URL's ``conv=`` query
+      - the proxy bus's message conv
+      - the id the terminal cleanup closes
+
+    Two records in two databases, keyed by one id — they cannot drift.
+    """
+
+    def test_proxy_conv_id_matches_make_conversation_id(self) -> None:
+        """The make_conversation_id helper's output IS the escalation's id.
+
+        A sanity check that the constructive invariant is what we
+        think it is: ``make_conversation_id(PROXY, qualifier)`` must
+        produce the same string the escalation's create_conversation
+        call will produce when passed PROXY + qualifier.
+        """
+        from teaparty.messaging.conversations import make_conversation_id
+        qualifier = 'session-abc:esc-xyz'
+        self.assertEqual(
+            make_conversation_id(ConversationType.PROXY, qualifier),
+            'proxy:session-abc:esc-xyz',
+        )
+
+    def test_tree_node_conversation_id_routes_to_proxy_bus(self) -> None:
+        """The id the tree returns is the id the iframe uses —
+        and it must route to the proxy bus, where messages live.
+
+        Bridge's ``_bus_for_conversation`` maps ``proxy:`` prefix to
+        the proxy agent bus.  This test pins that the escalation's
+        row id starts with ``proxy:`` so that routing is correct.
+        """
+        from teaparty.messaging.conversations import make_conversation_id
+        qualifier = 'sid:esc'
+        proxy_conv_id = make_conversation_id(
+            ConversationType.PROXY, qualifier,
+        )
+        self.assertTrue(
+            proxy_conv_id.startswith('proxy:'),
+            'The escalation is keyed by the proxy conv_id; the bridge '
+            "routes ``proxy:`` to the proxy bus, which is where the "
+            'escalation messages live.  Any other prefix would route '
+            "the iframe to a bus that doesn't have the messages.",
+        )
+
+    def test_escalation_row_and_tree_node_share_id(self) -> None:
+        """End to end: create a PROXY row under a JOB root, read the
+        tree, confirm the tree node's ``conversation_id`` IS the
+        proxy conv_id.  That is the invariant the iframe depends on.
+        """
+        dir_ = tempfile.mkdtemp(prefix='tp-esc-identity-')
+        try:
+            bus = SqliteMessageBus(os.path.join(dir_, 'bus.db'))
+            bus.create_conversation(
+                ConversationType.JOB, 'jb:s1',
+                agent_name='joke-book-lead',
+                project_slug='jb',
+            )
+            qualifier = 's1:escXYZ'
+            bus.create_conversation(
+                ConversationType.PROXY, qualifier,
+                agent_name='proxy',
+                parent_conversation_id='job:jb:s1',
+                state=ConversationState.ACTIVE,
+            )
+
+            tree = build_dispatch_tree(
+                bus, 'job:jb:s1', root_session_id='s1',
+            )
+
+            self.assertEqual(len(tree['children']), 1)
+            child = tree['children'][0]
+            # One identity: the iframe will GET chat messages at this
+            # exact id, routed to the proxy bus.  If this assertion
+            # fails, the bug is back.
+            self.assertEqual(
+                child['conversation_id'], 'proxy:s1:escXYZ',
+                'Tree node and proxy conv_id must share one identity',
+            )
+        finally:
+            shutil.rmtree(dir_, ignore_errors=True)
+
+
 if __name__ == '__main__':
     unittest.main()
