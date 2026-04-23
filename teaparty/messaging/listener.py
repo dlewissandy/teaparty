@@ -43,8 +43,6 @@ SpawnFn = Callable[[str, str, str], Awaitable[tuple[str, str, str]]]
 ResumeFn = Callable[[str, str, str, str], Awaitable[str]]
 # reinvoke_fn(context_id, session_id, message) -> None
 ReinvokeFn = Callable[[str, str, str], Awaitable[None]]
-# cleanup_fn(worktree_path) -> None
-CleanupFn = Callable[[str], Awaitable[None]]
 
 
 def make_agent_context_id(initiator_agent_id: str, recipient_agent_id: str) -> str:
@@ -101,7 +99,6 @@ class BusEventListener:
         resume_fn: ResumeFn | None = None,
         reply_fn: ReinvokeFn | None = None,
         reinvoke_fn: ReinvokeFn | None = None,
-        cleanup_fn: CleanupFn | None = None,
         current_context_id: str = '',
         initiator_agent_id: str = '',
         dispatcher: object | None = None,
@@ -111,7 +108,6 @@ class BusEventListener:
         self.resume_fn = resume_fn
         self.reply_fn = reply_fn
         self.reinvoke_fn = reinvoke_fn
-        self.cleanup_fn = cleanup_fn
         self.current_context_id = current_context_id
         self.initiator_agent_id = initiator_agent_id
         self.dispatcher = dispatcher  # BusDispatcher | None

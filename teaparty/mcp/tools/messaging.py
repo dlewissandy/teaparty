@@ -278,35 +278,11 @@ async def _default_close_conv_post(context_id: str) -> str:
                 'conversation_id': context_id,
             })
 
-    bus_path = os.environ.get('DISPATCH_BUS_PATH', '')
-    dispatch_conv = os.environ.get('DISPATCH_CONV_ID', '')
-
-    if bus_path and dispatch_conv:
-        from teaparty.messaging.conversations import SqliteMessageBus
-        bus = SqliteMessageBus(bus_path)
-        request_id = str(__import__('uuid').uuid4())
-        request = json.dumps({
-            'type': 'close_conversation',
-            'context_id': context_id,
-            'request_id': request_id,
-        })
-        bus.send(dispatch_conv, 'agent', request)
-
-        import time as _time
-        since = _time.time()
-        while True:
-            messages = bus.receive(dispatch_conv, since_timestamp=since)
-            for msg in messages:
-                if msg.sender == 'orchestrator':
-                    try:
-                        resp = json.loads(msg.content)
-                        if resp.get('request_id') == request_id:
-                            return json.dumps(resp)
-                    except (json.JSONDecodeError, ValueError):
-                        pass
-            await asyncio.sleep(0.1)
-
+    # Both chat tier and CfA now register close_fn in the in-process
+    # registry (#422), so the dispatch-bus fallback is unreachable for
+    # any dispatch: conversation.  The only way to get here is a
+    # non-dispatch context_id, which is a bug in the caller.
     raise RuntimeError(
-        'No close_fn in registry and DISPATCH_BUS_PATH/DISPATCH_CONV_ID '
-        'not set — cannot close conversation',
+        f'No close_fn in registry for context_id={context_id!r} — '
+        'caller did not initiate this conversation.',
     )

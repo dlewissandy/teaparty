@@ -354,6 +354,19 @@ class Orchestrator:
         # to archive corrected plans as skill correction candidates.
         self._active_skill: dict[str, str] | None = None
 
+        # In-flight child tasks keyed by child session_id — same shape
+        # and semantics as chat tier's AgentSession._tasks_by_child
+        # (issue #422).  Aliased onto the BusEventListener on start so
+        # the shared close_fn reads this dict through the listener.
+        self._tasks_by_child: dict[str, asyncio.Task] = {}
+
+        # MCP routes bundle installed at every launch in this engine's
+        # tree (lead phase, dispatched children via Send, resumed
+        # children via --resume).  Built right after the BusEventListener
+        # starts, used by launch() to register handler routes per
+        # agent_name before the subprocess spawns.
+        self._mcp_routes = None
+
     async def run(self) -> OrchestratorResult:
         """Drive the CfA state machine to a terminal state."""
         # Recovery scan: merge/re-dispatch orphaned children before starting
@@ -504,10 +517,46 @@ class Orchestrator:
                 resume_fn=self._bus_resume_agent,
                 reply_fn=self._bus_inject_reply,
                 reinvoke_fn=self._bus_reinvoke_agent,
-                cleanup_fn=self._cleanup_bus_agent_worktree,
                 dispatcher=self._build_bus_dispatcher(),
             )
+            # Alias the engine's tasks_by_child onto the listener so the
+            # shared close_fn (workspace/close_conversation.py::build_close_fn)
+            # reads the same dict — issue #422.  Same mechanism chat tier uses.
+            self._bus_event_listener.tasks_by_child = self._tasks_by_child
             await self._bus_event_listener.start()
+
+            # Build the MCPRoutes bundle this engine installs at every
+            # launch in its tree — the phase lead, dispatched children,
+            # resumed children.  Same pattern chat tier uses in
+            # AgentSession._ensure_bus_listener (issue #422).  The
+            # spawn_fn in the bundle is the adapter that records child
+            # sessions into the dispatcher's conversation_map and emits
+            # dispatch_started events; close_fn is the tier-neutral
+            # function that merges the subteam's worktree back and
+            # emits dispatch_completed per removed session.
+            from teaparty.mcp.registry import MCPRoutes, register_agent_mcp_routes
+            from teaparty.workspace.close_conversation import build_close_fn
+            close_fn = build_close_fn(
+                dispatch_session=self._dispatcher_session,
+                teaparty_home=mgmt_teaparty_home,
+                scope='management',
+                tasks_by_child=self._tasks_by_child,
+                on_dispatch=self._on_dispatch,
+                agent_name=lead_agent_id,
+            )
+            self._mcp_routes = MCPRoutes(
+                spawn_fn=self._make_bus_spawn_adapter(),
+                close_fn=close_fn,
+                escalation_bus_db=self._ask_question_bus_db,
+                escalation_conv_id=self._ask_question_conv_id,
+            )
+            # Install routes for the lead itself.  Dispatched children
+            # are registered by launch() when their subprocess spawns.
+            register_agent_mcp_routes(
+                self.config.project_lead or 'project-lead',
+                self._mcp_routes,
+            )
+
             mcp_env['AGENT_ID'] = lead_agent_id
 
             # Bus-based dispatch transport: agents can use the message bus
@@ -620,8 +669,6 @@ class Orchestrator:
                     try:
                         if req_type == 'send':
                             response = await self._handle_bus_send(request)
-                        elif req_type == 'close_conversation':
-                            response = await self._handle_bus_close(request)
                         else:
                             response = {'status': 'error', 'reason': f'unknown type: {req_type}'}
                     except Exception as exc:
@@ -658,17 +705,59 @@ class Orchestrator:
             return {'status': 'ok', 'context_id': context_id, 'result': result_text}
         return {'status': 'queued', 'context_id': context_id}
 
-    async def _handle_bus_close(self, request: dict) -> dict:
-        """Handle a CloseConversation request from the dispatch bus."""
-        context_id = request.get('context_id', '')
-        listener = self._bus_event_listener
-        if context_id and listener and listener.bus_db_path:
-            listener._close_context(context_id)
-            if listener.cleanup_fn:
-                worktree = listener._get_worktree_path(context_id)
-                if worktree:
-                    asyncio.create_task(listener.cleanup_fn(worktree))
-        return {'status': 'ok'}
+    def _make_bus_spawn_adapter(self):
+        """Build the spawn_fn adapter stored in self._mcp_routes.
+
+        ``_bus_spawn_agent`` returns a 3-tuple ``(session_id, worktree,
+        _)``; the Send MCP tool expects ``(session_id, worktree,
+        refusal_reason)``.  On success this adapter also records the
+        child in the dispatcher session's conversation_map and emits
+        ``dispatch_started`` so the accordion surfaces the dispatched
+        subteam — same wiring chat-tier spawn_fn uses (issue #422).
+        """
+        from teaparty.runners.launcher import record_child_session
+        _bus_spawn = self._bus_spawn_agent
+        engine = self
+
+        async def spawn_fn(
+            member: str, composite: str, context_id: str,
+        ) -> tuple[str, str, str]:
+            session_id, agent_dir, _raw = await _bus_spawn(
+                member, composite, context_id,
+            )
+            if session_id:
+                dispatcher = engine._dispatcher_session
+                if dispatcher is not None:
+                    try:
+                        record_child_session(
+                            dispatcher,
+                            request_id=context_id,
+                            child_session_id=session_id,
+                        )
+                    except Exception:
+                        _log.debug(
+                            'record_child_session failed for %s',
+                            member, exc_info=True,
+                        )
+                if engine._on_dispatch is not None:
+                    try:
+                        engine._on_dispatch({
+                            'type': 'dispatch_started',
+                            'parent_session_id': (
+                                dispatcher.id if dispatcher else ''
+                            ),
+                            'child_session_id': session_id,
+                            'agent_name': member,
+                        })
+                    except Exception:
+                        _log.debug(
+                            'on_dispatch hook raised for dispatch_started',
+                            exc_info=True,
+                        )
+            refusal = '' if session_id else f'spawn_failed:{member}'
+            return (session_id, agent_dir, refusal)
+
+        return spawn_fn
 
     async def _bus_spawn_agent(self, member: str, composite: str, context_id: str) -> tuple[str, str]:
         """Spawn a recipient agent for bus-mediated dispatch (Issue #351).
@@ -735,6 +824,7 @@ class Orchestrator:
                 teaparty_home=self.poc_root,
                 worktree=worktree_path,
                 mcp_port=mcp_port,
+                mcp_routes=self._mcp_routes,
             )
         except Exception:
             if child_listener:
@@ -829,6 +919,7 @@ class Orchestrator:
                 teaparty_home=self.poc_root,
                 worktree=child_wt,
                 mcp_port=mcp_port,
+                mcp_routes=self._mcp_routes,
             )
             return (result.session_id, child_wt, '')
 
@@ -856,6 +947,7 @@ class Orchestrator:
                 worktree=child_agent_dir,
                 resume_session=session_id,
                 mcp_port=mcp_port,
+                mcp_routes=self._mcp_routes,
             )
             return result.session_id
 
@@ -867,9 +959,6 @@ class Orchestrator:
                 child_ctx_id,
             )
 
-        async def child_cleanup_fn(worktree_path: str) -> None:
-            await self._cleanup_bus_agent_worktree(worktree_path)
-
         listener = BusEventListener(
             bus_db_path=bus_db_path,
             initiator_agent_id=child_agent_id,
@@ -877,7 +966,6 @@ class Orchestrator:
             spawn_fn=child_spawn_fn,
             resume_fn=child_resume_fn,
             reinvoke_fn=child_reinvoke_fn,
-            cleanup_fn=child_cleanup_fn,
             dispatcher=dispatcher,
         )
 
@@ -951,26 +1039,9 @@ class Orchestrator:
             worktree=agent_dir,
             resume_session=session_id,
             mcp_port=mcp_port,
+            mcp_routes=self._mcp_routes,
         )
         return result.session_id
-
-    async def _cleanup_bus_agent_worktree(self, worktree_path: str) -> None:
-        """Remove a bus-spawned agent worktree after its conversation closes (#383).
-
-        Called by BusEventListener via cleanup_fn when CloseConversation fires.
-        Runs git worktree remove in an executor to avoid blocking the event loop.
-        """
-        import subprocess
-
-        def do_cleanup() -> None:
-            subprocess.run(
-                ['git', 'worktree', 'remove', '--force', worktree_path],
-                cwd=self.project_workdir,
-                capture_output=True,
-            )
-
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, do_cleanup)
 
     async def _bus_inject_reply(
         self, context_id: str, session_id: str, message: str,
@@ -1361,87 +1432,11 @@ class Orchestrator:
         spec = self._phase_spec(phase_name)
         phase_start_time = time.monotonic()
 
-        # Register the escalation route for this phase's lead so the
-        # AskQuestion MCP tool can find the listener's bus when the
-        # lead's subprocess calls it.  #420 migrated the chat-tier path
-        # from ASK_QUESTION_BUS_DB/_CONV_ID env vars to an in-process
-        # registry keyed by agent_name; the CfA engine was left on the
-        # old env-var contract, so AskQuestion from a CfA-launched
-        # agent (e.g. intent-alignment running under joke-book-lead)
-        # raised "No escalation route registered".  Register per phase
-        # so phase-specific leads and phase-specific overrides work.
-        if (self._escalation_listener is not None
-                and getattr(self, '_ask_question_bus_db', '')
-                and spec.lead):
-            from teaparty.mcp.registry import register_escalation_route
-            register_escalation_route(
-                spec.lead,
-                self._ask_question_bus_db,
-                self._ask_question_conv_id,
-            )
-
-        # Register the lead's Send spawn_fn in the in-process MCP
-        # registry.  The Send MCP tool handler runs inside the bridge
-        # process (the subprocess talks HTTP MCP to it), so it can't
-        # read DISPATCH_BUS_PATH / DISPATCH_CONV_ID env vars set on
-        # ``mcp_env`` for a stdio server — those env vars reach no
-        # handler at all.  The registry is the channel the handler
-        # does reach.  Same pattern #420 used for escalation routes.
-        if self._bus_event_listener is not None and spec.lead:
-            from teaparty.mcp.registry import register_spawn_fn
-            from teaparty.runners.launcher import record_child_session
-            _bus_spawn = self._bus_spawn_agent
-            _dispatcher = getattr(self, '_dispatcher_session', None)
-            _on_dispatch = self._on_dispatch
-
-            async def _spawn_fn_adapter(
-                member: str, composite: str, context_id: str,
-            ) -> tuple[str, str, str]:
-                """Adapt _bus_spawn_agent for the Send MCP tool contract.
-
-                ``_bus_spawn_agent`` returns a 3-tuple ``(session_id,
-                worktree, _)``; Send also expects a 3-tuple
-                ``(session_id, worktree, refusal_reason)``.  On success
-                we also record the child in the dispatcher session's
-                conversation_map and emit ``dispatch_started`` so the
-                accordion surfaces the dispatched subteam the same way
-                chat-tier spawn_fn does.
-                """
-                session_id, agent_dir, _raw = await _bus_spawn(
-                    member, composite, context_id,
-                )
-                if session_id:
-                    if _dispatcher is not None:
-                        try:
-                            record_child_session(
-                                _dispatcher,
-                                request_id=context_id,
-                                child_session_id=session_id,
-                            )
-                        except Exception:
-                            _log.debug(
-                                'record_child_session failed for %s',
-                                member, exc_info=True,
-                            )
-                    if _on_dispatch is not None:
-                        try:
-                            _on_dispatch({
-                                'type': 'dispatch_started',
-                                'parent_session_id': (
-                                    _dispatcher.id if _dispatcher else ''
-                                ),
-                                'child_session_id': session_id,
-                                'agent_name': member,
-                            })
-                        except Exception:
-                            _log.debug(
-                                'on_dispatch hook raised for dispatch_started',
-                                exc_info=True,
-                            )
-                refusal = '' if session_id else f'spawn_failed:{member}'
-                return (session_id, agent_dir, refusal)
-
-            register_spawn_fn(spec.lead, _spawn_fn_adapter)
+        # MCP routes (spawn_fn, close_fn, escalation route) are
+        # registered by launch() for each agent it spawns — the phase
+        # lead here, every Send-dispatched child inside this engine's
+        # tree.  The bundle is built once in Orchestrator.run (issue
+        # #422) and threaded through every launch call site.
 
         await self.event_bus.publish(Event(
             type=EventType.PHASE_STARTED,
@@ -1598,6 +1593,7 @@ class Orchestrator:
             add_dirs=self._build_add_dirs(),
             phase_start_time=phase_start_time,
             mcp_config=self._mcp_config,
+            mcp_routes=self._mcp_routes,
             # Heartbeat liveness (issue #149)
             heartbeat_file=os.path.join(self.infra_dir, '.heartbeat'),
             parent_heartbeat=self._parent_heartbeat,

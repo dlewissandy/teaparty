@@ -75,6 +75,11 @@ class ActorContext:
     backtrack_context: str = ''
     phase_start_time: float = 0.0  # monotonic timestamp when phase started
     mcp_config: dict[str, Any] | None = None
+    # MCPRoutes bundle (spawn_fn, close_fn, escalation) the engine
+    # builds once at listener setup; launch() installs it for each
+    # agent it spawns so Send / CloseConversation / AskQuestion are
+    # reachable — issue #422.
+    mcp_routes: Any = None
     data: dict[str, Any] = field(default_factory=dict)
     # Heartbeat liveness (issue #149)
     heartbeat_file: str = ''
@@ -276,6 +281,7 @@ class AgentRunner:
             stream_file=os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file),
             env_vars=ctx.env_vars,
             permission_mode_override=ctx.phase_spec.permission_mode,
+            mcp_routes=ctx.mcp_routes,
             **launch_kwargs,
         )
 

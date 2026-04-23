@@ -621,14 +621,6 @@ class AgentSession:
             _log.info('%s reinvoke_fn: fan-in complete for context %s',
                       self.agent_name, context_id)
 
-        async def cleanup_fn(worktree_path):
-            # Chat tier no longer creates git worktrees for dispatched
-            # children — the cwd is the real repo and must not be
-            # removed. Session dir teardown is handled separately by
-            # close_conversation. This function is a no-op for chat,
-            # retained so the bus listener contract stays stable.
-            return
-
         if not self._bus_context_id:
             self._bus_context_id = f'agent:{self.agent_name}:lead:{uuid.uuid4()}'
             bus = SqliteMessageBus(bus_db_path)
@@ -649,7 +641,6 @@ class AgentSession:
             resume_fn=resume_fn,
             reply_fn=reply_fn,
             reinvoke_fn=reinvoke_fn,
-            cleanup_fn=cleanup_fn,
         )
         # Alias the session's tasks_by_child onto the listener so the
         # shared close_fn (workspace/close_conversation.py::build_close_fn)
