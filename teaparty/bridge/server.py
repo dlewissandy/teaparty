@@ -1738,23 +1738,44 @@ class TeaPartyBridge:
         if bus is None:
             return web.json_response({'error': f'conversation not found: {conv_id}'}, status=404)
 
-        # Auto-create the conversation on first POST so it appears in active_conversations()
-        # (sidebar) and the human doesn't need to reload the page.
+        # Auto-create the conversation on first POST so it appears in
+        # active_conversations() (sidebar) and the human doesn't need
+        # to reload the page.  Every row carries the agent_name the UI
+        # will display — writer-side single source of truth (#422).
         if conv_id == 'om':
-            bus.create_conversation(ConversationType.OFFICE_MANAGER, '')
+            bus.create_conversation(
+                ConversationType.OFFICE_MANAGER, '',
+                agent_name='office-manager')
         elif conv_id.startswith('pm:'):
             qualifier = conv_id[len('pm:'):]
-            bus.create_conversation(ConversationType.PROJECT_MANAGER, qualifier)
+            bus.create_conversation(
+                ConversationType.PROJECT_MANAGER, qualifier,
+                agent_name='project-manager',
+                project_slug=qualifier)
         elif conv_id.startswith('proxy:'):
             qualifier = conv_id[len('proxy:'):]
-            bus.create_conversation(ConversationType.PROXY, qualifier)
+            bus.create_conversation(
+                ConversationType.PROXY, qualifier,
+                agent_name='proxy')
         elif conv_id.startswith('config:'):
             qualifier = conv_id[len('config:'):]
-            bus.create_conversation(ConversationType.CONFIG_LEAD, qualifier)
+            bus.create_conversation(
+                ConversationType.CONFIG_LEAD, qualifier,
+                agent_name='configuration-lead')
         elif conv_id.startswith('lead:'):
             parts = conv_id.split(':', 2)
+            lead_name = parts[1] if len(parts) > 1 else ''
             qualifier = parts[2] if len(parts) > 2 else ''
-            bus.create_conversation(ConversationType.PROJECT_LEAD, qualifier)
+            # lead:{lead-name}:{qualifier} — the {lead-name} IS the
+            # agent_name the accordion displays (e.g. 'joke-book-lead').
+            project_slug = (
+                lead_name[:-len('-lead')]
+                if lead_name.endswith('-lead') else ''
+            )
+            bus.create_conversation(
+                ConversationType.PROJECT_LEAD, qualifier,
+                agent_name=lead_name,
+                project_slug=project_slug)
 
         try:
             msg_id = bus.send(conv_id, 'human', content)
