@@ -237,14 +237,20 @@ class Workgroup:
 
 @dataclass
 class ManagementTeam:
-    """The root management team from ~/.teaparty/teaparty.yaml."""
+    """The root management team from ~/.teaparty/teaparty.yaml.
+
+    Single source of truth for the project roster (#422): every project
+    in ``projects`` is a member of the management team — OM can
+    dispatch to its lead.  There is no separate ``members.projects``
+    list; any legacy YAML value is ignored.  To remove a project from
+    the roster, remove it from the catalog.
+    """
     name: str
     description: str = ''
     lead: str = ''
     humans: list[Human] = field(default_factory=list)
     projects: list[dict[str, str]] = field(default_factory=list)
     members_agents: list[str] = field(default_factory=list)
-    members_projects: list[str] = field(default_factory=list)
     members_skills: list[str] = field(default_factory=list)
     members_workgroups: list[str] = field(default_factory=list)
     workgroups: list[WorkgroupEntry] = field(default_factory=list)
@@ -254,6 +260,17 @@ class ManagementTeam:
     budget: dict[str, float] = field(default_factory=dict)
     stats: dict[str, str] = field(default_factory=dict)
     allowed_project_roots: list[str] = field(default_factory=list)
+
+    @property
+    def members_projects(self) -> list[str]:
+        """Project names in the roster — derived from ``projects``.
+
+        Kept as a property so existing callers (``resolve_launch_placement``,
+        ``derive_om_roster``, bridge status, ListTeamMembers) don't
+        change.  The list is always the current set of registered
+        project names; catalog and roster cannot drift.
+        """
+        return [p['name'] for p in self.projects if p.get('name')]
 
 
 @dataclass
@@ -386,6 +403,10 @@ def load_management_team(
             projects.extend(ext)
 
     members = data.get('members') or {}
+    # ``members.projects`` is deliberately NOT read from disk (#422).
+    # The project roster is derived from the catalog — see the
+    # ``members_projects`` property on ManagementTeam.  Any legacy
+    # value in YAML is ignored.
     return ManagementTeam(
         name=data['name'],
         description=data.get('description', ''),
@@ -393,7 +414,6 @@ def load_management_team(
         humans=_parse_humans(data.get('humans')),
         projects=_parse_projects(projects, repo_root=repo_root),
         members_agents=members.get('agents') or [],
-        members_projects=members.get('projects') or [],
         members_skills=members.get('skills') or [],
         members_workgroups=members.get('workgroups') or [],
         workgroups=_parse_management_workgroups(data.get('workgroups')),
@@ -1595,12 +1615,17 @@ def remove_project(
     home = os.path.expanduser(teaparty_home or default_teaparty_home())
 
     def _remove_from_members(data: dict[str, Any]) -> dict[str, Any]:
+        # ``members.projects`` on disk is legacy (#422): the roster is
+        # derived from the catalog now.  If the key still exists, clear
+        # any stale reference to the project being removed so disk
+        # state stays consistent.  If the key is absent, nothing to do.
         members = data.get('members') or {}
-        member_projects = members.get('projects') or []
-        updated = [n for n in member_projects if n != name]
-        if len(updated) < len(member_projects):
-            members['projects'] = updated
-            data['members'] = members
+        if 'projects' in members:
+            member_projects = members.get('projects') or []
+            updated = [n for n in member_projects if n != name]
+            if len(updated) < len(member_projects):
+                members['projects'] = updated
+                data['members'] = members
         return data
 
     def _remove_lead_agent(normalized: str) -> None:

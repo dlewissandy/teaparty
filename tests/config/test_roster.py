@@ -147,15 +147,53 @@ class TestDeriveOmRoster(unittest.TestCase):
         )
         self.assertNotIn('auditor', roster)
 
-    def test_roster_excludes_unlisted_projects(self):
-        """Projects not in members.projects are excluded."""
-        roster = derive_om_roster(os.path.join(self.home, '.teaparty'))
-        # Only Alpha is in members.projects
-        lead_names = [k for k in roster if k.endswith('-lead')]
-        self.assertEqual(lead_names, ['alpha-lead'])
+    def test_roster_includes_every_registered_project(self):
+        """Every project in the catalog appears in the OM roster (#422).
 
-    def test_empty_members_projects(self):
-        """Empty members.projects produces an empty roster."""
+        Before #422 there were two sources of truth — the catalog
+        (``projects``) and a separate ``members.projects`` list.  They
+        could disagree: a project could be registered but not
+        dispatchable.  #422 collapsed them: the roster is derived from
+        the catalog, full stop.  This test pins that invariant.
+        """
+        proj_b = _make_project_dir(textwrap.dedent("""\
+            name: Bravo
+            description: Bravo project.
+            lead: bravo-lead
+            members:
+              workgroups: []
+            workgroups: []
+        """))
+        yaml_text = textwrap.dedent(f"""\
+            name: Management Team
+            description: Management.
+            lead: office-manager
+            projects:
+              - name: Alpha
+                path: {self.proj}
+                config: .teaparty/project/project.yaml
+              - name: Bravo
+                path: {proj_b}
+                config: .teaparty/project/project.yaml
+            members: {{}}
+        """)
+        home = _make_teaparty_home(yaml_text)
+        roster = derive_om_roster(os.path.join(home, '.teaparty'))
+        lead_names = sorted(k for k in roster if k.endswith('-lead'))
+        self.assertEqual(
+            lead_names, ['alpha-lead', 'bravo-lead'],
+            'Both registered projects must surface their leads in '
+            'the OM roster — the catalog is the single source of truth',
+        )
+
+    def test_legacy_members_projects_on_disk_is_ignored(self):
+        """A stale ``members.projects: []`` on disk is ignored (#422).
+
+        Under the old two-source model this would have produced an
+        empty roster.  Under #422 the catalog is authoritative, so a
+        leftover empty ``members.projects`` value must not hide a
+        registered project.
+        """
         yaml_text = textwrap.dedent(f"""\
             name: Management Team
             description: Management.
@@ -169,8 +207,11 @@ class TestDeriveOmRoster(unittest.TestCase):
         """)
         home = _make_teaparty_home(yaml_text)
         roster = derive_om_roster(os.path.join(home, '.teaparty'))
-        self.assertNotIn('alpha-lead', roster)
-        self.assertEqual(roster, {})
+        self.assertIn(
+            'alpha-lead', roster,
+            'A legacy empty members.projects list on disk must not '
+            'shadow the catalog — otherwise the two-source bug is back',
+        )
 
 
 # ── 2. derive_project_roster ────────────────────────────────────────────────

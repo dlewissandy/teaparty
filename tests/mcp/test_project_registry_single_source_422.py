@@ -115,5 +115,124 @@ class TestProjectRegistryIsSingleSource(unittest.TestCase):
         )
 
 
+class TestAddProjectMakesItDispatchable(unittest.TestCase):
+    """After ``add_project``, OM's Send must route to the new project's lead.
+
+    The bug this pins: ``members_projects`` and ``projects`` used to be
+    two separate lists.  ``add_project`` only wrote to the catalog, not
+    the members roster.  ``resolve_launch_placement`` walked the
+    roster, so a freshly registered project was visible on the home
+    page (catalog) but not dispatchable from OM (roster).  #422
+    collapsed the two into one: registering a project IS adding it to
+    the roster.  This test proves registration makes the lead
+    dispatchable in the same flow.
+    """
+
+    def setUp(self) -> None:
+        self._dir = tempfile.mkdtemp(prefix='tp422-dispatchable-')
+        self._tp = os.path.join(self._dir, '.teaparty')
+        os.makedirs(os.path.join(self._tp, 'management'))
+        # Management team with a human decider — required by add_project's
+        # decider resolution path.
+        with open(os.path.join(self._tp, 'management', 'teaparty.yaml'),
+                  'w') as f:
+            yaml.dump({
+                'name': 'test-mgmt',
+                'description': 'test',
+                'lead': 'office-manager',
+                'humans': [
+                    {'name': 'operator', 'role': 'decider',
+                     'email': 'op@example.com'},
+                ],
+                'projects': [],
+                'members': {},
+                'workgroups': [],
+            }, f)
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self._dir, ignore_errors=True)
+
+    def test_add_project_then_resolve_launch_placement_succeeds(self) -> None:
+        """The full registration-to-dispatch flow works end to end."""
+        from teaparty.config.config_reader import add_project
+        from teaparty.config.roster import resolve_launch_placement
+
+        project_dir = os.path.join(self._dir, 'widgets')
+        os.makedirs(project_dir)
+
+        add_project(
+            name='widgets',
+            path=project_dir,
+            teaparty_home=self._tp,
+        )
+
+        # The project lead must resolve — this was the broken path.
+        # Before #422 this raised LaunchCwdNotResolved because
+        # add_project didn't touch members.projects, so
+        # resolve_launch_placement couldn't find 'widgets-lead'.
+        launch_cwd, scope = resolve_launch_placement(
+            'widgets-lead', self._tp,
+        )
+
+        self.assertEqual(
+            scope, 'project',
+            "widgets-lead must resolve to 'project' scope — it lives "
+            'in the widgets project directory',
+        )
+        self.assertEqual(
+            os.path.realpath(launch_cwd), os.path.realpath(project_dir),
+            'widgets-lead must launch in the widgets project directory',
+        )
+
+    def test_added_project_appears_in_om_roster(self) -> None:
+        """The OM's derived roster must include the new project lead."""
+        from teaparty.config.config_reader import add_project
+        from teaparty.config.roster import derive_om_roster
+
+        project_dir = os.path.join(self._dir, 'gadgets')
+        os.makedirs(project_dir)
+
+        add_project(
+            name='gadgets',
+            path=project_dir,
+            teaparty_home=self._tp,
+        )
+
+        roster = derive_om_roster(self._tp)
+        self.assertIn(
+            'gadgets-lead', roster,
+            'Freshly registered projects must appear in the OM '
+            'roster — that is what makes them dispatchable from chat',
+        )
+
+    def test_members_projects_is_derived_from_catalog(self) -> None:
+        """``team.members_projects`` is the catalog's name list, nothing more.
+
+        If anyone tries to reintroduce a separate on-disk list, this
+        test fails.  The property is the contract: catalog is truth.
+        """
+        from teaparty.config.config_reader import (
+            add_project, load_management_team,
+        )
+
+        project_dir = os.path.join(self._dir, 'sprockets')
+        os.makedirs(project_dir)
+
+        add_project(
+            name='sprockets',
+            path=project_dir,
+            teaparty_home=self._tp,
+        )
+
+        team = load_management_team(teaparty_home=self._tp)
+        catalog_names = [p['name'] for p in team.projects]
+        self.assertEqual(
+            sorted(team.members_projects), sorted(catalog_names),
+            'members_projects must equal the catalog name list — '
+            'any divergence is the two-source bug coming back',
+        )
+        self.assertIn('sprockets', team.members_projects)
+
+
 if __name__ == '__main__':
     unittest.main()
