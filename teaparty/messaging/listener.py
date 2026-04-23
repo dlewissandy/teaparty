@@ -120,6 +120,14 @@ class BusEventListener:
         # the same agent (see conversation-model.md — Fan-In vs. Mid-Task Clarification).
         self._reinvoke_locks: dict[str, asyncio.Lock] = {}
 
+        # In-flight child tasks, keyed by child session_id.  Both tiers
+        # populate this from their spawn_fn: the close_fn cancels any
+        # entry whose session is inside the subtree being torn down so
+        # no task writes into a directory that close_conversation is
+        # about to rmtree.  Issue #422 moved this to the listener so
+        # chat and CfA share one registry.
+        self.tasks_by_child: dict[str, asyncio.Task] = {}
+
     async def start(self) -> None:
         """No-op — kept for lifecycle symmetry with earlier callers.
 

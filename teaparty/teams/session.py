@@ -137,6 +137,11 @@ class AgentSession:
         self._background_tasks: set[asyncio.Task] = set()
         # child_session_id → running _run_child task, so close_fn can
         # cancel a specific in-flight conversation.
+        # In-flight child tasks, keyed by child session_id.  The
+        # BusEventListener aliases this same dict on start (issue #422
+        # — close_fn reads it via the listener, so both tiers share one
+        # registry).  Kept accessible here for legacy callers and for
+        # the non-dispatching path where no listener is built.
         self._tasks_by_child: dict[str, asyncio.Task] = {}
         # child_session_id → factory that re-creates the _run_child
         # coroutine for that child. Populated by spawn_fn; consulted by
@@ -547,7 +552,7 @@ class AgentSession:
             self._background_tasks.add(task)
             self._tasks_by_child[child_session.id] = task
             # Only discard from _background_tasks on done; keep the
-            # entry in _tasks_by_child so a parent _run_child's loop
+            # entry in tasks_by_child so a parent _run_child's loop
             # can still find the (already completed) grandchild task
             # and collect its result via `await task`. The race here
             # is: a grandchild often completes while its parent is
@@ -646,6 +651,10 @@ class AgentSession:
             reinvoke_fn=reinvoke_fn,
             cleanup_fn=cleanup_fn,
         )
+        # Alias the session's tasks_by_child onto the listener so the
+        # shared close_fn (workspace/close_conversation.py::build_close_fn)
+        # can read the same dict — issue #422.  Same object, two names.
+        self._bus_listener.tasks_by_child = self._tasks_by_child
         await self._bus_listener.start()
 
         from teaparty.workspace.close_conversation import build_close_fn
