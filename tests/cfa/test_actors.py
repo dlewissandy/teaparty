@@ -182,36 +182,34 @@ class TestInterpretOutputMissingArtifact(unittest.TestCase):
 # ── Phase-config artifact fields ────────────────────────────────────────────
 
 class TestPhaseConfigArtifacts(unittest.TestCase):
-    """Verify phase-config.json artifact fields are correctly set for approval gates."""
+    """Artifact fields pin which file each phase must produce.
 
-    def _load_config(self) -> dict:
-        config_path = Path(__file__).parent.parent.parent / 'teaparty' / 'cfa' / 'phase-config.json'
-        with open(config_path) as f:
-            import json
-            return json.load(f)
+    Previously read from ``phase-config.json``; that JSON is gone and
+    the table is literal Python constants in ``phase_config.py``.
+    """
+
+    def _phases(self) -> dict:
+        from teaparty.cfa.phase_config import _PHASES
+        return _PHASES
 
     def test_planning_phase_has_plan_md_artifact(self):
         """Planning phase must have artifact=PLAN.md so PLAN_ASSERT is not bypassed."""
-        config = self._load_config()
-        artifact = config['phases']['planning']['artifact']
+        artifact = self._phases()['planning'].artifact
         self.assertEqual(
             artifact, 'PLAN.md',
             f"planning artifact must be 'PLAN.md', got {artifact!r} — "
-            "null here causes _interpret_output to auto-approve and bypass PLAN_ASSERT",
+            'null here causes _interpret_output to auto-approve and bypass PLAN_ASSERT',
         )
 
     def test_intent_phase_has_intent_md_artifact(self):
         """Intent phase artifact must remain INTENT.md (regression guard)."""
-        config = self._load_config()
-        artifact = config['phases']['intent']['artifact']
-        self.assertEqual(artifact, 'INTENT.md')
+        self.assertEqual(self._phases()['intent'].artifact, 'INTENT.md')
 
     def test_planning_phase_artifact_is_not_null(self):
         """Explicit null check — the root cause of the bypass bug."""
-        config = self._load_config()
         self.assertIsNotNone(
-            config['phases']['planning']['artifact'],
-            "planning artifact must not be null",
+            self._phases()['planning'].artifact,
+            'planning artifact must not be null',
         )
 
 

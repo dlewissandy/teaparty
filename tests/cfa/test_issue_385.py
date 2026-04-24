@@ -147,23 +147,22 @@ class TestAgentsJsonRetired(unittest.TestCase):
     """SC4: agents/*.json directory is retired — no runtime code reads from it."""
 
     def test_no_agent_file_in_phase_config(self):
-        """phase-config.json must not have agent_file fields pointing to agents/*.json."""
-        config_path = os.path.join(REPO_ROOT, 'teaparty', 'cfa', 'phase-config.json')
-        with open(config_path) as f:
-            raw = json.load(f)
+        """No PhaseSpec / TeamSpec points to the retired agents/*.json tree.
 
-        for name, spec in raw.get('phases', {}).items():
-            if 'agent_file' in spec:
-                self.assertFalse(
-                    spec['agent_file'].startswith('agents/'),
-                    f'phase {name}: agent_file still points to agents/*.json',
-                )
-        for name, spec in raw.get('teams', {}).items():
-            if 'agent_file' in spec:
-                self.assertFalse(
-                    spec['agent_file'].startswith('agents/'),
-                    f'team {name}: agent_file still points to agents/*.json',
-                )
+        Source of truth is ``teaparty.cfa.phase_config._PHASES`` /
+        ``_TEAMS`` (literal Python constants); phase-config.json is gone.
+        """
+        from teaparty.cfa.phase_config import _PHASES, _TEAMS
+        for name, spec in _PHASES.items():
+            self.assertFalse(
+                spec.agent_file.startswith('agents/'),
+                f'phase {name}: agent_file still points to agents/*.json',
+            )
+        for name, spec in _TEAMS.items():
+            self.assertFalse(
+                spec.agent_file.startswith('agents/'),
+                f'team {name}: agent_file still points to agents/*.json',
+            )
 
 
 class TestBehaviorUnchanged(unittest.TestCase):

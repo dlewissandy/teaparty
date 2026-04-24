@@ -264,37 +264,36 @@ class TestWorkSummaryGenerationDeleted(unittest.TestCase):
         )
 
 
-# ── SC5: phase-config.json execution artifact ─────────────────────────────────
+# ── SC5: execution phase artifact ─────────────────────────────────────────────
 
 class TestPhaseConfigArtifactName(unittest.TestCase):
     """The execution phase no longer has a mandatory artifact — in the
     five-state model, approval is the done-signal (not a summary file).
-    The regression guard here is that the old .work-summary.md name must
-    still be absent from phase-config.json.
+    The regression guard here is that the old ``.work-summary.md``
+    name stays absent from the phase table.
+
+    Source of truth is ``teaparty.cfa.phase_config._PHASES`` (literal
+    Python constants); phase-config.json is gone.
     """
 
     def test_execution_artifact_is_null(self):
-        """phase-config.json execution.artifact is null — approval is the
-        done-signal, no summary file is required."""
-        config_path = Path(__file__).parent.parent.parent / 'teaparty' / 'cfa' / 'phase-config.json'
-        with open(config_path) as f:
-            config = json.load(f)
-        artifact = config.get('phases', {}).get('execution', {}).get('artifact')
+        """Execution phase artifact is None — approval is the done-signal."""
+        from teaparty.cfa.phase_config import _PHASES
+        artifact = _PHASES['execution'].artifact
         self.assertIsNone(
             artifact,
-            f'execution phase artifact must be null in the five-state model '
-            f'(approval is the done-signal); got {artifact!r}.',
+            f'execution phase artifact must be None in the five-state '
+            f'model (approval is the done-signal); got {artifact!r}.',
         )
 
     def test_execution_artifact_is_not_old_hidden_name(self):
-        """phase-config.json must not reference the old .work-summary.md name."""
-        config_path = Path(__file__).parent.parent.parent / 'teaparty' / 'cfa' / 'phase-config.json'
-        with open(config_path) as f:
-            raw = f.read()
-        self.assertNotIn(
-            '.work-summary.md', raw,
-            'phase-config.json must not reference .work-summary.md anywhere',
-        )
+        """No phase may reference the old .work-summary.md name."""
+        from teaparty.cfa.phase_config import _PHASES
+        for name, spec in _PHASES.items():
+            self.assertNotEqual(
+                spec.artifact, '.work-summary.md',
+                f'{name} phase must not reference .work-summary.md',
+            )
 
 
 # ── SC6: _MERGE_EXCLUDE updated ───────────────────────────────────────────────

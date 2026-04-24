@@ -9,11 +9,13 @@ overlay mechanism entirely: an agent's own configuration (its
 frontmatter) is the *single* source of truth.  No hidden per-phase
 tweaks, no silent replacement.
 
-These tests guard the invariant at three layers:
+These tests guard the invariant at two layers (the JSON schema layer
+is gone — phase config is literal Python constants now, so a rogue
+``settings_overlay`` would have to show up in the PhaseSpec dataclass
+fields or as a source-tree reference, both covered below):
 
-1. The ``phase-config.json`` schema has no ``settings_overlay`` keys.
-2. The ``PhaseSpec`` dataclass has no ``settings_overlay`` field.
-3. Source code does not read ``phase_spec.settings_overlay`` anywhere.
+1. The ``PhaseSpec`` dataclass has no ``settings_overlay`` field.
+2. Source code does not read ``phase_spec.settings_overlay`` anywhere.
 """
 from __future__ import annotations
 
@@ -25,27 +27,9 @@ from dataclasses import fields
 
 
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-_PHASE_CONFIG_PATH = os.path.join(
-    _REPO_ROOT, 'teaparty', 'cfa', 'phase-config.json',
-)
 
 
 class NoSettingsOverlayTest(unittest.TestCase):
-
-    def test_phase_config_json_has_no_settings_overlay(self) -> None:
-        """Every phase entry is free of ``settings_overlay`` keys."""
-        with open(_PHASE_CONFIG_PATH) as f:
-            raw = json.load(f)
-        for name, spec in raw['phases'].items():
-            with self.subTest(phase=name):
-                self.assertNotIn(
-                    'settings_overlay', spec,
-                    f'phase-config.json phase {name!r} carries '
-                    f'``settings_overlay`` — this is the hidden per-phase '
-                    f'permissions overlay that was removed. The agent\'s '
-                    f'own ``settings.yaml`` + frontmatter ``tools:`` list '
-                    f'is the only source of permissions.',
-                )
 
     def test_phase_spec_dataclass_has_no_settings_overlay(self) -> None:
         """PhaseSpec must not define a ``settings_overlay`` field."""

@@ -1,7 +1,17 @@
-"""Phase configuration loader.
+"""Phase configuration for the CfA engine.
 
-Loads phase-config.json and derives computed properties from the CfA
-state machine definition — no hardcoded state sets.
+What varies per phase: ``stream_file`` (which .jsonl the lead's events
+go to) and ``artifact`` (which file the skill is expected to write).
+Everything else — ``agent_file='uber'``, ``lead='project-lead'``,
+``permission_mode='acceptEdits'``, ``approval_state`` (phase name
+uppercased) — is the same across all three phases.  Previously these
+lived in ``phase-config.json`` as if they might vary.  They're
+literal constants now.
+
+Teams (dispatch workgroups) are listed here too: a small fixed set
+of slugs used by withdraw / pause / summarize walkers and by the
+agent-JSON resolver.  This is a snapshot; workgroup membership lives
+in ``.teaparty/project/workgroups/*.yaml``.
 """
 from __future__ import annotations
 
@@ -10,6 +20,8 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
+
+# ── Phase table (literal — used to be loaded from phase-config.json) ──────
 
 @dataclass
 class PhaseSpec:
@@ -31,6 +43,51 @@ class TeamSpec:
     lead: str
     planning_permission_mode: str = ''
     execution_model: str = 'worktree'
+
+
+# The three phases are uniform except for stream_file + artifact.
+# Defaults common to all phases are set once here; any future
+# divergence only changes the outlier.
+_PHASE_DEFAULTS = dict(
+    agent_file='uber',
+    lead='project-lead',
+    permission_mode='acceptEdits',
+)
+_PHASES: dict[str, PhaseSpec] = {
+    name: PhaseSpec(
+        name=name, **_PHASE_DEFAULTS,
+        stream_file=stream,
+        artifact=artifact,
+        approval_state=name.upper() if name != 'execution' else 'EXECUTE',
+    )
+    for name, stream, artifact in (
+        ('intent',    '.intent-stream.jsonl', 'INTENT.md'),
+        ('planning',  '.plan-stream.jsonl',   'PLAN.md'),
+        ('execution', '.exec-stream.jsonl',   None),
+    )
+}
+
+# Dispatch teams.  Kept compact; most fields repeat per entry.
+# ``execution_model='direct'`` is the only non-default — configuration
+# team runs in-place instead of through a per-session worktree.
+_TEAMS: dict[str, TeamSpec] = {
+    name: TeamSpec(
+        name=name, agent_file=name, lead=f'{name}-lead',
+        planning_permission_mode='plan',
+        execution_model=execution_model,
+    )
+    for name, execution_model in (
+        ('art',           'worktree'),
+        ('writing',       'worktree'),
+        ('editorial',     'worktree'),
+        ('research',      'worktree'),
+        ('coding',        'worktree'),
+        ('configuration', 'direct'),
+    )
+}
+
+_DEFAULT_STALL_TIMEOUT = 1800
+_DEFAULT_MAX_DISPATCH_RETRIES = 5
 
 
 class PhaseConfig:
@@ -65,32 +122,11 @@ class PhaseConfig:
         self._load_project_claude_md()
 
     def _load_phase_config(self) -> None:
-        path = os.path.join(os.path.dirname(__file__), 'phase-config.json')
-        with open(path) as f:
-            raw = json.load(f)
-
-        for name, spec in raw['phases'].items():
-            self._phases[name] = PhaseSpec(
-                name=name,
-                agent_file=spec['agent_file'],
-                lead=spec['lead'],
-                permission_mode=spec['permission_mode'],
-                stream_file=spec['stream_file'],
-                artifact=spec.get('artifact'),
-                approval_state=spec['approval_state'],
-            )
-
-        for name, spec in raw.get('teams', {}).items():
-            self._teams[name] = TeamSpec(
-                name=name,
-                agent_file=spec['agent_file'],
-                lead=spec['lead'],
-                planning_permission_mode=spec.get('planning_permission_mode', ''),
-                execution_model=spec.get('execution_model', 'worktree'),
-            )
-
-        self.stall_timeout = raw.get('stall_timeout_seconds', 1800)
-        self.max_dispatch_retries = raw.get('max_dispatch_retries', 5)
+        """Copy the literal phase and team tables into instance state."""
+        self._phases = dict(_PHASES)
+        self._teams = dict(_TEAMS)
+        self.stall_timeout = _DEFAULT_STALL_TIMEOUT
+        self.max_dispatch_retries = _DEFAULT_MAX_DISPATCH_RETRIES
 
     def _load_state_machine(self) -> None:
         """Copy computed properties out of the cfa_state constants.
@@ -403,28 +439,12 @@ class PhaseConfig:
         return os.path.join(self.poc_root, agent_file)
 
 
-_team_names_cache: tuple[str, ...] | None = None
-
-
 def get_team_names(poc_root: str | None = None) -> tuple[str, ...]:
-    """Return team names from phase-config.json, cached after first load.
+    """Return dispatch team slugs.
 
     Used by bridge and orchestrator code that needs to scan dispatch
-    directories without constructing a full PhaseConfig.
+    directories without constructing a full PhaseConfig.  The
+    ``poc_root`` parameter is accepted for API compatibility with
+    legacy callers but no longer used — the team list is a constant.
     """
-    global _team_names_cache
-    if _team_names_cache is not None:
-        return _team_names_cache
-
-    if poc_root is None:
-        from teaparty import find_poc_root
-        poc_root = find_poc_root()
-
-    config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'phase-config.json')
-    try:
-        with open(config_path) as f:
-            config = json.load(f)
-        _team_names_cache = tuple(config.get('teams', {}).keys())
-    except (OSError, json.JSONDecodeError):
-        _team_names_cache = ()
-    return _team_names_cache
+    return tuple(_TEAMS.keys())
