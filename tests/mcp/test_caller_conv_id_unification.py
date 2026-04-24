@@ -207,6 +207,15 @@ class TestCfaSpawnReadsConvIdFromContextvar(unittest.TestCase):
             # not derive from session.id.
             current_conversation_id.set('job:joke-book:orch-session-1')
 
+            # Stub the member resolver — this test is about parent
+            # conv_id, not member resolution.  Production refuses
+            # unknown members; the stub orchestrator has no registry.
+            import teaparty.config.roster as roster_mod
+            orig_resolve = roster_mod.resolve_launch_placement
+            roster_mod.resolve_launch_placement = (
+                lambda m, th: (th, 'management')
+            )
+
             # Run the spawn.  We don't care about its return value —
             # the side effect we're testing is the bus row it writes.
             async def _run():
@@ -219,7 +228,10 @@ class TestCfaSpawnReadsConvIdFromContextvar(unittest.TestCase):
                     # environment; the bus row is written before that.
                     pass
 
-            asyncio.run(_run())
+            try:
+                asyncio.run(_run())
+            finally:
+                roster_mod.resolve_launch_placement = orig_resolve
 
             # Now inspect the bus — the DISPATCH row's parent must be
             # the JOB conv, not ``dispatch:orch-session-1``.

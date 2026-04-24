@@ -118,6 +118,13 @@ class TestBusSpawnAgentRegistersDispatch(unittest.IsolatedAsyncioTestCase):
         # — no fallback derivation catches a miss.
         from teaparty.mcp.registry import current_conversation_id
         current_conversation_id.set(f'dispatch:{dispatcher.id}')
+        # Production validates ``member`` against the registry via
+        # ``resolve_launch_placement``.  This test exercises the
+        # bus-write side effect, not member resolution — stub the
+        # resolver so an arbitrary test name is accepted.
+        import teaparty.config.roster as roster_mod
+        orig_resolve = roster_mod.resolve_launch_placement
+        roster_mod.resolve_launch_placement = lambda m, th: (th, 'management')
         try:
             session_id, _wt, refusal = await o._bus_spawn_agent(
                 member='coding-team', composite='do',
@@ -125,6 +132,7 @@ class TestBusSpawnAgentRegistersDispatch(unittest.IsolatedAsyncioTestCase):
             )
         finally:
             launcher_mod.launch = orig
+            roster_mod.resolve_launch_placement = orig_resolve
 
         self.assertEqual(refusal, '')
         self.assertTrue(session_id)

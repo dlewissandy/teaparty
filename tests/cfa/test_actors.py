@@ -154,8 +154,9 @@ class TestInterpretOutputMissingArtifact(unittest.TestCase):
         self.assertEqual(result.data.get('artifact_path'), artifact_path)
         self.assertNotIn('artifact_missing', result.data)
 
-    def test_no_artifact_configured_and_no_phase_outcome_raises(self):
-        """Phase with no artifact AND no ``.phase-outcome.json`` raises loudly.
+    def test_no_artifact_configured_and_no_phase_outcome_returns_empty_action(self):
+        """Phase with no artifact AND no ``.phase-outcome.json`` returns the
+        "no outcome" sentinel (``action=''``) — NOT ``auto-approve``.
 
         Previously this path fell through to ``action='auto-approve'`` —
         a silent approval.  When the execute phase (``artifact=None``)
@@ -164,20 +165,22 @@ class TestInterpretOutputMissingArtifact(unittest.TestCase):
         EXECUTE → DONE without the skill's ASSERT gate or any human
         sign-off.  The work the agent dispatched never got reviewed.
 
-        The interpreter now refuses that case.  Either:
-          - the skill wrote ``.phase-outcome.json`` → use it
-          - the phase has an artifact and it exists → assert
-          - the phase has an artifact and it is missing → safe loop-back
-          - neither applies → raise (no silent approvals)
+        The interpreter now returns ``action=''`` as the "no outcome"
+        sentinel.  ``_run_phase`` decides what to do:
+          - workers are in flight → fan-in wait, re-invoke, retry
+          - no workers + no outcome → raise (no silent approvals)
+        So the kill-the-silent-approval invariant lives in
+        ``_run_phase``, not here.  This test pins the sentinel.
         """
         spec = _make_phase_spec(artifact=None)
         ctx = _make_ctx(session_worktree=self.tmpdir, phase_spec=spec)
 
-        with self.assertRaises(RuntimeError) as cm:
-            self.runner._interpret_output(ctx, _make_claude_result())
-        msg = str(cm.exception)
-        self.assertIn('phase-outcome.json', msg)
-        self.assertIn('no silent approvals', msg)
+        result = self.runner._interpret_output(ctx, _make_claude_result())
+        self.assertEqual(
+            result.action, '',
+            'Interpreter must return the empty-action sentinel when '
+            "it can't determine an outcome — never auto-approve",
+        )
 
 
 # ── ApprovalGate._generate_bridge ────────────────────────────────────────────

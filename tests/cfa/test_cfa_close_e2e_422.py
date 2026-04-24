@@ -163,6 +163,12 @@ class TestCfACloseE2E(unittest.IsolatedAsyncioTestCase):
         # deriving a wrong parent_conv_id.
         from teaparty.mcp.registry import current_conversation_id
         current_conversation_id.set(f'dispatch:{dispatcher.id}')
+        # Production validates ``member`` against the registry via
+        # ``resolve_launch_placement``.  Stub it to accept this test
+        # name — the test is about close/merge, not member resolution.
+        import teaparty.config.roster as roster_mod
+        orig_resolve = roster_mod.resolve_launch_placement
+        roster_mod.resolve_launch_placement = lambda m, th: (th, 'management')
         try:
             session_id, wt_path, refusal = await o._bus_spawn_agent(
                 member='worker', composite='do the thing',
@@ -170,6 +176,7 @@ class TestCfACloseE2E(unittest.IsolatedAsyncioTestCase):
             )
         finally:
             launcher_mod.launch = orig
+            roster_mod.resolve_launch_placement = orig_resolve
 
         self.assertEqual(refusal, '',
                          f'spawn must not refuse: {refusal!r}')
@@ -332,6 +339,9 @@ class TestCfASpawnIsVisibleToBridgeWalker(unittest.IsolatedAsyncioTestCase):
         launcher_mod.launch = fake_launch
         from teaparty.mcp.registry import current_conversation_id
         current_conversation_id.set(f'dispatch:{dispatcher.id}')
+        import teaparty.config.roster as roster_mod
+        orig_resolve = roster_mod.resolve_launch_placement
+        roster_mod.resolve_launch_placement = lambda m, th: (th, 'management')
         try:
             session_id, wt_path, refusal = await o._bus_spawn_agent(
                 member='coding-team', composite='do the thing',
@@ -339,6 +349,7 @@ class TestCfASpawnIsVisibleToBridgeWalker(unittest.IsolatedAsyncioTestCase):
             )
         finally:
             launcher_mod.launch = orig
+            roster_mod.resolve_launch_placement = orig_resolve
 
         self.assertEqual(refusal, '')
 
@@ -436,6 +447,9 @@ class TestCfASpawnReturnsSessionRecordId(unittest.IsolatedAsyncioTestCase):
         launcher_mod.launch = fake_launch
         from teaparty.mcp.registry import current_conversation_id
         current_conversation_id.set(f'dispatch:{dispatcher.id}')
+        import teaparty.config.roster as roster_mod
+        orig_resolve = roster_mod.resolve_launch_placement
+        roster_mod.resolve_launch_placement = lambda m, th: (th, 'management')
         try:
             session_id, _, _ = await o._bus_spawn_agent(
                 member='worker', composite='do',
@@ -443,6 +457,7 @@ class TestCfASpawnReturnsSessionRecordId(unittest.IsolatedAsyncioTestCase):
             )
         finally:
             launcher_mod.launch = orig
+            roster_mod.resolve_launch_placement = orig_resolve
 
         # It MUST NOT be the claude session id the stub returned.
         self.assertNotEqual(

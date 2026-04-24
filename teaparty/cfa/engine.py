@@ -643,6 +643,29 @@ class Orchestrator:
         from teaparty.workspace.worktree import (
             create_subchat_worktree, current_branch_of, head_commit_of,
         )
+        from teaparty.config.roster import (
+            resolve_launch_placement, LaunchCwdNotResolved,
+        )
+
+        # Validate ``member`` against the registry before creating any
+        # session state.  ``resolve_launch_placement`` accepts real
+        # dispatchable names — project leads, workgroup leads,
+        # workgroup members — and refuses anything else (e.g. a
+        # workgroup *slug* like ``coding`` that the LLM mistakes for
+        # a roster entry).  Without this, an invalid member was
+        # accepted, a session was created with ``agent_name='coding'``,
+        # the accordion blade rendered "Coding" (the slug, not the
+        # lead), and the subprocess launched without a matching agent
+        # definition.  Refuse loudly — no silent acceptance of an
+        # unknown member name.
+        try:
+            resolve_launch_placement(member, self.teaparty_home)
+        except LaunchCwdNotResolved as exc:
+            _log.warning(
+                '_bus_spawn_agent: refusing dispatch to %r — %s',
+                member, exc,
+            )
+            return ('', '', f'unresolved_member:{member}')
 
         # Session record first so the worktree lives under it (1:1).
         child_session = _create_session(
@@ -759,6 +782,31 @@ class Orchestrator:
 
         mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
 
+        # Stream the child's output into the bus under its dispatch
+        # conv_id so the accordion iframe can render it.  Without
+        # this callback the child writes to .stream.jsonl on disk but
+        # nothing reaches the bus — the blade opens to "No messages
+        # in this conversation" even though the worker is doing work.
+        # Same pattern the chat-tier ``_child_lifecycle_loop`` uses.
+        from teaparty.teams.stream import _classify_event
+        child_conv_id = f'dispatch:{child_session.id}'
+        seen_tu: set[str] = set()
+        seen_tr: set[str] = set()
+        child_bus = _Bus(self._bus_event_listener.bus_db_path)
+
+        def _on_child_event(ev: dict) -> None:
+            try:
+                for sender, content in _classify_event(
+                    ev, member, seen_tu, seen_tr,
+                ):
+                    if content and sender != 'tool_result':
+                        child_bus.send(child_conv_id, sender, content)
+            except Exception:
+                _log.debug(
+                    '_run_child on_event failed for %s', member,
+                    exc_info=True,
+                )
+
         async def _run_child() -> str:
             response_text = ''
             try:
@@ -776,6 +824,7 @@ class Orchestrator:
                     # ``current_conversation_id`` contextvar the next
                     # spawn_fn reads.
                     caller_conversation_id=f'dispatch:{child_session.id}',
+                    on_stream_event=_on_child_event,
                 )
                 response_text = getattr(result, 'response_text', '') or ''
             except Exception:
@@ -818,6 +867,10 @@ class Orchestrator:
                         )
                 if not self._tasks_by_child and self._fan_in_event:
                     self._fan_in_event.set()
+                try:
+                    child_bus.close()
+                except Exception:
+                    pass
             return response_text
 
         # Shared with chat tier (#422): same helper records the child,
@@ -1539,12 +1592,47 @@ class Orchestrator:
                     session_id=self.session_id,
                 ))
 
+            # ``action=''`` is the "skill turn ended without declaring
+            # an outcome" sentinel from ``_interpret_output``.  Two
+            # legitimate sub-cases, one illegitimate:
+            #   (a) workers are in flight → fan-in wait re-invokes the
+            #       lead so it can synthesize their replies and then
+            #       write ``.phase-outcome.json``; the re-invoked result
+            #       has a real action.
+            #   (b) no workers + no outcome → the skill is genuinely
+            #       broken.  Raise — no silent approvals.
+            # This replaces the old auto-approve fallback that treated
+            # every "no outcome" as APPROVE and let the engine advance
+            # past the skill's own ASSERT gate.
+            if actor_result.action == '':
+                if self._has_open_agent_contexts():
+                    actor_result = await self._await_fan_in_and_reinvoke(
+                        spec, phase_name, phase_start_time,
+                    )
+                    if actor_result.action == '':
+                        raise RuntimeError(
+                            f'CfA phase {self.cfa.state!r}: after '
+                            'fan-in re-invoke, the skill STILL ended '
+                            'without writing ``.phase-outcome.json``. '
+                            'The skill is broken — engine refuses to '
+                            'silently approve.',
+                        )
+                else:
+                    raise RuntimeError(
+                        f'CfA phase {self.cfa.state!r}: skill turn '
+                        'ended without writing ``.phase-outcome.json`` '
+                        'and no workers are in flight.  Nothing to '
+                        'wait for; the skill is incomplete.  Engine '
+                        'refuses to silently approve.',
+                    )
+
             # Fan-in wait: if the lead dispatched workers via Send, hold the
             # CfA transition until all workers have replied.  The lead is then
             # re-invoked (--resume) so it can synthesize before the gate sees it.
             # Checked BEFORE _transition so the CfA state does not advance until
             # the synthesis turn returns.
             if (actor_result.action != 'failed'
+                    and actor_result.action != ''
                     and not is_globally_terminal(self.cfa.state)
                     and self._has_open_agent_contexts()):
                 actor_result = await self._await_fan_in_and_reinvoke(

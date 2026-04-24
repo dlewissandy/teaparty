@@ -414,32 +414,24 @@ class AgentRunner:
             return ActorResult(action=action, data=data)
 
         # No artifact configured AND no ``.phase-outcome.json`` — the
-        # skill ended its turn without declaring an outcome.  For the
-        # execute phase (artifact=null) this happened when the LLM's
-        # turn ended after dispatching a Send: the skill needs to
-        # continue (ASSERT dialog with the human, or synthesize the
-        # worker's reply) before declaring a terminal outcome.
+        # skill ended its turn without declaring an outcome.  This is
+        # the normal mid-execute state: the lead dispatched via Send
+        # and its turn ended; fan-in must re-invoke the lead so it can
+        # synthesize the workers' replies and run its ASSERT gate
+        # before declaring APPROVE.
         #
-        # The previous code auto-approved here — "agent produced
-        # output, advance normally."  That's a silent approval: the
-        # engine moved EXECUTE → DONE without the skill running its
-        # ASSERT gate or any human sign-off, and the work the agent
-        # dispatched never got reviewed.  No silent approvals.
+        # Return ``action=''`` as the "no outcome" sentinel.  The
+        # outer ``_run_phase`` loop decides what to do:
+        #   - workers in flight → fan-in wait, re-invoke, try again
+        #   - no workers + no outcome → the skill is genuinely broken
+        #     and the engine must raise (no silent approvals).
         #
-        # Refuse, loudly.  The skill didn't terminate; treat it as an
-        # incomplete turn that the outer loop must surface, not as
-        # implicit approval.
-        raise RuntimeError(
-            f'CfA phase {ctx.state!r}: skill ended its turn without '
-            f'writing ``.phase-outcome.json`` and the phase has no '
-            f'artifact to infer from.  The skill is incomplete — the '
-            f'engine will NOT auto-approve (no silent approvals).  '
-            f'Typical cause: the lead dispatched work via Send and '
-            f'its turn ended; fan-in must re-invoke the lead so the '
-            f'skill can synthesize the reply and run its ASSERT gate '
-            f'before declaring APPROVE.  If fan-in is not firing, '
-            f'that is the bug to fix.'
-        )
+        # Previously this path returned ``action='auto-approve'`` —
+        # a silent approval that let EXECUTE → DONE whenever the
+        # lead's turn ended, even if it was just after a Send.  The
+        # skill's ASSERT gate never ran, the dispatched work never
+        # got reviewed.  That is the bug; this is the kill.
+        return ActorResult(action='', data=data)
 
     def _read_phase_outcome(
         self, ctx: ActorContext,
