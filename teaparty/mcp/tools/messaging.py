@@ -14,25 +14,6 @@ from teaparty.mcp.tools.escalation import (
 
 SendPostFn = Callable[[str, str, str], Awaitable[str]]
 CloseConvPostFn = Callable[[str], Awaitable[str]]
-InjectFn = Callable[[str, str, str, str], Awaitable[None]]
-SessionLookupFn = Callable[[str, str], tuple[str, str, str] | None]
-
-
-def _default_session_lookup(member: str, context_id: str) -> tuple[str, str, str] | None:
-    """Look up session info for (member, context_id) from SESSION_REGISTRY_PATH."""
-    from teaparty.messaging.conversations import SessionRegistry
-    registry_path = os.environ.get('SESSION_REGISTRY_PATH', '')
-    if not registry_path:
-        return None
-    return SessionRegistry(registry_path).lookup(member, context_id)
-
-
-async def _default_inject(
-    session_file: str, composite: str, session_id: str, cwd: str,
-) -> None:
-    """Inject composite into the recipient's JSONL conversation history."""
-    from teaparty.messaging.conversations import inject_composite_into_history
-    inject_composite_into_history(session_file, composite, session_id, cwd)
 
 
 async def send_handler(
@@ -42,10 +23,17 @@ async def send_handler(
     *,
     scratch_path: str = '',
     post_fn: SendPostFn | None = None,
-    session_lookup_fn: SessionLookupFn | None = None,
-    inject_fn: InjectFn | None = None,
 ) -> str:
-    """Core handler logic for Send."""
+    """Core handler logic for Send.
+
+    Thread continuation (``context_id='dispatch:<sid>'``) is handled
+    entirely by the tier's ``spawn_fn`` — it consults the bus for
+    any open dispatch with the caller and the recipient, and when
+    one exists re-launches that child with ``--resume``.  There is
+    no separate session-lookup or history-inject step at this layer;
+    those were bits of the old SessionRegistry path (dead code, never
+    populated) that silently fell through to ``spawn_fn`` anyway.
+    """
     if not member or not member.strip():
         raise ValueError('Send requires a non-empty member')
     if not message or not message.strip():
@@ -54,19 +42,6 @@ async def send_handler(
     resolved = scratch_path or _scratch_path_from_env()
     scratch = _read_scratch(resolved)
     composite = _build_composite(message, scratch)
-
-    if session_lookup_fn is not None:
-        session_info = session_lookup_fn(member, context_id)
-    elif context_id:
-        session_info = _default_session_lookup(member, context_id)
-    else:
-        session_info = None
-
-    if session_info is not None:
-        session_id, session_file, cwd = session_info
-        if inject_fn is None:
-            inject_fn = _default_inject
-        await inject_fn(session_file, composite, session_id, cwd)
 
     if post_fn is None:
         post_fn = _default_send_post
@@ -158,11 +133,25 @@ async def _default_send_post(member: str, composite: str, context_id: str) -> st
     return json.dumps({
         'status': 'message_sent',
         'conversation_id': conv_id,
-        'message': 'Any changes the recipient makes to the codebase '
-                   'will not take effect until you close this '
-                   'conversation. When the work is complete and you '
-                   'are satisfied with the result, use '
-                   'CloseConversation to merge their changes.',
+        'message': (
+            f'Dispatched to {member!r}.  '
+            f'The child has its own worktree on branch '
+            f'``session/{session_id}``; nothing it writes is visible in '
+            f'your worktree until you call CloseConversation.\n'
+            f'\n'
+            f'To continue this thread: call Send again with '
+            f'``context_id={conv_id!r}`` — the handle stays valid '
+            f'(the child is re-entered, not recreated) until you close it.\n'
+            f'\n'
+            f'When you judge the work acceptable: '
+            f'CloseConversation(conversation_id={conv_id!r}).  '
+            f'That squash-merges the child into your branch and ends '
+            f'the thread.  Leaving it open strands the work — '
+            f'uncommitted, unmerged, waiting on you.\n'
+            f'\n'
+            f'Before your phase can approve, every dispatch you '
+            f'opened must be closed.'
+        ),
     })
 
 

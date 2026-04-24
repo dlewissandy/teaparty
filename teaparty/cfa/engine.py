@@ -667,34 +667,47 @@ class Orchestrator:
             )
             return ('', '', f'unresolved_member:{member}')
 
-        # Session record first so the worktree lives under it (1:1).
-        child_session = _create_session(
-            agent_name=member, scope='management',
-            teaparty_home=self.teaparty_home,
-        )
-        worktree_path = os.path.join(child_session.path, 'worktree')
-        session_branch = f'session/{child_session.id}'
-
-        # Register the dispatch in the bus — the single source of truth
-        # for tree / lead / parent (issue #422).  The accordion walker
-        # reads this record; no disk lookup for the blade caption.
+        # Thread continuation: if the caller passed a dispatch handle
+        # (``context_id='dispatch:{sid}'``) and the bus still has that
+        # conversation ACTIVE with the same lead, re-launch that
+        # existing child with ``--resume`` and the new composite as
+        # the next message.  No new session, no new worktree — the
+        # handle stays valid until the caller explicitly closes it.
         #
-        # Parent conv_id comes from exactly ONE place: the MCP
-        # middleware set ``current_conversation_id`` from the caller's
-        # URL ``?conv=`` param, which ``launch()`` wrote from the
-        # caller's own conv_id.  Every production caller passes that.
-        # There is no fallback — fallbacks hide bugs by silently
-        # producing wrong answers when the contextvar isn't set, which
-        # is how "derive parent from session.id" kept creeping back in.
-        # If the contextvar is empty, something upstream is broken;
-        # refuse the dispatch with a loud error so the miss is visible.
-        from teaparty.mcp.registry import (
-            current_conversation_id as _current_conv_var,
-        )
+        # Previously the Send tool had a SessionRegistry lookup for
+        # this, but nothing populated the registry; every call
+        # unconditionally spawned a new session.  The bus IS the
+        # registry now — single source of truth for what's open.
         from teaparty.messaging.conversations import (
             ConversationState as _ConvState,
             ConversationType as _ConvType,
             SqliteMessageBus as _Bus,
+        )
+        from teaparty.runners.launcher import load_session as _load_session
+        existing_child = None
+        if context_id and context_id.startswith('dispatch:') \
+                and self._bus_event_listener is not None \
+                and self._bus_event_listener.bus_db_path:
+            _probe = _Bus(self._bus_event_listener.bus_db_path)
+            try:
+                existing_conv = _probe.get_conversation(context_id)
+            finally:
+                _probe.close()
+            if (existing_conv is not None
+                    and existing_conv.state == _ConvState.ACTIVE
+                    and existing_conv.agent_name == member):
+                existing_child_sid = context_id[len('dispatch:'):]
+                existing_child = _load_session(
+                    agent_name=member,
+                    scope='management',
+                    teaparty_home=self.teaparty_home,
+                    session_id=existing_child_sid,
+                )
+
+        # The parent conv_id check needs to happen regardless of
+        # resume vs new — both paths register/update the bus.
+        from teaparty.mcp.registry import (
+            current_conversation_id as _current_conv_var,
         )
         parent_conv_id = _current_conv_var.get('')
         if not parent_conv_id:
@@ -708,59 +721,84 @@ class Orchestrator:
                 'parent_conversation_id and must refuse rather than '
                 'silently produce the wrong tree.',
             )
-        if self._bus_event_listener is not None and self._bus_event_listener.bus_db_path:
-            _bus = _Bus(self._bus_event_listener.bus_db_path)
+
+        if existing_child is not None:
+            # Resume path: the child session + worktree + bus row all
+            # already exist.  Skip creation; just re-use.  The bus
+            # conv stays ACTIVE (the caller hasn't closed it); no
+            # state update needed.
+            child_session = existing_child
+            worktree_path = child_session.worktree_path
+            session_branch = child_session.worktree_branch
+        else:
+            # Fresh dispatch: create session, worktree, bus row.
+            child_session = _create_session(
+                agent_name=member, scope='management',
+                teaparty_home=self.teaparty_home,
+            )
+            worktree_path = os.path.join(child_session.path, 'worktree')
+            session_branch = f'session/{child_session.id}'
+
+            # Register the dispatch in the bus — the single source of
+            # truth for tree / lead / parent (issue #422).
+            if self._bus_event_listener is not None and self._bus_event_listener.bus_db_path:
+                _bus = _Bus(self._bus_event_listener.bus_db_path)
+                try:
+                    _bus.create_conversation(
+                        _ConvType.DISPATCH, child_session.id,
+                        agent_name=member,
+                        parent_conversation_id=parent_conv_id,
+                        request_id=context_id,
+                        project_slug=self.project_slug or '',
+                        state=_ConvState.ACTIVE,
+                    )
+                finally:
+                    _bus.close()
+
+            # Fork source + merge target = the lead's session worktree, falling
+            # back to the project repo root for bootstrap paths that don't yet
+            # have a session worktree.  Matches chat tier's same-repo branch.
+            source_repo = self.session_worktree or self.project_workdir
+            merge_target_worktree = source_repo
+            merge_target_repo = self.project_workdir
             try:
-                _bus.create_conversation(
-                    _ConvType.DISPATCH, child_session.id,
-                    agent_name=member,
-                    parent_conversation_id=parent_conv_id,
-                    request_id=context_id,
-                    project_slug=self.project_slug or '',
-                    state=_ConvState.ACTIVE,
+                source_ref = await head_commit_of(source_repo) or 'HEAD'
+            except Exception:
+                source_ref = 'HEAD'
+            try:
+                merge_target_branch = await current_branch_of(source_repo)
+            except Exception:
+                merge_target_branch = ''
+
+            try:
+                await create_subchat_worktree(
+                    source_repo=source_repo,
+                    source_ref=source_ref,
+                    dest_path=worktree_path,
+                    branch_name=session_branch,
+                    parent_worktree=source_repo,
                 )
-            finally:
-                _bus.close()
+            except Exception:
+                _log.exception(
+                    '_bus_spawn_agent: create_subchat_worktree failed for %s',
+                    member,
+                )
+                return ('', '', 'worktree_failed')
 
-        # Fork source + merge target = the lead's session worktree, falling
-        # back to the project repo root for bootstrap paths that don't yet
-        # have a session worktree.  Matches chat tier's same-repo branch.
-        source_repo = self.session_worktree or self.project_workdir
-        merge_target_worktree = source_repo
-        merge_target_repo = self.project_workdir
-        try:
-            source_ref = await head_commit_of(source_repo) or 'HEAD'
-        except Exception:
-            source_ref = 'HEAD'
-        try:
-            merge_target_branch = await current_branch_of(source_repo)
-        except Exception:
-            merge_target_branch = ''
-
-        try:
-            await create_subchat_worktree(
-                source_repo=source_repo,
-                source_ref=source_ref,
-                dest_path=worktree_path,
-                branch_name=session_branch,
-                parent_worktree=source_repo,
+            child_session.launch_cwd = worktree_path
+            child_session.worktree_path = worktree_path
+            child_session.worktree_branch = session_branch
+            child_session.merge_target_repo = merge_target_repo
+            child_session.merge_target_branch = merge_target_branch
+            child_session.merge_target_worktree = merge_target_worktree
+            child_session.parent_session_id = (
+                self._dispatcher_session.id if self._dispatcher_session else ''
             )
-        except Exception:
-            _log.exception(
-                '_bus_spawn_agent: create_subchat_worktree failed for %s',
-                member,
-            )
-            return ('', '', 'worktree_failed')
-
-        child_session.launch_cwd = worktree_path
-        child_session.worktree_path = worktree_path
-        child_session.worktree_branch = session_branch
-        child_session.merge_target_repo = merge_target_repo
-        child_session.merge_target_branch = merge_target_branch
-        child_session.merge_target_worktree = merge_target_worktree
-        child_session.parent_session_id = (
-            self._dispatcher_session.id if self._dispatcher_session else ''
-        )
+        # The composite message we want to deliver on this (re-)invocation.
+        # For resume, this replaces ``initial_message`` — the next
+        # ``_launch`` will pass this as the message for the claude
+        # subprocess.  Keeps the thread-continuation semantic: each
+        # Send in the thread delivers a new message to the same child.
         child_session.initial_message = composite
         _save_meta(child_session)
 
@@ -810,6 +848,13 @@ class Orchestrator:
         async def _run_child() -> str:
             response_text = ''
             try:
+                # Resume if the child has run before (claude_session_id
+                # stored from a prior ``_launch`` return).  Without this,
+                # a second Send to the same dispatch handle always
+                # starts a fresh claude session and the child has no
+                # memory of the prior exchange — defeats the "continue
+                # a thread" semantics of the Send tool.
+                resume_sid = child_session.claude_session_id or ''
                 result = await _launch(
                     agent_name=member,
                     message=composite,
@@ -818,6 +863,7 @@ class Orchestrator:
                     worktree=worktree_path,
                     mcp_port=mcp_port,
                     session_id=child_session.id,
+                    resume_session=resume_sid,
                     mcp_routes=self._mcp_routes,
                     # Child's own conv_id — parent of any dispatches
                     # it makes.  Middleware wires this into the
@@ -827,6 +873,16 @@ class Orchestrator:
                     on_stream_event=_on_child_event,
                 )
                 response_text = getattr(result, 'response_text', '') or ''
+                # Persist the claude session id so a follow-up Send in
+                # this thread can --resume this child instead of
+                # spawning a new one.  The whole point of the Send
+                # tool's ``context_id`` parameter is durable
+                # thread-continuation; it is durable only if we
+                # remember which claude session to resume.
+                new_claude_sid = getattr(result, 'session_id', '') or ''
+                if new_claude_sid:
+                    child_session.claude_session_id = new_claude_sid
+                    _save_meta(child_session)
             except Exception:
                 _log.exception(
                     '_bus_spawn_agent task failed for %s', member,
@@ -1217,6 +1273,11 @@ class Orchestrator:
     ) -> 'ActorResult':
         """Block the lead until all dispatched workers reply, then resume it.
 
+        Early exit: if ``_tasks_by_child`` is already empty the fan-in
+        has completed — children finished before we got here — so skip
+        the wait and go straight to re-invoke.  Without that guard the
+        lead would hang forever on an Event that nobody will fire.
+
         Fan-in is a framework-level turn-boundary concern, not a state-machine
         transition.  When the lead's turn completes with open worker contexts
         on the bus, this coroutine waits for BusEventListener.trigger_reply
@@ -1224,10 +1285,31 @@ class Orchestrator:
         replied), then re-invokes the lead via --resume so it can synthesize
         the workers' replies before advancing the CfA.
         """
+        # Fast path: nothing to wait for.
+        if not self._tasks_by_child:
+            _log.info(
+                'Fan-in wait: no workers in flight; re-invoking lead '
+                'immediately',
+            )
+            return await self._invoke_actor(
+                spec, phase_name, phase_start_time,
+            )
+        # Arm the event *before* re-checking ``_tasks_by_child`` — a
+        # child completion is synchronous (no await between its pop
+        # and its ``_fan_in_event.set()``), so if it fires between
+        # arming and re-check we see a set event and ``wait()`` returns
+        # immediately; if we saw a non-empty dict we are guaranteed
+        # the child will see the armed event when it fires.
         self._fan_in_event = asyncio.Event()
-        _log.info('Fan-in wait: blocking until all dispatched workers reply')
-        await self._fan_in_event.wait()
-        self._fan_in_event = None
+        try:
+            if self._tasks_by_child:
+                _log.info(
+                    'Fan-in wait: blocking until all dispatched workers '
+                    'reply',
+                )
+                await self._fan_in_event.wait()
+        finally:
+            self._fan_in_event = None
         _log.info('Fan-in complete: resuming lead via --resume for synthesis')
         return await self._invoke_actor(spec, phase_name, phase_start_time)
 
@@ -1593,38 +1675,40 @@ class Orchestrator:
                 ))
 
             # ``action=''`` is the "skill turn ended without declaring
-            # an outcome" sentinel from ``_interpret_output``.  Two
-            # legitimate sub-cases, one illegitimate:
-            #   (a) workers are in flight → fan-in wait re-invokes the
-            #       lead so it can synthesize their replies and then
-            #       write ``.phase-outcome.json``; the re-invoked result
-            #       has a real action.
-            #   (b) no workers + no outcome → the skill is genuinely
-            #       broken.  Raise — no silent approvals.
-            # This replaces the old auto-approve fallback that treated
-            # every "no outcome" as APPROVE and let the engine advance
-            # past the skill's own ASSERT gate.
-            if actor_result.action == '':
+            # an outcome" sentinel from ``_interpret_output``.  It is
+            # the normal mid-execute state: the lead dispatched via
+            # Send, its turn ended, and fan-in must re-invoke it to
+            # synthesize the reply.  The re-invoked turn can ALSO end
+            # in that state — e.g. the lead receives one child's
+            # reply, dispatches follow-up work to the same or a
+            # different member, and ends its turn again.  Loop until
+            # the skill actually declares a terminal outcome (valid
+            # action) or we run out of workers to wait for.
+            #
+            # The previous code raised as soon as one re-invoke ended
+            # in ``''`` — which killed the legitimate multi-turn
+            # dispatch pattern (agent A replies, lead dispatches B,
+            # lead's second turn ends in ''; we raised instead of
+            # waiting for B).  The job task died, the lead went to
+            # sleep, and the user saw the Wake button activate.
+            #
+            # The invariant still holds: we never advance the CfA
+            # state without a real outcome, and we never silently
+            # approve.  If workers are open, wait.  If not and no
+            # outcome, raise.
+            while actor_result.action == '':
                 if self._has_open_agent_contexts():
                     actor_result = await self._await_fan_in_and_reinvoke(
                         spec, phase_name, phase_start_time,
                     )
-                    if actor_result.action == '':
-                        raise RuntimeError(
-                            f'CfA phase {self.cfa.state!r}: after '
-                            'fan-in re-invoke, the skill STILL ended '
-                            'without writing ``.phase-outcome.json``. '
-                            'The skill is broken — engine refuses to '
-                            'silently approve.',
-                        )
-                else:
-                    raise RuntimeError(
-                        f'CfA phase {self.cfa.state!r}: skill turn '
-                        'ended without writing ``.phase-outcome.json`` '
-                        'and no workers are in flight.  Nothing to '
-                        'wait for; the skill is incomplete.  Engine '
-                        'refuses to silently approve.',
-                    )
+                    continue
+                raise RuntimeError(
+                    f'CfA phase {self.cfa.state!r}: skill turn ended '
+                    'without writing ``.phase-outcome.json`` and no '
+                    'workers are in flight.  Nothing to wait for; the '
+                    'skill is incomplete.  Engine refuses to silently '
+                    'approve.',
+                )
 
             # Fan-in wait: if the lead dispatched workers via Send, hold the
             # CfA transition until all workers have replied.  The lead is then
@@ -1632,7 +1716,6 @@ class Orchestrator:
             # Checked BEFORE _transition so the CfA state does not advance until
             # the synthesis turn returns.
             if (actor_result.action != 'failed'
-                    and actor_result.action != ''
                     and not is_globally_terminal(self.cfa.state)
                     and self._has_open_agent_contexts()):
                 actor_result = await self._await_fan_in_and_reinvoke(

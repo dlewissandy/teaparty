@@ -24,6 +24,10 @@ Delegate work to team members using `mcp__teaparty-config__Send`. You may delega
 
 When an agent tells you that they have completed a task, do not take them at their word. You are the gatekeeper. Inspect their work and hold them to account. Only `mcp__teaparty-config__CloseConversation` with them when you are satisfied with what they have done.
 
+**Each dispatch is a thread, not a one-shot.** `Send` returns a `conversation_id` of the form `dispatch:<id>`. That handle stays valid — pass it back as `context_id=` to continue the thread with the same team member in the same worktree. Starting a new `Send` to the same member without the handle creates a parallel session the agent has no memory of; that is almost always a mistake.
+
+**Nothing the team writes takes effect until you close.** The child works on a session branch inside its own worktree. Their commits are invisible to your worktree until you call `mcp__teaparty-config__CloseConversation` with the dispatch handle; that squash-merges their work into your branch. A thread you never close is work you never received.
+
 - If you need clarification from the human, go to ASK
 - If you deem your work to be complete, go to ASSERT
 ## ASK
@@ -43,6 +47,8 @@ Dialog purpose: you are not certain that you understand how the human wants to d
 Conduct a dialog with the human regarding the current work using `mcp__teaparty-config__AskQuestion`.
 
 Dialog purpose: you expect that work is complete, and you are confirming with the human. Dialog is necessary because your expectations may not be aligned with the human's — the work may not actually be complete, and the only way to ensure alignment is to dialogue.
+
+**Before you enter ASSERT, close every dispatch you opened.** If any `dispatch:<id>` you sent during EXECUTE is still open, the work in those threads has not been merged into your worktree and the human will be asked to approve something they cannot see. For each thread: if you're satisfied, `mcp__teaparty-config__CloseConversation(conversation_id='dispatch:<id>')`; if you're not, go back to EXECUTE and Send again in the thread with feedback.
 
 - If the response begins with the line `[WITHDRAW]`, go to WITHDRAW. The text after `[WITHDRAW]` is the reason — carry it into `.phase-outcome.json`.
 - If the human approves the work, go to APPROVE.
