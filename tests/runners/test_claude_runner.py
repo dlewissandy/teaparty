@@ -2,13 +2,14 @@
 """Tests for ClaudeRunner._build_args.
 
 Covers:
- 1. __POC_DIR__ placeholder is replaced with the SCRIPT_DIR env var
- 2. __SESSION_DIR__ placeholder is replaced with the POC_SESSION_DIR env var
- 3. An unknown placeholder (no matching env var) is left as-is
- 4. --permission-mode is always present in the CLI args, including when value is 'default'
+ 1. ``--agents`` is set when an agents_file is provided
+ 2. --permission-mode is always present in the CLI args, including when value is 'default'
+
+Cut 22 deleted the ``__POC_DIR__`` / ``__SESSION_DIR__`` placeholder
+substitution machinery — those placeholders had no real consumers in
+agent JSON files; the tests here previously pinned that dead machinery
+to itself.  Removed along with the substitution code.
 """
-import json
-import os
 import sys
 import tempfile
 import unittest
@@ -37,120 +38,27 @@ def _make_runner(
     )
 
 
-class TestPlaceholderSubstitution(unittest.TestCase):
-    """__POC_DIR__ and __SESSION_DIR__ are substituted from env_vars."""
-
-    def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
-
-    def _write_agents_file(self, content: str) -> str:
-        path = os.path.join(self.tmpdir, 'agents.json')
-        Path(path).write_text(content)
-        return path
-
-    def _get_agents_arg(self, runner: ClaudeRunner) -> str:
-        args = runner._build_args(None)
-        idx = args.index('--agents')
-        return args[idx + 1]
-
-    def test_poc_dir_placeholder_replaced(self):
-        """__POC_DIR__ is replaced with the value of SCRIPT_DIR."""
-        agents_content = json.dumps({
-            'agent': {'prompt': 'Run __POC_DIR__/dispatch.sh'}
-        })
-        agents_file = self._write_agents_file(agents_content)
-        runner = _make_runner(
-            agents_file=agents_file,
-            env_vars={'SCRIPT_DIR': '/opt/poc'},
-        )
-        result = self._get_agents_arg(runner)
-        self.assertIn('/opt/poc/dispatch.sh', result)
-        self.assertNotIn('__POC_DIR__', result)
-
-    def test_session_dir_placeholder_replaced(self):
-        """__SESSION_DIR__ is replaced with the value of POC_SESSION_DIR."""
-        agents_content = json.dumps({
-            'agent': {'prompt': 'Work in __SESSION_DIR__/output'}
-        })
-        agents_file = self._write_agents_file(agents_content)
-        runner = _make_runner(
-            agents_file=agents_file,
-            env_vars={'POC_SESSION_DIR': '/sessions/abc123'},
-        )
-        result = self._get_agents_arg(runner)
-        self.assertIn('/sessions/abc123/output', result)
-        self.assertNotIn('__SESSION_DIR__', result)
-
-    def test_both_placeholders_replaced(self):
-        """Both __POC_DIR__ and __SESSION_DIR__ are substituted in one pass."""
-        agents_content = json.dumps({
-            'agent': {'prompt': 'cd __SESSION_DIR__ && __POC_DIR__/run.sh'}
-        })
-        agents_file = self._write_agents_file(agents_content)
-        runner = _make_runner(
-            agents_file=agents_file,
-            env_vars={
-                'SCRIPT_DIR': '/opt/poc',
-                'POC_SESSION_DIR': '/sessions/xyz',
-            },
-        )
-        result = self._get_agents_arg(runner)
-        self.assertIn('/opt/poc/run.sh', result)
-        self.assertIn('/sessions/xyz', result)
-        self.assertNotIn('__POC_DIR__', result)
-        self.assertNotIn('__SESSION_DIR__', result)
-
-    def test_unknown_placeholder_left_as_is(self):
-        """A placeholder with no matching env var is passed through unchanged."""
-        agents_content = json.dumps({
-            'agent': {'prompt': 'Use __UNKNOWN_VAR__ here'}
-        })
-        agents_file = self._write_agents_file(agents_content)
-        runner = _make_runner(
-            agents_file=agents_file,
-            env_vars={},  # no SCRIPT_DIR, no POC_SESSION_DIR
-        )
-        result = self._get_agents_arg(runner)
-        self.assertIn('__UNKNOWN_VAR__', result,
-                      "Unknown placeholders must not be corrupted or removed")
-
-    def test_poc_dir_placeholder_left_when_script_dir_missing(self):
-        """__POC_DIR__ is not replaced when SCRIPT_DIR is absent from env_vars."""
-        agents_content = json.dumps({
-            'agent': {'prompt': 'Run __POC_DIR__/dispatch.sh'}
-        })
-        agents_file = self._write_agents_file(agents_content)
-        runner = _make_runner(
-            agents_file=agents_file,
-            env_vars={'POC_SESSION_DIR': '/sessions/abc'},  # no SCRIPT_DIR
-        )
-        result = self._get_agents_arg(runner)
-        self.assertIn('__POC_DIR__', result,
-                      "__POC_DIR__ must remain if SCRIPT_DIR is not set")
-
-    def test_session_dir_placeholder_left_when_env_missing(self):
-        """__SESSION_DIR__ is not replaced when POC_SESSION_DIR is absent."""
-        agents_content = json.dumps({
-            'agent': {'prompt': 'Work in __SESSION_DIR__'}
-        })
-        agents_file = self._write_agents_file(agents_content)
-        runner = _make_runner(
-            agents_file=agents_file,
-            env_vars={'SCRIPT_DIR': '/opt/poc'},  # no POC_SESSION_DIR
-        )
-        result = self._get_agents_arg(runner)
-        self.assertIn('__SESSION_DIR__', result,
-                      "__SESSION_DIR__ must remain if POC_SESSION_DIR is not set")
+class TestAgentsArg(unittest.TestCase):
+    """``--agents`` is added only when agents_file is provided."""
 
     def test_no_agents_file_no_agents_arg(self):
         """Without an agents_file, --agents is not added to the CLI args."""
         runner = _make_runner(agents_file=None)
         args = runner._build_args(None)
         self.assertNotIn('--agents', args)
+
+    def test_agents_file_contents_passed_verbatim(self):
+        """When agents_file is set, its raw bytes go to --agents (no substitution)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'agents.json'
+            path.write_text('{"agent": {"prompt": "do a thing"}}')
+            runner = _make_runner(agents_file=str(path))
+            args = runner._build_args(None)
+            idx = args.index('--agents')
+            self.assertEqual(
+                args[idx + 1],
+                '{"agent": {"prompt": "do a thing"}}',
+            )
 
 
 class TestPermissionModeAlwaysPresent(unittest.TestCase):

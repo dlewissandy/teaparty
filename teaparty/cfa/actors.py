@@ -77,6 +77,7 @@ class ActorContext:
         return os.path.join(self.poc_root, '.teaparty')
 
     session_id: str = ''
+    project_slug: str = ''
     resume_session: str | None = None
     env_vars: dict[str, str] = field(default_factory=dict)
     add_dirs: list[str] = field(default_factory=list)
@@ -266,7 +267,7 @@ class AgentRunner:
             agent_name=ctx.phase_spec.lead,
             message=prompt,
             scope='project',
-            telemetry_scope=ctx.env_vars.get('POC_PROJECT', 'project'),
+            telemetry_scope=ctx.project_slug or 'project',
             mcp_port=_mcp_port,
             # Agent definitions live in the project's own .teaparty/project/agents/
             # directory; the org management catalog is the fallback (Issue #408).
@@ -296,8 +297,8 @@ class AgentRunner:
             # this the lead's dispatches would be parented under the
             # wrong conv_id and their blades never render.
             caller_conversation_id=(
-                f'job:{ctx.env_vars.get("POC_PROJECT", "")}:{ctx.session_id}'
-                if ctx.env_vars.get('POC_PROJECT') and ctx.session_id
+                f'job:{ctx.project_slug}:{ctx.session_id}'
+                if ctx.project_slug and ctx.session_id
                 else ''
             ),
             **launch_kwargs,

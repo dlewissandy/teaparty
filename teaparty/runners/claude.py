@@ -253,27 +253,12 @@ class ClaudeRunner:
         if self.tools is not None:
             args.extend(['--tools', self.tools])
         if self.agents_json:
-            # Pre-composed JSON string from PhaseConfig
-            agents_str = self.agents_json
-            poc_root = self.env_vars.get('SCRIPT_DIR', '')
-            session_dir = self.env_vars.get('POC_SESSION_DIR', '')
-            if poc_root:
-                agents_str = agents_str.replace('__POC_DIR__', poc_root)
-            if session_dir:
-                agents_str = agents_str.replace('__SESSION_DIR__', session_dir)
-            args.extend(['--agents', agents_str])
+            args.extend(['--agents', self.agents_json])
         elif self.agents_file:
             # Legacy path: read agents from a JSON file
             try:
                 with open(self.agents_file) as f:
-                    agents_json = f.read()
-                poc_root = self.env_vars.get('SCRIPT_DIR', '')
-                session_dir = self.env_vars.get('POC_SESSION_DIR', '')
-                if poc_root:
-                    agents_json = agents_json.replace('__POC_DIR__', poc_root)
-                if session_dir:
-                    agents_json = agents_json.replace('__SESSION_DIR__', session_dir)
-                args.extend(['--agents', agents_json])
+                    args.extend(['--agents', f.read()])
             except OSError:
                 pass
         if self.lead:

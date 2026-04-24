@@ -38,6 +38,7 @@ from teaparty.cfa.actors import (
 from teaparty.cfa.gates.escalation import AskQuestionRunner
 from teaparty.cfa.gates.intervention_listener import InterventionListener
 from teaparty.workspace.worktree import commit_artifact
+from teaparty.runners.dispatch_env import cfa_dispatch_env_vars
 from teaparty.messaging.bus import Event, EventBus, EventType, InputRequest
 from teaparty.cfa.gates.intervention import InterventionQueue, build_intervention_prompt
 from teaparty.util.interrupt_propagation import (
@@ -1163,8 +1164,14 @@ class Orchestrator:
             event_bus=self.event_bus,
             session_id=self.session_id,
             resume_session=self._phase_session_ids.get(phase_name),
-            env_vars=self._build_env_vars(),
+            env_vars=cfa_dispatch_env_vars(
+                project_slug=self.project_slug,
+                project_workdir=self.project_workdir,
+                infra_dir=self.infra_dir,
+                session_worktree=self.session_worktree,
+            ),
             add_dirs=self._build_add_dirs(),
+            project_slug=self.project_slug,
             phase_start_time=phase_start_time,
             mcp_routes=self._mcp_routes,
             heartbeat_file=os.path.join(self.infra_dir, '.heartbeat'),
@@ -1761,17 +1768,6 @@ class Orchestrator:
         if action in ('backtrack', 'withdraw'):
             return action
         return 'retry'
-
-    def _build_env_vars(self) -> dict[str, str]:
-        return {
-            'POC_PROJECT': self.project_slug,
-            'POC_PROJECT_DIR': self.project_workdir,
-            'POC_SESSION_DIR': self.infra_dir,
-            'POC_SESSION_WORKTREE': self.session_worktree,
-            'POC_CFA_STATE': os.path.join(self.infra_dir, '.cfa-state.json'),
-            'SCRIPT_DIR': self.poc_root,
-            'PROJECTS_DIR': os.path.dirname(self.project_workdir),
-        }
 
     def _build_add_dirs(self) -> list[str]:
         # Agents must not receive --add-dir flags; the worktree (set as cwd)
