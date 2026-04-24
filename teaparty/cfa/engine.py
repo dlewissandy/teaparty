@@ -68,16 +68,11 @@ class PhaseResult:
     failure_reason: str = ''
 
 
-PLAN_ESCALATION_STATES: frozenset[str] = frozenset()
-WORK_ESCALATION_STATES: frozenset[str] = frozenset()
-
-
 @dataclass
 class OrchestratorResult:
     """Final outcome of the full session orchestration."""
-    terminal_state: str             # COMPLETED_WORK or WITHDRAWN
+    terminal_state: str             # DONE or WITHDRAWN
     backtrack_count: int = 0
-    escalation_type: str = ''      # 'plan', 'work', or '' (no escalation)
 
 
 class Orchestrator:
@@ -1410,16 +1405,10 @@ class Orchestrator:
         return True
 
     def _make_result(self, terminal_state: str) -> OrchestratorResult:
-        """Build OrchestratorResult with escalation_type derived from CfA state."""
-        escalation_type = ''
-        if self.cfa.state in PLAN_ESCALATION_STATES:
-            escalation_type = 'plan'
-        elif self.cfa.state in WORK_ESCALATION_STATES:
-            escalation_type = 'work'
+        """Build the final OrchestratorResult."""
         return OrchestratorResult(
             terminal_state=terminal_state,
             backtrack_count=self.cfa.backtrack_count,
-            escalation_type=escalation_type,
         )
 
     async def _run_phase(self, phase_name: str) -> PhaseResult:

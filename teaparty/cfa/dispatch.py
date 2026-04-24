@@ -384,8 +384,6 @@ async def dispatch(
         result = await orchestrator.run()
         if result.terminal_state in TERMINAL_STATES:
             break
-        if result.escalation_type:  # escalation — don't retry, surface it
-            break
 
         # Detect 529 exhaustion: the child orchestrator returned non-terminal
         # after exhausting its own overload retries.  Check sentinel file.
@@ -461,22 +459,18 @@ async def dispatch(
         except Exception:
             pass
 
-    # Return JSON status with deliverables summary and escalation context.
+    # Return JSON status with deliverables summary.
     # A successful orchestrator run that fails to merge is still a failure —
     # the parent agent must know that deliverables did not land.
     if merge_failed:
         status = 'failed'
+        exit_reason = 'merge_failed'
     elif result and result.terminal_state == 'DONE':
         status = 'completed'
-    else:
-        status = 'failed'
-    escalation_type = result.escalation_type if result else ''
-    if merge_failed:
-        exit_reason = 'merge_failed'
-    elif status == 'completed':
         exit_reason = 'completed'
     else:
-        exit_reason = f'{escalation_type}_escalation' if escalation_type else 'failed'
+        status = 'failed'
+        exit_reason = 'failed'
     # Extract per-turn cost events from child events.jsonl for task chat (Issue #341).
     # Each TURN_COST record becomes a separate cost-sender message in the task conversation,
     # giving per-actor-turn granularity rather than one aggregate per dispatch.
@@ -521,7 +515,6 @@ async def dispatch(
         'terminal_state': result.terminal_state if result else 'unknown',
         'backtrack_count': result.backtrack_count if result else 0,
         'deliverables': deliverables,
-        'escalation_type': escalation_type,
         'api_overloaded': api_overloaded,
     }
     if turn_costs:
@@ -572,8 +565,7 @@ async def main() -> int:
 
     result = await dispatch(args.team, args.task, args.auto_approve_plan, args.cfa_parent_state)
     print(json.dumps(result, indent=2))
-    exit_codes = {'completed': 0, 'plan_escalation': 10, 'work_escalation': 11}
-    return exit_codes.get(result.get('exit_reason', 'failed'), 1)
+    return 0 if result.get('exit_reason') == 'completed' else 1
 
 
 if __name__ == '__main__':

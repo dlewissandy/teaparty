@@ -50,7 +50,6 @@ def _make_parent_state_file(tmpdir: str, task_id: str = 'uber-001') -> str:
 def _make_mock_orchestrator_result(terminal_state: str = 'DONE') -> MagicMock:
     result = MagicMock()
     result.terminal_state = terminal_state
-    result.escalation_type = ''
     result.backtrack_count = 0
     return result
 

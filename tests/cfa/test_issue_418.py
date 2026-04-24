@@ -301,17 +301,6 @@ class TestEngineFanInNoLongerUsesStateMachine(unittest.TestCase):
             'fan-in must not reference the removed AWAITING_REPLIES state',
         )
 
-    def test_work_escalation_states_empty_or_absent(self):
-        from teaparty.cfa import engine
-        states = getattr(engine, 'WORK_ESCALATION_STATES', None)
-        if states is None:
-            return
-        self.assertEqual(
-            set(states), set(),
-            f'WORK_ESCALATION_STATES must be empty or removed; got '
-            f'{sorted(states)}. TASK_ESCALATE is gone; work-level '
-            'escalations are no longer a category.',
-        )
 
 
 # ── Classifier surface ─────────────────────────────────────────────────────
