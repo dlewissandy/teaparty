@@ -760,6 +760,7 @@ class Orchestrator:
         mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
 
         async def _run_child() -> str:
+            response_text = ''
             try:
                 result = await _launch(
                     agent_name=member,
@@ -776,12 +777,12 @@ class Orchestrator:
                     # spawn_fn reads.
                     caller_conversation_id=f'dispatch:{child_session.id}',
                 )
-                return getattr(result, 'response_text', '') or ''
+                response_text = getattr(result, 'response_text', '') or ''
             except Exception:
                 _log.exception(
                     '_bus_spawn_agent task failed for %s', member,
                 )
-                return ''
+                response_text = ''
             finally:
                 if child_listener:
                     try:
@@ -790,6 +791,34 @@ class Orchestrator:
                         _log.debug(
                             'child_listener.stop raised', exc_info=True,
                         )
+                # Fan-in bookkeeping (no silent errors — this is the
+                # hook that makes the engine notice the child is done).
+                # Remove this child from the in-flight set.  If that
+                # drains the set, wake the lead's ``_await_fan_in_and_reinvoke``
+                # so it can re-invoke the lead to synthesize the reply
+                # and run the skill's ASSERT gate.  Without this, the
+                # lead's turn ended after a dispatch, no one noticed the
+                # child completed, and the engine silently auto-approved
+                # EXECUTE → DONE.
+                self._tasks_by_child.pop(child_session.id, None)
+                lead_sid = self._phase_session_ids.get(
+                    phase_for_state(self.cfa.state), ''
+                )
+                if lead_sid and response_text:
+                    try:
+                        await self._bus_inject_reply(
+                            context_id='',
+                            session_id=lead_sid,
+                            message=response_text,
+                        )
+                    except Exception:
+                        _log.exception(
+                            '_run_child: inject reply failed for %s',
+                            member,
+                        )
+                if not self._tasks_by_child and self._fan_in_event:
+                    self._fan_in_event.set()
+            return response_text
 
         # Shared with chat tier (#422): same helper records the child,
         # emits dispatch_started, creates + registers the task.
@@ -1089,23 +1118,24 @@ class Orchestrator:
             self._fan_in_event.set()
 
     def _has_open_agent_contexts(self) -> bool:
-        """True if any bus agent contexts are still open (workers not yet replied)."""
-        if not self._bus_event_listener:
-            return False
-        from teaparty.messaging.conversations import SqliteMessageBus  # noqa: PLC0415
-        bus_db_path = os.path.join(self.infra_dir, 'messages.db')
-        if not os.path.exists(bus_db_path):
-            return False
-        bus = SqliteMessageBus(bus_db_path)
-        try:
-            contexts = bus.open_agent_contexts()
-            # Exclude the lead's own context — it's always open and is not a worker.
-            return any(
-                c['context_id'] != self._bus_lead_context_id
-                for c in contexts
-            )
-        finally:
-            bus.close()
+        """True iff any dispatched worker is still running.
+
+        Single source of truth: ``self._tasks_by_child`` — the dict
+        ``BusEventListener.schedule_child_task`` populates when a
+        dispatch starts, and ``_bus_spawn_agent``'s ``_run_child``
+        pops when the child subprocess exits.  If the dict has any
+        entry, a child is in flight; the lead must wait for fan-in
+        before the phase advances.
+
+        The older agent_contexts table was populated only by the
+        socketed listener path that is now dead code.  Reading it
+        silently reported "no workers open," so the fan-in wait
+        never fired and execute phases advanced to DONE after a
+        single turn whose only action was a Send.  That's the exact
+        silent-approval class the phase-outcome check in actors.py
+        also guards against; this is its twin.
+        """
+        return bool(self._tasks_by_child)
 
     def _update_lead_bus_session(self, session_id: str) -> None:
         """Update the orchestrator's bus context record with the latest lead session_id.

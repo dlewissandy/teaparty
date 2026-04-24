@@ -413,9 +413,33 @@ class AgentRunner:
             action = self._no_artifact_action_for_state(ctx.state)
             return ActorResult(action=action, data=data)
 
-        # No artifact configured — agent produced output, advance normally
-        action = self._resolve_action(ctx.state, 'auto-approve')
-        return ActorResult(action=action, data=data)
+        # No artifact configured AND no ``.phase-outcome.json`` — the
+        # skill ended its turn without declaring an outcome.  For the
+        # execute phase (artifact=null) this happened when the LLM's
+        # turn ended after dispatching a Send: the skill needs to
+        # continue (ASSERT dialog with the human, or synthesize the
+        # worker's reply) before declaring a terminal outcome.
+        #
+        # The previous code auto-approved here — "agent produced
+        # output, advance normally."  That's a silent approval: the
+        # engine moved EXECUTE → DONE without the skill running its
+        # ASSERT gate or any human sign-off, and the work the agent
+        # dispatched never got reviewed.  No silent approvals.
+        #
+        # Refuse, loudly.  The skill didn't terminate; treat it as an
+        # incomplete turn that the outer loop must surface, not as
+        # implicit approval.
+        raise RuntimeError(
+            f'CfA phase {ctx.state!r}: skill ended its turn without '
+            f'writing ``.phase-outcome.json`` and the phase has no '
+            f'artifact to infer from.  The skill is incomplete — the '
+            f'engine will NOT auto-approve (no silent approvals).  '
+            f'Typical cause: the lead dispatched work via Send and '
+            f'its turn ended; fan-in must re-invoke the lead so the '
+            f'skill can synthesize the reply and run its ASSERT gate '
+            f'before declaring APPROVE.  If fan-in is not firing, '
+            f'that is the bug to fix.'
+        )
 
     def _read_phase_outcome(
         self, ctx: ActorContext,

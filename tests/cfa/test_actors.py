@@ -154,15 +154,30 @@ class TestInterpretOutputMissingArtifact(unittest.TestCase):
         self.assertEqual(result.data.get('artifact_path'), artifact_path)
         self.assertNotIn('artifact_missing', result.data)
 
-    def test_no_artifact_configured_uses_auto_approve(self):
-        """When phase_spec.artifact is None, auto-approve is correct (no artifact gate)."""
+    def test_no_artifact_configured_and_no_phase_outcome_raises(self):
+        """Phase with no artifact AND no ``.phase-outcome.json`` raises loudly.
+
+        Previously this path fell through to ``action='auto-approve'`` —
+        a silent approval.  When the execute phase (``artifact=None``)
+        ran, the LLM dispatched via Send and its turn ended; no
+        phase-outcome.json existed, so the engine auto-approved
+        EXECUTE → DONE without the skill's ASSERT gate or any human
+        sign-off.  The work the agent dispatched never got reviewed.
+
+        The interpreter now refuses that case.  Either:
+          - the skill wrote ``.phase-outcome.json`` → use it
+          - the phase has an artifact and it exists → assert
+          - the phase has an artifact and it is missing → safe loop-back
+          - neither applies → raise (no silent approvals)
+        """
         spec = _make_phase_spec(artifact=None)
         ctx = _make_ctx(session_worktree=self.tmpdir, phase_spec=spec)
 
-        result = self.runner._interpret_output(ctx, _make_claude_result())
-
-        self.assertEqual(result.action, 'auto-approve')
-        self.assertNotIn('artifact_missing', result.data)
+        with self.assertRaises(RuntimeError) as cm:
+            self.runner._interpret_output(ctx, _make_claude_result())
+        msg = str(cm.exception)
+        self.assertIn('phase-outcome.json', msg)
+        self.assertIn('no silent approvals', msg)
 
 
 # ── ApprovalGate._generate_bridge ────────────────────────────────────────────

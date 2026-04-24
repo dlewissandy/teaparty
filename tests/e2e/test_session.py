@@ -143,15 +143,16 @@ def _make_phase_aware_caller(transcript: _Transcript | None = None) -> Any:
             Path(cwd, artifact).write_text(content)
             if transcript:
                 transcript.record_runner(artifact, cwd, content)
-            # Intent-alignment and planning skills self-terminate via
-            # .phase-outcome.json. The scripted caller emits APPROVE to
-            # advance to the next phase.
-            if '.intent-stream' in sf or '.plan-stream' in sf:
-                import json as _json
-                Path(cwd, '.phase-outcome.json').write_text(
-                    _json.dumps({'outcome': 'APPROVE',
-                                 'reason': 'scripted e2e approval'})
-                )
+            # Every skill self-terminates via .phase-outcome.json.
+            # The actor no longer auto-approves when the file is
+            # absent (no silent approvals), so the scripted caller
+            # must write it for every phase — intent, planning, AND
+            # execution — to mirror what a real skill does.
+            import json as _json
+            Path(cwd, '.phase-outcome.json').write_text(
+                _json.dumps({'outcome': 'APPROVE',
+                             'reason': 'scripted e2e approval'})
+            )
 
         if stream_file:
             Path(stream_file).touch()
@@ -195,6 +196,12 @@ def _make_ollama_caller(transcript: _Transcript | None = None) -> Any:
             Path(cwd, artifact).write_text(content)
             if transcript:
                 transcript.record_runner(artifact, f'{cwd} (via ollama)', content)
+            # Phase-outcome file for every phase — actors.py no longer
+            # auto-approves when it's missing (no silent approvals).
+            import json as _json
+            Path(cwd, '.phase-outcome.json').write_text(
+                _json.dumps({'outcome': 'APPROVE', 'reason': 'e2e ollama'})
+            )
 
         return ClaudeResult(
             exit_code=0,
