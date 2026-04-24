@@ -15,33 +15,24 @@ reads the outcome and calls ``transition(cfa, action)`` — action is
 the lowercase outcome (``approve`` / ``realign`` / ``replan`` /
 ``withdraw``).
 
-The machine is **static** — five states, three phases, ten edges.
-Previously this module loaded from ``cfa-state-machine.json`` and
-wrapped the definition in a third-party ``python-statemachine``
-StateMachine class (``cfa_machine.py``, 232 lines of ceremony for a
-5-state table).  The JSON + wrapper layer is deleted; what replaces
-it is the literal table below plus a 15-line ``transition()``.  If
-the machine ever gets complex enough to need a library, it won't be
-this machine.
+The actor is always the project lead; there is no per-state actor
+lookup.  Terminal states (DONE, WITHDRAWN) are their own phase
+``'terminal'`` — they are not execution states.  The machine is
+**static**: five states, three working phases, ten edges.
+``CfaState`` is a pydantic model so serialization is free.
 """
 from __future__ import annotations
 
-import json
 import os
-from dataclasses import dataclass, field
 from datetime import datetime, timezone
+
+from pydantic import BaseModel, Field
 
 
 # ── State machine definition (the entire machine is here) ──────────────────
 
 # Each entry: state → [(action, target_state), ...]
-# Terminal states have no outgoing edges.  The "actor" who performs
-# every action from a given state was previously a third element on
-# each tuple, but it's a per-state property — all outgoing edges from
-# INTENT are performed by the intent team, all from PLAN by the
-# planning team, all from EXECUTE by the project lead — so storing
-# it per-edge was just redundant columns.  Use ``actor_for_state`` if
-# you need the value.
+# Terminal states have no outgoing edges.
 TRANSITIONS: dict[str, list[tuple[str, str]]] = {
     'INTENT': [
         ('approve',  'PLAN'),
@@ -64,26 +55,12 @@ TRANSITIONS: dict[str, list[tuple[str, str]]] = {
 
 INTENT_STATES    = frozenset({'INTENT'})
 PLANNING_STATES  = frozenset({'PLAN'})
-EXECUTION_STATES = frozenset({'EXECUTE', 'DONE', 'WITHDRAWN'})
-ALL_STATES       = INTENT_STATES | PLANNING_STATES | EXECUTION_STATES
+EXECUTION_STATES = frozenset({'EXECUTE'})
 TERMINAL_STATES  = frozenset({'DONE', 'WITHDRAWN'})
+ALL_STATES       = INTENT_STATES | PLANNING_STATES | EXECUTION_STATES | TERMINAL_STATES
 
-# Actor-per-state — who performs any action from that state.
-_STATE_ACTORS: dict[str, str] = {
-    'INTENT':    'intent_team',
-    'PLAN':      'planning_team',
-    'EXECUTE':   'project_lead',
-    'DONE':      'system',
-    'WITHDRAWN': 'system',
-}
-
-
-def actor_for_state(state: str) -> str:
-    """Return the actor who performs actions on *state*."""
-    return _STATE_ACTORS.get(state, 'system')
-
-
-# Phase progression — used for backtrack detection.
+# Phase progression — used for backtrack detection.  Terminal has no
+# order (you can't backtrack out of a terminal state).
 _PHASE_ORDER = {'intent': 0, 'planning': 1, 'execution': 2}
 
 
@@ -95,63 +72,43 @@ class InvalidTransition(Exception):
 
 # ── Data model ─────────────────────────────────────────────────────────────
 
-@dataclass
-class CfaState:
-    """Full state of a Conversation for Action instance."""
-    phase: str           # 'intent' | 'planning' | 'execution'
+class CfaState(BaseModel):
+    """Full state of a Conversation for Action instance.
+
+    Pydantic model — ``model_dump_json()`` / ``model_validate_json()``
+    give us serialization for free.  ``save_state`` / ``load_state``
+    wrap those with atomic file I/O.
+    """
+    phase: str           # 'intent' | 'planning' | 'execution' | 'terminal'
     state: str           # 'INTENT' | 'PLAN' | 'EXECUTE' | 'DONE' | 'WITHDRAWN'
-    actor: str           # who should act next (from the transition table)
-    history: list = field(default_factory=list)
+    history: list = Field(default_factory=list)
     backtrack_count: int = 0
     task_id: str = ''
-    # Hierarchy fields — recursive CfA through team delegation.
-    parent_id: str = ''
-    team_id: str = ''
-    depth: int = 0
 
 
 # ── Factories ──────────────────────────────────────────────────────────────
 
-def make_initial_state(task_id: str = '', team_id: str = '') -> CfaState:
-    """Create the initial CfaState at INTENT, ready for the intent team."""
-    return CfaState(
-        phase='intent', state='INTENT', actor='intent_team',
-        task_id=task_id, team_id=team_id,
-    )
-
-
-def make_child_state(parent: CfaState, team_id: str, task_id: str = '') -> CfaState:
-    """Create a child CfaState linked to a parent dispatch.
-
-    The subteam does not re-derive intent — the delegated TASK already
-    carries the approved intent from the outer scope.  The child enters
-    at INTENT to acknowledge the inherited INTENT.md and quickly
-    approves through it rather than running the full intent-alignment
-    dialog.
-    """
-    child_task_id = (
-        task_id
-        or f"{team_id}-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
-    )
-    return CfaState(
-        phase='intent', state='INTENT', actor='intent_team',
-        task_id=child_task_id,
-        parent_id=parent.task_id,
-        team_id=team_id,
-        depth=parent.depth + 1,
-    )
+def make_initial_state(task_id: str = '') -> CfaState:
+    """Create the initial CfaState at INTENT."""
+    return CfaState(phase='intent', state='INTENT', task_id=task_id)
 
 
 # ── Query functions ────────────────────────────────────────────────────────
 
 def phase_for_state(state: str) -> str:
-    """Return 'intent' / 'planning' / 'execution' for a given state."""
+    """Return the phase label for a state.
+
+    Working phases: 'intent' / 'planning' / 'execution'.
+    Terminal states (DONE, WITHDRAWN) are 'terminal'.
+    """
     if state in INTENT_STATES:
         return 'intent'
     if state in PLANNING_STATES:
         return 'planning'
     if state in EXECUTION_STATES:
         return 'execution'
+    if state in TERMINAL_STATES:
+        return 'terminal'
     raise ValueError(f'Unknown state: {state!r}')
 
 
@@ -165,29 +122,24 @@ def available_actions(state: str) -> list[str]:
     return [action for action, _target in TRANSITIONS[state]]
 
 
-def is_phase_terminal(state: str) -> bool:
-    """True for globally terminal states (DONE, WITHDRAWN)."""
-    return state in TERMINAL_STATES
-
-
 def is_globally_terminal(state: str) -> bool:
     """True only for DONE and WITHDRAWN."""
     return state in TERMINAL_STATES
 
 
-def is_root(cfa: CfaState) -> bool:
-    """True if this is a root-level (uber-team) CfA instance."""
-    return cfa.depth == 0 and not cfa.parent_id
-
-
 def is_backtrack(from_state: str, action: str) -> bool:
-    """True if this transition moves to an earlier phase."""
+    """True if this transition moves to an earlier working phase.
+
+    Transitions into terminal states are never backtracks — they are
+    ends, not moves.
+    """
     for act, target in TRANSITIONS.get(from_state, []):
         if act == action:
-            return (
-                _PHASE_ORDER[phase_for_state(target)]
-                < _PHASE_ORDER[phase_for_state(from_state)]
-            )
+            target_phase = phase_for_state(target)
+            from_phase = phase_for_state(from_state)
+            if target_phase == 'terminal' or from_phase == 'terminal':
+                return False
+            return _PHASE_ORDER[target_phase] < _PHASE_ORDER[from_phase]
     return False
 
 
@@ -205,25 +157,21 @@ def transition(cfa: CfaState, action: str) -> CfaState:
             history_entry = {
                 'state': cfa.state,
                 'action': action,
-                'actor': cfa.actor,
                 'timestamp': datetime.now(timezone.utc).isoformat(),
             }
             new_phase = phase_for_state(target)
-            new_backtrack_count = cfa.backtrack_count + (
-                1 if _PHASE_ORDER[new_phase]
-                < _PHASE_ORDER[phase_for_state(cfa.state)]
-                else 0
+            old_phase = phase_for_state(cfa.state)
+            is_working_backtrack = (
+                new_phase != 'terminal'
+                and old_phase != 'terminal'
+                and _PHASE_ORDER[new_phase] < _PHASE_ORDER[old_phase]
             )
             return CfaState(
                 phase=new_phase,
                 state=target,
-                actor=actor_for_state(target),
                 history=cfa.history + [history_entry],
-                backtrack_count=new_backtrack_count,
+                backtrack_count=cfa.backtrack_count + (1 if is_working_backtrack else 0),
                 task_id=cfa.task_id,
-                parent_id=cfa.parent_id,
-                team_id=cfa.team_id,
-                depth=cfa.depth,
             )
     raise InvalidTransition(
         f'Action {action!r} is not valid from state {cfa.state!r}. '
@@ -244,44 +192,28 @@ def set_state_direct(cfa: CfaState, target_state: str) -> CfaState:
     history_entry = {
         'state': cfa.state,
         'action': 'set-state',
-        'actor': 'system',
         'timestamp': datetime.now(timezone.utc).isoformat(),
         'target': target_state,
     }
     return CfaState(
         phase=phase_for_state(target_state),
         state=target_state,
-        actor=actor_for_state(target_state),
         history=cfa.history + [history_entry],
         backtrack_count=cfa.backtrack_count,
         task_id=cfa.task_id,
-        parent_id=cfa.parent_id,
-        team_id=cfa.team_id,
-        depth=cfa.depth,
     )
 
 
 # ── Persistence ────────────────────────────────────────────────────────────
 
 def save_state(cfa: CfaState, path: str) -> None:
-    """Serialize CfaState to *path* atomically."""
+    """Serialize CfaState to *path* atomically via pydantic."""
     dir_name = os.path.dirname(path) or '.'
     os.makedirs(dir_name, exist_ok=True)
-    data = {
-        'phase': cfa.phase,
-        'state': cfa.state,
-        'actor': cfa.actor,
-        'history': cfa.history,
-        'backtrack_count': cfa.backtrack_count,
-        'task_id': cfa.task_id,
-        'parent_id': cfa.parent_id,
-        'team_id': cfa.team_id,
-        'depth': cfa.depth,
-    }
     tmp = path + '.tmp'
     try:
         with open(tmp, 'w') as f:
-            json.dump(data, f, indent=2)
+            f.write(cfa.model_dump_json(indent=2))
         os.replace(tmp, path)
     finally:
         try:
@@ -291,17 +223,6 @@ def save_state(cfa: CfaState, path: str) -> None:
 
 
 def load_state(path: str) -> CfaState:
-    """Deserialize CfaState from *path*."""
+    """Deserialize CfaState from *path* via pydantic."""
     with open(path) as f:
-        data = json.load(f)
-    return CfaState(
-        phase=data['phase'],
-        state=data['state'],
-        actor=data['actor'],
-        history=data.get('history', []),
-        backtrack_count=data.get('backtrack_count', 0),
-        task_id=data.get('task_id', ''),
-        parent_id=data.get('parent_id', ''),
-        team_id=data.get('team_id', ''),
-        depth=data.get('depth', 0),
-    )
+        return CfaState.model_validate_json(f.read())

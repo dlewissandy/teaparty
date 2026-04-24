@@ -331,7 +331,6 @@ class TestResumeFromDiskBusLifecycle(unittest.TestCase):
         fake_cfa = CfaState(
             state='PLANNING_WORK',
             phase='planning',
-            actor='agent',
             history=[],
             backtrack_count=0,
         )

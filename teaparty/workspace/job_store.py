@@ -368,12 +368,10 @@ def _set_cfa_withdrawn(infra_dir: str) -> None:
         return
 
     cfa['state'] = 'WITHDRAWN'
-    cfa['actor'] = 'bridge'
     history = cfa.get('history', [])
     history.append({
         'state': 'WITHDRAWN',
         'action': 'withdraw',
-        'actor': 'bridge',
         'timestamp': datetime.now(timezone.utc).isoformat(),
     })
     cfa['history'] = history

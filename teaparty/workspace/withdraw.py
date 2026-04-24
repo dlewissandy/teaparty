@@ -65,10 +65,10 @@ async def withdraw_session(
 
     # 4. Set CfA state to WITHDRAWN (session + nested dispatches)
     phase = session.cfa_phase or 'execution'
-    _set_state_withdrawn(session.infra_dir, phase)
+    _set_state_withdrawn(session.infra_dir)
     for dispatch in session.dispatches:
         if dispatch.infra_dir:
-            _set_state_withdrawn_recursive(dispatch.infra_dir, phase)
+            _set_state_withdrawn_recursive(dispatch.infra_dir)
 
     # 5. Clean up sentinel files (leave worktree intact)
     _cleanup_sentinels(session.infra_dir)
@@ -146,9 +146,9 @@ def _kill_nested_dispatches(infra_dir: str, depth: int = 0) -> None:
             continue
 
 
-def _set_state_withdrawn_recursive(infra_dir: str, phase: str, depth: int = 0) -> None:
+def _set_state_withdrawn_recursive(infra_dir: str, depth: int = 0) -> None:
     """Set WITHDRAWN on an infra dir and recurse into nested dispatch dirs."""
-    _set_state_withdrawn(infra_dir, phase)
+    _set_state_withdrawn(infra_dir)
     _cleanup_sentinels(infra_dir)
 
     if depth > 10:
@@ -163,7 +163,7 @@ def _set_state_withdrawn_recursive(infra_dir: str, phase: str, depth: int = 0) -
                 dispatch_dir = os.path.join(team_dir, entry)
                 if not os.path.isdir(dispatch_dir) or not entry[0].isdigit():
                     continue
-                _set_state_withdrawn_recursive(dispatch_dir, phase, depth + 1)
+                _set_state_withdrawn_recursive(dispatch_dir, depth + 1)
         except OSError:
             continue
 
@@ -295,8 +295,11 @@ def _sigkill_if_alive(pid: int) -> None:
         pass  # Already dead or inaccessible
 
 
-def _set_state_withdrawn(infra_dir: str, phase: str) -> None:
-    """Write WITHDRAWN to .cfa-state.json."""
+def _set_state_withdrawn(infra_dir: str) -> None:
+    """Write WITHDRAWN to .cfa-state.json.
+
+    WITHDRAWN is a terminal state — its phase is always ``'terminal'``.
+    """
     cfa_path = os.path.join(infra_dir, '.cfa-state.json')
     try:
         with open(cfa_path) as f:
@@ -304,12 +307,10 @@ def _set_state_withdrawn(infra_dir: str, phase: str) -> None:
     except (FileNotFoundError, json.JSONDecodeError):
         cfa = {}
     cfa['state'] = 'WITHDRAWN'
-    cfa['phase'] = phase
-    cfa['actor'] = 'system'
+    cfa['phase'] = 'terminal'
     cfa.setdefault('history', []).append({
         'state': 'WITHDRAWN',
         'action': 'withdraw',
-        'actor': 'orchestrator-withdraw',
         'timestamp': datetime.now(timezone.utc).isoformat(),
     })
     with open(cfa_path, 'w') as f:

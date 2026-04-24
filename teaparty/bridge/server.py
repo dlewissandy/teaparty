@@ -107,7 +107,6 @@ def _load_cfa_state(infra_dir: str) -> dict | None:
         return {
             'phase': cfa.phase,
             'state': cfa.state,
-            'actor': cfa.actor,
             'history': cfa.history,
             'backtrack_count': cfa.backtrack_count,
         }
@@ -4016,7 +4015,6 @@ class TeaPartyBridge:
             'status': s.status,
             'cfa_phase': s.cfa_phase,
             'cfa_state': s.cfa_state,
-            'cfa_actor': s.cfa_actor,
             'needs_input': needs_input,
             'input_conv_id': input_conv_id,
             'task': s.task,

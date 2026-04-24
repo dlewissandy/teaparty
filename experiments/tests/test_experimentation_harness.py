@@ -1264,7 +1264,6 @@ class TestSuppressBacktracks(unittest.TestCase):
         cfa = CfaState(
             state='PROPOSAL',
             phase='intent',
-            actor='agent',
             history=[],
             backtrack_count=0,
         )
@@ -1371,7 +1370,6 @@ class TestProxyEnabled(unittest.TestCase):
         cfa = CfaState(
             state='PROPOSAL',
             phase='intent',
-            actor='agent',
             history=[],
             backtrack_count=0,
         )

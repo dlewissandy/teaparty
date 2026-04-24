@@ -29,7 +29,7 @@ from teaparty.util.cost_tracker import CostTracker
 from teaparty.cfa.phase_config import PhaseConfig
 from teaparty.workspace.job_store import create_task, release_worktree
 from teaparty.cfa.statemachine.cfa_state import (
-    make_child_state,
+    make_initial_state,
     load_state,
     save_state,
 )
@@ -200,8 +200,8 @@ async def dispatch(
     team_spec = config.teams.get(team)
     direct_model = team_spec and team_spec.execution_model == 'direct'
 
-    # Load parent CfA state for child linkage (skip on resume — we use existing child state)
-    parent_cfa = None
+    # Validate parent CfA state file exists (skip on resume — we use existing child state).
+    # Parent/child linkage is tracked via the .children registry, not CfaState fields.
     if not resume_worktree:
         parent_state_path = (
             cfa_parent_state
@@ -210,7 +210,6 @@ async def dispatch(
         )
         if not os.path.exists(parent_state_path):
             return {'status': 'failed', 'reason': f'parent CfA state not found: {parent_state_path}'}
-        parent_cfa = load_state(parent_state_path)
 
     # Resume path (issue #149): reuse existing worktree and CfA state
     if resume_worktree and resume_infra:
@@ -279,10 +278,7 @@ async def dispatch(
             task_id=liaison_task_id or None,
         )
 
-        cfa = make_child_state(
-            parent_cfa, team,
-            task_id=f'dispatch-{team}-{dispatch_id}',
-        )
+        cfa = make_initial_state(task_id=f'dispatch-{team}-{dispatch_id}')
         save_state(cfa, os.path.join(dispatch_infra, '.cfa-state.json'))
     else:
         # Worktree-isolated execution model: create a task under the job,
@@ -315,11 +311,10 @@ async def dispatch(
             task_id=liaison_task_id or None,
         )
 
-        # Initialize CfA state for the child — use make_child_state for correct parent linkage
-        cfa = make_child_state(
-            parent_cfa, team,
-            task_id=f'dispatch-{team}-{dispatch_id}',
-        )
+        # Initialize CfA state for the child.  Parent/child linkage is
+        # tracked via the .children registry (registered above), not by
+        # CfaState fields.
+        cfa = make_initial_state(task_id=f'dispatch-{team}-{dispatch_id}')
         save_state(cfa, os.path.join(dispatch_infra, '.cfa-state.json'))
 
     # Run child orchestrator with event collection for experiment visibility.

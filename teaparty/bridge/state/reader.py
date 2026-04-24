@@ -129,7 +129,6 @@ class SessionState:
     status: str                      # active, complete, failed
     cfa_phase: str = ''
     cfa_state: str = ''
-    cfa_actor: str = ''
     needs_input: bool = False
     is_orphaned: bool = False
     dispatches: list = field(default_factory=list)
@@ -354,7 +353,6 @@ class StateReader:
         cfa = self._read_cfa(os.path.join(infra_dir, '.cfa-state.json'))
         cfa_phase = cfa.get('phase', '')
         cfa_state = cfa.get('state', '')
-        cfa_actor = cfa.get('actor', '')
         backtrack_count = cfa.get('backtrack_count', 0)
 
         # Determine if human input needed
@@ -452,7 +450,6 @@ class StateReader:
             status=status,
             cfa_phase=cfa_phase,
             cfa_state=cfa_state,
-            cfa_actor=cfa_actor,
             needs_input=needs_input,
             is_orphaned=is_orphaned,
             dispatches=dispatch_states,

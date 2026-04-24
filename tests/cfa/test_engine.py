@@ -74,7 +74,6 @@ def _make_cfa_state(state: str = 'INTENT') -> CfaState:
     return CfaState(
         state=state,
         phase='intent',
-        actor='agent',
         history=[],
         backtrack_count=0,
     )

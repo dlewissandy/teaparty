@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Tests for dispatch_cli.py — child CfA state creation and parent linkage.
+"""Tests for dispatch_cli.py — child CfA state creation and parent state resolution.
 
 Covers:
- 1. dispatch() uses make_child_state (not make_initial_state) when parent is available
- 2. Child CfA starts at INTENT, not IDEA
- 3. Child inherits parent_id, team_id, depth from parent
- 4. --cfa-parent-state arg takes priority over POC_CFA_STATE env var
- 5. POC_CFA_STATE env var is used when --cfa-parent-state is not set
- 6. Missing infra dir returns failed status without touching CfA state
+ 1. Child CfA starts at INTENT (parent/child linkage lives in .children registry)
+ 2. Child task_id has the form ``dispatch-{team}-{dispatch_id}``
+ 3. --cfa-parent-state arg takes priority over POC_CFA_STATE env var
+ 4. POC_CFA_STATE env var is used when --cfa-parent-state is not set
+ 5. Infra-dir default is used when neither arg nor env var is set
+ 6. Missing infra dir / parent state file returns failed status
  """
 import asyncio
 import os
@@ -66,8 +66,8 @@ def _make_mock_dispatch_info(infra_dir: str, dispatch_id: str = 'disp-001') -> d
 
 # ── Tests ──────────────────────────────────────────────────────────────────────
 
-class TestDispatchUsesMakeChildState(unittest.TestCase):
-    """dispatch() must use make_child_state, not make_initial_state."""
+class TestDispatchChildStateShape(unittest.TestCase):
+    """Child CfA state written by dispatch() has the correct shape."""
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
@@ -116,59 +116,17 @@ class TestDispatchUsesMakeChildState(unittest.TestCase):
 
         return result, saved_cfa_path
 
-    def test_child_state_is_intent_working_state(self):
-        """Child CfA state must start at INTENT (the intent working state).
-        In the five-state model, INTENT is the entry point for every CfA
-        (root or child); hierarchy fields distinguish children from roots.
+    def test_child_state_starts_at_intent(self):
+        """Child CfA state must start at INTENT — the entry point for every CfA.
+
+        Parent/child linkage is tracked via the ``.children`` registry, not
+        by CfaState fields; CfaState itself carries no hierarchy info.
         """
         parent_path = _make_parent_state_file(self.tmpdir)
         _, saved_cfa_path = self._run_dispatch(parent_path)
 
         child = load_state(saved_cfa_path)
         self.assertEqual(child.state, 'INTENT')
-
-    def test_child_state_starts_at_intent(self):
-        """Child CfA state must start at INTENT (planning entry point)."""
-        parent_path = _make_parent_state_file(self.tmpdir)
-        _, saved_cfa_path = self._run_dispatch(parent_path)
-
-        child = load_state(saved_cfa_path)
-        self.assertEqual(child.state, 'INTENT')
-
-    def test_child_parent_id_is_set(self):
-        """parent_id must be set to the parent's task_id."""
-        parent_path = _make_parent_state_file(self.tmpdir, task_id='uber-test-001')
-        _, saved_cfa_path = self._run_dispatch(parent_path)
-
-        child = load_state(saved_cfa_path)
-        self.assertEqual(child.parent_id, 'uber-test-001')
-
-    def test_child_team_id_is_set(self):
-        """team_id must be set to the dispatched team name."""
-        parent_path = _make_parent_state_file(self.tmpdir)
-        _, saved_cfa_path = self._run_dispatch(parent_path)
-
-        child = load_state(saved_cfa_path)
-        self.assertEqual(child.team_id, 'coding')
-
-    def test_child_depth_increments(self):
-        """Child depth must be parent.depth + 1."""
-        parent_path = _make_parent_state_file(self.tmpdir)
-        parent = load_state(parent_path)
-        expected_depth = parent.depth + 1
-
-        _, saved_cfa_path = self._run_dispatch(parent_path)
-
-        child = load_state(saved_cfa_path)
-        self.assertEqual(child.depth, expected_depth)
-
-    def test_child_depth_is_one_for_root_parent(self):
-        """Root parent (depth=0) produces child with depth=1."""
-        parent_path = _make_parent_state_file(self.tmpdir)
-        _, saved_cfa_path = self._run_dispatch(parent_path)
-
-        child = load_state(saved_cfa_path)
-        self.assertEqual(child.depth, 1)
 
     def test_child_task_id_includes_team_and_dispatch_id(self):
         """Child task_id must include the team name and a dispatch ID for traceability."""
@@ -238,62 +196,63 @@ class TestDispatchParentStateFallback(unittest.TestCase):
         return result, saved_cfa_path
 
     def test_explicit_cfa_parent_state_arg_is_used(self):
-        """--cfa-parent-state arg (explicit path) takes priority."""
-        # Write explicit parent state to a named file
+        """--cfa-parent-state arg (explicit path) takes priority.
+
+        Verified by: only the explicit path exists; env path and default
+        path do NOT exist.  Dispatch succeeds, proving that the explicit
+        path was the one consulted for existence.
+        """
+        # Explicit path exists
         explicit_path = os.path.join(self.tmpdir, 'explicit-state.json')
-        cfa = make_initial_state(task_id='explicit-parent')
-        cfa = transition(cfa, 'approve')  # INTENT → PLAN
-        cfa = transition(cfa, 'approve')  # PLAN → EXECUTE
-        save_state(cfa, explicit_path)
+        save_state(make_initial_state(task_id='explicit-parent'), explicit_path)
 
-        # Write a different parent state where POC_CFA_STATE points
-        env_state_path = os.path.join(self.tmpdir, 'env-state.json')
-        env_cfa = make_initial_state(task_id='env-parent')
-        env_cfa = transition(env_cfa, 'approve')
-        env_cfa = transition(env_cfa, 'approve')
-        save_state(env_cfa, env_state_path)
+        # Env path deliberately does NOT exist — if env had priority, dispatch fails
+        env_state_path = os.path.join(self.tmpdir, 'does-not-exist.json')
 
-        result, saved_cfa_path = self._run_dispatch_with_env(
+        result, _ = self._run_dispatch_with_env(
             {'POC_CFA_STATE': env_state_path},
             cfa_parent_state=explicit_path,
         )
 
-        child = load_state(saved_cfa_path)
-        self.assertEqual(child.parent_id, 'explicit-parent',
-                         "Explicit --cfa-parent-state should take priority over env var")
+        self.assertNotEqual(
+            result.get('status'), 'failed',
+            f'Explicit arg should have been used; dispatch failed with: {result}',
+        )
 
     def test_poc_cfa_state_env_var_is_used_as_fallback(self):
-        """POC_CFA_STATE env var is used when no explicit path is given."""
-        env_state_path = os.path.join(self.tmpdir, 'env-state.json')
-        parent = make_initial_state(task_id='env-task-001')
-        parent = transition(parent, 'approve')
-        parent = transition(parent, 'approve')
-        save_state(parent, env_state_path)
+        """POC_CFA_STATE env var is used when no explicit path is given.
 
-        result, saved_cfa_path = self._run_dispatch_with_env(
+        Verified by: env path exists; infra-dir default does NOT.  If env
+        lookup didn't happen, dispatch would fall through to the default
+        and fail.
+        """
+        env_state_path = os.path.join(self.tmpdir, 'env-state.json')
+        save_state(make_initial_state(task_id='env-task-001'), env_state_path)
+
+        # Infra-dir default path deliberately NOT written
+
+        result, _ = self._run_dispatch_with_env(
             {'POC_CFA_STATE': env_state_path},
             cfa_parent_state='',
         )
-
-        child = load_state(saved_cfa_path)
-        self.assertEqual(child.parent_id, 'env-task-001')
+        self.assertNotEqual(
+            result.get('status'), 'failed',
+            f'Env fallback should have been used; dispatch failed with: {result}',
+        )
 
     def test_default_infra_dir_cfa_state_is_used(self):
         """Falls back to <infra_dir>/.cfa-state.json when neither arg nor env var is set."""
-        # Write parent state to the default location
         default_state_path = os.path.join(self.tmpdir, '.cfa-state.json')
-        parent = make_initial_state(task_id='default-task-001')
-        parent = transition(parent, 'approve')
-        parent = transition(parent, 'approve')
-        save_state(parent, default_state_path)
+        save_state(make_initial_state(task_id='default-task-001'), default_state_path)
 
-        result, saved_cfa_path = self._run_dispatch_with_env(
+        result, _ = self._run_dispatch_with_env(
             {'POC_CFA_STATE': None},  # Ensure env var is unset
             cfa_parent_state='',
         )
-
-        child = load_state(saved_cfa_path)
-        self.assertEqual(child.parent_id, 'default-task-001')
+        self.assertNotEqual(
+            result.get('status'), 'failed',
+            f'Default path should have been used; dispatch failed with: {result}',
+        )
 
     def test_missing_infra_dir_returns_failed_status(self):
         """dispatch() returns failed status immediately when POC_SESSION_DIR is not set."""

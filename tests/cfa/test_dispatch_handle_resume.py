@@ -124,7 +124,7 @@ class TestDispatchHandleResume(unittest.IsolatedAsyncioTestCase):
         o._fan_in_event = None
         # Minimal cfa state so _run_child's inject path doesn't AttributeError.
         from teaparty.cfa.statemachine.cfa_state import CfaState
-        o.cfa = CfaState(phase='execution', state='EXECUTE', actor='project_lead')
+        o.cfa = CfaState(phase='execution', state='EXECUTE')
 
         # Capture every ``resume_session`` passed to launch so we can
         # verify the second call resumes instead of spawning fresh.
@@ -227,7 +227,7 @@ class TestDispatchHandleResume(unittest.IsolatedAsyncioTestCase):
         o._fan_in_event = None
         # Minimal cfa state so _run_child's inject path doesn't AttributeError.
         from teaparty.cfa.statemachine.cfa_state import CfaState
-        o.cfa = CfaState(phase='execution', state='EXECUTE', actor='project_lead')
+        o.cfa = CfaState(phase='execution', state='EXECUTE')
 
         async def fake_launch(**kwargs):
             return _StubLLMResult()

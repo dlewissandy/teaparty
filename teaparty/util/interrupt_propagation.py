@@ -31,7 +31,6 @@ def is_backtrack(old_phase: str, new_phase: str) -> bool:
 
 def cascade_withdraw_children(
     infra_dir: str,
-    phase: str,
 ) -> list[dict]:
     """Withdraw all active child dispatches.
 
@@ -73,7 +72,7 @@ def cascade_withdraw_children(
 
         # Set child CfA state to WITHDRAWN
         child_infra = os.path.dirname(hb_path)
-        _set_state_withdrawn(child_infra, phase)
+        _set_state_withdrawn(child_infra)
 
         # Finalize heartbeat
         try:
@@ -82,7 +81,7 @@ def cascade_withdraw_children(
             pass
 
         # Recurse into nested dispatches under this child
-        _cascade_nested(child_infra, phase)
+        _cascade_nested(child_infra)
 
         withdrawn.append({
             'team': team,
@@ -99,7 +98,6 @@ def cascade_withdraw_children(
 
 def _cascade_nested(
     infra_dir: str,
-    phase: str,
     depth: int = 0,
 ) -> None:
     """Recursively withdraw nested dispatches under an infra dir.
@@ -140,7 +138,7 @@ def _cascade_nested(
                 if pid:
                     _kill_pid(pid)
 
-                _set_state_withdrawn(dispatch_dir, phase)
+                _set_state_withdrawn(dispatch_dir)
 
                 try:
                     finalize_heartbeat(hb_path, 'withdrawn')
@@ -148,7 +146,7 @@ def _cascade_nested(
                     pass
 
                 # Recurse deeper
-                _cascade_nested(dispatch_dir, phase, depth + 1)
+                _cascade_nested(dispatch_dir, depth + 1)
         except OSError:
             continue
 
@@ -175,21 +173,11 @@ def _kill_pid(pid: int) -> None:
         pass
 
 
-def _set_state_withdrawn(infra_dir: str, phase: str) -> None:
+def _set_state_withdrawn(infra_dir: str) -> None:
     """Write WITHDRAWN to .cfa-state.json in the given infra dir.
 
-    Semantic wart noted during the 2026-04-18 doc/code audit:
-    ``phase`` here is the CALLER's phase (the parent driving the
-    cascade), not the child's own pre-withdrawal phase.  The child's
-    last-known phase is overwritten, losing the information about
-    where the child actually was when the cascade reached it.
-    WITHDRAWN is not in INTENT_STATES / PLANNING_STATES /
-    EXECUTION_STATES, so phase_for_state('WITHDRAWN') would raise —
-    the phase slot has to be filled with *something*.  Whether that
-    something should be the parent's phase (current), the child's
-    preserved pre-withdrawal phase, or a sentinel like 'withdrawn'
-    is a calibration-stack design choice left for the milestone-4
-    rewrite (#337).
+    The phase becomes ``'terminal'`` because WITHDRAWN is a terminal
+    state — it has its own phase in the five-state model.
     """
     cfa_path = os.path.join(infra_dir, '.cfa-state.json')
     try:
@@ -199,12 +187,10 @@ def _set_state_withdrawn(infra_dir: str, phase: str) -> None:
         cfa = {}
 
     cfa['state'] = 'WITHDRAWN'
-    cfa['phase'] = phase
-    cfa['actor'] = 'system'
+    cfa['phase'] = 'terminal'
     cfa.setdefault('history', []).append({
         'state': 'WITHDRAWN',
         'action': 'withdraw',
-        'actor': 'interrupt-propagation',
         'timestamp': datetime.now(timezone.utc).isoformat(),
     })
 

@@ -29,6 +29,7 @@ from teaparty.cfa.statemachine.cfa_state import (
     EXECUTION_STATES,
     INTENT_STATES,
     PLANNING_STATES,
+    TERMINAL_STATES,
     TRANSITIONS,
     CfaState,
     is_globally_terminal,
@@ -60,8 +61,6 @@ REMOVED_TASK_STATES = frozenset({
     'INTENT_RESPONSE',
 })
 
-REMOVED_EXECUTION_ACTORS = frozenset({'execution_worker', 'execution_lead'})
-
 REMOVED_ACTIONS = frozenset({
     'send-and-wait', 'resume',
     # Also removed in the five-state collapse:
@@ -73,13 +72,20 @@ REMOVED_ACTIONS = frozenset({
 # ── State machine structural invariants ────────────────────────────────────
 
 class TestExecutionPhaseShape(unittest.TestCase):
-    """The execution phase reduces to {EXECUTE, DONE, WITHDRAWN}."""
+    """The execution phase reduces to {EXECUTE}; terminals are their own phase."""
 
-    def test_execution_phase_has_exactly_three_states(self):
+    def test_execution_phase_has_exactly_one_state(self):
         self.assertEqual(
             set(EXECUTION_STATES),
-            {'EXECUTE', 'DONE', 'WITHDRAWN'},
-            f'execution phase must contain only EXECUTE + terminals, got {sorted(EXECUTION_STATES)}',
+            {'EXECUTE'},
+            f'execution phase must contain only EXECUTE, got {sorted(EXECUTION_STATES)}',
+        )
+
+    def test_terminals_are_their_own_phase(self):
+        self.assertEqual(
+            set(TERMINAL_STATES),
+            {'DONE', 'WITHDRAWN'},
+            f'terminal states must be exactly DONE and WITHDRAWN, got {sorted(TERMINAL_STATES)}',
         )
 
     def test_no_task_level_states_in_any_phase(self):
@@ -153,24 +159,6 @@ class TestNewDelegatePath(unittest.TestCase):
             f'EXECUTE --withdraw--> must go to WITHDRAWN, got '
             f'{action_to_target["withdraw"]}',
         )
-
-
-class TestExecutionActorsRemoved(unittest.TestCase):
-    """Actors execution_worker / execution_lead must not appear for any state.
-
-    Actors moved from per-edge tuples to a per-state lookup
-    (``actor_for_state``).  This test pins that no legacy execution
-    actor name survives.
-    """
-
-    def test_no_state_names_a_removed_actor(self):
-        from teaparty.cfa.statemachine.cfa_state import actor_for_state
-        for state in ALL_STATES:
-            self.assertNotIn(
-                actor_for_state(state), REMOVED_EXECUTION_ACTORS,
-                f'state {state!r} actor={actor_for_state(state)!r} '
-                'uses a removed execution actor',
-            )
 
 
 class TestActionsRemoved(unittest.TestCase):

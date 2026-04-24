@@ -227,7 +227,7 @@ class TestSkillLookupIntegrationWithEngine(unittest.TestCase):
         )
 
         orch = Orchestrator(
-            cfa_state=CfaState(state='PLANNING', phase='planning', actor='agent',
+            cfa_state=CfaState(state='PLANNING', phase='planning',
                                history=[], backtrack_count=0),
             phase_config=cfg,
             event_bus=MagicMock(spec=EventBus, publish=AsyncMock()),

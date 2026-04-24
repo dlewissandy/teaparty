@@ -114,7 +114,7 @@ class TestCfaSpawnEnforcesSlotLimit(unittest.IsolatedAsyncioTestCase):
         o._phase_session_ids = {}
         o._fan_in_event = None
         from teaparty.cfa.statemachine.cfa_state import CfaState
-        o.cfa = CfaState(phase='execution', state='EXECUTE', actor='project_lead')
+        o.cfa = CfaState(phase='execution', state='EXECUTE')
 
         async def fake_launch(**kwargs):
             return _StubLLMResult()
@@ -214,7 +214,7 @@ class TestCfaSpawnEnforcesSlotLimit(unittest.IsolatedAsyncioTestCase):
         o._phase_session_ids = {}
         o._fan_in_event = None
         from teaparty.cfa.statemachine.cfa_state import CfaState
-        o.cfa = CfaState(phase='execution', state='EXECUTE', actor='project_lead')
+        o.cfa = CfaState(phase='execution', state='EXECUTE')
 
         async def fake_launch(**kwargs):
             return _StubLLMResult(session_id=f'claude-resume')

@@ -19,7 +19,6 @@ from teaparty.cfa.statemachine.cfa_state import (
     CfaState,
     InvalidTransition,
     is_globally_terminal,
-    is_phase_terminal,
     phase_for_state,
     save_state,
     transition,
@@ -1559,18 +1558,6 @@ class Orchestrator:
                 ))
                 return PhaseResult(terminal=True, terminal_state=self.cfa.state)
 
-            # Phase-terminal: this phase reached its terminal state
-            # (e.g., INTENT for intent phase, PLAN for planning phase).
-            if is_phase_terminal(self.cfa.state) and phase_for_state(self.cfa.state) == phase_name:
-                await self.event_bus.publish(Event(
-                    type=EventType.PHASE_COMPLETED,
-                    data={'phase': phase_name, 'state': self.cfa.state},
-                    session_id=self.session_id,
-                ))
-                # In-flight learning: write assumption checkpoint (Issue #199)
-                self._write_assumption_checkpoint(phase_name)
-                return PhaseResult()
-
             # Check for phase exit (e.g., INTENT → PLAN, PLAN → EXECUTE)
             current_phase = phase_for_state(self.cfa.state)
             if current_phase != phase_name:
@@ -1707,8 +1694,7 @@ class Orchestrator:
         """Dispatch to the actor for the current phase.
 
         In the 5-state model there is one actor — the project lead
-        running the phase's skill.  ``cfa.actor`` is carried for
-        telemetry/history, not for dispatch routing.
+        running the phase's skill.
         """
         state = self.cfa.state
 
@@ -1892,7 +1878,7 @@ class Orchestrator:
 
         # Withdrawal: cascade immediately
         if new_state == 'WITHDRAWN':
-            withdrawn = cascade_withdraw_children(self.infra_dir, self.cfa.phase)
+            withdrawn = cascade_withdraw_children(self.infra_dir)
             self._intervention_active = False
             write_intervention_outcome(  # Issue #276
                 infra_dir=self.infra_dir,
@@ -1926,7 +1912,7 @@ class Orchestrator:
             return
 
         if is_backtrack(old_phase, new_phase):
-            withdrawn = cascade_withdraw_children(self.infra_dir, new_phase)
+            withdrawn = cascade_withdraw_children(self.infra_dir)
             self._intervention_active = False
             write_intervention_outcome(  # Issue #276
                 infra_dir=self.infra_dir,
@@ -2022,7 +2008,6 @@ class Orchestrator:
                     'old_phase':     old_phase,
                     'new_phase':     self.cfa.phase,
                     'action':        action,
-                    'actor':         self.cfa.actor,
                     'state_machine': 'cfa',
                 },
             )
@@ -2073,7 +2058,6 @@ class Orchestrator:
             data={
                 'phase': self.cfa.phase,
                 'state': self.cfa.state,
-                'actor': self.cfa.actor,
                 'previous_state': old_state,
                 'action': action,
                 'history': self.cfa.history,
