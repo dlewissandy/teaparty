@@ -144,6 +144,7 @@ class Session:
         llm_caller: Any = None,
         proxy_invoker_fn: Any = None,
         on_dispatch: Any = None,
+        paused_check: Any = None,
     ):
         self.task = task
         self.poc_root = poc_root
@@ -175,6 +176,7 @@ class Session:
         # /escalation skill + accordion path as chat-tier AgentSession.
         self._proxy_invoker_fn = proxy_invoker_fn
         self._on_dispatch = on_dispatch
+        self._paused_check = paused_check
 
         # Resolved during run
         self.project_slug = ''
@@ -399,6 +401,7 @@ class Session:
                 llm_caller=self._llm_caller,
                 proxy_invoker_fn=self._proxy_invoker_fn,
                 on_dispatch=self._on_dispatch,
+                paused_check=self._paused_check,
             )
 
             result = await orchestrator.run()
@@ -705,6 +708,7 @@ class Session:
         escalation_modes: dict[str, str] | None = None,
         proxy_invoker_fn: Any = None,
         on_dispatch: Any = None,
+        paused_check: Any = None,
     ) -> SessionResult:
         """Reconstruct a session from persisted disk state and resume orchestration.
 
@@ -894,6 +898,7 @@ class Session:
                 intervention_queue=intervention_queue,
                 proxy_invoker_fn=proxy_invoker_fn,
                 on_dispatch=on_dispatch,
+                paused_check=paused_check,
             )
 
             result = await orchestrator.run()

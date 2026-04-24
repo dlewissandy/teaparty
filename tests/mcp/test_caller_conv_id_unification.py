@@ -186,6 +186,8 @@ class TestCfaSpawnReadsConvIdFromContextvar(unittest.TestCase):
                 project_slug = 'joke-book'
                 _stream_conv_id = 'job:joke-book:orch-session-1'
                 _mcp_routes = None
+                _paused_check = None
+                _session_registry: dict = {}
                 _dispatcher_session = create_session(
                     agent_name='joke-book-lead', scope='management',
                     teaparty_home=os.path.join(tmp, '.teaparty'),

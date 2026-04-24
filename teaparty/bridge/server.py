@@ -3280,6 +3280,10 @@ class TeaPartyBridge:
             # chat-tier AgentSession (proxy + skill + accordion blade).
             proxy_invoker_fn=self._invoke_proxy,
             on_dispatch=self._broadcast_dispatch,
+            paused_check=(
+                (lambda s=project_slug: s in self._paused_projects)
+                if project_slug else None
+            ),
         )
 
         async def _run_session():
@@ -3386,6 +3390,12 @@ class TeaPartyBridge:
                     infra_dir,
                     poc_root=self._repo_root,
                     escalation_modes=escalation_modes,
+                    proxy_invoker_fn=self._invoke_proxy,
+                    on_dispatch=self._broadcast_dispatch,
+                    paused_check=(
+                        (lambda s=project_slug: s in self._paused_projects)
+                        if project_slug else None
+                    ),
                 )
             except Exception:
                 _log.exception(

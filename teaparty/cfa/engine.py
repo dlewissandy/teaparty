@@ -116,6 +116,7 @@ class Orchestrator:
         llm_caller: Any = None,
         proxy_invoker_fn: Callable[..., Awaitable[None]] | None = None,
         on_dispatch: Callable[[dict], Any] | None = None,
+        paused_check: Callable[[], bool] | None = None,
     ):
         self.cfa = cfa_state
         self.config = phase_config
@@ -149,6 +150,16 @@ class Orchestrator:
         self._intervention_active: bool = False
         self._proxy_invoker_fn = proxy_invoker_fn
         self._on_dispatch = on_dispatch
+        # Optional zero-arg callable returning True when the project is
+        # paused; new dispatches get refused in that state.  Matches the
+        # chat-tier AgentSession.paused_check hook.
+        self._paused_check = paused_check
+        # Map session_id → Session for nested dispatch: when a child
+        # agent calls Send, its current_session_id (set by the MCP
+        # middleware) picks the right dispatcher out of this registry.
+        # Without it, every Send would parent-attach to the root
+        # orchestrator's session — wrong for grandchild spawns.
+        self._session_registry: dict[str, Any] = {}
         # Running cost total for this session (telemetry only — no limits).
         # Written to infra_dir/.cost after each turn so the bridge dashboard
         # and stats bar can surface per-session USD spend.
@@ -386,6 +397,14 @@ class Orchestrator:
             resolve_launch_placement, LaunchCwdNotResolved,
         )
 
+        # Refuse new dispatches while the project is paused.
+        if self._paused_check is not None and self._paused_check():
+            _log.warning(
+                '_bus_spawn_agent: project %s paused, dispatch to %s refused',
+                self.project_slug, member,
+            )
+            return ('', '', 'paused')
+
         # Validate member against the registry before creating any session state.
         try:
             resolve_launch_placement(member, self.teaparty_home)
@@ -395,6 +414,18 @@ class Orchestrator:
                 member, exc,
             )
             return ('', '', f'unresolved_member:{member}')
+
+        # Determine which session is dispatching: a grandchild Send
+        # should attach under its own session, not the root
+        # orchestrator's.  The MCP middleware sets
+        # ``current_session_id`` per-request.
+        from teaparty.mcp.registry import (
+            current_session_id as _current_session_var,
+        )
+        caller_sid = _current_session_var.get('')
+        dispatcher_session = self._session_registry.get(
+            caller_sid, self._dispatcher_session,
+        )
 
         # Thread continuation: if the caller passed an ACTIVE dispatch
         # handle with the same lead, re-launch that existing child with
@@ -444,7 +475,7 @@ class Orchestrator:
             _slot_bus = _Bus(self._bus_event_listener.bus_db_path)
             try:
                 _ok = check_slot_available(
-                    self._dispatcher_session,
+                    dispatcher_session,
                     bus=_slot_bus,
                     conv_id=parent_conv_id,
                 )
@@ -520,10 +551,14 @@ class Orchestrator:
             child_session.merge_target_branch = merge_target_branch
             child_session.merge_target_worktree = merge_target_worktree
             child_session.parent_session_id = (
-                self._dispatcher_session.id if self._dispatcher_session else ''
+                dispatcher_session.id if dispatcher_session else ''
             )
         child_session.initial_message = composite
         _save_meta(child_session)
+
+        # Track the child so its own Send calls resolve to the right
+        # dispatcher_session via ``current_session_id``.
+        self._session_registry[child_session.id] = child_session
 
         # Child bus listener for recipients with a sub-roster.
         child_listener = None
@@ -631,7 +666,7 @@ class Orchestrator:
         self._bus_event_listener.schedule_child_task(
             child_session_id=child_session.id,
             launch_coro=_run_child(),
-            dispatcher_session=self._dispatcher_session,
+            dispatcher_session=dispatcher_session,
             context_id=context_id,
             agent_name=member,
             on_dispatch=self._on_dispatch,

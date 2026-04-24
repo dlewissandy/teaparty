@@ -130,6 +130,8 @@ class TestCfACloseE2E(unittest.IsolatedAsyncioTestCase):
         o.infra_dir = tempfile.mkdtemp(prefix='tp422-infra-')
         o.project_slug = 'test'
         o._dispatcher_session = dispatcher
+        o._paused_check = None
+        o._session_registry = {}
         o._on_dispatch = None  # set per-test
         o._mcp_routes = None   # not used by _bus_spawn_agent itself
         o._tasks_by_child = {}
@@ -323,6 +325,8 @@ class TestCfASpawnIsVisibleToBridgeWalker(unittest.IsolatedAsyncioTestCase):
         o.infra_dir = tempfile.mkdtemp(prefix='tp422-infra-')
         o.project_slug = 'test'
         o._dispatcher_session = dispatcher
+        o._paused_check = None
+        o._session_registry = {}
         o._on_dispatch = None
         o._mcp_routes = None
         o._tasks_by_child = {}
@@ -431,6 +435,8 @@ class TestCfASpawnReturnsSessionRecordId(unittest.IsolatedAsyncioTestCase):
         o.infra_dir = tempfile.mkdtemp(prefix='tp422-infra-')
         o.project_slug = 'test'
         o._dispatcher_session = dispatcher
+        o._paused_check = None
+        o._session_registry = {}
         o._on_dispatch = None
         o._mcp_routes = None
         o._tasks_by_child = {}

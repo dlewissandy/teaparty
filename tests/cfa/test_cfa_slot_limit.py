@@ -106,6 +106,8 @@ class TestCfaSpawnEnforcesSlotLimit(unittest.IsolatedAsyncioTestCase):
         o.infra_dir = self._infra
         o.project_slug = 'test'
         o._dispatcher_session = dispatcher
+        o._paused_check = None
+        o._session_registry = {}
         o._on_dispatch = None
         o._mcp_routes = None
         o._tasks_by_child = {}
@@ -206,6 +208,8 @@ class TestCfaSpawnEnforcesSlotLimit(unittest.IsolatedAsyncioTestCase):
         o.infra_dir = self._infra
         o.project_slug = 'test'
         o._dispatcher_session = dispatcher
+        o._paused_check = None
+        o._session_registry = {}
         o._on_dispatch = None
         o._mcp_routes = None
         o._tasks_by_child = {}
