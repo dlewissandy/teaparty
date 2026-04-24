@@ -292,8 +292,6 @@ class Orchestrator:
                 initiator_agent_id=lead_agent_id,
                 current_context_id=self._bus_lead_context_id,
                 spawn_fn=self._bus_spawn_agent,
-                reply_fn=self._bus_inject_reply,
-                dispatcher=self._build_bus_dispatcher(),
             )
             self._bus_event_listener.tasks_by_child = self._tasks_by_child
             await self._bus_event_listener.start()
@@ -313,10 +311,20 @@ class Orchestrator:
                 agent_name=lead_agent_id,
                 bus=_close_bus,
             )
+            from teaparty.messaging.child_dispatch import (
+                build_session_dispatcher,
+            )
+            dispatcher, agent_id_map = build_session_dispatcher(
+                teaparty_home=self.teaparty_home,
+                project_dir=self.project_dir,
+                project_slug=self.project_slug,
+            )
             self._mcp_routes = MCPRoutes(
                 spawn_fn=self._bus_spawn_agent,
                 close_fn=close_fn,
                 ask_question_runner=self._ask_question_runner,
+                dispatcher=dispatcher,
+                agent_id_map=agent_id_map,
             )
             register_agent_mcp_routes(
                 self.config.project_lead or 'project-lead',
@@ -334,43 +342,6 @@ class Orchestrator:
                 await self._intervention_listener.stop()
             if self._bus_event_listener:
                 await self._bus_event_listener.stop()
-
-    def _build_bus_dispatcher(self) -> object | None:
-        """Build a BusDispatcher from project workgroup config, or None if not available.
-
-        Attempts to load workgroup definitions from project.yaml and derive the
-        routing table.  Returns None (no enforcement) when config is missing — this
-        is expected during bootstrap before workgroup YAML is present.
-        """
-        from teaparty.messaging.dispatcher import BusDispatcher, RoutingTable
-        from teaparty.config.config_reader import resolve_workgroups, load_project_team
-
-        if not self.project_dir:
-            return None
-        try:
-            proj = load_project_team(self.project_dir)
-        except (FileNotFoundError, OSError):
-            return None
-
-        try:
-            workgroups = resolve_workgroups(
-                proj.workgroups,
-                project_dir=self.project_dir,
-                teaparty_home=self.teaparty_home,
-            )
-        except Exception:
-            return None
-
-        if not workgroups:
-            return None
-
-        wg_dicts = [
-            {'name': wg.name, 'lead': wg.lead, 'agents': [{'role': a} for a in wg.members_agents]}
-            for wg in workgroups
-        ]
-        project_name = self.project_slug or os.path.basename(self.project_dir)
-        routing_table = RoutingTable.from_workgroups(wg_dicts, project_name=project_name)
-        return BusDispatcher(routing_table)
 
     async def _bus_spawn_agent(self, member: str, composite: str, context_id: str) -> tuple[str, str, str]:
         """Spawn a recipient agent for bus-mediated dispatch.
@@ -560,21 +531,6 @@ class Orchestrator:
         # dispatcher_session via ``current_session_id``.
         self._session_registry[child_session.id] = child_session
 
-        # Child bus listener for recipients with a sub-roster.
-        child_listener = None
-        try:
-            from teaparty.config.roster import has_sub_roster
-            if has_sub_roster(member, self.teaparty_home,
-                              project_dir=self.project_workdir):
-                child_listener, _ = await self._make_child_listener(
-                    member, context_id, worktree_path,
-                )
-        except Exception:
-            _log.debug(
-                'Sub-roster check failed for %s — spawning as leaf worker',
-                member, exc_info=True,
-            )
-
         child_conv_id = f'dispatch:{child_session.id}'
         child_bus = _Bus(self._bus_event_listener.bus_db_path)
         # Capture launch at spawn time so tests that monkeypatch
@@ -608,13 +564,6 @@ class Orchestrator:
                 )
                 response_text = ''
             finally:
-                if child_listener:
-                    try:
-                        await child_listener.stop()
-                    except Exception:
-                        _log.debug(
-                            'child_listener.stop raised', exc_info=True,
-                        )
                 # Fan-in bookkeeping: remove this child from the in-flight
                 # set and wake the lead's fan-in waiter when the set drains.
                 self._tasks_by_child.pop(child_session.id, None)
@@ -651,189 +600,6 @@ class Orchestrator:
         )
 
         return (child_session.id, worktree_path, '')
-
-    async def _make_child_listener(
-        self,
-        member: str,
-        context_id: str,
-        agent_dir: str,
-    ) -> tuple[Any, dict]:
-        """Create a child BusEventListener for an agent with a sub-roster.
-
-        Returns (listener, mcp_config) where mcp_config contains the child
-        listener's socket paths for the spawned agent's MCP server.
-        """
-        import sys
-        from teaparty.messaging.listener import BusEventListener
-        from teaparty.runners.launcher import launch as _launch
-        from teaparty.config.roster import (
-            derive_project_roster,
-            derive_workgroup_roster,
-            agent_id_map as build_agent_id_map,
-        )
-        from teaparty.messaging.dispatcher import BusDispatcher, RoutingTable
-
-        bus_db_path = os.path.join(self.infra_dir, 'messages.db')
-
-        # Determine the child's agent_id
-        project_name = self.project_slug or os.path.basename(self.project_workdir)
-        if member.endswith('-lead'):
-            child_agent_id = f'{member[:-5]}/lead'
-        else:
-            child_agent_id = f'{project_name}/{member}'
-
-        child_context_id = f'agent:{child_agent_id}:{context_id}'
-
-        child_roster: dict = {}
-        child_id_map: dict[str, str] = {}
-        try:
-            child_roster = derive_project_roster(
-                self.project_workdir, self.teaparty_home,
-            )
-            child_id_map = build_agent_id_map(
-                child_roster, 'project', project_name=project_name,
-            )
-        except Exception:
-            _log.debug('Project roster derivation failed for %s', member, exc_info=True)
-
-        if child_roster and child_id_map:
-            routing_table = RoutingTable()
-            for name in child_roster:
-                agent_id = child_id_map.get(name, name)
-                routing_table.add_pair(child_agent_id, agent_id)
-                routing_table.add_pair(agent_id, child_agent_id)
-            dispatcher = BusDispatcher(routing_table)
-        else:
-            dispatcher = None
-
-        async def child_spawn_fn(
-            child_member: str, composite: str, child_ctx_id: str,
-        ) -> tuple[str, str, str]:
-            from teaparty.runners.launcher import (
-                create_session as _cs,
-                _save_session_metadata as _save_meta,
-            )
-            from teaparty.workspace.worktree import (
-                create_subchat_worktree, current_branch_of, head_commit_of,
-            )
-            child_session = _cs(
-                agent_name=child_member, scope='management',
-                teaparty_home=self.teaparty_home,
-            )
-            child_wt = os.path.join(child_session.path, 'worktree')
-            session_branch = f'session/{child_session.id}'
-            source_repo = self.session_worktree or self.project_workdir
-            try:
-                source_ref = await head_commit_of(source_repo) or 'HEAD'
-            except Exception:
-                source_ref = 'HEAD'
-            try:
-                target_branch = await current_branch_of(source_repo)
-            except Exception:
-                target_branch = ''
-            try:
-                await create_subchat_worktree(
-                    source_repo=source_repo,
-                    source_ref=source_ref,
-                    dest_path=child_wt,
-                    branch_name=session_branch,
-                    parent_worktree=source_repo,
-                )
-            except Exception:
-                _log.exception(
-                    'child_spawn_fn: create_subchat_worktree failed for %s',
-                    child_member,
-                )
-                return ('', '', 'worktree_failed')
-            child_session.launch_cwd = child_wt
-            child_session.worktree_path = child_wt
-            child_session.worktree_branch = session_branch
-            child_session.merge_target_repo = self.project_workdir
-            child_session.merge_target_branch = target_branch
-            child_session.merge_target_worktree = source_repo
-            child_session.parent_session_id = (
-                self._dispatcher_session.id if self._dispatcher_session else ''
-            )
-            child_session.initial_message = composite
-            _save_meta(child_session)
-
-            mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
-            await _launch(
-                agent_name=child_member,
-                message=composite,
-                scope='management',
-                teaparty_home=self.teaparty_home,
-                worktree=child_wt,
-                mcp_port=mcp_port,
-                session_id=child_session.id,
-                mcp_routes=self._mcp_routes,
-                caller_conversation_id=f'dispatch:{child_session.id}',
-            )
-            return (child_session.id, child_wt, '')
-
-        async def child_resume_fn(
-            child_member: str, composite: str, session_id: str, child_ctx_id: str,
-        ) -> str:
-            from teaparty.messaging.conversations import SqliteMessageBus
-            child_agent_dir = ''
-            if os.path.exists(bus_db_path) and child_ctx_id:
-                bus = SqliteMessageBus(bus_db_path)
-                try:
-                    ctx = bus.get_agent_context(child_ctx_id)
-                    if ctx:
-                        child_agent_dir = ctx.get('agent_worktree_path', '')
-                finally:
-                    bus.close()
-            if not child_agent_dir:
-                child_agent_dir = self.project_workdir
-            mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
-            result = await _launch(
-                agent_name=child_member,
-                message=composite,
-                scope='management',
-                teaparty_home=self.teaparty_home,
-                worktree=child_agent_dir,
-                resume_session=session_id,
-                mcp_port=mcp_port,
-                mcp_routes=self._mcp_routes,
-                caller_conversation_id=f'dispatch:{session_id}',
-            )
-            return result.session_id
-
-        async def child_reinvoke_fn(
-            child_ctx_id: str, session_id: str, message: str,
-        ) -> None:
-            _log.debug(
-                'Child reinvoke for context %s — fan-in complete',
-                child_ctx_id,
-            )
-
-        listener = BusEventListener(
-            bus_db_path=bus_db_path,
-            initiator_agent_id=child_agent_id,
-            current_context_id=child_context_id,
-            spawn_fn=child_spawn_fn,
-            resume_fn=child_resume_fn,
-            reinvoke_fn=child_reinvoke_fn,
-            dispatcher=dispatcher,
-        )
-
-        await listener.start()
-
-        venv_python = sys.executable
-        mcp_config = {
-            'ask-question': {
-                'command': venv_python,
-                'args': ['-m', 'teaparty.mcp.server.main'],
-                'env': {
-                    'AGENT_ID': child_agent_id,
-                    'CONTEXT_ID': child_context_id,
-                    'BUS_DB_PATH': bus_db_path,
-                },
-            },
-        }
-
-        return (listener, mcp_config)
 
     async def _bus_inject_reply(
         self, context_id: str, session_id: str, message: str,

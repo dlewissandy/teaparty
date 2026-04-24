@@ -655,10 +655,15 @@ class TestSpawnFnDispatchesAtProjectRepo(unittest.TestCase):
                 new_callable=AsyncMock,
             ):
                 await om._ensure_bus_listener(self._teaparty_repo)
-                from teaparty.mcp.registry import get_spawn_fn
+                from teaparty.mcp.registry import (
+                    get_spawn_fn, current_conversation_id,
+                )
                 spawn_fn = get_spawn_fn('office-manager')
                 self.assertIsNotNone(spawn_fn,
                                      'spawn_fn not registered for OM')
+                # Mirror what ASGI middleware does: set the caller's
+                # conv_id contextvar before spawn_fn runs.
+                current_conversation_id.set(om.conversation_id)
                 result = await spawn_fn(member, 'do a thing', 'ctx-1')
                 # Drain background _run_child tasks so the launch
                 # actually executes before we inspect captured kwargs.

@@ -96,30 +96,29 @@ class TestOrchestratorBuildsMCPRoutes(unittest.TestCase):
             'actor and spawn paths to thread through launch() calls.',
         )
 
-    def test_orchestrator_threads_mcp_routes_through_every_launch(self) -> None:
-        """Every ``await _launch(``/``await launch(`` in the CfA tree
-        passes ``mcp_routes=`` — so children, grandchildren, and resumes
-        all install routes the same way.
+    def test_cfa_spawn_threads_mcp_routes_to_child_lifecycle(self) -> None:
+        """CfA's ``_run_child`` closure in ``_bus_spawn_agent`` passes
+        ``mcp_routes=self._mcp_routes`` into ``run_child_lifecycle`` so
+        the dispatched child (and its grandchildren, via the same
+        bundle) install routes at launch time.
         """
         engine = _read(_ENGINE)
-        # Each launch() block passes mcp_routes=self._mcp_routes
+        self.assertIn(
+            'run_child_lifecycle(', engine,
+            'CfA engine must call the shared run_child_lifecycle helper',
+        )
+        # The call must pass mcp_routes= through.
         pattern = re.compile(
-            r'await\s+_launch\(\s*(?P<body>.*?)\)\s*\n',
+            r'run_child_lifecycle\(\s*(?P<body>.*?)\)\s*\n',
             re.DOTALL,
         )
-        launch_blocks = pattern.findall(engine)
-        self.assertGreater(
-            len(launch_blocks), 0,
-            'expected at least one _launch(...) call in cfa/engine.py',
-        )
-        missing = [
-            b for b in launch_blocks if 'mcp_routes=' not in b
-        ]
-        self.assertEqual(
-            missing, [],
-            'every CfA _launch(...) must pass mcp_routes= (#422). '
-            f'Missing in {len(missing)} block(s).',
-        )
+        calls = pattern.findall(engine)
+        self.assertGreater(len(calls), 0)
+        for body in calls:
+            self.assertIn(
+                'mcp_routes=', body,
+                'every run_child_lifecycle call must pass mcp_routes=',
+            )
 
     def test_actors_launch_threads_mcp_routes_from_context(self) -> None:
         actors_path = os.path.join(_REPO_ROOT, 'teaparty', 'cfa', 'actors.py')

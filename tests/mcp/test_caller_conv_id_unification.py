@@ -197,7 +197,7 @@ class TestCfaSpawnReadsConvIdFromContextvar(unittest.TestCase):
                     bus_db_path=bus_path,
                     initiator_agent_id='joke-book-lead',
                     current_context_id='ctx-1',
-                    spawn_fn=None, resume_fn=None, reply_fn=None,
+                    spawn_fn=None,
                 )
 
             from teaparty.cfa.engine import Orchestrator

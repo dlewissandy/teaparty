@@ -617,55 +617,15 @@ class AgentSession:
                       self.agent_name, member)
             return (child_session.id, member_launch_cwd, '')
 
-        async def resume_fn(member, composite, session_id, context_id):
-            # Resume path: a peer Send landed on an existing open
-            # subchat. The child session is still alive in its
-            # per-session worktree; re-launch at that same worktree
-            # with --resume so claude picks the conversation up.
-            child_session_id = ''
-            if context_id and context_id.startswith('dispatch:'):
-                child_session_id = context_id[len('dispatch:'):]
-
-            existing = None
-            if child_session_id:
-                existing = _load_session(
-                    agent_name=member, scope=self.scope,
-                    teaparty_home=self.teaparty_home,
-                    session_id=child_session_id,
-                )
-            if existing is None or not existing.worktree_path:
-                _log.error(
-                    '%s resume_fn: no live worktree for child session '
-                    '%s — cannot resume %s',
-                    self.agent_name, child_session_id, member,
-                )
-                return ''
-
-            mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
-            result = await _launch(
-                agent_name=member, message=composite,
-                scope=self.scope, teaparty_home=self.teaparty_home,
-                telemetry_scope=self._telemetry_scope,
-                worktree=existing.worktree_path,
-                resume_session=session_id, mcp_port=mcp_port,
-                session_id=child_session_id,
-                mcp_routes=self._mcp_routes,
-                # Child's own conv_id — the parent of any dispatches
-                # it makes via Send.  Middleware sets this as the
-                # ``current_conversation_id`` contextvar; the child's
-                # own spawn_fn reads it when registering grandchildren
-                # in the bus.
-                caller_conversation_id=f'dispatch:{child_session_id}',
-            )
-            return result.session_id
-
-        async def reply_fn(context_id, session_id, message):
-            _log.info('%s reply_fn: delivering reply for context %s',
-                      self.agent_name, context_id)
-            self._bus.send(self.conversation_id, self.agent_role, message)
-
         async def reinvoke_fn(context_id, session_id, message):
-            _log.info('%s reinvoke_fn: fan-in complete for context %s',
+            """Human-interjection hook: the bridge calls
+            ``BusEventListener.handle_interjection`` when a human types
+            into an active agent's chat, which fires this through
+            ``_locked_reinvoke``.  The real resume with ``--resume`` is
+            driven by the child lifecycle loop — this callback just
+            logs so the path is observable.
+            """
+            _log.info('%s reinvoke_fn: interjection received for context %s',
                       self.agent_name, context_id)
 
         if not self._bus_context_id:
@@ -685,8 +645,6 @@ class AgentSession:
             initiator_agent_id=self.agent_name,
             current_context_id=self._bus_context_id,
             spawn_fn=spawn_fn,
-            resume_fn=resume_fn,
-            reply_fn=reply_fn,
             reinvoke_fn=reinvoke_fn,
         )
         # Alias the session's tasks_by_child onto the listener so the
@@ -745,15 +703,41 @@ class AgentSession:
         # server runs inside the bridge, not in the agent's subprocess, so
         # env vars don't reach the handler — the handler reads the registry
         # keyed by current_agent_name (set by ASGI middleware from the URL).
-        from teaparty.mcp.registry import MCPRoutes
+        #
+        # The dispatcher + agent_id_map enforce routing at Send time —
+        # the same mechanism the CfA engine uses, derived from the same
+        # shared helper.  An OM session derives the table from the
+        # management roster; a project-lead session derives it from
+        # project workgroups.  Grandchildren register the same bundle
+        # via launch(), so an arbitrarily nested team enforces against
+        # one routing table.
+        from teaparty.mcp.registry import (
+            MCPRoutes, register_agent_mcp_routes,
+        )
+        from teaparty.messaging.child_dispatch import (
+            build_session_dispatcher,
+        )
+        from teaparty.config.roster import resolve_lead_project_path
+
+        proj_dir = ''
+        if self.project_slug:
+            proj_dir = resolve_lead_project_path(
+                self.agent_name, self.teaparty_home,
+            ) or ''
+        dispatcher, agent_id_map = build_session_dispatcher(
+            teaparty_home=self.teaparty_home,
+            project_dir=proj_dir,
+            project_slug=self.project_slug,
+        )
         self._mcp_routes = MCPRoutes(
             spawn_fn=spawn_fn,
             close_fn=close_fn,
             ask_question_runner=self._ask_question_runner,
+            dispatcher=dispatcher,
+            agent_id_map=agent_id_map,
         )
         # Register the bundle for the lead itself.  Dispatched children
         # are registered by launch() when their subprocess spawns.
-        from teaparty.mcp.registry import register_agent_mcp_routes
         register_agent_mcp_routes(self.agent_name, self._mcp_routes)
 
         return {

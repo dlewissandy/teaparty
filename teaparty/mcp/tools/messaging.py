@@ -95,18 +95,58 @@ async def _default_send_post(member: str, composite: str, context_id: str) -> st
     agent's spawn_fn is installed in the in-process registry by
     ``launch()`` (via ``MCPRoutes`` — issue #422), keyed by agent name,
     with the current agent name supplied per-request via contextvars.
+
+    Before invoking ``spawn_fn`` we authorize the post against the
+    session's ``BusDispatcher`` (also installed by ``launch()`` via the
+    same ``MCPRoutes`` bundle).  Authorization is the single transport-
+    level enforcement point: an agent whose prompt is broken or hostile
+    cannot reach a recipient outside its permitted set.  When no
+    dispatcher is registered (bootstrap, scripted tests, projects
+    without YAML) we fall through with no enforcement — same default as
+    pre-#422.
     """
     import time as _time
     import logging as _logging
     _send_log = _logging.getLogger('teaparty.mcp.tools.messaging.send')
 
-    from teaparty.mcp.registry import get_spawn_fn
+    from teaparty.mcp.registry import (
+        get_spawn_fn, get_dispatcher, get_agent_id_map, current_agent_name,
+    )
+    from teaparty.messaging.dispatcher import RoutingError
+
     spawn_fn = get_spawn_fn()
     if spawn_fn is None:
         raise RuntimeError(
             'No spawn_fn in registry — launch() did not install MCPRoutes '
             'for this agent.',
         )
+
+    # Routing authorization.  When the session registered a dispatcher
+    # we enforce; otherwise (bootstrap / scripted tests) we let the post
+    # through.  The id_map translates the names Send sees (from the
+    # agent's roster) into the scoped IDs the routing table keys on.
+    dispatcher = get_dispatcher()
+    if dispatcher is not None:
+        id_map = get_agent_id_map()
+        sender_name = current_agent_name.get('')
+        sender_id = id_map.get(sender_name, sender_name)
+        recipient_id = id_map.get(member, member)
+        try:
+            dispatcher.authorize(sender_id, recipient_id)
+        except RoutingError as exc:
+            _send_log.warning(
+                'send_registry: %r → %r refused by dispatcher: %s',
+                sender_id, recipient_id, exc,
+            )
+            return json.dumps({
+                'status': 'failed',
+                'reason': (
+                    f'Routing refused: {sender_id!r} cannot post to '
+                    f'{recipient_id!r}.  Cross-workgroup posts must go '
+                    f'through your project lead; cross-project posts '
+                    f'must go through the OM.'
+                ),
+            })
 
     t0 = _time.monotonic()
     try:
