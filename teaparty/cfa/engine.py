@@ -276,17 +276,25 @@ class Orchestrator:
             intervention_queue.role_enforcer = role_enforcer
         self._pending_intervention: str = ''  # Prompt to inject at next agent turn
         self._intervention_active: bool = False  # True after intervention delivery (Issue #247)
-        self._cost_tracker = cost_tracker
-        self._cost_warning_emitted = False  # Only emit once per job
-        self._project_cost_warning_emitted = False
         # Hooks wired from the bridge so EscalationListener can use the
         # same proxy-skill mechanism as chat-tier AgentSession.  When
         # supplied, escalations route through the /escalation skill and
         # render as nested accordion blades.
         self._proxy_invoker_fn = proxy_invoker_fn
         self._on_dispatch = on_dispatch
-        self._project_cost_ledger: ProjectCostLedger | None = (
-            ProjectCostLedger(project_workdir) if cost_tracker else None
+        # Budget monitor owns the cost_tracker, the once-per-job warning
+        # flags, context-budget checks, and the cost sidecar.  Extracted
+        # from ~180 lines of inline engine methods whose only connection
+        # to the CfA loop was timing.
+        from teaparty.cfa._budgets import BudgetMonitor
+        self._budgets = BudgetMonitor(
+            event_bus=event_bus,
+            session_id=session_id,
+            input_provider=input_provider,
+            cost_tracker=cost_tracker,
+            project_cost_ledger=(
+                ProjectCostLedger(project_workdir) if cost_tracker else None
+            ),
         )
 
         # Scratch file lifecycle (Issue #261): working memory for context budget.
@@ -1594,20 +1602,10 @@ class Orchestrator:
             # Accumulate cost from this turn (Issues #262, #341)
             turn_cost = actor_result.data.get('cost_usd', 0.0)
             if turn_cost:
-                if self._cost_tracker:
-                    cost_event: dict[str, Any] = {
-                        'type': 'result',
-                        'total_cost_usd': turn_cost,
-                    }
-                    per_model = actor_result.data.get('cost_per_model')
-                    if per_model:
-                        cost_event['cost_usd'] = per_model
-                    self._cost_tracker.record(cost_event)
-                    # Record to project-level ledger for cross-job aggregation
-                    if self._project_cost_ledger:
-                        self._project_cost_ledger.record(self.session_id, turn_cost)
-                    # Write running total for dashboard display
-                    self._write_cost_sidecar()
+                await self._budgets.record_turn_cost(
+                    actor_result.data, self.session_id,
+                )
+                self._budgets.write_sidecar(self.infra_dir)
                 # Publish turn stats so job chat cost filter receives them (Issue #341)
                 turn_stats: dict[str, Any] = {'total_cost_usd': turn_cost}
                 for key in ('input_tokens', 'output_tokens', 'duration_ms'):
@@ -1686,16 +1684,23 @@ class Orchestrator:
             if not is_globally_terminal(self.cfa.state):
                 self._update_scratch(phase_name)
 
-            # Turn boundary: check context budget for compaction (Issue #260).
+            # Turn boundary: budgets (context + job + project).  The
+            # monitor returns a pending-intervention prompt when it
+            # needs one injected at the next turn (compaction, or
+            # human-declines-past-budget); empty string otherwise.
             if not is_globally_terminal(self.cfa.state):
-                await self._check_context_budget(actor_result, phase_name)
-
-            # Turn boundary: check cost budget (Issue #262).
-            # Warn at 80%, pause at 100%. Pausing means withholding the
-            # next prompt until the human responds — same mechanism as
-            # compaction triggering.
-            if self._cost_tracker and not is_globally_terminal(self.cfa.state):
-                await self._check_cost_budget()
+                compact_prompt = await self._budgets.check_context(
+                    budget=actor_result.data.get('context_budget'),
+                    phase_name=phase_name,
+                    task=self._task_for_phase(phase_name),
+                )
+                if compact_prompt:
+                    self._pending_intervention = compact_prompt
+            if (self._budgets.cost_tracker
+                    and not is_globally_terminal(self.cfa.state)):
+                wrap_up = await self._budgets.check_costs()
+                if wrap_up:
+                    self._pending_intervention = wrap_up
 
     async def _invoke_actor(self, spec: 'PhaseSpec', phase_name: str,
                              phase_start_time: float = 0.0) -> ActorResult:
@@ -1821,185 +1826,6 @@ class Orchestrator:
         _log.info('External withdrawal received for session %s', session_id)
         self.cfa = set_state_direct(self.cfa, 'WITHDRAWN')
 
-    async def _check_context_budget(self, actor_result: ActorResult, phase_name: str) -> None:
-        """Check context budget and inject /compact at turn boundary (Issue #260).
-
-        Called after every CfA transition.  Inspects the context_budget
-        from the actor result and:
-        - At warning threshold: publishes CONTEXT_WARNING event
-        - At compact threshold: injects /compact as next prompt via --resume
-        """
-        budget = actor_result.data.get('context_budget')
-        if not isinstance(budget, ContextBudget):
-            return
-
-        if budget.should_warn and not budget.should_compact:
-            await self.event_bus.publish(Event(
-                type=EventType.CONTEXT_WARNING,
-                data={
-                    'utilization': budget.utilization,
-                    'used_tokens': budget.used_tokens,
-                    'context_window': budget.context_window,
-                    'phase': phase_name,
-                },
-                session_id=self.session_id,
-            ))
-            budget.clear_warning()
-
-        if budget.should_compact:
-            task = self._task_for_phase(phase_name)
-            compact_prompt = build_compact_prompt(
-                cfa_state=self.cfa.state,
-                task=task,
-                scratch_path='.context/scratch.md',
-            )
-            # Inject as pending intervention — same mechanism as Issue #246.
-            # Compaction takes priority: overwrite any pending intervention.
-            self._pending_intervention = compact_prompt
-
-            await self.event_bus.publish(Event(
-                type=EventType.CONTEXT_WARNING,
-                data={
-                    'utilization': budget.utilization,
-                    'used_tokens': budget.used_tokens,
-                    'context_window': budget.context_window,
-                    'phase': phase_name,
-                    'action': 'compact',
-                    'compact_prompt': compact_prompt,
-                },
-                session_id=self.session_id,
-            ))
-            budget.clear_compact()
-
-    async def _check_cost_budget(self) -> None:
-        """Check cost budget thresholds and publish events (Issue #262).
-
-        Called at turn boundaries after each agent turn completes.
-        - At 80%: publish COST_WARNING and escalate to human (once per job)
-        - At 100%: publish COST_LIMIT, pause the job (withhold next prompt),
-          and ask the human "Continue?"
-        """
-        tracker = self._cost_tracker
-        if not tracker:
-            return
-
-        # Warn at 80% (once)
-        if tracker.warning_triggered and not self._cost_warning_emitted:
-            self._cost_warning_emitted = True
-            await self.event_bus.publish(Event(
-                type=EventType.COST_WARNING,
-                data={
-                    'total_cost_usd': tracker.total_cost_usd,
-                    'job_limit_usd': tracker.job_limit,
-                    'utilization': tracker.utilization,
-                },
-                session_id=self.session_id,
-            ))
-
-        # Pause at 100% — withhold the next prompt until the human responds.
-        if tracker.limit_reached:
-            cost = tracker.total_cost_usd
-            limit = tracker.job_limit
-            await self.event_bus.publish(Event(
-                type=EventType.COST_LIMIT,
-                data={
-                    'total_cost_usd': cost,
-                    'job_limit_usd': limit,
-                    'utilization': tracker.utilization,
-                },
-                session_id=self.session_id,
-            ))
-
-            # Ask the human whether to continue — same pause mechanism
-            # as infrastructure failure escalation.
-            bridge_text = (
-                f'This job has used ${cost:.2f} of its ${limit:.2f} budget. '
-                f'Continue?'
-            )
-            response = await self.input_provider(InputRequest(
-                type='cost_limit',
-                state='COST_LIMIT',
-                artifact='',
-                bridge_text=bridge_text,
-            ))
-
-            # If the human says to continue, let the turn loop proceed.
-            # Otherwise inject a wrap-up prompt.
-            resp_lower = (response or '').strip().lower()
-            if resp_lower in ('no', 'n', 'stop', 'withdraw'):
-                self._pending_intervention = (
-                    f'[COST BUDGET EXCEEDED] The human declined to continue. '
-                    f'Wrap up current work and commit partial progress.'
-                )
-
-        # Project-level budget check — aggregates across all jobs.
-        await self._check_project_cost_budget()
-
-    async def _check_project_cost_budget(self) -> None:
-        """Check project-level cost budget (aggregated across jobs)."""
-        tracker = self._cost_tracker
-        ledger = self._project_cost_ledger
-        if not tracker or not ledger or not tracker.project_limit:
-            return
-
-        project_total = ledger.total_cost()
-        project_limit = tracker.project_limit
-        utilization = project_total / project_limit if project_limit else 0.0
-
-        # Warn at 80% (once)
-        if utilization >= WARNING_THRESHOLD and not self._project_cost_warning_emitted:
-            self._project_cost_warning_emitted = True
-            await self.event_bus.publish(Event(
-                type=EventType.COST_WARNING,
-                data={
-                    'total_cost_usd': project_total,
-                    'project_limit_usd': project_limit,
-                    'utilization': utilization,
-                    'scope': 'project',
-                },
-                session_id=self.session_id,
-            ))
-
-        # Pause at 100%
-        if utilization >= LIMIT_THRESHOLD:
-            await self.event_bus.publish(Event(
-                type=EventType.COST_LIMIT,
-                data={
-                    'total_cost_usd': project_total,
-                    'project_limit_usd': project_limit,
-                    'utilization': utilization,
-                    'scope': 'project',
-                },
-                session_id=self.session_id,
-            ))
-
-            bridge_text = (
-                f'Project has used ${project_total:.2f} of its '
-                f'${project_limit:.2f} budget across all jobs. Continue?'
-            )
-            response = await self.input_provider(InputRequest(
-                type='cost_limit',
-                state='COST_LIMIT',
-                artifact='',
-                bridge_text=bridge_text,
-            ))
-            resp_lower = (response or '').strip().lower()
-            if resp_lower in ('no', 'n', 'stop', 'withdraw'):
-                self._pending_intervention = (
-                    f'[PROJECT BUDGET EXCEEDED] The human declined to continue. '
-                    f'Wrap up current work and commit partial progress.'
-                )
-
-    def _write_cost_sidecar(self) -> None:
-        """Write running cost total to infra_dir for dashboard display."""
-        if not self._cost_tracker or not self.infra_dir:
-            return
-        try:
-            path = os.path.join(self.infra_dir, '.cost')
-            with open(path, 'w') as f:
-                f.write(f'{self._cost_tracker.total_cost_usd:.6f}\n')
-        except OSError:
-            pass
 
     async def _on_scratch_event(self, event: Event) -> None:
         """Feed events into the scratch model (Issue #261).
