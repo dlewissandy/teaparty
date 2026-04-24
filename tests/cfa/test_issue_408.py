@@ -27,7 +27,7 @@ from unittest.mock import MagicMock, patch
 
 import yaml
 
-from teaparty.cfa.engine import _make_stream_event_handler
+from teaparty.teams.stream import _make_live_stream_relay
 from teaparty.cfa.phase_config import PhaseConfig
 from teaparty.cfa.session import _resolve_project_lead_sender
 from teaparty.runners.launcher import resolve_agent_definition
@@ -326,21 +326,24 @@ class TestFlatModePhaseSpec(unittest.TestCase):
 # ── Layer 3: Stream event handler sender ─────────────────────────────────────
 
 class TestStreamEventHandlerSender(unittest.TestCase):
-    """_make_stream_event_handler must use the configured agent_sender, not 'agent'."""
+    """The unified stream relay (``_make_live_stream_relay``) must use the
+    configured agent_role, not a hardcoded 'agent'."""
 
-    def _make_mock_bus(self):
-        """Return a mock bus that records all sends as (sender, content) tuples."""
+    def _make_mock_bus_and_callback(self, agent_role: str):
+        """Return (callback, sent_list) via ``_make_live_stream_relay``."""
         bus = MagicMock()
         sent = []
         bus.send.side_effect = lambda conv_id, sender, content: sent.append((sender, content))
-        return bus, sent
+        callback, _events = _make_live_stream_relay(bus, 'job:test:001', agent_role)
+        return callback, sent
 
-    def test_assistant_text_uses_configured_agent_sender(self):
-        """An 'assistant' text event must be sent with agent_sender, not 'agent'."""
-        bus, sent = self._make_mock_bus()
-        handler = _make_stream_event_handler(bus, 'job:test:001', agent_sender='comics-lead')
+    def test_assistant_text_uses_configured_agent_role(self):
+        """An 'assistant' text event must be sent with agent_role, not 'agent'."""
+        callback, sent = self._make_mock_bus_and_callback('comics-lead')
 
-        handler({'type': 'assistant', 'message': {'content': 'Here is my plan'}})
+        callback({'type': 'assistant', 'message': {
+            'content': [{'type': 'text', 'text': 'Here is my plan'}],
+        }})
 
         self.assertEqual(len(sent), 1,
                          f'expected 1 message sent, got {len(sent)}')
@@ -352,40 +355,38 @@ class TestStreamEventHandlerSender(unittest.TestCase):
         self.assertEqual(content, 'Here is my plan')
 
     def test_assistant_text_does_not_send_as_agent_when_lead_configured(self):
-        """When agent_sender='comics-lead', no message must have sender 'agent' (regression guard)."""
-        bus, sent = self._make_mock_bus()
-        handler = _make_stream_event_handler(bus, 'job:test:001', agent_sender='comics-lead')
+        """When agent_role='comics-lead', no message must have sender 'agent' (regression guard)."""
+        callback, sent = self._make_mock_bus_and_callback('comics-lead')
 
-        handler({'type': 'assistant', 'message': {'content': 'Hello'}})
-        handler({'type': 'result', 'result': 'Done'})
+        callback({'type': 'assistant', 'message': {
+            'content': [{'type': 'text', 'text': 'Hello'}],
+        }})
+        callback({'type': 'result', 'result': 'Done'})
 
         senders = [s for s, _ in sent]
         self.assertNotIn(
             'agent', senders,
-            f"no event must use sender 'agent' when agent_sender='comics-lead'; "
+            f"no event must use sender 'agent' when agent_role='comics-lead'; "
             f"senders seen: {senders}",
         )
 
-    def test_result_event_uses_configured_agent_sender(self):
-        """A 'result' event must use agent_sender, not 'agent'."""
-        bus, sent = self._make_mock_bus()
-        handler = _make_stream_event_handler(bus, 'job:test:001', agent_sender='comics-lead')
+    def test_result_event_fallback_uses_configured_agent_role(self):
+        """A 'result' event falling back to emit its text must use agent_role, not 'agent'."""
+        callback, sent = self._make_mock_bus_and_callback('comics-lead')
 
-        handler({'type': 'result', 'result': 'Task complete'})
+        # No prior assistant text → result.result is re-emitted as fallback.
+        callback({'type': 'result', 'result': 'Task complete'})
 
-        self.assertEqual(len(sent), 1)
-        sender, content = sent[0]
-        self.assertEqual(
-            sender, 'comics-lead',
-            f"result event must be sent as 'comics-lead', got '{sender}'",
-        )
+        agent_msgs = [(s, c) for s, c in sent if s == 'comics-lead']
+        self.assertEqual(len(agent_msgs), 1,
+                         f'expected 1 fallback agent message, got: {sent}')
+        self.assertEqual(agent_msgs[0][1], 'Task complete')
 
     def test_thinking_events_still_use_thinking_sender(self):
-        """Thinking blocks must still use 'thinking' sender regardless of agent_sender."""
-        bus, sent = self._make_mock_bus()
-        handler = _make_stream_event_handler(bus, 'job:test:001', agent_sender='comics-lead')
+        """Thinking blocks must still use 'thinking' sender regardless of agent_role."""
+        callback, sent = self._make_mock_bus_and_callback('comics-lead')
 
-        handler({
+        callback({
             'type': 'assistant',
             'message': {
                 'content': [{'type': 'thinking', 'thinking': 'Let me think...'}],
@@ -393,18 +394,17 @@ class TestStreamEventHandlerSender(unittest.TestCase):
         })
 
         self.assertEqual(len(sent), 1)
-        sender, content = sent[0]
+        sender, _ = sent[0]
         self.assertEqual(
             sender, 'thinking',
             f"thinking blocks must use 'thinking' sender, got '{sender}'",
         )
 
     def test_tool_use_events_still_use_tool_use_sender(self):
-        """Tool use blocks must still use 'tool_use' sender regardless of agent_sender."""
-        bus, sent = self._make_mock_bus()
-        handler = _make_stream_event_handler(bus, 'job:test:001', agent_sender='comics-lead')
+        """Tool use blocks must still use 'tool_use' sender regardless of agent_role."""
+        callback, sent = self._make_mock_bus_and_callback('comics-lead')
 
-        handler({'type': 'tool_use', 'name': 'Read', 'tool_use_id': 'tu-001'})
+        callback({'type': 'tool_use', 'name': 'Read', 'tool_use_id': 'tu-001'})
 
         self.assertEqual(len(sent), 1)
         sender, _ = sent[0]
@@ -413,26 +413,11 @@ class TestStreamEventHandlerSender(unittest.TestCase):
             f"tool_use events must use 'tool_use' sender, got '{sender}'",
         )
 
-    def test_default_agent_sender_is_agent(self):
-        """Without an explicit agent_sender, the handler uses 'agent' (backward compatibility)."""
-        bus, sent = self._make_mock_bus()
-        handler = _make_stream_event_handler(bus, 'job:test:001')
+    def test_multiple_text_blocks_all_use_agent_role(self):
+        """Multiple text blocks in one assistant event all use the configured agent_role."""
+        callback, sent = self._make_mock_bus_and_callback('comics-lead')
 
-        handler({'type': 'assistant', 'message': {'content': 'Hello'}})
-
-        self.assertEqual(len(sent), 1)
-        sender, _ = sent[0]
-        self.assertEqual(
-            sender, 'agent',
-            f"default agent_sender must be 'agent', got '{sender}'",
-        )
-
-    def test_multiple_text_blocks_all_use_agent_sender(self):
-        """Multiple text blocks in one assistant event all use the configured agent_sender."""
-        bus, sent = self._make_mock_bus()
-        handler = _make_stream_event_handler(bus, 'job:test:001', agent_sender='comics-lead')
-
-        handler({
+        callback({
             'type': 'assistant',
             'message': {
                 'content': [

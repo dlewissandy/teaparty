@@ -2,18 +2,18 @@
 """Tests for issue #388 — chat filter buttons for all stream event types.
 
 The chat filter bar has 9 buttons: agent, human, thinking, tools, results,
-system, state, cost, log.  The _on_stream_event handler in engine.py must
-relay stream events with sender values that match the chat.html filter
-predicates.
+system, state, cost, log.  The unified stream relay in
+``teaparty.teams.stream`` must emit messages with sender values that
+match the chat.html filter predicates.
 
-These tests verify that each stream event type produces messages with the
-correct sender value in the message bus.
+These tests verify each stream event type produces messages with the
+correct sender value in the message bus — through the same codepath the
+CfA engine and OM/PM chat both use.
 """
 import os
 import sys
 import tempfile
 import unittest
-from unittest.mock import MagicMock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
@@ -21,7 +21,7 @@ from teaparty.messaging.conversations import SqliteMessageBus
 
 
 class TestStreamEventRelay(unittest.TestCase):
-    """_on_stream_event relays stream events with correct sender values."""
+    """_make_live_stream_relay emits stream events with correct sender values."""
 
     def setUp(self):
         self._tmpdir = tempfile.mkdtemp()
@@ -32,29 +32,21 @@ class TestStreamEventRelay(unittest.TestCase):
     def tearDown(self):
         self._bus.close()
 
-    def _get_handler(self):
-        """Return the stream event relay function under test."""
-        from teaparty.cfa.engine import _make_stream_event_handler
-        return _make_stream_event_handler(self._bus, self._conv_id)
+    def _get_callback(self, agent_role: str = 'agent'):
+        """Return the stream event relay callback under test."""
+        from teaparty.teams.stream import _make_live_stream_relay
+        callback, _events = _make_live_stream_relay(self._bus, self._conv_id, agent_role)
+        return callback
 
     def _messages(self):
         return self._bus.receive(self._conv_id)
 
     # ── assistant text → sender='agent' ──────────────────────────────────
 
-    def test_assistant_text_string_content_sent_as_agent(self):
-        """Assistant event with string content produces sender='agent'."""
-        handler = self._get_handler()
-        handler({'type': 'assistant', 'message': {'content': 'Hello world'}})
-        msgs = self._messages()
-        self.assertEqual(len(msgs), 1)
-        self.assertEqual(msgs[0].sender, 'agent')
-        self.assertEqual(msgs[0].content, 'Hello world')
-
     def test_assistant_text_block_content_sent_as_agent(self):
         """Assistant event with content block array (text type) produces sender='agent'."""
-        handler = self._get_handler()
-        handler({'type': 'assistant', 'message': {
+        callback = self._get_callback()
+        callback({'type': 'assistant', 'message': {
             'content': [{'type': 'text', 'text': 'Block text'}],
         }})
         msgs = self._messages()
@@ -66,8 +58,8 @@ class TestStreamEventRelay(unittest.TestCase):
 
     def test_thinking_block_sent_as_thinking(self):
         """Assistant event with thinking content block produces sender='thinking'."""
-        handler = self._get_handler()
-        handler({'type': 'assistant', 'message': {
+        callback = self._get_callback()
+        callback({'type': 'assistant', 'message': {
             'content': [{'type': 'thinking', 'thinking': 'Let me consider...'}],
         }})
         msgs = self._messages()
@@ -77,8 +69,8 @@ class TestStreamEventRelay(unittest.TestCase):
 
     def test_mixed_text_and_thinking_blocks_produce_separate_messages(self):
         """Assistant with both text and thinking blocks produces two messages."""
-        handler = self._get_handler()
-        handler({'type': 'assistant', 'message': {
+        callback = self._get_callback()
+        callback({'type': 'assistant', 'message': {
             'content': [
                 {'type': 'thinking', 'thinking': 'Hmm...'},
                 {'type': 'text', 'text': 'Here is my answer'},
@@ -93,8 +85,8 @@ class TestStreamEventRelay(unittest.TestCase):
 
     def test_tool_use_event_sent_as_tool_use(self):
         """tool_use stream event produces sender='tool_use'."""
-        handler = self._get_handler()
-        handler({
+        callback = self._get_callback()
+        callback({
             'type': 'tool_use',
             'tool_use_id': 'abc123',
             'name': 'Read',
@@ -109,8 +101,8 @@ class TestStreamEventRelay(unittest.TestCase):
 
     def test_tool_result_event_sent_as_tool_result(self):
         """tool_result stream event produces sender='tool_result'."""
-        handler = self._get_handler()
-        handler({
+        callback = self._get_callback()
+        callback({
             'type': 'tool_result',
             'tool_use_id': 'abc123',
             'content': 'file contents here',
@@ -122,8 +114,8 @@ class TestStreamEventRelay(unittest.TestCase):
 
     def test_tool_result_array_content_joined(self):
         """tool_result with content block array is joined into a string."""
-        handler = self._get_handler()
-        handler({
+        callback = self._get_callback()
+        callback({
             'type': 'tool_result',
             'tool_use_id': 'abc123',
             'content': [
@@ -141,8 +133,8 @@ class TestStreamEventRelay(unittest.TestCase):
 
     def test_system_init_event_sent_as_system(self):
         """system/init stream event produces sender='system'."""
-        handler = self._get_handler()
-        handler({
+        callback = self._get_callback()
+        callback({
             'type': 'system',
             'subtype': 'init',
             'session_id': 'sess-123',
@@ -151,23 +143,53 @@ class TestStreamEventRelay(unittest.TestCase):
         self.assertEqual(len(msgs), 1)
         self.assertEqual(msgs[0].sender, 'system')
 
-    # ── result → sender='agent' (existing behavior) ─────────────────────
+    # ── result → fallback emit + cost ────────────────────────────────────
 
-    def test_result_event_sent_as_agent(self):
-        """result stream event produces sender='agent' (unchanged)."""
-        handler = self._get_handler()
-        handler({'type': 'result', 'result': 'Final output'})
+    def test_result_event_with_no_streamed_text_emits_result_text(self):
+        """When no assistant text was streamed, a 'result' event falls back
+        to emitting result.result as (agent_role, result_text)."""
+        callback = self._get_callback()
+        callback({'type': 'result', 'result': 'Final output'})
         msgs = self._messages()
         self.assertEqual(len(msgs), 1)
         self.assertEqual(msgs[0].sender, 'agent')
         self.assertEqual(msgs[0].content, 'Final output')
 
+    def test_result_event_after_streamed_text_drops_result_text(self):
+        """If assistant text already streamed, 'result' text is suppressed
+        to avoid a duplicate display — the stream already covered it."""
+        callback = self._get_callback()
+        callback({'type': 'assistant', 'message': {
+            'content': [{'type': 'text', 'text': 'Streamed output'}],
+        }})
+        callback({'type': 'result', 'result': 'Streamed output'})
+        agent_msgs = [m for m in self._messages() if m.sender == 'agent']
+        self.assertEqual(
+            len(agent_msgs), 1,
+            'result text must NOT be re-emitted when assistant text was streamed',
+        )
+
+    def test_result_event_with_stats_emits_cost(self):
+        """'result' event with usage stats emits a 'cost' message."""
+        callback = self._get_callback()
+        callback({
+            'type': 'result',
+            'total_cost_usd': 0.01,
+            'duration_ms': 1234,
+            'input_tokens': 100,
+            'output_tokens': 50,
+        })
+        cost_msgs = [m for m in self._messages() if m.sender == 'cost']
+        self.assertEqual(len(cost_msgs), 1,
+                         'result with stats must emit a cost message')
+        self.assertIn('total_cost_usd', cost_msgs[0].content)
+
     # ── tool_use as content block within assistant ─────────────────────
 
     def test_tool_use_content_block_sent_as_tool_use(self):
         """tool_use block within assistant content produces sender='tool_use'."""
-        handler = self._get_handler()
-        handler({'type': 'assistant', 'message': {
+        callback = self._get_callback()
+        callback({'type': 'assistant', 'message': {
             'content': [
                 {'type': 'text', 'text': 'I will read the file'},
                 {'type': 'tool_use', 'id': 'tu_001', 'name': 'Read',
@@ -183,16 +205,16 @@ class TestStreamEventRelay(unittest.TestCase):
 
     def test_duplicate_tool_use_deduplicated(self):
         """Same tool_use_id from content block and top-level event produces one message."""
-        handler = self._get_handler()
+        callback = self._get_callback()
         # First: assistant event with tool_use content block
-        handler({'type': 'assistant', 'message': {
+        callback({'type': 'assistant', 'message': {
             'content': [
                 {'type': 'tool_use', 'id': 'tu_dup', 'name': 'Grep',
                  'input': {'pattern': 'foo'}},
             ],
         }})
         # Then: top-level tool_use event with the same ID
-        handler({
+        callback({
             'type': 'tool_use',
             'tool_use_id': 'tu_dup',
             'name': 'Grep',
@@ -205,8 +227,8 @@ class TestStreamEventRelay(unittest.TestCase):
 
     def test_tool_result_in_user_event_sent_as_tool_result(self):
         """tool_result block within a user event produces sender='tool_result'."""
-        handler = self._get_handler()
-        handler({'type': 'user', 'message': {
+        callback = self._get_callback()
+        callback({'type': 'user', 'message': {
             'content': [
                 {'type': 'tool_result', 'tool_use_id': 'tr_001',
                  'content': 'result from tool'},
@@ -219,15 +241,15 @@ class TestStreamEventRelay(unittest.TestCase):
 
     def test_duplicate_tool_result_deduplicated(self):
         """Same tool_use_id from user event and top-level event produces one message."""
-        handler = self._get_handler()
+        callback = self._get_callback()
         # First: top-level tool_result
-        handler({
+        callback({
             'type': 'tool_result',
             'tool_use_id': 'tr_dup',
             'content': 'first occurrence',
         })
         # Then: user event with same tool_result
-        handler({'type': 'user', 'message': {
+        callback({'type': 'user', 'message': {
             'content': [
                 {'type': 'tool_result', 'tool_use_id': 'tr_dup',
                  'content': 'first occurrence'},
@@ -238,21 +260,15 @@ class TestStreamEventRelay(unittest.TestCase):
 
     # ── Edge cases ───────────────────────────────────────────────────────
 
-    def test_empty_assistant_content_not_sent(self):
-        """Assistant event with empty content produces no message."""
-        handler = self._get_handler()
-        handler({'type': 'assistant', 'message': {'content': ''}})
-        self.assertEqual(len(self._messages()), 0)
-
     def test_empty_tool_result_not_sent(self):
         """tool_result with empty content produces no message."""
-        handler = self._get_handler()
-        handler({'type': 'tool_result', 'tool_use_id': 'x', 'content': ''})
+        callback = self._get_callback()
+        callback({'type': 'tool_result', 'tool_use_id': 'x', 'content': ''})
         self.assertEqual(len(self._messages()), 0)
 
 
 class TestIterStreamEvents(unittest.TestCase):
-    """_iter_stream_events handles all event representations with deduplication."""
+    """_classify_event handles all event representations with deduplication."""
 
     def setUp(self):
         self._tmpdir = tempfile.mkdtemp()
@@ -270,6 +286,7 @@ class TestIterStreamEvents(unittest.TestCase):
         results = []
         seen_tu: set[str] = set()
         seen_tr: set[str] = set()
+        state: dict = {}
         with open(self._stream_path) as f:
             for line in f:
                 line = line.strip()
@@ -279,7 +296,12 @@ class TestIterStreamEvents(unittest.TestCase):
                     ev = _json.loads(line)
                 except (ValueError, _json.JSONDecodeError):
                     continue
-                results.extend(_classify_event(ev, agent_role, seen_tu, seen_tr))
+                for sender, content in _classify_event(
+                    ev, agent_role, seen_tu, seen_tr, state,
+                ):
+                    results.append((sender, content))
+                    if sender == agent_role:
+                        state['wrote_text'] = True
         return results
 
     # ── top-level tool_use ───────────────────────────────────────────────

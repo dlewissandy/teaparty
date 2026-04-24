@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+from typing import Any
 
 
 # Senders that carry internal stream trace — not conversational history.
@@ -64,46 +65,86 @@ def _extract_slug(stream_path: str, session_id: str, cwd: str) -> str:
     return ''
 
 
+def _flatten_tool_result_content(raw: Any) -> str:
+    """Normalize tool_result content into a string.
+
+    Anthropic's ``tool_result`` content can be either a string or a list
+    of content blocks (``{'type': 'text', 'text': ...}`` etc.).  Arrays
+    get joined on newlines into a single string for bus display — raw
+    JSON dumps are unreadable.
+    """
+    if isinstance(raw, list):
+        parts = []
+        for block in raw:
+            if isinstance(block, dict):
+                parts.append(block.get('text', ''))
+            elif isinstance(block, str):
+                parts.append(block)
+        return '\n'.join(p for p in parts if p)
+    if isinstance(raw, str):
+        return raw
+    return json.dumps(raw)
+
+
 def _classify_event(ev: dict, agent_role: str,
                     seen_tool_use: set[str],
-                    seen_tool_result: set[str]):
+                    seen_tool_result: set[str],
+                    state: dict | None = None):
     """Yield (sender, content) pairs for a single stream-json event dict.
 
     Maps stream event types to bus sender labels:
-    - thinking block   -> ('thinking', text)
-    - text block       -> (agent_role, text)
-    - tool_use block   -> ('tool_use', JSON of name+input)
-    - tool_result event -> ('tool_result', content text or JSON)
-    - system event     -> ('system', JSON of event)
-    - unknown block    -> ('unknown:<type>', JSON of block)
+    - thinking block    -> ('thinking', text)
+    - text block        -> (agent_role, text)
+    - tool_use block    -> ('tool_use', JSON of name+input)
+    - tool_result event -> ('tool_result', flattened text)
+    - system event      -> ('system', JSON of event)
+    - result event      -> (agent_role, result_text) if no text streamed,
+                            then ('cost', stats JSON)
+    - unknown block     -> ('unknown:<type>', JSON of block)
+
+    ``state`` (optional mutable dict) carries cross-event state:
+    - ``wrote_text`` — set to True by the caller when a yielded pair has
+      ``sender == agent_role``, used by the ``result`` branch to decide
+      whether to re-emit the final text as a fallback for non-streaming mode.
 
     Deduplicates tool_use and tool_result by their IDs.
     """
+    if state is None:
+        state = {}
     ev_type = ev.get('type', '')
 
     if ev_type == 'assistant':
-        for block in ev.get('message', {}).get('content', []):
-            if not isinstance(block, dict):
-                continue
-            block_type = block.get('type', '')
-            if block_type == 'thinking':
-                text = block.get('thinking', '').strip()
-                if text:
-                    yield 'thinking', text
-            elif block_type == 'text':
-                text = block.get('text', '').strip()
-                if text:
-                    yield agent_role, text
-            elif block_type == 'tool_use':
-                tid = block.get('id', '')
-                if tid and tid not in seen_tool_use:
-                    seen_tool_use.add(tid)
-                    yield 'tool_use', json.dumps({
-                        'name': block.get('name', ''),
-                        'input': block.get('input', {}),
-                    })
-            else:
-                yield f'unknown:{block_type}', json.dumps(block)
+        message = ev.get('message', {})
+        content = message.get('content', '') if isinstance(message, dict) else ''
+        # Content may be either a bare string (older stream shape) or
+        # a list of typed blocks (current Anthropic API).  Handle both.
+        if isinstance(content, str):
+            text = content.strip()
+            if text:
+                yield agent_role, text
+        elif isinstance(content, list):
+            for block in content:
+                if not isinstance(block, dict):
+                    continue
+                block_type = block.get('type', '')
+                if block_type == 'thinking':
+                    text = block.get('thinking', '').strip()
+                    if text:
+                        yield 'thinking', text
+                elif block_type == 'text':
+                    text = block.get('text', '').strip()
+                    if text:
+                        yield agent_role, text
+                elif block_type == 'tool_use':
+                    tid = block.get('id', '')
+                    if tid and tid not in seen_tool_use:
+                        seen_tool_use.add(tid)
+                        yield 'tool_use', json.dumps({
+                            'name': block.get('name', ''),
+                            'input': block.get('input', {}),
+                        })
+                else:
+                    yield f'unknown:{block_type}', json.dumps(block)
 
     elif ev_type == 'tool_use':
         tid = ev.get('tool_use_id', '')
@@ -120,8 +161,9 @@ def _classify_event(ev: dict, agent_role: str,
         if not tid or tid not in seen_tool_result:
             if tid:
                 seen_tool_result.add(tid)
-            raw = ev.get('content', '')
-            yield 'tool_result', raw if isinstance(raw, str) else json.dumps(raw)
+            content = _flatten_tool_result_content(ev.get('content', ''))
+            if content:
+                yield 'tool_result', content
 
     elif ev_type == 'user':
         content = ev.get('message', {}).get('content', [])
@@ -132,13 +174,20 @@ def _classify_event(ev: dict, agent_role: str,
                     if not tid or tid not in seen_tool_result:
                         if tid:
                             seen_tool_result.add(tid)
-                        raw = block.get('content', '')
-                        yield 'tool_result', raw if isinstance(raw, str) else json.dumps(raw)
+                        flattened = _flatten_tool_result_content(block.get('content', ''))
+                        if flattened:
+                            yield 'tool_result', flattened
 
     elif ev_type == 'system':
         yield 'system', json.dumps(ev)
 
     elif ev_type == 'result':
+        # Fallback: in non-streaming mode the full output arrives only in
+        # the ``result`` event.  In streaming mode the assistant blocks
+        # already covered it — skip to avoid duplicate display.
+        result_text = ev.get('result', '')
+        if result_text and not state.get('wrote_text'):
+            yield agent_role, result_text
         stats = {k: ev[k] for k in (
             'total_cost_usd', 'duration_ms', 'input_tokens', 'output_tokens'
         ) if k in ev}
@@ -159,13 +208,16 @@ def _make_live_stream_relay(bus, conv_id: str, agent_role: str):
     """
     seen_tool_use: set[str] = set()
     seen_tool_result: set[str] = set()
+    state: dict = {}
     events: list[tuple[str, str]] = []
 
     def callback(event: dict) -> None:
         for sender, content in _classify_event(
-            event, agent_role, seen_tool_use, seen_tool_result,
+            event, agent_role, seen_tool_use, seen_tool_result, state,
         ):
             bus.send(conv_id, sender, content)
             events.append((sender, content))
+            if sender == agent_role:
+                state['wrote_text'] = True
 
     return callback, events

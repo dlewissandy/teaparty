@@ -72,118 +72,6 @@ PLAN_ESCALATION_STATES: frozenset[str] = frozenset()
 WORK_ESCALATION_STATES: frozenset[str] = frozenset()
 
 
-def _make_stream_event_handler(bus: Any, conv_id: str, agent_sender: str = 'agent'):
-    """Return a callback that relays Claude CLI stream events to the message bus.
-
-    Each event type maps to a sender value that the chat.html filter bar
-    can match:
-
-      assistant (text blocks)    → agent_sender (default: 'agent', or project lead name)
-      assistant (thinking)       → 'thinking'
-      assistant (tool_use block) → 'tool_use'
-      tool_use (top-level)       → 'tool_use'
-      tool_result (top-level)    → 'tool_result'
-      user (tool_result blocks)  → 'tool_result'
-      system                     → 'system'
-      result                     → agent_sender
-
-    tool_use and tool_result can appear both as content blocks within
-    assistant/user events and as top-level events.  Deduplicates by
-    tool_use_id to avoid showing the same tool call twice.
-    """
-    seen_tool_use: set[str] = set()
-    seen_tool_result: set[str] = set()
-    wrote_text: list[bool] = [False]  # True once any agent text has been streamed
-
-    def _send_tool_result(content: Any) -> None:
-        """Normalize tool_result content (string or block array) and send."""
-        if isinstance(content, list):
-            parts = []
-            for block in content:
-                if isinstance(block, dict):
-                    parts.append(block.get('text', ''))
-                elif isinstance(block, str):
-                    parts.append(block)
-            content = '\n'.join(p for p in parts if p)
-        if isinstance(content, str) and content:
-            bus.send(conv_id, 'tool_result', content)
-
-    def handler(event: dict) -> None:
-        etype = event.get('type', '')
-
-        if etype == 'assistant':
-            message = event.get('message', {})
-            content = message.get('content', '') if isinstance(message, dict) else ''
-            if isinstance(content, str) and content:
-                bus.send(conv_id, agent_sender, content)
-                wrote_text[0] = True
-            elif isinstance(content, list):
-                for block in content:
-                    if not isinstance(block, dict):
-                        continue
-                    btype = block.get('type', '')
-                    if btype == 'text':
-                        text = block.get('text', '')
-                        if text:
-                            bus.send(conv_id, agent_sender, text)
-                            wrote_text[0] = True
-                    elif btype == 'thinking':
-                        thinking = block.get('thinking', '')
-                        if thinking:
-                            bus.send(conv_id, 'thinking', thinking)
-                    elif btype == 'tool_use':
-                        tid = block.get('id', '')
-                        if tid and tid not in seen_tool_use:
-                            seen_tool_use.add(tid)
-                            name = block.get('name', 'tool')
-                            bus.send(conv_id, 'tool_use', name)
-
-        elif etype == 'tool_use':
-            tid = event.get('tool_use_id', '')
-            if not tid or tid not in seen_tool_use:
-                if tid:
-                    seen_tool_use.add(tid)
-                name = event.get('name', 'tool')
-                bus.send(conv_id, 'tool_use', name)
-
-        elif etype == 'tool_result':
-            tid = event.get('tool_use_id', '')
-            if not tid or tid not in seen_tool_result:
-                if tid:
-                    seen_tool_result.add(tid)
-                _send_tool_result(event.get('content', ''))
-
-        elif etype == 'user':
-            content = event.get('message', {}).get('content', [])
-            if isinstance(content, list):
-                for block in content:
-                    if isinstance(block, dict) and block.get('type') == 'tool_result':
-                        tid = block.get('tool_use_id', '')
-                        if not tid or tid not in seen_tool_result:
-                            if tid:
-                                seen_tool_result.add(tid)
-                            _send_tool_result(block.get('content', ''))
-
-        elif etype == 'system':
-            subtype = event.get('subtype', '')
-            session = event.get('session_id', '')
-            msg = subtype
-            if session:
-                msg += f': {session}'
-            if msg:
-                bus.send(conv_id, 'system', msg)
-
-        elif etype == 'result':
-            # Only write the result event if no streaming text was captured —
-            # in streaming mode the content blocks already cover the full output,
-            # and a second write would produce a visible duplicate.
-            result_text = event.get('result', '')
-            if result_text and not wrote_text[0]:
-                bus.send(conv_id, agent_sender, result_text)
-
-    return handler
-
-
 @dataclass
 class OrchestratorResult:
     """Final outcome of the full session orchestration."""
@@ -311,11 +199,13 @@ class Orchestrator:
             self._stream_conv_id = f'job:{project_slug}:{session_id}'
 
         _agent_sender = self.config.project_lead or 'agent'
-        _on_stream_event = (
-            _make_stream_event_handler(self._stream_bus, self._stream_conv_id, _agent_sender)
-            if self._stream_bus
-            else None
-        )
+        if self._stream_bus:
+            from teaparty.teams.stream import _make_live_stream_relay
+            _on_stream_event, _ = _make_live_stream_relay(
+                self._stream_bus, self._stream_conv_id, _agent_sender,
+            )
+        else:
+            _on_stream_event = None
 
         # Agent runner — single actor type.  The project lead runs
         # every phase's skill; human review happens inside the skill's
@@ -858,15 +748,22 @@ class Orchestrator:
         child_conv_id = f'dispatch:{child_session.id}'
         seen_tu: set[str] = set()
         seen_tr: set[str] = set()
+        child_state: dict = {}
         child_bus = _Bus(self._bus_event_listener.bus_db_path)
 
         def _on_child_event(ev: dict) -> None:
             try:
                 for sender, content in _classify_event(
-                    ev, member, seen_tu, seen_tr,
+                    ev, member, seen_tu, seen_tr, child_state,
                 ):
+                    # Filter out tool_result for dispatch blades — the
+                    # child's tool output is noisy and clutters the
+                    # accordion view.  UI decision, not classification
+                    # logic.
                     if content and sender != 'tool_result':
                         child_bus.send(child_conv_id, sender, content)
+                        if sender == member:
+                            child_state['wrote_text'] = True
             except Exception:
                 _log.debug(
                     '_run_child on_event failed for %s', member,
