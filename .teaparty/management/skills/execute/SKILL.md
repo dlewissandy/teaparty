@@ -21,12 +21,10 @@ Execute the PLAN.md.    You are the manager, not a primary contributor.   You de
 delegate work, and resolve conflicts as they arise.
 
 Delegate work to team members using `mcp__teaparty-config__Send`. You may delegate in parallel.
+Note: Each team member will perform their work in a separate session branch inside their own worktree.  This work
+will not be merged into the main session branch of your worktree until you `mcp__teaparty-config__CloseConversation` with the context_id.
 
-When an agent tells you that they have completed a task, do not take them at their word. You are the gatekeeper. Inspect their work and hold them to account. Only `mcp__teaparty-config__CloseConversation` with them when you are satisfied with what they have done.
-
-**Each dispatch is a thread, not a one-shot.** `Send` returns a `conversation_id` of the form `dispatch:<id>`. That handle stays valid — pass it back as `context_id=` to continue the thread with the same team member in the same worktree. Starting a new `Send` to the same member without the handle creates a parallel session the agent has no memory of; that is almost always a mistake.
-
-**Nothing the team writes takes effect until you close.** The child works on a session branch inside its own worktree. Their commits are invisible to your worktree until you call `mcp__teaparty-config__CloseConversation` with the dispatch handle; that squash-merges their work into your branch. A thread you never close is work you never received.
+When an agent tells you that they have completed a task, do not take them at their word. You are the gatekeeper. Inspect their work and hold them to account.
 
 - If you need clarification from the human, go to ASK
 - If you deem your work to be complete, go to ASSERT
