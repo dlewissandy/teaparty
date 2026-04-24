@@ -340,13 +340,27 @@ class AgentSession:
             from teaparty.mcp.registry import (
                 current_session_id as _current_session_var,
             )
+            from teaparty.messaging.child_dispatch import (
+                detect_thread_continuation,
+            )
 
             # Determine which session is dispatching.
             caller_sid = _current_session_var.get('')
             dispatcher_session = session_registry.get(
                 caller_sid, self._dispatch_session)
 
-            if not _check_slot(
+            # Thread continuation: if the caller passed an ACTIVE dispatch
+            # handle with the same recipient, re-launch that existing
+            # child with --resume instead of spawning a fresh one.
+            existing_child = detect_thread_continuation(
+                context_id=context_id,
+                bus_db_path=bus_db_path,
+                member=member,
+                teaparty_home=self.teaparty_home,
+                scope=self.scope,
+            )
+
+            if existing_child is None and not _check_slot(
                 dispatcher_session, bus=self._bus,
                 conv_id=self.conversation_id,
             ):
@@ -392,104 +406,116 @@ class AgentSession:
                 member_natural_repo, '.teaparty',
             )
 
-            # The dispatcher's current working state is the integration
-            # branch for same-repo dispatches. For a privileged top-level
-            # (OM or a project lead at top), the dispatcher works
-            # directly in the real repo; for a nested dispatcher it
-            # works inside its own session worktree.
-            if dispatcher_session.worktree_path:
-                dispatcher_worktree = dispatcher_session.worktree_path
-                dispatcher_repo = (
-                    dispatcher_session.merge_target_repo or repo_root
+            if existing_child is not None:
+                # Thread continuation: reuse the existing child session +
+                # worktree + bus DISPATCH row.  We still want the full
+                # stream pipeline (see below), so just pick up the saved
+                # placement and skip straight to launch.
+                child_session = existing_child
+                worktree_path = child_session.worktree_path
+                member_launch_cwd = (
+                    child_session.launch_cwd or member_natural_repo
                 )
             else:
-                dispatcher_worktree = (
-                    dispatcher_session.launch_cwd or repo_root
-                )
-                dispatcher_repo = dispatcher_worktree
-
-            is_cross_repo = (
-                os.path.realpath(member_natural_repo)
-                != os.path.realpath(dispatcher_repo)
-            )
-
-            # Pick the fork source and the merge-back target.
-            if is_cross_repo:
-                source_repo = member_natural_repo
-                source_ref = await default_branch_of(source_repo)
-                merge_target_repo = source_repo
-                merge_target_branch = source_ref
-                merge_target_worktree = source_repo
-            else:
-                source_repo = dispatcher_repo
-                # Fork from the dispatcher's current HEAD — parent's
-                # committed state is the integration point. Uncommitted
-                # edits in the dispatcher's worktree are intentionally
-                # invisible to the child.
-                source_ref = await head_commit_of(dispatcher_worktree) or 'HEAD'
-                merge_target_repo = dispatcher_repo
-                merge_target_worktree = dispatcher_worktree
-                merge_target_branch = (
-                    await current_branch_of(dispatcher_worktree)
-                )
-
-            # Create the child session record first so the worktree can
-            # live under its directory.
-            child_session = _create_session(
-                agent_name=member, scope=self.scope,
-                teaparty_home=self.teaparty_home,
-            )
-
-            if is_cross_repo:
-                # Cross-repo dispatch (e.g. OM → project lead): the project
-                # lead works directly at its own repo root — no worktree.
-                # Config files are composed under the dispatcher's teaparty
-                # home just like a top-level invoke().
-                worktree_path = ''
-                session_branch = ''
-                child_session.launch_cwd = member_natural_repo
-                child_session.worktree_path = ''
-                child_session.worktree_branch = ''
-                child_session.merge_target_repo = ''
-                child_session.merge_target_branch = ''
-                child_session.merge_target_worktree = ''
-                member_launch_cwd = member_natural_repo
-            else:
-                worktree_path = os.path.join(child_session.path, 'worktree')
-                session_branch = f'session/{child_session.id}'
-                try:
-                    await create_subchat_worktree(
-                        source_repo=source_repo,
-                        source_ref=source_ref,
-                        dest_path=worktree_path,
-                        branch_name=session_branch,
-                        parent_worktree=dispatcher_worktree,
+                # The dispatcher's current working state is the integration
+                # branch for same-repo dispatches. For a privileged top-level
+                # (OM or a project lead at top), the dispatcher works
+                # directly in the real repo; for a nested dispatcher it
+                # works inside its own session worktree.
+                if dispatcher_session.worktree_path:
+                    dispatcher_worktree = dispatcher_session.worktree_path
+                    dispatcher_repo = (
+                        dispatcher_session.merge_target_repo or repo_root
                     )
-                except Exception:
-                    _log.exception(
-                        '%s spawn_fn: git worktree add failed for %s',
-                        self.agent_name, member,
+                else:
+                    dispatcher_worktree = (
+                        dispatcher_session.launch_cwd or repo_root
                     )
-                    return ('', '', 'worktree_failed')
-                child_session.launch_cwd = worktree_path
-                child_session.worktree_path = worktree_path
-                child_session.worktree_branch = session_branch
-                child_session.merge_target_repo = merge_target_repo
-                child_session.merge_target_branch = merge_target_branch
-                child_session.merge_target_worktree = merge_target_worktree
-                member_launch_cwd = worktree_path
+                    dispatcher_repo = dispatcher_worktree
 
-            _save_meta(child_session)
+                is_cross_repo = (
+                    os.path.realpath(member_natural_repo)
+                    != os.path.realpath(dispatcher_repo)
+                )
+
+                # Pick the fork source and the merge-back target.
+                if is_cross_repo:
+                    source_repo = member_natural_repo
+                    source_ref = await default_branch_of(source_repo)
+                    merge_target_repo = source_repo
+                    merge_target_branch = source_ref
+                    merge_target_worktree = source_repo
+                else:
+                    source_repo = dispatcher_repo
+                    # Fork from the dispatcher's current HEAD — parent's
+                    # committed state is the integration point. Uncommitted
+                    # edits in the dispatcher's worktree are intentionally
+                    # invisible to the child.
+                    source_ref = await head_commit_of(dispatcher_worktree) or 'HEAD'
+                    merge_target_repo = dispatcher_repo
+                    merge_target_worktree = dispatcher_worktree
+                    merge_target_branch = (
+                        await current_branch_of(dispatcher_worktree)
+                    )
+
+                # Create the child session record first so the worktree can
+                # live under its directory.
+                child_session = _create_session(
+                    agent_name=member, scope=self.scope,
+                    teaparty_home=self.teaparty_home,
+                )
+
+                if is_cross_repo:
+                    # Cross-repo dispatch (e.g. OM → project lead): the project
+                    # lead works directly at its own repo root — no worktree.
+                    # Config files are composed under the dispatcher's teaparty
+                    # home just like a top-level invoke().
+                    worktree_path = ''
+                    session_branch = ''
+                    child_session.launch_cwd = member_natural_repo
+                    child_session.worktree_path = ''
+                    child_session.worktree_branch = ''
+                    child_session.merge_target_repo = ''
+                    child_session.merge_target_branch = ''
+                    child_session.merge_target_worktree = ''
+                    member_launch_cwd = member_natural_repo
+                else:
+                    worktree_path = os.path.join(child_session.path, 'worktree')
+                    session_branch = f'session/{child_session.id}'
+                    try:
+                        await create_subchat_worktree(
+                            source_repo=source_repo,
+                            source_ref=source_ref,
+                            dest_path=worktree_path,
+                            branch_name=session_branch,
+                            parent_worktree=dispatcher_worktree,
+                        )
+                    except Exception:
+                        _log.exception(
+                            '%s spawn_fn: git worktree add failed for %s',
+                            self.agent_name, member,
+                        )
+                        return ('', '', 'worktree_failed')
+                    child_session.launch_cwd = worktree_path
+                    child_session.worktree_path = worktree_path
+                    child_session.worktree_branch = session_branch
+                    child_session.merge_target_repo = merge_target_repo
+                    child_session.merge_target_branch = merge_target_branch
+                    child_session.merge_target_worktree = merge_target_worktree
+                    member_launch_cwd = worktree_path
+
+                _save_meta(child_session)
 
             # Record parent/project on the child so the pause walker can
-            # reconstruct the tree from disk (issue #403).
-            child_session.parent_session_id = dispatcher_session.id
-            child_session.project_slug = getattr(
-                self, 'project_slug', '') or ''
-            child_session.initial_message = composite
-            # phase and current_message are set by mark_launching on
-            # every loop iteration — do not pre-seed them here.
-            _save_meta(child_session)
+            # reconstruct the tree from disk (issue #403).  Skip the
+            # metadata overwrite on thread continuation — the child
+            # already has these fields from its initial spawn.
+            if existing_child is None:
+                child_session.parent_session_id = dispatcher_session.id
+                child_session.project_slug = getattr(
+                    self, 'project_slug', '') or ''
+                child_session.initial_message = composite
+                _save_meta(child_session)
 
             # Register the child's session so its dispatches are recorded
             # in its own conversation_map.
@@ -497,12 +523,6 @@ class AgentSession:
 
             child_conv_id = f'dispatch:{child_session.id}'
 
-            # Register the dispatch in the bus — the single source of
-            # truth for who leads this conversation, what its parent
-            # is, and which Send request created it (issue #422).  The
-            # accordion walker reads this record; no disk lookup for
-            # the blade caption, no agent_name='unknown' fallback.
-            #
             # Parent conv_id comes from exactly ONE place: the MCP
             # middleware sets ``current_conversation_id`` from the
             # caller's URL ``?conv=``, which ``launch()`` wrote from
@@ -522,20 +542,21 @@ class AgentSession:
                     'launch site forgot it.  Refusing rather than '
                     'silently parenting under the wrong conv_id.',
                 )
-            from teaparty.messaging.conversations import ConversationState
-            self._bus.create_conversation(
-                ConversationType.DISPATCH, child_session.id,
-                agent_name=member,
-                parent_conversation_id=parent_conv_id,
-                request_id=context_id,
-                project_slug=self.project_slug,
-                state=ConversationState.ACTIVE,
-            )
 
-            # Child's MCP routes (spawn_fn, close_fn, escalation) are
-            # registered by launch() when the child subprocess spawns
-            # via the shared self._mcp_routes bundle — issue #422.  No
-            # inline registration needed here.
+            if existing_child is None:
+                # Register the DISPATCH conversation in the bus — single
+                # source of truth for who leads this conversation, what
+                # its parent is, and which Send created it (#422).
+                # Thread-continuation reuses the existing row.
+                from teaparty.messaging.conversations import ConversationState
+                self._bus.create_conversation(
+                    ConversationType.DISPATCH, child_session.id,
+                    agent_name=member,
+                    parent_conversation_id=parent_conv_id,
+                    request_id=context_id,
+                    project_slug=self.project_slug,
+                    state=ConversationState.ACTIVE,
+                )
 
             # Write the parent's request to the bus (visible in child chat).
             self._bus.send(child_conv_id, self.agent_name, composite)
@@ -568,9 +589,18 @@ class AgentSession:
             self._run_child_factories[child_session.id] = _run_child
             # Shared with CfA (#422): record child in conversation_map,
             # emit dispatch_started, create task, register in tasks_by_child.
+            # On thread continuation, pass the stored claude session id
+            # so the first launch is a ``--resume`` rather than a fresh
+            # start — same claude conversation, new user turn.
+            initial_resume_sid = (
+                child_session.claude_session_id or ''
+                if existing_child is not None else ''
+            )
             self._bus_listener.schedule_child_task(
                 child_session_id=child_session.id,
-                launch_coro=_run_child(),
+                launch_coro=_run_child(
+                    resume_claude_session=initial_resume_sid,
+                ),
                 dispatcher_session=dispatcher_session,
                 context_id=context_id,
                 agent_name=member,

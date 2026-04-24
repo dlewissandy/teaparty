@@ -396,34 +396,28 @@ class Orchestrator:
             )
             return ('', '', f'unresolved_member:{member}')
 
-        # Thread continuation: if the caller passed an ACTIVE dispatch handle
-        # with the same lead, re-launch that existing child with --resume
-        # and the new composite as the next message.
+        # Thread continuation: if the caller passed an ACTIVE dispatch
+        # handle with the same lead, re-launch that existing child with
+        # --resume and the new composite as the next message.
+        from teaparty.messaging.child_dispatch import (
+            detect_thread_continuation,
+        )
         from teaparty.messaging.conversations import (
             ConversationState as _ConvState,
             ConversationType as _ConvType,
             SqliteMessageBus as _Bus,
         )
-        from teaparty.runners.launcher import load_session as _load_session
-        existing_child = None
-        if context_id and context_id.startswith('dispatch:') \
-                and self._bus_event_listener is not None \
-                and self._bus_event_listener.bus_db_path:
-            _probe = _Bus(self._bus_event_listener.bus_db_path)
-            try:
-                existing_conv = _probe.get_conversation(context_id)
-            finally:
-                _probe.close()
-            if (existing_conv is not None
-                    and existing_conv.state == _ConvState.ACTIVE
-                    and existing_conv.agent_name == member):
-                existing_child_sid = context_id[len('dispatch:'):]
-                existing_child = _load_session(
-                    agent_name=member,
-                    scope='management',
-                    teaparty_home=self.teaparty_home,
-                    session_id=existing_child_sid,
-                )
+        bus_db_path = (
+            self._bus_event_listener.bus_db_path
+            if self._bus_event_listener is not None else ''
+        )
+        existing_child = detect_thread_continuation(
+            context_id=context_id,
+            bus_db_path=bus_db_path,
+            member=member,
+            teaparty_home=self.teaparty_home,
+            scope='management',
+        )
 
         from teaparty.mcp.registry import (
             current_conversation_id as _current_conv_var,
