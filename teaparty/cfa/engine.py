@@ -211,7 +211,28 @@ class Orchestrator:
 
     async def run(self) -> OrchestratorResult:
         """Drive the CfA state machine to a terminal state."""
-        await self._recover_orphaned_children()
+        from teaparty.workspace.recovery import recover_orphaned_children
+
+        async def _redispatch(*, child, worktree_path, child_infra):
+            from teaparty.cfa.dispatch import dispatch
+            await dispatch(
+                team=child.get('team', ''),
+                task=self.task,
+                session_worktree=self.session_worktree,
+                infra_dir=self.infra_dir,
+                project_slug=self.project_slug,
+                resume_worktree=worktree_path,
+                resume_infra=child_infra,
+            )
+
+        await recover_orphaned_children(
+            infra_dir=self.infra_dir,
+            session_worktree=self.session_worktree,
+            task=self.task,
+            session_id=self.session_id,
+            event_bus=self.event_bus,
+            redispatch_fn=_redispatch,
+        )
 
         repo_root = os.path.dirname(os.path.dirname(self.poc_root))
         venv_python = os.path.join(repo_root, '.venv', 'bin', 'python3')
@@ -1952,120 +1973,3 @@ class Orchestrator:
         # contains everything they need.
         return []
 
-    async def _recover_orphaned_children(self) -> None:
-        """Scan .children registry and recover orphaned dispatches.
-
-        Runs before MCP listeners start so no new dispatches arrive during
-        recovery.  Any dispatching agent at any level needs this.
-
-        - Completed children: merge their worktree into session worktree
-        - Dead non-terminal: log for re-dispatch (resume path)
-        - Live children: leave alone
-        """
-        children_path = os.path.join(self.infra_dir, '.children')
-        if not os.path.exists(children_path):
-            return
-
-        from teaparty.bridge.state.heartbeat import (
-            scan_children, compact_children, create_heartbeat, read_heartbeat,
-        )
-        from teaparty.workspace.merge import squash_merge
-
-        # Write a fresh heartbeat for ourselves so adopted children see a live parent.
-        my_hb = os.path.join(self.infra_dir, '.heartbeat')
-        if not os.path.exists(my_hb):
-            create_heartbeat(my_hb, role='session')
-
-        scan = scan_children(children_path)
-
-        # Merge completed children
-        for child in scan['completed']:
-            hb_path = child.get('heartbeat', '')
-            if not hb_path:
-                continue
-            child_infra = os.path.dirname(hb_path)
-            cfa_path = os.path.join(child_infra, '.cfa-state.json')
-            if not os.path.exists(cfa_path):
-                continue
-
-            cfa_data = load_state(cfa_path)
-            if cfa_data.state != 'DONE':
-                continue
-
-            worktree_path = self._find_dispatch_worktree(child_infra)
-            if not worktree_path or not os.path.isdir(worktree_path):
-                _log.warning('Recovery: no worktree found for %s', child_infra)
-                continue
-
-            _log.info('Recovery: merging completed child %s', child.get('team', ''))
-            try:
-                from teaparty.scripts.generate_commit_message import build_fallback
-                message = build_fallback(child.get('team', ''), self.task)
-                await squash_merge(
-                    source=worktree_path,
-                    target=self.session_worktree,
-                    message=message,
-                )
-                await self.event_bus.publish(Event(
-                    type=EventType.LOG,
-                    data={
-                        'category': 'recovery_merge',
-                        'team': child.get('team', ''),
-                        'heartbeat': hb_path,
-                        'status': 'merged',
-                    },
-                    session_id=self.session_id,
-                ))
-            except Exception as exc:
-                _log.warning('Recovery: merge failed for %s: %s', child.get('team', ''), exc)
-
-        # Re-dispatch dead non-terminal children
-        for child in scan['dead']:
-            hb_path = child.get('heartbeat', '')
-            child_infra = os.path.dirname(hb_path) if hb_path else ''
-            worktree_path = self._find_dispatch_worktree(child_infra) if child_infra else ''
-            team = child.get('team', '')
-
-            _log.warning('Recovery: re-dispatching dead child %s', team)
-            await self.event_bus.publish(Event(
-                type=EventType.LOG,
-                data={
-                    'category': 'recovery_redispatch',
-                    'team': team,
-                    'heartbeat': hb_path,
-                },
-                session_id=self.session_id,
-            ))
-
-            if worktree_path and child_infra:
-                try:
-                    from teaparty.cfa.dispatch import dispatch
-                    await dispatch(
-                        team=team,
-                        task=self.task,
-                        session_worktree=self.session_worktree,
-                        infra_dir=self.infra_dir,
-                        project_slug=self.project_slug,
-                        resume_worktree=worktree_path,
-                        resume_infra=child_infra,
-                    )
-                except Exception as exc:
-                    _log.warning('Recovery: re-dispatch failed for %s: %s', team, exc)
-
-        # Log live children
-        for child in scan['live']:
-            _log.info('Recovery: live child %s — leaving alone', child.get('team', ''))
-
-        # Compact .children to remove terminal entries
-        compact_children(children_path)
-
-    def _find_dispatch_worktree(self, child_infra: str) -> str:
-        """Find the worktree path for a dispatch given its infra dir.
-
-        In the job store layout, child_infra is the task_dir and the
-        worktree is at {task_dir}/worktree/.
-        """
-        candidate = os.path.join(child_infra, 'worktree')
-        if os.path.isdir(candidate):
-            return candidate
-        return ''
