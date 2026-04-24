@@ -37,13 +37,13 @@ Between phases, approval gates involve the human proxy — a learned model of th
 
 Two orthogonal human controls sit on top of the state machine. **INTERVENE** delivers a course correction at the next turn boundary — advisory by default, authoritative from the decider. **WITHDRAW** is a kill signal that cascades immediately through the dispatch hierarchy and terminates the work.
 
-The engine lives in `teaparty/cfa/`. The transition table is a JSON file (`teaparty/cfa/statemachine/cfa-state-machine.json`) that serves as the single source of truth for both the runtime and the design docs; `cfa_state.py` loads it and `cfa_machine.py` (the `python-statemachine`-backed engine) implements immutable transitions; `engine.py` drives the loop; `actors.py` routes each state to the actor responsible for it; and `gates/` implements the escalation and intervention machinery. The approval gate decision model lives in [`teaparty/proxy/approval_gate.py`](../human-proxy/approval-gate.md) — approval is a proxy-system responsibility that CfA invokes, not a CfA-internal concern.
+The engine lives in `teaparty/cfa/`. The transition table is a Python dict (`TRANSITIONS`) at the top of `teaparty/cfa/statemachine/cfa_state.py` — literal constants, no JSON, no third-party state-machine library. `cfa_state.py` implements immutable transitions; `engine.py` drives the loop; `actors.py` is the runner that invokes the project lead through each phase's skill; and `gates/` implements the escalation and intervention machinery. The proxy confidence model lives in [`teaparty/proxy/approval_gate.py`](../human-proxy/approval-gate.md) — approval is a proxy-system responsibility that skills invoke via `AskQuestion`, not a CfA-internal concern.
 
 ## Status
 
 Operational:
 
-- Three-phase state machine with all documented states and transitions, loaded from JSON.
+- Three-phase state machine with all documented states and transitions, defined as Python constants.
 - Immutable `transition(state, action)` with append-only history and `.cfa-state.json` persistence per session.
 - Cross-phase backtracks with counted transitions.
 - Approval gates at INTENT_ASSERT, PLAN_ASSERT, and WORK_ASSERT, wired to the human proxy.

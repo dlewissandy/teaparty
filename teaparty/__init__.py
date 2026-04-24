@@ -19,10 +19,16 @@ import os
 
 
 def find_poc_root() -> str:
-    """Walk up from this package to find the repo root."""
+    """Walk up from this package to find the repo root.
+
+    The sentinel is ``pyproject.toml`` at the top of the source tree —
+    a stable, language-neutral marker.  Previously this walked for
+    ``cfa/statemachine/cfa-state-machine.json`` (deleted with the
+    state-machine simplification).
+    """
     d = os.path.dirname(os.path.abspath(__file__))
     while d != '/':
-        if os.path.exists(os.path.join(d, 'teaparty', 'cfa', 'statemachine', 'cfa-state-machine.json')):
+        if os.path.exists(os.path.join(d, 'pyproject.toml')):
             return d
         d = os.path.dirname(d)
     return os.path.dirname(os.path.abspath(__file__))

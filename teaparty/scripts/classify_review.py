@@ -20,32 +20,29 @@ import sys
 
 MAX_SUMMARY_CHARS = 500
 
-# ── Valid actions per CfA state (derived from cfa-state-machine.json) ──
+# ── Valid actions per CfA state ────────────────────────────────────────
 
-# States where "dialog" is a valid gate-internal action (not a state machine edge).
+# States where "dialog" is a valid gate-internal action (not a state
+# machine edge).  Preserved for forward compatibility with any state
+# name ending in ``_ASSERT`` / ``_ESCALATE``; the current 5-state
+# machine has none, so the dialog prefix is a no-op in practice.
 _DIALOG_STATE_SUFFIXES = ('_ASSERT', '_ESCALATE')
 
 
 def _derive_state_actions() -> dict[str, list[str]]:
     """Derive valid classifier actions per state from the CfA state machine.
 
-    For ASSERT and ESCALATE states, prepends "dialog" (a gate-internal action
-    that keeps the review loop open for questions).  The FAILURE state gets
-    its actions directly from the state machine with no dialog.
+    For ASSERT / ESCALATE states (should any exist), prepends ``dialog``
+    — a gate-internal action that keeps the review loop open for
+    questions.  The ``FAILURE`` pseudo-state gets its actions directly.
     """
-    machine_path = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        'cfa', 'statemachine', 'cfa-state-machine.json',
-    )
-    with open(machine_path) as f:
-        machine = json.load(f)
+    from teaparty.cfa.statemachine.cfa_state import TRANSITIONS
 
     result: dict[str, list[str]] = {}
-    for state, edges in machine['transitions'].items():
+    for state, edges in TRANSITIONS.items():
         if not edges:
             continue  # terminal states
-        actions = [e['action'] for e in edges]
-        # Prepend "dialog" for review states (ASSERT / ESCALATE)
+        actions = [action for action, _target, _actor in edges]
         if any(state.endswith(sfx) for sfx in _DIALOG_STATE_SUFFIXES):
             actions = ['dialog'] + actions
         result[state] = actions

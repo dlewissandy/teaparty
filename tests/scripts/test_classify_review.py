@@ -58,16 +58,16 @@ class TestStateActions(unittest.TestCase):
     def test_state_actions_derived_from_state_machine(self):
         """STATE_ACTIONS should be derived, not hardcoded — verify key invariant."""
         # Every action in STATE_ACTIONS (except dialog) must be a valid
-        # state machine edge for that state
-        import json
-        machine_path = os.path.join(
-            os.path.dirname(__file__), '..', '..', 'teaparty', 'cfa', 'statemachine', 'cfa-state-machine.json')
-        with open(machine_path) as f:
-            machine = json.load(f)
+        # state machine edge for that state.  Source of truth is
+        # ``teaparty.cfa.statemachine.cfa_state.TRANSITIONS`` (literal
+        # constants) — the cfa-state-machine.json file is gone.
+        from teaparty.cfa.statemachine.cfa_state import TRANSITIONS
         for state, actions in mod.STATE_ACTIONS.items():
             if state == 'FAILURE':
                 continue  # synthetic state, not in state machine
-            sm_actions = {e['action'] for e in machine['transitions'].get(state, [])}
+            sm_actions = {
+                action for action, _target, _actor in TRANSITIONS.get(state, [])
+            }
             for action in actions:
                 if action == 'dialog':
                     continue  # gate-internal, not a state machine edge

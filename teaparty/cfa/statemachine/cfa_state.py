@@ -1,110 +1,101 @@
 #!/usr/bin/env python3
-"""Conversation for Action (CfA) state machine for multi-agent coordination.
+"""Conversation for Action (CfA) state machine — five states, three phases.
 
-Five states — one working state per phase, plus two terminals:
-  INTENT  — intent-alignment skill runs here
-  PLAN    — planning skill runs here
-  EXECUTE — execute skill runs here
-  DONE    — terminal: work approved
-  WITHDRAWN — terminal: work abandoned
+States (working → terminal):
+  INTENT     — intent-alignment skill runs here
+  PLAN       — planning skill runs here
+  EXECUTE    — execute skill runs here
+  DONE       — terminal: work approved
+  WITHDRAWN  — terminal: work abandoned
 
 Each phase's skill runs to completion in a single invocation, writes
-./.phase-outcome.json, and the state machine transitions based on the
-outcome (APPROVE advances, REALIGN/REPLAN backtrack, WITHDRAW terminates).
+``./.phase-outcome.json`` with an outcome string (``APPROVE`` /
+``REALIGN`` / ``REPLAN`` / ``WITHDRAW``), and halts.  The orchestrator
+reads the outcome and calls ``transition(cfa, action)`` — action is
+the lowercase outcome (``approve`` / ``realign`` / ``replan`` /
+``withdraw``).
 
-State machine structure is defined in cfa-state-machine.json (the single
-source of truth). This module loads from that file and provides the
-runtime API.
-
-No external dependencies — uses stdlib only (json, datetime, dataclasses, os).
+The machine is **static** — five states, three phases, ten edges.
+Previously this module loaded from ``cfa-state-machine.json`` and
+wrapped the definition in a third-party ``python-statemachine``
+StateMachine class (``cfa_machine.py``, 232 lines of ceremony for a
+5-state table).  The JSON + wrapper layer is deleted; what replaces
+it is the literal table below plus a 15-line ``transition()``.  If
+the machine ever gets complex enough to need a library, it won't be
+this machine.
 """
 from __future__ import annotations
 
 import json
 import os
-import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Optional
 
 
-# ── Load state machine from JSON ───────────────────────────────────────────────
+# ── State machine definition (the entire machine is here) ──────────────────
 
-_MACHINE_FILE = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    'cfa-state-machine.json',
-)
+# Each entry: state → [(action, target_state, actor), ...]
+# Terminal states have no outgoing edges.
+TRANSITIONS: dict[str, list[tuple[str, str, str]]] = {
+    'INTENT': [
+        ('approve',  'PLAN',      'intent_team'),
+        ('withdraw', 'WITHDRAWN', 'intent_team'),
+    ],
+    'PLAN': [
+        ('approve',  'EXECUTE',   'planning_team'),
+        ('realign',  'INTENT',    'planning_team'),
+        ('withdraw', 'WITHDRAWN', 'planning_team'),
+    ],
+    'EXECUTE': [
+        ('approve',  'DONE',      'project_lead'),
+        ('replan',   'PLAN',      'project_lead'),
+        ('realign',  'INTENT',    'project_lead'),
+        ('withdraw', 'WITHDRAWN', 'project_lead'),
+    ],
+    'DONE': [],
+    'WITHDRAWN': [],
+}
 
+INTENT_STATES    = frozenset({'INTENT'})
+PLANNING_STATES  = frozenset({'PLAN'})
+EXECUTION_STATES = frozenset({'EXECUTE', 'DONE', 'WITHDRAWN'})
+ALL_STATES       = INTENT_STATES | PLANNING_STATES | EXECUTION_STATES
+TERMINAL_STATES  = frozenset({'DONE', 'WITHDRAWN'})
 
-def _load_machine(path: str = _MACHINE_FILE) -> dict:
-    with open(path) as f:
-        return json.load(f)
-
-
-def _build_from_machine(machine: dict) -> tuple[
-    frozenset, frozenset, frozenset, frozenset,
-    dict[str, list[tuple[str, str, str]]],
-]:
-    """Derive phase sets and transition table from the JSON machine definition."""
-    phases = machine['phases']
-    intent_states = frozenset(phases['intent']['states'])
-    planning_states = frozenset(phases['planning']['states'])
-    execution_states = frozenset(phases['execution']['states'])
-    all_states = intent_states | planning_states | execution_states
-
-    transitions: dict[str, list[tuple[str, str, str]]] = {}
-    for state, edges in machine['transitions'].items():
-        transitions[state] = [
-            (e['action'], e['to'], e['actor']) for e in edges
-        ]
-
-    return intent_states, planning_states, execution_states, all_states, transitions
-
-
-_machine = _load_machine()
-INTENT_STATES, PLANNING_STATES, EXECUTION_STATES, ALL_STATES, TRANSITIONS = (
-    _build_from_machine(_machine)
-)
+# Phase progression — used for backtrack detection.
+_PHASE_ORDER = {'intent': 0, 'planning': 1, 'execution': 2}
 
 
-# ── Exception ───────────────────────────────────────────────────────────────────
+# ── Exception ──────────────────────────────────────────────────────────────
 
 class InvalidTransition(Exception):
     """Raised when an action is not valid from the current state."""
-    pass
 
 
-# ── Data model ──────────────────────────────────────────────────────────────────
+# ── Data model ─────────────────────────────────────────────────────────────
 
 @dataclass
 class CfaState:
     """Full state of a Conversation for Action instance."""
     phase: str           # 'intent' | 'planning' | 'execution'
-    state: str           # 'INTENT', 'PLAN', 'EXECUTE', 'DONE', 'WITHDRAWN'
-    actor: str           # who should act next (from transition table)
-    history: list = field(default_factory=list)  # list of dicts: {state, action, actor, timestamp}
-    backtrack_count: int = 0  # how many cross-phase backtracks have occurred
-    task_id: str = ''    # optional: for execution phase, identifies which task
-    # Hierarchy fields — support recursive CfA through team delegation
-    parent_id: str = ''  # task_id of parent CfA instance ('' = root)
-    team_id: str = ''    # team slug ('coding', 'art', '' for uber)
-    depth: int = 0       # nesting depth: 0 = uber, 1 = subteam
+    state: str           # 'INTENT' | 'PLAN' | 'EXECUTE' | 'DONE' | 'WITHDRAWN'
+    actor: str           # who should act next (from the transition table)
+    history: list = field(default_factory=list)
+    backtrack_count: int = 0
+    task_id: str = ''
+    # Hierarchy fields — recursive CfA through team delegation.
+    parent_id: str = ''
+    team_id: str = ''
+    depth: int = 0
 
 
-# ── Factory ─────────────────────────────────────────────────────────────────────
+# ── Factories ──────────────────────────────────────────────────────────────
 
 def make_initial_state(task_id: str = '', team_id: str = '') -> CfaState:
     """Create the initial CfaState at INTENT, ready for the intent team."""
     return CfaState(
-        phase='intent',
-        state='INTENT',
-        actor='intent_team',
-        history=[],
-        backtrack_count=0,
-        task_id=task_id,
-        parent_id='',
-        team_id=team_id,
-        depth=0,
+        phase='intent', state='INTENT', actor='intent_team',
+        task_id=task_id, team_id=team_id,
     )
 
 
@@ -113,19 +104,16 @@ def make_child_state(parent: CfaState, team_id: str, task_id: str = '') -> CfaSt
 
     The subteam does not re-derive intent — the delegated TASK already
     carries the approved intent from the outer scope.  The child enters
-    at INTENT to acknowledge the inherited INTENT.md and quickly approves
-    through it rather than running the full intent-alignment dialog.
-
-    Linked to the parent via parent_id = parent.task_id, with
-    depth = parent.depth + 1.
+    at INTENT to acknowledge the inherited INTENT.md and quickly
+    approves through it rather than running the full intent-alignment
+    dialog.
     """
-    child_task_id = task_id or f"{team_id}-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+    child_task_id = (
+        task_id
+        or f"{team_id}-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+    )
     return CfaState(
-        phase='intent',
-        state='INTENT',
-        actor='intent_team',
-        history=[],
-        backtrack_count=0,
+        phase='intent', state='INTENT', actor='intent_team',
         task_id=child_task_id,
         parent_id=parent.task_id,
         team_id=team_id,
@@ -133,45 +121,37 @@ def make_child_state(parent: CfaState, team_id: str, task_id: str = '') -> CfaSt
     )
 
 
-# ── Query functions ─────────────────────────────────────────────────────────────
+# ── Query functions ────────────────────────────────────────────────────────
 
 def phase_for_state(state: str) -> str:
-    """Return 'intent', 'planning', or 'execution' for a given state name.
-
-    Raises ValueError for unknown states.
-    """
+    """Return 'intent' / 'planning' / 'execution' for a given state."""
     if state in INTENT_STATES:
         return 'intent'
     if state in PLANNING_STATES:
         return 'planning'
     if state in EXECUTION_STATES:
         return 'execution'
-    raise ValueError(f"Unknown state: {state!r}")
+    raise ValueError(f'Unknown state: {state!r}')
 
 
 def available_actions(state: str) -> list[tuple[str, str]]:
-    """Return list of (action, actor) pairs valid from the given state.
+    """Return list of (action, actor) pairs valid from *state*.
 
-    Returns empty list for terminal states. Raises ValueError for unknown states.
+    Empty list for terminal states.  Raises ValueError for unknown states.
     """
     if state not in TRANSITIONS:
-        raise ValueError(f"Unknown state: {state!r}")
+        raise ValueError(f'Unknown state: {state!r}')
     return [(action, actor) for action, _target, actor in TRANSITIONS[state]]
 
 
 def is_phase_terminal(state: str) -> bool:
-    """True for states that are terminal for a phase.
-
-    In the five-state model every working state (INTENT, PLAN, EXECUTE)
-    terminates its phase via approve/realign/replan/withdraw; only the
-    globally terminal states (DONE, WITHDRAWN) have no further transitions.
-    """
-    return state in ('DONE', 'WITHDRAWN')
+    """True for globally terminal states (DONE, WITHDRAWN)."""
+    return state in TERMINAL_STATES
 
 
 def is_globally_terminal(state: str) -> bool:
     """True only for DONE and WITHDRAWN."""
-    return state in ('DONE', 'WITHDRAWN')
+    return state in TERMINAL_STATES
 
 
 def is_root(cfa: CfaState) -> bool:
@@ -180,75 +160,82 @@ def is_root(cfa: CfaState) -> bool:
 
 
 def is_backtrack(from_state: str, action: str) -> bool:
-    """True if this transition crosses phase boundaries backward.
-
-    A backtrack occurs when the target state belongs to a phase earlier than
-    the source state's phase in the progression: intent < planning < execution.
-    """
-    _phase_order = {'intent': 0, 'planning': 1, 'execution': 2}
-    transitions = TRANSITIONS.get(from_state, [])
-    for act, target, _actor in transitions:
+    """True if this transition moves to an earlier phase."""
+    for act, target, _actor in TRANSITIONS.get(from_state, []):
         if act == action:
-            from_phase = phase_for_state(from_state)
-            to_phase = phase_for_state(target)
-            return _phase_order[to_phase] < _phase_order[from_phase]
+            return (
+                _PHASE_ORDER[phase_for_state(target)]
+                < _PHASE_ORDER[phase_for_state(from_state)]
+            )
     return False
 
 
-# ── Core state machine ──────────────────────────────────────────────────────────
+# ── Transition ─────────────────────────────────────────────────────────────
 
 def transition(cfa: CfaState, action: str) -> CfaState:
-    """Validate action and return a new CfaState with updated fields.
+    """Validate *action* from ``cfa.state`` and return the new CfaState.
 
-    Raises InvalidTransition if the action is not valid from cfa.state.
-    Does not mutate the original CfaState.
-
-    The CfAMachine handles:
-      - Transition validation (rejects invalid actions)
-      - History tracking (after_transition hook)
-      - Backtrack counting (after_transition hook)
-      - Backtrack guards (cond='backtrack_allowed' on backtrack edges)
+    Raises ``InvalidTransition`` if the action is not valid from the
+    current state.  Does not mutate ``cfa``.  Appends a history entry
+    and increments ``backtrack_count`` for cross-phase backward moves.
     """
-    from statemachine.exceptions import TransitionNotAllowed
-    from teaparty.cfa.statemachine.cfa_machine import (
-        CfAMachine, CfATransitionModel, PHASE_SETS, TRANSITION_ACTORS,
+    for act, target, actor in TRANSITIONS.get(cfa.state, []):
+        if act == action:
+            history_entry = {
+                'state': cfa.state,
+                'action': action,
+                'actor': cfa.actor,
+                'timestamp': datetime.now(timezone.utc).isoformat(),
+            }
+            new_phase = phase_for_state(target)
+            new_backtrack_count = cfa.backtrack_count + (
+                1 if _PHASE_ORDER[new_phase]
+                < _PHASE_ORDER[phase_for_state(cfa.state)]
+                else 0
+            )
+            return CfaState(
+                phase=new_phase,
+                state=target,
+                actor=actor,
+                history=cfa.history + [history_entry],
+                backtrack_count=new_backtrack_count,
+                task_id=cfa.task_id,
+                parent_id=cfa.parent_id,
+                team_id=cfa.team_id,
+                depth=cfa.depth,
+            )
+    valid = [a for a, _ in available_actions(cfa.state)]
+    raise InvalidTransition(
+        f'Action {action!r} is not valid from state {cfa.state!r}. '
+        f'Valid actions: {valid}'
     )
 
-    current = cfa.state
 
-    # Build the transition model so the machine's hooks can record side effects
-    model = CfATransitionModel(
-        phase_sets=PHASE_SETS,
-        last_action=action,
-        last_actor=cfa.actor,
-    )
+def set_state_direct(cfa: CfaState, target_state: str) -> CfaState:
+    """Set ``cfa`` to ``target_state``, bypassing transition validation.
 
-    # Validate and execute via the state machine
-    event_name = action.replace('-', '_')
-    try:
-        sm = CfAMachine(start_value=current, cfa_model=model)
-        sm.send(event_name)
-    except (TransitionNotAllowed, ValueError):
-        valid = [a for a, _ in available_actions(current)]
-        raise InvalidTransition(
-            f"Action {action!r} is not valid from state {current!r}. "
-            f"Valid actions: {valid}"
-        )
-
-    target_state = sm.current_state_value
-    next_actor = TRANSITION_ACTORS.get((current, action), 'system')
-    new_phase = phase_for_state(target_state)
-
-    # History and backtrack_count come from the machine's after_transition hook
-    new_history = list(cfa.history) + model.history
-    backtrack_count = cfa.backtrack_count + model.backtrack_count
-
+    Pragmatic escape hatch for the shell orchestration layer — skip-intent
+    / execute-only flows jump straight to a working state without an
+    agent producing an outcome.  Appends a synthetic ``set-state``
+    history entry.  Does NOT update ``backtrack_count``.
+    """
+    if target_state not in ALL_STATES:
+        raise ValueError(f'Unknown state: {target_state!r}')
+    edges = TRANSITIONS.get(target_state, [])
+    next_actor = edges[0][2] if edges else 'system'
+    history_entry = {
+        'state': cfa.state,
+        'action': 'set-state',
+        'actor': 'system',
+        'timestamp': datetime.now(timezone.utc).isoformat(),
+        'target': target_state,
+    }
     return CfaState(
-        phase=new_phase,
+        phase=phase_for_state(target_state),
         state=target_state,
         actor=next_actor,
-        history=new_history,
-        backtrack_count=backtrack_count,
+        history=cfa.history + [history_entry],
+        backtrack_count=cfa.backtrack_count,
         task_id=cfa.task_id,
         parent_id=cfa.parent_id,
         team_id=cfa.team_id,
@@ -256,12 +243,11 @@ def transition(cfa: CfaState, action: str) -> CfaState:
     )
 
 
-# ── Persistence ─────────────────────────────────────────────────────────────────
+# ── Persistence ────────────────────────────────────────────────────────────
 
 def save_state(cfa: CfaState, path: str) -> None:
-    """Serialize CfaState to a JSON file at path (atomic write)."""
-    import os
-    dir_name = os.path.dirname(path) if os.path.dirname(path) else '.'
+    """Serialize CfaState to *path* atomically."""
+    dir_name = os.path.dirname(path) or '.'
     os.makedirs(dir_name, exist_ok=True)
     data = {
         'phase': cfa.phase,
@@ -287,10 +273,7 @@ def save_state(cfa: CfaState, path: str) -> None:
 
 
 def load_state(path: str) -> CfaState:
-    """Deserialize CfaState from a JSON file at path.
-
-    Backward compatible — hierarchy fields default to empty/zero if absent.
-    """
+    """Deserialize CfaState from *path*."""
     with open(path) as f:
         data = json.load(f)
     return CfaState(
@@ -304,327 +287,3 @@ def load_state(path: str) -> CfaState:
         team_id=data.get('team_id', ''),
         depth=data.get('depth', 0),
     )
-
-
-def set_state_direct(cfa: CfaState, target_state: str) -> CfaState:
-    """Directly set a CfaState to a target state, bypassing transition validation.
-
-    This is the pragmatic escape hatch for the shell orchestration layer, where
-    intermediate micro-transitions between phases are not observed by agents.
-    Appends a synthetic 'set-state' history entry.
-    """
-    new_phase = phase_for_state(target_state)
-
-    # Look up actor for the target state's first available transition,
-    # or use 'system' if it's a terminal state
-    edges = TRANSITIONS.get(target_state, [])
-    actor = edges[0][2] if edges else 'system'
-
-    history_entry = {
-        'state': cfa.state,
-        'action': 'set-state',
-        'actor': 'system',
-        'timestamp': datetime.now(timezone.utc).isoformat(),
-        'target': target_state,
-    }
-
-    return CfaState(
-        phase=new_phase,
-        state=target_state,
-        actor=actor,
-        history=list(cfa.history) + [history_entry],
-        backtrack_count=cfa.backtrack_count,
-        task_id=cfa.task_id,
-        parent_id=cfa.parent_id,
-        team_id=cfa.team_id,
-        depth=cfa.depth,
-    )
-
-
-# ── CLI ─────────────────────────────────────────────────────────────────────────
-
-def _cli_test() -> None:
-    """Run self-test assertions."""
-    print("Running CfA state machine self-tests...")
-
-    # make_initial_state
-    cfa = make_initial_state()
-    assert cfa.state == 'INTENT', f"Expected INTENT, got {cfa.state}"
-    assert cfa.phase == 'intent', f"Expected intent, got {cfa.phase}"
-    assert cfa.actor == 'intent_team'
-    assert cfa.backtrack_count == 0
-    assert cfa.history == []
-    print("  [OK] make_initial_state")
-
-    # Happy path: INTENT → PLAN → EXECUTE → DONE
-    cfa = transition(cfa, 'approve')
-    assert cfa.state == 'PLAN'
-    cfa = transition(cfa, 'approve')
-    assert cfa.state == 'EXECUTE'
-    cfa = transition(cfa, 'approve')
-    assert cfa.state == 'DONE'
-    assert is_globally_terminal('DONE')
-    print("  [OK] Happy path: INTENT → DONE")
-
-    # Invalid transition raises InvalidTransition
-    try:
-        transition(cfa, 'approve')
-        assert False, "Should have raised InvalidTransition"
-    except InvalidTransition:
-        pass
-    print("  [OK] InvalidTransition raised for terminal state")
-
-    # Backtrack detection
-    assert is_backtrack('PLAN', 'realign'), "PLAN→realign should be backtrack"
-    assert is_backtrack('EXECUTE', 'replan'), "EXECUTE→replan should be backtrack"
-    assert is_backtrack('EXECUTE', 'realign'), "EXECUTE→realign should be backtrack"
-    assert not is_backtrack('INTENT', 'approve'), "INTENT→approve is not a backtrack"
-    print("  [OK] is_backtrack")
-
-    # Backtrack count increment
-    cfa2 = make_initial_state()
-    cfa2 = transition(cfa2, 'approve')   # INTENT → PLAN
-    cfa2 = transition(cfa2, 'realign')   # PLAN → INTENT (backtrack)
-    assert cfa2.backtrack_count == 1, f"Expected 1, got {cfa2.backtrack_count}"
-    print("  [OK] backtrack_count increments on cross-phase backtrack")
-
-    # phase_for_state
-    assert phase_for_state('INTENT') == 'intent'
-    assert phase_for_state('PLAN') == 'planning'
-    assert phase_for_state('EXECUTE') == 'execution'
-    assert phase_for_state('DONE') == 'execution'
-    print("  [OK] phase_for_state")
-
-    # available_actions
-    actions = dict(available_actions('INTENT'))
-    assert 'approve' in actions
-    assert 'withdraw' in actions
-    print("  [OK] available_actions")
-
-    # Persistence round-trip
-    import tempfile, os
-    cfa3 = make_initial_state()
-    cfa3 = transition(cfa3, 'approve')
-    with tempfile.NamedTemporaryFile(suffix='.json', delete=False) as f:
-        tmp_path = f.name
-    try:
-        save_state(cfa3, tmp_path)
-        loaded = load_state(tmp_path)
-        assert loaded.state == cfa3.state
-        assert loaded.phase == cfa3.phase
-        assert loaded.actor == cfa3.actor
-        assert loaded.backtrack_count == cfa3.backtrack_count
-        assert len(loaded.history) == len(cfa3.history)
-    finally:
-        os.unlink(tmp_path)
-    print("  [OK] save_state / load_state round-trip")
-
-    # Hierarchy: make_child_state
-    parent = make_initial_state(task_id='uber-001')
-    parent = transition(parent, 'approve')  # INTENT → PLAN
-    parent = transition(parent, 'approve')  # PLAN → EXECUTE
-    assert parent.state == 'EXECUTE'
-
-    child = make_child_state(parent, 'coding')
-    assert child.parent_id == 'uber-001'
-    assert child.team_id == 'coding'
-    assert child.depth == 1
-    assert child.state == 'INTENT', f"Expected INTENT, got {child.state}"
-    assert child.phase == 'intent', f"Expected intent, got {child.phase}"
-    assert is_root(parent) is True  # depth=0, parent_id='' → root even with task_id set
-    root = make_initial_state()
-    assert is_root(root) is True
-    assert is_root(child) is False
-    print("  [OK] make_child_state + is_root")
-
-    # Hierarchy: child transitions preserve hierarchy fields
-    child = transition(child, 'approve')  # INTENT → PLAN
-    assert child.parent_id == 'uber-001'
-    assert child.team_id == 'coding'
-    assert child.depth == 1
-    print("  [OK] hierarchy fields preserved through transitions")
-
-    # Hierarchy: persistence round-trip with hierarchy fields
-    with tempfile.NamedTemporaryFile(suffix='.json', delete=False) as f:
-        tmp_path2 = f.name
-    try:
-        save_state(child, tmp_path2)
-        loaded2 = load_state(tmp_path2)
-        assert loaded2.parent_id == 'uber-001'
-        assert loaded2.team_id == 'coding'
-        assert loaded2.depth == 1
-    finally:
-        os.unlink(tmp_path2)
-    print("  [OK] hierarchy fields survive persistence round-trip")
-
-    # set_state_direct
-    cfa4 = make_initial_state()
-    cfa4 = set_state_direct(cfa4, 'PLAN')
-    assert cfa4.state == 'PLAN'
-    assert cfa4.phase == 'planning'
-    assert len(cfa4.history) == 1
-    assert cfa4.history[0]['action'] == 'set-state'
-    print("  [OK] set_state_direct")
-
-    print("\nAll self-tests passed.")
-
-
-def _cli_transitions() -> None:
-    """Print all valid transitions in a readable table."""
-    print(f"{'FROM STATE':<25} {'ACTION':<20} {'TO STATE':<25} {'ACTOR':<20}")
-    print("-" * 90)
-    for state, edges in TRANSITIONS.items():
-        for action, target, actor in edges:
-            marker = " [BACKTRACK]" if is_backtrack(state, action) else ""
-            print(f"{state:<25} {action:<20} {target:<25} {actor:<20}{marker}")
-
-
-def _cli_dot() -> None:
-    """Output Graphviz DOT for visualization."""
-    # Color nodes by phase
-    phase_colors = {
-        'intent':    'lightblue',
-        'planning':  'lightyellow',
-        'execution': 'lightgreen',
-    }
-    terminal_colors = {
-        'DONE':      'palegreen',
-        'WITHDRAWN': 'lightsalmon',
-    }
-
-    print('digraph CfA {')
-    print('  rankdir=LR;')
-    print('  node [shape=box, style=filled, fontname="Helvetica"];')
-    print()
-
-    # Node declarations with colors
-    for state in sorted(ALL_STATES):
-        if state in terminal_colors:
-            color = terminal_colors[state]
-            shape = 'doublecircle'
-        else:
-            color = phase_colors.get(phase_for_state(state), 'white')
-            shape = 'box'
-        label = state.replace('_', '\\n')
-        print(f'  {state} [label="{label}", fillcolor="{color}", shape="{shape}"];')
-
-    print()
-
-    # Edges
-    for state, edges in TRANSITIONS.items():
-        for action, target, actor in edges:
-            style = 'dashed' if is_backtrack(state, action) else 'solid'
-            color = 'red' if is_backtrack(state, action) else 'black'
-            print(f'  {state} -> {target} [label="{action}\\n({actor})", style="{style}", color="{color}"];')
-
-    print('}')
-
-
-def _cli_init(args: list[str]) -> None:
-    """Create initial root CfA state and save to file."""
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--output', required=True, help='Output file path')
-    parser.add_argument('--task-id', default='', help='Optional task ID')
-    parser.add_argument('--team', default='', help='Optional team ID')
-    parsed = parser.parse_args(args)
-
-    cfa = make_initial_state(task_id=parsed.task_id, team_id=parsed.team)
-    save_state(cfa, parsed.output)
-
-
-def _cli_make_child(args: list[str]) -> None:
-    """Create a child CfA state linked to a parent."""
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--parent', required=True, help='Parent state file')
-    parser.add_argument('--team', required=True, help='Team slug')
-    parser.add_argument('--output', required=True, help='Output file path')
-    parser.add_argument('--task-id', default='', help='Optional task ID')
-    parsed = parser.parse_args(args)
-
-    parent = load_state(parsed.parent)
-    child = make_child_state(parent, parsed.team, task_id=parsed.task_id)
-    save_state(child, parsed.output)
-
-
-def _cli_set_state(args: list[str]) -> None:
-    """Set state directly (bypassing transitions) — for shell orchestration."""
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--state-file', required=True, help='State file to modify')
-    parser.add_argument('--target', required=True, help='Target state name')
-    parsed = parser.parse_args(args)
-
-    if parsed.target not in ALL_STATES:
-        print(f"Unknown state: {parsed.target}", file=sys.stderr)
-        sys.exit(1)
-
-    cfa = load_state(parsed.state_file)
-    cfa = set_state_direct(cfa, parsed.target)
-    save_state(cfa, parsed.state_file)
-
-
-def _cli_transition(args: list[str]) -> None:
-    """Apply a validated transition to a CfA state file.
-
-    Loads current state, validates the action against the transition table,
-    applies the transition, saves the updated state, and prints the new state
-    name to stdout.  Exits 1 if the action is not valid from the current state.
-    """
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--state-file', required=True, help='State file to modify')
-    parser.add_argument('--action', required=True, help='Action to take (e.g. approve, correct, withdraw)')
-    parsed = parser.parse_args(args)
-
-    cfa = load_state(parsed.state_file)
-    try:
-        cfa = transition(cfa, parsed.action)
-    except InvalidTransition as e:
-        print(f"InvalidTransition: {e}", file=sys.stderr)
-        sys.exit(1)
-    save_state(cfa, parsed.state_file)
-    # Print new state name to stdout for shell capture
-    print(cfa.state)
-
-
-def _cli_read(args: list[str]) -> None:
-    """Print current state as JSON summary to stdout."""
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--state-file', required=True, help='State file to read')
-    parsed = parser.parse_args(args)
-
-    cfa = load_state(parsed.state_file)
-    summary = {
-        'state': cfa.state,
-        'phase': cfa.phase,
-        'actor': cfa.actor,
-        'backtrack_count': cfa.backtrack_count,
-        'task_id': cfa.task_id,
-        'parent_id': cfa.parent_id,
-        'team_id': cfa.team_id,
-        'depth': cfa.depth,
-    }
-    print(json.dumps(summary))
-
-
-COMMANDS = {
-    '--test': lambda args: _cli_test(),
-    '--transitions': lambda args: _cli_transitions(),
-    '--dot': lambda args: _cli_dot(),
-    '--init': _cli_init,
-    '--make-child': _cli_make_child,
-    '--set-state': _cli_set_state,
-    '--transition': _cli_transition,
-    '--read': _cli_read,
-}
-
-if __name__ == '__main__':
-    if len(sys.argv) < 2 or sys.argv[1] not in COMMANDS:
-        print(f"Usage: python3 cfa_state.py {' | '.join(COMMANDS.keys())}")
-        sys.exit(1)
-
-    cmd = sys.argv[1]
-    COMMANDS[cmd](sys.argv[2:])

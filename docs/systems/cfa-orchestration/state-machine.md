@@ -6,7 +6,7 @@ The CfA state machine (`teaparty/cfa/statemachine/cfa_state.py`) implements the 
 
 ## Design Choices
 
-**JSON transition table as single source of truth.** The transition table is loaded from `cfa-state-machine.json`, not hardcoded. This file is shared between the state machine code and the conceptual design documentation. Changes to the protocol happen in one place.
+**Literal transition table as single source of truth.** The transition table is a Python dict (`TRANSITIONS`) at the top of `teaparty/cfa/statemachine/cfa_state.py` — five states, ten edges, no JSON, no library wrapper. Earlier iterations loaded this from `cfa-state-machine.json` through a `python-statemachine` subclass (~270 lines of ceremony for a static table); that layer was removed. Changes to the protocol happen in one place — the dict.
 
 **Immutable state transitions.** `transition(cfa, action)` returns a new `CfaState` — it never mutates the input. This makes backtrack safe: the orchestrator can hold previous states without defensive copying, and history is append-only.
 

@@ -93,20 +93,23 @@ class PhaseConfig:
         self.max_dispatch_retries = raw.get('max_dispatch_retries', 5)
 
     def _load_state_machine(self) -> None:
-        """Derive computed properties from cfa-state-machine.json."""
-        path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                            'statemachine', 'cfa-state-machine.json')
-        with open(path) as f:
-            machine = json.load(f)
+        """Copy computed properties out of the cfa_state constants.
 
-        # Build phase-for-state mapping
-        for phase_name, phase_def in machine['phases'].items():
-            for state in phase_def['states']:
-                self.phase_for_state[state] = phase_name
-
-        # Valid actions per state (for review classification)
-        for state, edges in machine['transitions'].items():
-            self.valid_actions_by_state[state] = [e['action'] for e in edges]
+        Previously this read ``cfa-state-machine.json``; the JSON is
+        gone — the state machine is literal constants in
+        ``teaparty.cfa.statemachine.cfa_state``.  These two dicts
+        remain as ``PhaseConfig`` fields for the handful of callers
+        that reach them through ``config``; they're just projections
+        of ``TRANSITIONS`` / ``phase_for_state``.
+        """
+        from teaparty.cfa.statemachine.cfa_state import (
+            TRANSITIONS, phase_for_state,
+        )
+        for state in TRANSITIONS:
+            self.phase_for_state[state] = phase_for_state(state)
+            self.valid_actions_by_state[state] = [
+                action for action, _target, _actor in TRANSITIONS[state]
+            ]
 
     def _load_project_config(self) -> None:
         """Load project-scoped config from project.yaml (lead) and project.json (overrides)."""

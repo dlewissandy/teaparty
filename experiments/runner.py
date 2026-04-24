@@ -210,14 +210,14 @@ class ExperimentRunner:
 
     @staticmethod
     def _find_poc_root() -> str:
-        """Locate the repo root (contains cfa-state-machine.json)."""
+        """Locate the repo root (contains pyproject.toml)."""
         d = os.path.dirname(os.path.abspath(__file__))
         while d != '/':
-            if os.path.exists(os.path.join(d, 'cfa-state-machine.json')):
+            if os.path.exists(os.path.join(d, 'pyproject.toml')):
                 return d
             d = os.path.dirname(d)
 
-        raise RuntimeError('Could not find repo root (cfa-state-machine.json)')
+        raise RuntimeError('Could not find repo root (pyproject.toml)')
 
 
 async def run_corpus(

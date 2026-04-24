@@ -17,11 +17,9 @@ teaparty/                           # top-level package
     actors.py                       # actor definitions (agent runner, gate)
     dispatch.py                     # hierarchical dispatch
     phase_config.py                 # per-phase Claude Code configuration
-    statemachine/                   # CfA state definitions
-      cfa_state.py                  # state operations
-      cfa_machine.py                # state machine
-      cfa-state-machine.json        # state machine definition
-    gates/                          # approval / escalation pipeline
+    statemachine/
+      cfa_state.py                  # 5-state machine: literal TRANSITIONS dict + transition()
+    gates/                          # escalation / intervention pipeline
       queue.py                      # gate queue
       escalation.py                 # escalation listener
       intervention.py               # intervention handling
