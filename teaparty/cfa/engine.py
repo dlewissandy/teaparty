@@ -39,15 +39,15 @@ from teaparty.cfa.gates.escalation import AskQuestionRunner
 from teaparty.cfa.gates.intervention_listener import InterventionListener
 from teaparty.workspace.worktree import commit_artifact
 from teaparty.runners.dispatch_env import cfa_dispatch_env_vars
+from teaparty.cfa.run_options import RunOptions
 from teaparty.messaging.bus import Event, EventBus, EventType, InputRequest
-from teaparty.cfa.gates.intervention import InterventionQueue, build_intervention_prompt
+from teaparty.cfa.gates.intervention import build_intervention_prompt
 from teaparty.util.interrupt_propagation import (
     cascade_withdraw_children,
     is_backtrack,
 )
 from teaparty.util.context_budget import ContextBudget, build_compact_prompt
 from teaparty.cfa.phase_config import PhaseConfig
-from teaparty.util.role_enforcer import RoleEnforcer
 from teaparty.util.scratch import ScratchModel, ScratchWriter, extract_text
 from teaparty.learning.extract import (
     write_intervention_chunk,
@@ -85,6 +85,10 @@ class Orchestrator:
 
     def __init__(
         self,
+        *,
+        # Required core dependencies — the infrastructure the state
+        # machine cannot run without.  Optional knobs and injected
+        # dependencies live on ``RunOptions`` (Cut 23).
         cfa_state: CfaState,
         phase_config: PhaseConfig,
         event_bus: EventBus,
@@ -97,28 +101,11 @@ class Orchestrator:
         poc_root: str,
         task: str = '',
         session_id: str = '',
-        skip_intent: bool = False,
-        intent_only: bool = False,
-        plan_only: bool = False,
-        execute_only: bool = False,
-        flat: bool = False,
-        suppress_backtracks: bool = False,
-        proxy_enabled: bool = True,
-        never_escalate: bool = False,
-        team_override: str = '',
-        phase_session_ids: dict[str, str] | None = None,
-        last_actor_data: dict[str, Any] | None = None,
-        parent_heartbeat: str = '',
-        project_dir: str = '',
-        intervention_queue: InterventionQueue | None = None,
-        role_enforcer: RoleEnforcer | None = None,
-        escalation_modes: dict[str, str] | None = None,
-        llm_backend: str = 'claude',
-        llm_caller: Any = None,
-        proxy_invoker_fn: Callable[..., Awaitable[None]] | None = None,
-        on_dispatch: Callable[[dict], Any] | None = None,
-        paused_check: Callable[[], bool] | None = None,
+        options: RunOptions | None = None,
     ):
+        opts = options if options is not None else RunOptions()
+
+        # ── Required core deps ──────────────────────────────────────────────
         self.cfa = cfa_state
         self.config = phase_config
         self.event_bus = event_bus
@@ -132,29 +119,41 @@ class Orchestrator:
         self.teaparty_home = os.path.join(poc_root, '.teaparty')
         self.task = task
         self.session_id = session_id
-        self.skip_intent = skip_intent
-        self.intent_only = intent_only
-        self.plan_only = plan_only
-        self.execute_only = execute_only
-        self.flat = flat
-        self.suppress_backtracks = suppress_backtracks
-        self.proxy_enabled = proxy_enabled
-        self.never_escalate = never_escalate
-        self.team_override = team_override
-        self._parent_heartbeat = parent_heartbeat
-        self.project_dir = project_dir
-        self._intervention_queue = intervention_queue
-        self._role_enforcer = role_enforcer
-        if intervention_queue and role_enforcer:
-            intervention_queue.role_enforcer = role_enforcer
-        self._pending_intervention: str = ''
-        self._intervention_active: bool = False
-        self._proxy_invoker_fn = proxy_invoker_fn
-        self._on_dispatch = on_dispatch
+
+        # ── Run-mode flags ──────────────────────────────────────────────────
+        self.skip_intent = opts.skip_intent
+        self.intent_only = opts.intent_only
+        self.plan_only = opts.plan_only
+        self.execute_only = opts.execute_only
+        self.flat = opts.flat
+        self.suppress_backtracks = opts.suppress_backtracks
+        self.proxy_enabled = opts.proxy_enabled
+        self.never_escalate = opts.never_escalate
+        self.team_override = opts.team_override
+
+        # ── Resume context ──────────────────────────────────────────────────
+        self._parent_heartbeat = opts.parent_heartbeat
+        self._phase_session_ids: dict[str, str] = (
+            opts.phase_session_ids or {}
+        )
+        self._last_actor_data: dict[str, Any] = opts.last_actor_data or {}
+
+        # ── Injected dependencies ───────────────────────────────────────────
+        self.project_dir = opts.project_dir
+        self._intervention_queue = opts.intervention_queue
+        self._role_enforcer = opts.role_enforcer
+        if opts.intervention_queue and opts.role_enforcer:
+            opts.intervention_queue.role_enforcer = opts.role_enforcer
+        self._proxy_invoker_fn = opts.proxy_invoker_fn
+        self._on_dispatch = opts.on_dispatch
         # Optional zero-arg callable returning True when the project is
         # paused; new dispatches get refused in that state.  Matches the
         # chat-tier AgentSession.paused_check hook.
-        self._paused_check = paused_check
+        self._paused_check = opts.paused_check
+
+        # ── Internal state ──────────────────────────────────────────────────
+        self._pending_intervention: str = ''
+        self._intervention_active: bool = False
         # Map session_id → Session for nested dispatch: when a child
         # agent calls Send, its current_session_id (set by the MCP
         # middleware) picks the right dispatcher out of this registry.
@@ -188,9 +187,9 @@ class Orchestrator:
 
         self._agent_runner = AgentRunner(
             stall_timeout=phase_config.stall_timeout,
-            llm_backend=llm_backend,
+            llm_backend=opts.llm_backend,
             on_stream_event=_on_stream_event,
-            llm_caller=llm_caller,
+            llm_caller=opts.llm_caller,
         )
 
         self._ask_question_runner: AskQuestionRunner | None = None
@@ -199,10 +198,6 @@ class Orchestrator:
         self._bus_event_listener: Any | None = None
         self._fan_in_event: asyncio.Event | None = None
         self._bus_lead_context_id: str = ''
-
-        self._phase_session_ids: dict[str, str] = phase_session_ids or {}
-
-        self._last_actor_data: dict[str, Any] = last_actor_data or {}
 
         self._active_skill: dict[str, str] | None = None
 

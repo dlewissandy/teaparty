@@ -373,6 +373,7 @@ class Session:
             if self._role_enforcer:
                 self._intervention_queue.role_enforcer = self._role_enforcer
 
+            from teaparty.cfa.run_options import RunOptions
             orchestrator = Orchestrator(
                 cfa_state=cfa,
                 phase_config=self.config,
@@ -386,22 +387,26 @@ class Session:
                 poc_root=self.poc_root,
                 task=task_prompt,
                 session_id=self.session_id,
-                skip_intent=self.skip_intent,
-                intent_only=self.intent_only,
-                plan_only=self.plan_only,
-                execute_only=self.execute_only,
-                flat=self.flat,
-                suppress_backtracks=self.suppress_backtracks,
-                proxy_enabled=self.proxy_enabled,
-                project_dir=project_dir,
-                role_enforcer=self._role_enforcer,
-                escalation_modes=self.escalation_modes,
-                intervention_queue=self._intervention_queue,
-                llm_backend=os.environ.get('TEAPARTY_LLM_BACKEND', 'claude'),
-                llm_caller=self._llm_caller,
-                proxy_invoker_fn=self._proxy_invoker_fn,
-                on_dispatch=self._on_dispatch,
-                paused_check=self._paused_check,
+                options=RunOptions(
+                    skip_intent=self.skip_intent,
+                    intent_only=self.intent_only,
+                    plan_only=self.plan_only,
+                    execute_only=self.execute_only,
+                    flat=self.flat,
+                    suppress_backtracks=self.suppress_backtracks,
+                    proxy_enabled=self.proxy_enabled,
+                    project_dir=project_dir,
+                    role_enforcer=self._role_enforcer,
+                    escalation_modes=self.escalation_modes,
+                    intervention_queue=self._intervention_queue,
+                    llm_backend=os.environ.get(
+                        'TEAPARTY_LLM_BACKEND', 'claude',
+                    ),
+                    llm_caller=self._llm_caller,
+                    proxy_invoker_fn=self._proxy_invoker_fn,
+                    on_dispatch=self._on_dispatch,
+                    paused_check=self._paused_check,
+                ),
             )
 
             result = await orchestrator.run()
@@ -876,6 +881,7 @@ class Session:
             except Exception:
                 pass
 
+            from teaparty.cfa.run_options import RunOptions
             orchestrator = Orchestrator(
                 cfa_state=cfa,
                 phase_config=config,
@@ -889,16 +895,18 @@ class Session:
                 poc_root=poc_root,
                 task=task_prompt,
                 session_id=session_id,
-                skip_intent=skip_intent,
-                phase_session_ids=phase_session_ids,
-                last_actor_data=last_actor_data,
-                project_dir=project_dir,
-                role_enforcer=role_enforcer,
-                escalation_modes=escalation_modes,
-                intervention_queue=intervention_queue,
-                proxy_invoker_fn=proxy_invoker_fn,
-                on_dispatch=on_dispatch,
-                paused_check=paused_check,
+                options=RunOptions(
+                    skip_intent=skip_intent,
+                    phase_session_ids=phase_session_ids,
+                    last_actor_data=last_actor_data,
+                    project_dir=project_dir,
+                    role_enforcer=role_enforcer,
+                    escalation_modes=escalation_modes,
+                    intervention_queue=intervention_queue,
+                    proxy_invoker_fn=proxy_invoker_fn,
+                    on_dispatch=on_dispatch,
+                    paused_check=paused_check,
+                ),
             )
 
             result = await orchestrator.run()

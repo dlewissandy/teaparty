@@ -262,6 +262,7 @@ class TestFlatModePhaseSpec(unittest.TestCase):
         event_bus = MagicMock(spec=EventBus)
         event_bus.publish = AsyncMock()
 
+        from teaparty.cfa.run_options import RunOptions
         orch = Orchestrator(
             cfa_state=cfa,
             phase_config=cfg,
@@ -275,8 +276,7 @@ class TestFlatModePhaseSpec(unittest.TestCase):
             poc_root=cfg.poc_root,
             task='Do something',
             session_id='test-001',
-            flat=flat,
-            project_dir=project_dir,
+            options=RunOptions(flat=flat, project_dir=project_dir),
         )
         return orch
 

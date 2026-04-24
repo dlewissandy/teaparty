@@ -87,6 +87,7 @@ def _make_orchestrator(
     if cfa_state is None:
         cfa_state = _make_cfa_state()
 
+    from teaparty.cfa.run_options import RunOptions
     orch = Orchestrator(
         cfa_state=cfa_state,
         phase_config=_make_phase_config(),
@@ -100,7 +101,7 @@ def _make_orchestrator(
         poc_root='/tmp/poc',
         task='Do the thing',
         session_id='test-session',
-        last_actor_data=last_actor_data or {},
+        options=RunOptions(last_actor_data=last_actor_data or {}),
     )
     return orch
 

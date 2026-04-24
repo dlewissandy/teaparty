@@ -315,6 +315,7 @@ async def dispatch(
         # The prior session was running execution phase
         phase_session_ids = {'execution': resume_session_id, 'planning': resume_session_id}
 
+    from teaparty.cfa.run_options import RunOptions
     orchestrator = Orchestrator(
         cfa_state=cfa,
         phase_config=config,
@@ -331,12 +332,16 @@ async def dispatch(
         poc_root=poc_root,
         task=task,
         session_id=dispatch_id,
-        skip_intent=True,
-        never_escalate=True,
-        team_override=team,
-        phase_session_ids=phase_session_ids if phase_session_ids else None,
-        parent_heartbeat=os.path.join(infra_dir, '.heartbeat') if infra_dir else '',
-        llm_backend=os.environ.get('TEAPARTY_LLM_BACKEND', 'claude'),
+        options=RunOptions(
+            skip_intent=True,
+            never_escalate=True,
+            team_override=team,
+            phase_session_ids=phase_session_ids if phase_session_ids else None,
+            parent_heartbeat=(
+                os.path.join(infra_dir, '.heartbeat') if infra_dir else ''
+            ),
+            llm_backend=os.environ.get('TEAPARTY_LLM_BACKEND', 'claude'),
+        ),
     )
 
     retries = 0
