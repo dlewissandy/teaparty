@@ -500,14 +500,19 @@ class Orchestrator:
                     pass  # Already exists from prior run — idempotent
                 finally:
                     _bus.close()
+            # resume_fn / reinvoke_fn are not wired: the bus-native
+            # dispatch flow re-enters an existing child inside
+            # ``_bus_spawn_agent`` itself (via the ``context_id`` handle
+            # lookup + ``_launch(resume_session=...)`` in ``_run_child``).
+            # Fan-in is signalled directly by ``_run_child`` when the
+            # last task drains — no ``trigger_reply`` / ``_locked_reinvoke``
+            # callback chain.
             self._bus_event_listener = BusEventListener(
                 bus_db_path=bus_db_path,
                 initiator_agent_id=lead_agent_id,
                 current_context_id=self._bus_lead_context_id,
                 spawn_fn=self._bus_spawn_agent,
-                resume_fn=self._bus_resume_agent,
                 reply_fn=self._bus_inject_reply,
-                reinvoke_fn=self._bus_reinvoke_agent,
                 dispatcher=self._build_bus_dispatcher(),
             )
             # Alias the engine's tasks_by_child onto the listener so the
@@ -1149,62 +1154,6 @@ class Orchestrator:
 
         return (listener, mcp_config)
 
-    async def _bus_resume_agent(
-        self, member: str, composite: str, session_id: str, context_id: str,
-    ) -> str:
-        """Resume a recipient agent for a follow-up to an open conversation (Issue #383).
-
-        Injects the composite into the recipient's existing session file and
-        re-invokes via --resume session_id in the agent's original spawn worktree.
-        The agent receives the follow-up message in its conversation history without
-        starting a fresh session.
-
-        Returns the session_id (unchanged — --resume reuses the existing session).
-        """
-        from teaparty.runners.launcher import launch as _launch
-        from teaparty.messaging.conversations import SqliteMessageBus
-
-        if not session_id:
-            _log.warning(
-                '_bus_resume_agent called without session_id for member %s; '
-                'cannot resume — no-op',
-                member,
-            )
-            return ''
-
-        agent_dir: str = ''
-        bus_db_path = os.path.join(self.infra_dir, 'messages.db')
-        if os.path.exists(bus_db_path) and context_id:
-            bus = SqliteMessageBus(bus_db_path)
-            try:
-                ctx = bus.get_agent_context(context_id)
-                if ctx:
-                    agent_dir = ctx.get('agent_worktree_path', '')
-            finally:
-                bus.close()
-
-        if not agent_dir:
-            _log.warning(
-                '_bus_resume_agent: no stored worktree for context %s; '
-                'falling back to session worktree',
-                context_id,
-            )
-            agent_dir = self.session_worktree or self.project_workdir
-
-        mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
-        result = await _launch(
-            agent_name=member,
-            message=composite,
-            scope='management',
-            teaparty_home=self.teaparty_home,
-            worktree=agent_dir,
-            resume_session=session_id,
-            mcp_port=mcp_port,
-            mcp_routes=self._mcp_routes,
-            caller_conversation_id=f'dispatch:{session_id}',
-        )
-        return result.session_id
-
     async def _bus_inject_reply(
         self, context_id: str, session_id: str, message: str,
     ) -> None:
@@ -1227,40 +1176,6 @@ class Orchestrator:
             )
             from teaparty.messaging.conversations import inject_composite_into_history  # noqa: PLC0415
             inject_composite_into_history(lead_session_file, message, session_id, cwd)
-
-    async def _bus_reinvoke_agent(
-        self, context_id: str, session_id: str, message: str,
-    ) -> None:
-        """Signal fan-in completion when all dispatched workers have replied.
-
-        Called by BusEventListener (via _locked_reinvoke) when pending_count
-        reaches zero — all workers have replied.  By this point all replies are
-        already in the lead's history (injected by _bus_inject_reply on each
-        individual Reply).  Sets _fan_in_event to unblock
-        _await_fan_in_and_reinvoke, which resumes the lead via --resume.
-        """
-        if self._fan_in_event:
-            self._fan_in_event.set()
-
-    def _has_open_agent_contexts(self) -> bool:
-        """True iff any dispatched worker is still running.
-
-        Single source of truth: ``self._tasks_by_child`` — the dict
-        ``BusEventListener.schedule_child_task`` populates when a
-        dispatch starts, and ``_bus_spawn_agent``'s ``_run_child``
-        pops when the child subprocess exits.  If the dict has any
-        entry, a child is in flight; the lead must wait for fan-in
-        before the phase advances.
-
-        The older agent_contexts table was populated only by the
-        socketed listener path that is now dead code.  Reading it
-        silently reported "no workers open," so the fan-in wait
-        never fired and execute phases advanced to DONE after a
-        single turn whose only action was a Send.  That's the exact
-        silent-approval class the phase-outcome check in actors.py
-        also guards against; this is its twin.
-        """
-        return bool(self._tasks_by_child)
 
     def _update_lead_bus_session(self, session_id: str) -> None:
         """Update the orchestrator's bus context record with the latest lead session_id.
@@ -1329,131 +1244,149 @@ class Orchestrator:
         _log.info('Fan-in complete: resuming lead via --resume for synthesis')
         return await self._invoke_actor(spec, phase_name, phase_start_time)
 
+    # Sentinel values returned by ``_classify_phase_result`` to the
+    # outer ``_run_loop``.  Kept private because the mapping is
+    # shared with the retry/withdraw handlers and nowhere else.
+    _ACTION_NEXT_PHASE = 'next'          # phase ok; advance sequence
+    _ACTION_RETRY_SEQUENCE = 'retry'     # re-enter the sequence from the top
+    _ACTION_TERMINAL = 'terminal'        # CfA reached a terminal state
+    _ACTION_WITHDRAW = 'withdraw'        # mark WITHDRAWN, return
+    _ACTION_RETURN_CURRENT = 'return'    # give up, return self.cfa.state
+
+    def _phase_sequence(self) -> list[str]:
+        """The phases to run, honoring ``skip_intent`` / ``*_only`` flags."""
+        seq: list[str] = []
+        if not self.skip_intent:
+            seq.append('intent')
+        if self.intent_only:
+            return seq
+        if not self.execute_only:
+            seq.append('planning')
+        if self.plan_only:
+            return seq
+        seq.append('execution')
+        return seq
+
     async def _run_loop(self) -> OrchestratorResult:
-        """Inner loop — separated so the listener cleanup is guaranteed."""
+        """Run each phase in sequence, handle its result, retry or return.
+
+        Every phase follows the same shape — run, classify the result
+        (terminal / backtrack / infrastructure_failure / normal), and
+        either continue, retry the sequence, or return.  The earlier
+        version repeated that handling three times in-place.  This
+        version drives it from a single loop and lets
+        ``_classify_phase_result`` own the policy.
+        """
         while True:
-            # Phase 1: Intent alignment
-            if not self.skip_intent:
-                result = await self._run_phase('intent')
-                if result.terminal:
-                    return self._make_result(result.terminal_state)
-                if result.infrastructure_failure:
-                    if result.failure_reason == 'api_overloaded':
-                        overload_decision = await self._handle_overloaded('intent')
-                        if overload_decision == 'retry':
-                            continue
-                        # 'escalate' — fall through to human dialog
-                        # (unless never_escalate, in which case return failure
-                        # so the parent dispatch loop can coordinate retries)
-                        if self.never_escalate:
-                            return self._make_result(self.cfa.state)
-                    decision = await self._failure_dialog(result.failure_reason)
-                    if decision == 'withdraw':
-                        self.cfa = set_state_direct(self.cfa, 'WITHDRAWN')
-                        save_state(self.cfa, os.path.join(self.infra_dir, '.cfa-state.json'))
-                        return self._make_result('WITHDRAWN')
-                    continue  # retry intent
+            outcome = await self._run_sequence_once()
+            if outcome == self._ACTION_RETRY_SEQUENCE:
+                continue
+            if outcome == self._ACTION_WITHDRAW:
+                self.cfa = set_state_direct(self.cfa, 'WITHDRAWN')
+                save_state(
+                    self.cfa,
+                    os.path.join(self.infra_dir, '.cfa-state.json'),
+                )
+                return self._make_result('WITHDRAWN')
+            if outcome == self._ACTION_RETURN_CURRENT:
+                return self._make_result(self.cfa.state)
+            if isinstance(outcome, OrchestratorResult):
+                return outcome
+            # ``_ACTION_NEXT_PHASE`` falling past the last phase — done.
+            return self._make_result(self.cfa.state)
 
-            # Stop here if intent-only
-            if self.intent_only:
-                return self._make_result('DONE')
-
-            # Phase 2: Planning (skip if execute-only)
-            if not self.execute_only:
-                # System 1 fast path: if a learned skill covers this task,
-                # pre-seed PLAN.md with the skill template so the planning
-                # skill runs ALIGN instead of DRAFT on its first turn and
-                # proposes the skill-as-plan via its own ASSERT dialog.
-                # If the human corrects it during that dialog, the correction
-                # flows through the skill's REVISE step (System 2 fallback).
+    async def _run_sequence_once(self) -> 'OrchestratorResult | str':
+        """One pass through the phase sequence.  See ``_run_loop``."""
+        for phase in self._phase_sequence():
+            # Pre-phase hooks (phase-specific; cheap no-ops when not
+            # applicable).  Planning gets a System-1 skill-library probe;
+            # execution gets a premortem written from the approved plan.
+            if phase == 'planning':
                 await self._try_skill_lookup()
 
-                result = await self._run_phase('planning')
+            result = await self._run_phase(phase)
 
-                # Skill self-correction (Issue #142): after planning
-                # completes, check if the plan was corrected from the
-                # original skill template.  Handles both human correction
-                # during the planning skill's ASSERT/REVISE dialog and
-                # System 2 fallback after backtrack.
-                if not result.terminal and not result.infrastructure_failure:
-                    self._check_skill_correction()
+            # Post-phase hooks (regression learning — runs only on
+            # normal completion, not on backtrack or infra failure).
+            if (phase == 'planning'
+                    and not result.terminal
+                    and not result.infrastructure_failure):
+                self._check_skill_correction()
 
-                if result.terminal:
-                    return self._make_result(result.terminal_state)
-                if result.backtrack_to == 'intent':
-                    self._record_dead_end('planning', 'backtracked to intent', result.backtrack_feedback)
-                    self._mark_false_positives('planning backtracked to intent')
-                    if self.suppress_backtracks:
-                        _log.info('Suppressing backtrack to intent (suppress_backtracks=True)')
-                    else:
-                        self.skip_intent = False
-                        continue
-                if result.infrastructure_failure:
-                    if result.failure_reason == 'api_overloaded':
-                        overload_decision = await self._handle_overloaded('planning')
-                        if overload_decision == 'retry':
-                            continue
-                        if self.never_escalate:
-                            return self._make_result(self.cfa.state)
-                    decision = await self._failure_dialog(result.failure_reason)
-                    if decision == 'backtrack':
-                        self.skip_intent = False
-                        continue
-                    if decision == 'withdraw':
-                        self.cfa = set_state_direct(self.cfa, 'WITHDRAWN')
-                        save_state(self.cfa, os.path.join(self.infra_dir, '.cfa-state.json'))
-                        return self._make_result('WITHDRAWN')
-                    continue  # retry planning
+            outcome = await self._classify_phase_result(phase, result)
+            if outcome == self._ACTION_NEXT_PHASE:
+                if phase == 'planning':
+                    self._write_premortem()
+                continue
+            return outcome
 
-                # Stop here if plan-only
-                if self.plan_only:
-                    return self._make_result('DONE')
+        # Sequence finished — plan-only / intent-only / end of execution
+        # without a terminal state.  Let ``_run_loop`` decide (returning
+        # ``next`` is equivalent to "done").
+        if self.plan_only or self.intent_only:
+            return self._make_result('DONE')
+        return self._ACTION_NEXT_PHASE
 
-                # Prospective learning: generate premortem before execution (Issue #199)
-                self._write_premortem()
-            # else: CfA is already at EXECUTE (set_state_direct in Session.run)
+    async def _classify_phase_result(
+        self, phase: str, result: PhaseResult,
+    ) -> 'OrchestratorResult | str':
+        """Map a PhaseResult to a control-flow action.
 
-            # Phase 3: Execution
-            result = await self._run_phase('execution')
-            if result.terminal:
-                return self._make_result(result.terminal_state)
-            if result.backtrack_to == 'intent':
-                self._record_dead_end('execution', 'backtracked to intent', result.backtrack_feedback)
-                self._mark_false_positives('execution backtracked to intent')
-                if self.suppress_backtracks:
-                    _log.info('Suppressing backtrack to intent (suppress_backtracks=True)')
-                else:
-                    self.skip_intent = False
-                    self.execute_only = False  # must re-plan after backtracking to intent
-                    continue
-            if result.backtrack_to == 'planning':
-                self._record_dead_end('execution', 'backtracked to planning', result.backtrack_feedback)
-                self._mark_false_positives('execution backtracked to planning')
-                if self.suppress_backtracks:
-                    _log.info('Suppressing backtrack to planning (suppress_backtracks=True)')
-                else:
-                    self.skip_intent = True
-                    self.execute_only = False  # must re-plan; no valid plan after backtrack
-                    continue
-            if result.infrastructure_failure:
-                if result.failure_reason == 'api_overloaded':
-                    overload_decision = await self._handle_overloaded('execution')
-                    if overload_decision == 'retry':
-                        continue
-                    if self.never_escalate:
-                        return self._make_result(self.cfa.state)
-                decision = await self._failure_dialog(result.failure_reason)
-                if decision == 'backtrack':
-                    self.skip_intent = False
-                    continue
-                if decision == 'withdraw':
-                    self.cfa = set_state_direct(self.cfa, 'WITHDRAWN')
-                    save_state(self.cfa, os.path.join(self.infra_dir, '.cfa-state.json'))
-                    return self._make_result('WITHDRAWN')
-                continue  # retry execution
+        Returns one of the ``_ACTION_*`` sentinels or an
+        ``OrchestratorResult`` that the outer loop returns as-is.
+        Mutates ``self.skip_intent`` / ``self.execute_only`` on
+        backtracks so the next sequence pass starts at the right
+        phase.
+        """
+        if result.terminal:
+            return self._make_result(result.terminal_state)
 
-            # Should not reach here — but treat as completion
-            return self._make_result(self.cfa.state)
+        if result.backtrack_to:
+            return self._handle_backtrack(phase, result)
+
+        if result.infrastructure_failure:
+            return await self._handle_infra_failure(phase, result)
+
+        return self._ACTION_NEXT_PHASE
+
+    def _handle_backtrack(self, phase: str, result: PhaseResult) -> str:
+        """Apply a backtrack: record the dead end, rewind phase flags."""
+        target = result.backtrack_to or ''
+        reason = f'{phase} backtracked to {target}'
+        self._record_dead_end(phase, reason, result.backtrack_feedback)
+        self._mark_false_positives(reason)
+        if self.suppress_backtracks:
+            _log.info(
+                'Suppressing backtrack to %s (suppress_backtracks=True)',
+                target,
+            )
+            return self._ACTION_NEXT_PHASE
+        # Re-enter the sequence.  ``skip_intent`` / ``execute_only`` are
+        # reset so the earlier phases replay as needed.
+        if target == 'intent':
+            self.skip_intent = False
+            if phase == 'execution':
+                self.execute_only = False
+        elif target == 'planning':
+            self.skip_intent = True
+            self.execute_only = False
+        return self._ACTION_RETRY_SEQUENCE
+
+    async def _handle_infra_failure(
+        self, phase: str, result: PhaseResult,
+    ) -> str:
+        """Handle api_overloaded / stall / nonzero-exit from the agent."""
+        if result.failure_reason == 'api_overloaded':
+            if await self._handle_overloaded(phase) == 'retry':
+                return self._ACTION_RETRY_SEQUENCE
+            if self.never_escalate:
+                return self._ACTION_RETURN_CURRENT
+        decision = await self._failure_dialog(result.failure_reason)
+        if decision == 'withdraw':
+            return self._ACTION_WITHDRAW
+        if decision == 'backtrack':
+            self.skip_intent = False
+        return self._ACTION_RETRY_SEQUENCE
 
     async def _try_skill_lookup(self) -> bool:
         """System 1 fast path: check the skill library for a matching skill.
@@ -1710,7 +1643,7 @@ class Orchestrator:
             # approve.  If workers are open, wait.  If not and no
             # outcome, raise.
             while actor_result.action == '':
-                if self._has_open_agent_contexts():
+                if self._tasks_by_child:
                     actor_result = await self._await_fan_in_and_reinvoke(
                         spec, phase_name, phase_start_time,
                     )
@@ -1730,7 +1663,7 @@ class Orchestrator:
             # the synthesis turn returns.
             if (actor_result.action != 'failed'
                     and not is_globally_terminal(self.cfa.state)
-                    and self._has_open_agent_contexts()):
+                    and self._tasks_by_child):
                 actor_result = await self._await_fan_in_and_reinvoke(
                     spec, phase_name, phase_start_time,
                 )
