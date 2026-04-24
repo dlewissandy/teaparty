@@ -54,21 +54,22 @@ _reply_fns: dict[str, Callable] = {}
 # close_fn(conversation_id) -> None
 _close_fns: dict[str, Callable] = {}
 
-# {agent_name: (bus_db_path, conv_id)}
-# Escalation routing — the MCP tool in-process reads this to find the
-# EscalationListener's bus conversation for the calling agent.  Set by
-# the AgentSession at _ensure_bus_listener time; read by the AskQuestion
-# tool via current_agent_name contextvar.
-_escalation_routes: dict[str, tuple[str, str]] = {}
+# {agent_name: AskQuestionRunner}
+# The MCP AskQuestion tool handler looks up the caller's runner here.
+# Same-process direct call — no bus ping-pong.  Set by the agent
+# session at boot (engine.py / teams/session.py); read via
+# ``current_agent_name`` contextvar.
+_ask_question_runners: dict[str, Any] = {}
 
 # {proxy qualifier}
-# Escalation ownership — the EscalationListener drives its own proxy
-# invocation loop (fires, parses, DIALOG→wait→re-fire).  The bridge's
-# HTTP /api/send handler auto-invokes the proxy on any new message to
-# ``proxy:{qualifier}``.  When an escalation is in flight those two
-# paths would race and the proxy would double-respond per human turn.
-# The listener registers the qualifier here while the loop is running;
-# the HTTP handler skips auto-invoke for any qualifier in this set.
+# Escalation ownership — ``AskQuestionRunner.run`` drives its own
+# proxy invocation loop (fires, parses, DIALOG→wait→re-fire).  The
+# bridge's HTTP /api/send handler auto-invokes the proxy on any new
+# message to ``proxy:{qualifier}``.  When an escalation is in flight
+# those two paths would race and the proxy would double-respond per
+# human turn.  The runner registers the qualifier here while the loop
+# is running; the HTTP handler skips auto-invoke for any qualifier in
+# this set.
 _active_escalations: set[str] = set()
 
 
@@ -108,31 +109,29 @@ def get_close_fn(agent_name: str = '') -> Callable | None:
     return _close_fns.get(name)
 
 
-def register_escalation_route(
-    agent_name: str, bus_db_path: str, conv_id: str,
-) -> None:
-    """Register the AskQuestion bus conversation for an agent's MCP calls.
+def register_ask_question_runner(agent_name: str, runner: Any) -> None:
+    """Register the AskQuestion runner for an agent's MCP calls.
 
-    The in-process MCP tool handler looks this up via ``current_agent_name``
-    to locate the EscalationListener's bus.  Env vars don't work here —
-    the MCP server runs in the bridge process, not in the agent's
-    subprocess, so the tool handler can't read per-subprocess environment.
+    The in-process MCP tool handler looks this up via
+    ``current_agent_name`` and calls ``runner.run(question, context)``
+    directly — no bus hop.  Env vars don't work here because the MCP
+    server runs in the bridge process, not in the agent's subprocess.
     """
-    _log.info('Registered escalation route for %s: conv=%s', agent_name, conv_id)
-    _escalation_routes[agent_name] = (bus_db_path, conv_id)
+    _log.info('Registered AskQuestionRunner for %s', agent_name)
+    _ask_question_runners[agent_name] = runner
 
 
-def get_escalation_route(agent_name: str = '') -> tuple[str, str] | None:
-    """Return (bus_db_path, conv_id) for an agent's AskQuestion, or None."""
+def get_ask_question_runner(agent_name: str = '') -> Any | None:
+    """Return the AskQuestionRunner for an agent, or None."""
     name = agent_name or current_agent_name.get('')
-    return _escalation_routes.get(name)
+    return _ask_question_runners.get(name)
 
 
 def mark_escalation_active(qualifier: str) -> None:
     """Mark a proxy qualifier as owned by an in-flight escalation.
 
     While marked, the bridge's HTTP handler must not auto-invoke the
-    proxy for this qualifier — the EscalationListener drives the loop
+    proxy for this qualifier — the AskQuestionRunner drives the loop
     and a parallel auto-invoke would cause a double-response.
     """
     _active_escalations.add(qualifier)
@@ -194,8 +193,7 @@ class MCPRoutes:
     """
     spawn_fn: Callable | None = None
     close_fn: Callable | None = None
-    escalation_bus_db: str = ''
-    escalation_conv_id: str = ''
+    ask_question_runner: Any | None = None
 
 
 def register_agent_mcp_routes(agent_name: str, routes: MCPRoutes | None) -> None:
@@ -211,10 +209,8 @@ def register_agent_mcp_routes(agent_name: str, routes: MCPRoutes | None) -> None
         register_spawn_fn(agent_name, routes.spawn_fn)
     if routes.close_fn is not None:
         register_close_fn(agent_name, routes.close_fn)
-    if routes.escalation_bus_db and routes.escalation_conv_id:
-        register_escalation_route(
-            agent_name, routes.escalation_bus_db, routes.escalation_conv_id,
-        )
+    if routes.ask_question_runner is not None:
+        register_ask_question_runner(agent_name, routes.ask_question_runner)
 
 
 def clear() -> None:
@@ -222,5 +218,5 @@ def clear() -> None:
     _spawn_fns.clear()
     _reply_fns.clear()
     _close_fns.clear()
-    _escalation_routes.clear()
+    _ask_question_runners.clear()
     _active_escalations.clear()

@@ -7,7 +7,10 @@ listener polls that conversation, resolves session/dispatch IDs to
 infra directory paths, calls the appropriate function, and writes the
 result back.
 
-Same pattern as EscalationListener.
+(Note: this listener has the same tool-handler-to-listener bus hop
+that AskQuestion used to have.  AskQuestion was inlined into the MCP
+tool handler in Cut 10; the intervention tools are still on the old
+pattern and could be inlined the same way.)
 
 Protocol (JSON in the ``content`` field of each bus message):
 
@@ -127,7 +130,7 @@ class InterventionListener:
 
         ``since`` is captured here (not inside the task body) so messages
         written between create_task() and the task's first tick are not
-        silently dropped — same invariant as EscalationListener.
+        silently dropped — deliberate choice, observable once at start.
         """
         self._bus = SqliteMessageBus(self.bus_db_path)
         since = time.time()

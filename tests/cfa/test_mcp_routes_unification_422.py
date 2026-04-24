@@ -9,7 +9,7 @@ Invariants:
   no ``_cleanup_bus_agent_worktree``, no ``close_conversation``
   branch in ``_poll_dispatch_bus``, no dispatch-bus fallback for
   close in ``mcp/tools/messaging.py``.
-- The per-phase ``register_spawn_fn`` / ``register_escalation_route``
+- The per-phase ``register_spawn_fn`` / ``register_ask_question_runner``
   block in ``Orchestrator._run_phase`` is gone.
 """
 from __future__ import annotations
@@ -68,15 +68,15 @@ class TestLaunchIsSoleRegistrationSite(unittest.TestCase):
                 'MCP routes are installed at launch() time (#422).',
             )
 
-    def test_no_scattered_register_escalation_route_outside_launcher(self) -> None:
+    def test_no_scattered_register_ask_question_runner_outside_launcher(self) -> None:
         for path, label in (
             (_ENGINE, 'cfa/engine.py'),
             (_SESSION, 'teams/session.py'),
         ):
             content = _read(path)
             self.assertNotIn(
-                'register_escalation_route(', content,
-                f'{label} must not call register_escalation_route directly — '
+                'register_ask_question_runner(', content,
+                f'{label} must not call register_ask_question_runner directly — '
                 'MCP routes are installed at launch() time (#422).',
             )
 
@@ -148,7 +148,7 @@ class TestPerPhaseRegistrationRemoved(unittest.TestCase):
         for symbol in (
             'register_spawn_fn',
             'register_close_fn',
-            'register_escalation_route',
+            'register_ask_question_runner',
         ):
             self.assertNotIn(
                 symbol, body,

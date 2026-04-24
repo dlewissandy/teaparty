@@ -97,8 +97,7 @@ class AgentSession:
         # Bridge-supplied callable invoked per escalation turn to run the
         # proxy agent with the escalation-skill cwd. Signature:
         #   async def invoker(qualifier: str, cwd: str) -> None
-        # When None, the EscalationListener falls back to the legacy
-        # consult_proxy code path (to be retired in #421).
+        # Required for AskQuestion; sessions without it cannot escalate.
         self._proxy_invoker_fn = proxy_invoker_fn
 
         self.conversation_id = make_conversation_id(conversation_type, qualifier)
@@ -117,9 +116,7 @@ class AgentSession:
         self._bus_listener = None
         self._bus_context_id: str | None = None
         self._dispatch_session = None
-        self._escalation_listener = None
-        self._ask_question_bus_db: str = ''
-        self._ask_question_conv_id: str = ''
+        self._ask_question_runner = None
         # MCP routes bundle installed at every launch in this session's
         # subtree (lead self-invoke, dispatched children, grandchildren).
         # Built in _ensure_bus_listener for dispatching agents; remains
@@ -276,15 +273,14 @@ class AgentSession:
     # ── Dispatch (Send/Reply) ────────────────────────────────────────────
 
     async def _ensure_bus_listener(self, cwd: str) -> dict:
-        """Start the BusEventListener (dispatch) and EscalationListener (AskQuestion).
+        """Start the BusEventListener and register the AskQuestion runner.
 
-        Send and CloseConversation route through the in-process registry
-        (spawn_fn/close_fn keyed by agent name); no Unix sockets.
+        Send / CloseConversation / AskQuestion all route through the
+        in-process registry (keyed by agent name); no Unix sockets and
+        no bus ping-pong.
         """
         if self._bus_listener is not None:
             return {
-                'ASK_QUESTION_BUS_DB': self._ask_question_bus_db,
-                'ASK_QUESTION_CONV_ID': self._ask_question_conv_id,
                 'AGENT_ID': self.agent_name,
                 'PYTHONPATH': cwd,
             }
@@ -680,24 +676,11 @@ class AgentSession:
             bus=self._bus,
         )
 
-        # Start the EscalationListener for AskQuestion routing (issue #419).
-        # The listener watches `escalation:{session_key}` on the agent's own
-        # bus; its input_provider surfaces unresolved escalations into the
-        # agent's main chat so the human sees them in the dashboard.
-        #
-        # When the bridge supplies ``proxy_invoker_fn`` (issue #420), the
-        # listener routes each AskQuestion through the proxy running the
-        # ``/escalation`` skill in an ephemeral per-escalation directory.
-        # When the hook is absent (legacy tests / CfA-engine path), the
-        # listener falls back to the legacy consult_proxy behaviour —
-        # retired in #421.
-        from teaparty.cfa.gates.escalation import EscalationListener
-        from teaparty.messaging.conversations import MessageBusInputProvider
-        self._ask_question_bus_db = bus_db_path
-        self._ask_question_conv_id = f'escalation:{self._session_key()}'
-        input_provider = MessageBusInputProvider(
-            self._bus, conversation_id=self.conversation_id,
-        )
+        # Construct the AskQuestion runner so agents can call AskQuestion.
+        # The runner spawns a proxy child session via the /escalation
+        # skill.  Same-process direct call from the MCP tool handler —
+        # no bus ping-pong.
+        from teaparty.cfa.gates.escalation import AskQuestionRunner
         # The proxy is a management-level participant.  Its session (and
         # its agent.md) always live at management scope, independent of
         # who calls AskQuestion.  For project agents (e.g. project
@@ -707,17 +690,10 @@ class AgentSession:
         # caller's scope — it's the conversation_map owner, which the
         # dispatch-tree walker follows cross-scope to resolve children.
         proxy_teaparty_home = self._org_home or self.teaparty_home
-        self._escalation_listener = EscalationListener(
-            event_bus=None,  # bridge path has no EventBus; will emit a warning
-            input_provider=input_provider,
-            bus_db_path=self._ask_question_bus_db,
-            conv_id=self._ask_question_conv_id,
+        self._ask_question_runner = AskQuestionRunner(
+            bus_db_path=bus_db_path,
             session_id=self._dispatch_session.id,
-            project_slug='',
-            cfa_state='',
-            session_worktree='',
             infra_dir=infra_dir,
-            team='',
             proxy_invoker_fn=self._proxy_invoker_fn,
             on_dispatch=self._on_dispatch,
             dispatcher_session=self._dispatch_session,
@@ -731,7 +707,7 @@ class AgentSession:
             teaparty_home=proxy_teaparty_home,
             scope='management',
         )
-        await self._escalation_listener.start()
+        self._ask_question_runner.rehydrate()
 
         # Build the MCPRoutes bundle this session installs at every
         # launch — for itself, for dispatched children, for grandchildren.
@@ -743,8 +719,7 @@ class AgentSession:
         self._mcp_routes = MCPRoutes(
             spawn_fn=spawn_fn,
             close_fn=close_fn,
-            escalation_bus_db=self._ask_question_bus_db,
-            escalation_conv_id=self._ask_question_conv_id,
+            ask_question_runner=self._ask_question_runner,
         )
         # Register the bundle for the lead itself.  Dispatched children
         # are registered by launch() when their subprocess spawns.
@@ -752,8 +727,6 @@ class AgentSession:
         register_agent_mcp_routes(self.agent_name, self._mcp_routes)
 
         return {
-            'ASK_QUESTION_BUS_DB': self._ask_question_bus_db,
-            'ASK_QUESTION_CONV_ID': self._ask_question_conv_id,
             'AGENT_ID': self.agent_name,
             'PYTHONPATH': cwd,
         }
@@ -1048,9 +1021,8 @@ class AgentSession:
         if self._bus_listener is not None:
             await self._bus_listener.stop()
             self._bus_listener = None
-        if self._escalation_listener is not None:
-            await self._escalation_listener.stop()
-            self._escalation_listener = None
+        # AskQuestionRunner holds no long-running tasks — nothing to stop.
+        self._ask_question_runner = None
 
     # ── Subtree lifecycle loop (shared by spawn_fn and resume walker) ──
 

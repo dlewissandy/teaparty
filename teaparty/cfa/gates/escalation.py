@@ -1,25 +1,27 @@
-"""Bus-backed listener for AskQuestion MCP tool IPC.
+"""AskQuestion runner — routes an agent's question to the proxy skill.
 
-The orchestrator starts this listener before launching Claude Code.
-The MCP server (running as a Claude Code subprocess) writes a question
-message to the configured bus conversation; this listener polls the
-same conversation, invokes the proxy running the `/escalation` skill,
-and writes the answer back.
+The MCP ``AskQuestion`` tool handler, the CfA engine, and the chat-tier
+AgentSession all live in the bridge process.  There is no cross-process
+boundary between the tool handler and this runner — previous iterations
+used a bus-polling ``EscalationListener`` to span a boundary that never
+existed.  That ping-pong is gone (Cut 10).
 
-One codepath — chat-tier AgentSession and CfA Orchestrator both go
-through ``_route_through_escalation_skill``.  The listener requires a
-``proxy_invoker_fn`` (bridge's ``_invoke_proxy``) and a
-``dispatcher_session`` (launcher.Session) so each escalation becomes a
-real proxy child session under the caller, renderable as an accordion
-blade.
+Flow:
+  1. The tool handler looks up the caller's ``AskQuestionRunner`` from
+     the in-process registry (keyed by the current agent name).
+  2. It calls ``await runner.run(question, context)``.
+  3. The runner spawns the proxy under the caller's dispatcher session,
+     seeds the ``/escalation`` skill with the project's policy for the
+     current CfA state, and loops on the proxy's output:
+       RESPONSE  → return the answer.
+       WITHDRAW  → return ``[WITHDRAW]\\n<reason>``.
+       DIALOG    → wait for a human reply on the proxy bus, re-invoke.
+  4. On termination: close the bus row, emit ``dispatch_completed``,
+     rmtree the proxy session directory.
 
-Protocol (JSON in the ``content`` field of each bus message):
-
-  agent → orchestrator:
-    {"type": "ask_human", "question": "Who is the audience?"}
-
-  orchestrator → agent:
-    {"answer": "Ages 5-8"}
+The proxy's conversation lives on the bus for durable rendering — the
+accordion reads from the same bus, and ``rehydrate()`` repopulates the
+``_active_escalations`` registry after a bridge restart.
 """
 from __future__ import annotations
 
@@ -33,9 +35,6 @@ import time
 import uuid
 from typing import Any, Awaitable, Callable
 
-from teaparty.messaging.bus import (
-    EventBus, InputRequest,
-)
 from teaparty.messaging.conversations import (
     ConversationState,
     ConversationType,
@@ -45,11 +44,6 @@ from teaparty.messaging.conversations import (
 from teaparty.proxy.hooks import proxy_bus_path
 
 _log = logging.getLogger('teaparty.cfa.gates.escalation')
-
-# Type for the input provider (same as actors.InputProvider).
-# Retained for constructor compat with existing callers; unused by the
-# skill path.
-InputProvider = Callable[[InputRequest], Awaitable[str]]
 
 # Type for the proxy invoker hook supplied by the bridge.
 # Signature: async invoker(
@@ -62,43 +56,26 @@ ProxyInvoker = Callable[..., Awaitable[None]]
 # child node in the accordion.  Matches bridge._broadcast_dispatch.
 DispatchHook = Callable[[dict], Any]
 
-# How often the listener polls the bus for new agent messages.
+# How often we poll the proxy bus for human dialog replies.
 _POLL_INTERVAL = 0.1
 
 
-class EscalationListener:
-    """Bus consumer that bridges MCP AskQuestion to the proxy and human.
+class AskQuestionRunner:
+    """Per-caller runner for the AskQuestion MCP tool.
 
-    The listener is the proxy's entry point for agent questions.  Every
-    question goes through the proxy first:
-    - Proxy always generates a predicted answer (even on cold start)
-    - If confident → returns proxy answer, human never consulted
-    - If not confident → asks human, records the differential
-      (proxy prediction vs. human actual) for learning
-
-    Lifecycle:
-      listener = EscalationListener(
-          event_bus, input_provider,
-          bus_db_path=..., conv_id='escalation:{session_id}',
-      )
-      await listener.start()
-      # ... run Claude Code with
-      #   ASK_QUESTION_BUS_DB=bus_db_path
-      #   ASK_QUESTION_CONV_ID=conv_id
-      await listener.stop()
+    One instance per agent that can receive AskQuestion calls.  Captures
+    the per-caller state (dispatcher session, conv_id, proxy invoker,
+    accordion hook) that the proxy-dialog loop needs.  The MCP tool
+    handler finds the right instance via
+    ``teaparty.mcp.registry.get_ask_question_runner()``.
     """
 
     def __init__(
         self,
-        event_bus: EventBus | None,
-        input_provider: InputProvider | None,
         bus_db_path: str,
-        conv_id: str,
         session_id: str = '',
-        proxy_model_path: str = '',
         project_slug: str = '',
         cfa_state: str = '',
-        session_worktree: str = '',
         infra_dir: str = '',
         team: str = '',
         proxy_invoker_fn: ProxyInvoker | None = None,
@@ -108,85 +85,40 @@ class EscalationListener:
         teaparty_home: str = '',
         scope: str = 'management',
     ):
-        self.event_bus = event_bus
-        self.input_provider = input_provider  # unused; kept for compat
         self.bus_db_path = bus_db_path
-        self.conv_id = conv_id
         self.session_id = session_id
-        self.proxy_model_path = proxy_model_path
         self.project_slug = project_slug
+        # ``cfa_state`` is updated by the CfA engine at each transition
+        # so ``/escalation`` gets the current-state policy.  Not
+        # meaningful in chat-tier (no CfA machine); stays empty.
         self.cfa_state = cfa_state
-        self.session_worktree = session_worktree
         self.infra_dir = infra_dir
         self.team = team
-        # Bridge-supplied hook that runs the proxy agent via the
-        # ``/escalation`` skill.  Required — the legacy consult_proxy
-        # fallback is gone.  The only route for AskQuestion is the
-        # proxy skill path (#420, chat-tier and CfA unified).
         self._proxy_invoker_fn = proxy_invoker_fn
-        # Dispatch-event hook so the escalation appears as a child
-        # accordion node under the caller's session.
         self._on_dispatch = on_dispatch
-        # The escalation must appear as a real child session under the
-        # caller's dispatch session so ``build_dispatch_tree`` can walk
-        # to it via the caller's ``conversation_map``.  Required
-        # whenever ``proxy_invoker_fn`` is set.
+        # The caller's dispatch session + bus conv_id.  The escalation
+        # attaches to this conv as a child so the accordion walker
+        # resolves it.  Different tiers use different conv_id forms —
+        # CfA uses ``job:{project_slug}:{sid}``; chat uses the session's
+        # own conv (``lead:{name}:{q}`` / ``om:...`` / etc.) — so the
+        # caller must supply it explicitly.
         self._dispatcher_session = dispatcher_session
-        # The dispatcher's *bus conversation id* — the parent_conversation_id
-        # to stamp on the escalation's DISPATCH row so the tree walker
-        # finds it as a child.  Different tiers name this differently
-        # (chat: ``dispatch:{sid}`` or ``lead:{name}:{q}`` or ``om:...``;
-        # CfA: ``job:{project_slug}:{sid}``) so the caller must supply it;
-        # we can't reconstruct it from ``session.id`` alone.  Empty means
-        # "fall back to ``dispatch:{dispatcher.id}``" for pre-#422
-        # callers that haven't migrated — but new callers should pass
-        # the real conv_id.
         self._dispatcher_conv_id = dispatcher_conv_id
         self._teaparty_home = teaparty_home
         self._scope = scope
-        self._task: asyncio.Task | None = None
-        self._bus: SqliteMessageBus | None = None
         self._last_escalation_source: str = ''
 
-        # Make the bridge-path degradation visible. When event_bus is None
-        # the listener still runs, but gate/input LOG events silently drop.
-        # That's a deliberate choice (the bridge doesn't own an EventBus
-        # here), but we surface it once at construction so the gap is
-        # observable rather than invisible.
-        if event_bus is None:
-            _log.warning(
-                'EscalationListener constructed with event_bus=None — '
-                'gate/input LOG events will not be published '
-                '(telemetry via record_event still fires).'
-            )
-
-    async def start(self) -> None:
-        """Open the bus and start the background polling task.
-
-        ``since`` is captured here (not inside the task body) so messages
-        written between create_task() and the task's first tick are not
-        silently dropped.
-        """
-        self._bus = SqliteMessageBus(self.bus_db_path)
-        self._rehydrate_active_escalations()
-        since = time.time()
-        self._task = asyncio.create_task(self._poll_loop(since))
-        _log.info(
-            'Escalation listener started on bus %s conv %s',
-            self.bus_db_path, self.conv_id,
-        )
-
-    def _rehydrate_active_escalations(self) -> None:
+    def rehydrate(self) -> None:
         """Re-register in-flight escalations from the bus (#422).
 
         The ``_active_escalations`` registry is in-memory and is lost
         across bridge restarts, but the bus record for each escalation
-        is durable — so the next listener startup repopulates the
-        registry by querying children_of the dispatcher's conversation
-        and filtering for ``agent_name='proxy'``.  Without this the
-        workflow-bar dot and the ``is_escalation_active`` guard in the
-        bridge's HTTP auto-invoke would be blank for escalations that
-        survived a restart.
+        is durable — so startup repopulates the registry by querying
+        ``children_of`` the dispatcher's conversation and filtering for
+        ``agent_name='proxy'``.  Without this the workflow-bar dot and
+        the ``is_escalation_active`` guard in the bridge's HTTP
+        auto-invoke would be blank for escalations that survived a
+        restart.
         """
         if self._dispatcher_session is None:
             return
@@ -200,62 +132,45 @@ class EscalationListener:
             for child in bus.children_of(parent_conv_id):
                 if child.agent_name != 'proxy':
                     continue
-                # request_id stored on the bus row IS the escalation_id.
                 qualifier = f'{self._dispatcher_session.id}:{child.request_id}'
                 _mark(qualifier)
         finally:
             bus.close()
 
-    async def stop(self) -> None:
-        """Cancel the polling task."""
-        if self._task:
-            self._task.cancel()
-            try:
-                await self._task
-            except (asyncio.CancelledError, Exception):
-                pass
-            self._task = None
-        self._bus = None
+    async def run(self, question: str, context: str = '') -> str:
+        """Run one AskQuestion through the proxy + ``/escalation`` skill.
 
-    async def _poll_loop(self, since: float) -> None:
-        """Poll the bus for new 'agent' messages and handle each one.
+        The escalation runs as a real proxy child session under the
+        caller's dispatch session so the accordion renders it.  Flow:
 
-        ``since`` is the initial watermark, captured by ``start()`` before
-        the task was scheduled. This prevents dropping messages that arrive
-        between create_task() and this coroutine's first execution.
+          1. Create a proxy Session via the launcher's session machinery,
+             with ``parent_session_id = dispatcher.id``.
+          2. Write ``QUESTION.md`` into that session's directory.
+          3. Record the session in the dispatcher's ``conversation_map``
+             so ``build_dispatch_tree`` walks into it.
+          4. Emit ``dispatch_started`` with real session IDs.
+          5. Seed the proxy conversation with ``/escalation {policy}``
+             so the skill loads on the first turn.
+          6. Invoke the proxy and loop on its output:
+               RESPONSE  → break with final_answer.
+               WITHDRAW  → break with ``[WITHDRAW]\\n<reason>``.
+               DIALOG    → wait for a human reply on the proxy bus,
+                           then re-invoke.
+          7. On termination, close the bus row, emit ``dispatch_completed``,
+             and rmtree the session directory.
         """
-        while True:
-            try:
-                if self._bus is None:
-                    return
-                messages = self._bus.receive(self.conv_id, since_timestamp=since)
-                for msg in messages:
-                    # Advance watermark past every message we see so we
-                    # don't re-process them — including our own replies.
-                    since = max(since, msg.timestamp)
-                    if msg.sender != 'agent':
-                        continue
-                    await self._handle_message(msg.content)
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                _log.exception('Error polling bus for escalation messages')
-            await asyncio.sleep(_POLL_INTERVAL)
-
-    async def _handle_message(self, raw_content: str) -> None:
-        """Parse one agent message, route it, write the reply back to the bus."""
-        try:
-            request = json.loads(raw_content)
-        except json.JSONDecodeError:
-            _log.warning('Escalation message is not JSON: %r', raw_content[:120])
-            return
-
-        question = request.get('question', '')
-        context = request.get('context', '')
-
         if not question:
-            self._send_reply({'answer': ''})
-            return
+            return ''
+        if self._proxy_invoker_fn is None:
+            raise RuntimeError(
+                'AskQuestionRunner requires proxy_invoker_fn to be set'
+            )
+        if self._dispatcher_session is None or not self._teaparty_home:
+            raise RuntimeError(
+                'AskQuestionRunner requires dispatcher_session and '
+                'teaparty_home so the accordion can render the escalation '
+                'as a child of the caller'
+            )
 
         # Telemetry: escalation_requested (Issue #405)
         try:
@@ -275,14 +190,10 @@ class EscalationListener:
             pass
 
         try:
-            answer = await self._route_through_escalation_skill(
-                question, context,
-            )
+            answer = await self._route(question, context)
         except Exception:
-            _log.exception('Error routing escalation through proxy')
+            _log.exception('Error routing AskQuestion through proxy')
             answer = ''
-
-        self._send_reply({'answer': answer})
 
         # Telemetry: escalation_resolved (Issue #405)
         try:
@@ -300,57 +211,12 @@ class EscalationListener:
         except Exception:
             pass
 
-    def _send_reply(self, payload: dict) -> None:
-        """Post the orchestrator's reply back onto the bus."""
-        if self._bus is None:
-            return
-        self._bus.send(self.conv_id, 'orchestrator', json.dumps(payload))
+        return answer
 
-    # ── Escalation-skill path (issue #420) ───────────────────────────────
+    # ── Skill loop ───────────────────────────────────────────────────────
 
-    async def _route_through_escalation_skill(
-        self, question: str, context: str,
-    ) -> str:
-        """Run one escalation through the proxy + `/escalation` skill.
-
-        The escalation runs as a real proxy child session under the
-        caller's dispatch session so the accordion renders it.  Without
-        this the proxy dialog would open in a temp directory that the
-        dispatch-tree walker could never reach — the human would see
-        the question land in the bus but no chat blade to respond in.
-
-        Flow:
-          1. Create a proxy Session via the launcher's session
-             machinery, with ``parent_session_id = dispatcher.id``.
-          2. Write ``QUESTION.md`` into that session's directory.
-          3. Record the session in the dispatcher's ``conversation_map``
-             so ``build_dispatch_tree`` walks into it.
-          4. Emit ``dispatch_started`` with real session IDs — the
-             dashboard uses these as the accordion key.
-          5. Seed the proxy conversation with ``/escalation`` so the
-             skill loads on the first turn.
-          6. Invoke the proxy with ``launch_cwd_override = session.path``
-             so its cwd contains ``QUESTION.md``.
-          7. Parse the skill's JSON output:
-               RESPONSE  → return message as the answer.
-               WITHDRAW  → return ``[WITHDRAW]\\n<reason>``.
-               DIALOG    → wait for a human reply on the proxy bus,
-                           then re-invoke.
-          8. On termination, remove the session from the dispatcher's
-             conversation map, emit ``dispatch_completed``, and rmtree
-             the session directory.
-        """
-        if self._proxy_invoker_fn is None:
-            raise RuntimeError(
-                'escalation-skill path requires proxy_invoker_fn to be set'
-            )
-        if self._dispatcher_session is None or not self._teaparty_home:
-            raise RuntimeError(
-                'escalation-skill path requires dispatcher_session and '
-                'teaparty_home so the accordion can render the escalation '
-                'as a child of the caller'
-            )
-
+    async def _route(self, question: str, context: str) -> str:
+        """Run the proxy skill loop and return the final answer."""
         from teaparty.runners.launcher import (
             create_session as _create_session,
             _save_session_metadata as _save_meta,
@@ -389,9 +255,7 @@ class EscalationListener:
         # and the accordion iframe renders that stale URL — it fetches 0
         # messages and never re-fetches even after the proxy's
         # AgentSession.save_state() later writes the real conversation_id
-        # to disk.  ``Session`` has no conversation_id field, so this is
-        # a read-modify-write on the JSON; launcher.save_state and
-        # AgentSession.save_state both preserve fields they don't own.
+        # to disk.
         _meta_path = os.path.join(child_session.path, 'metadata.json')
         with open(_meta_path) as fh:
             _meta = json.load(fh)
@@ -412,19 +276,10 @@ class EscalationListener:
             fh.write(body)
 
         # Register the escalation in the caller's bus — single source of
-        # truth for tree / name / state (#422).  The accordion walker
-        # reads children_of(parent_conv_id) here.
-        #
-        # Critical: the row id MUST equal ``proxy_conv_id``.  Messages
-        # for this escalation live in the proxy bus at ``proxy:{qualifier}``,
-        # and the accordion iframe targets whatever id the tree walker
-        # returns.  If we minted a different id (e.g. ``dispatch:{sid}``)
-        # the iframe would route to a bus that has no messages and the
-        # blade would render "No messages in this conversation" — one
-        # logical conversation with two ids is the whole class of bug
-        # #422 was meant to kill.  Using ``ConversationType.PROXY`` +
-        # ``qualifier`` here produces the same id the proxy bus keys its
-        # messages under, so the two records share one identity.
+        # truth for tree / name / state (#422).  Row id MUST equal
+        # ``proxy_conv_id``; messages live in the proxy bus at
+        # ``proxy:{qualifier}``, and one logical conversation with two
+        # ids is exactly the class of bug #422 killed.
         try:
             _esc_bus = SqliteMessageBus(self.bus_db_path)
             try:
@@ -445,14 +300,10 @@ class EscalationListener:
             )
 
         # Emit dispatch_started so the dashboard animates the new blade.
-        # The accordion auto-expands the escalation by matching
-        # ``event.child_session_id`` against the tree node's
-        # ``session_id`` field.  ``build_dispatch_tree`` derives that
-        # field from ``conv.id.partition(':')[2]``, so for a proxy
-        # conv_id ``proxy:{qualifier}`` the tree's session_id is
-        # ``qualifier``.  Emitting anything else (e.g. the on-disk
-        # session dir name) makes the lookup miss and the blade stays
-        # collapsed — a cosmetic miss but still a two-ids bug.
+        # The accordion auto-expands by matching event.child_session_id
+        # against the tree node's session_id, which build_dispatch_tree
+        # derives from ``conv.id.partition(':')[2]`` — so we emit
+        # ``qualifier`` (matches for ``proxy:{qualifier}``).
         self._emit_dispatch(
             'dispatch_started',
             parent_sid=self._dispatcher_session.id,
@@ -461,41 +312,25 @@ class EscalationListener:
 
         # The proxy bus is where the accordion reads dialog messages from.
         proxy_bus = self._resolve_proxy_bus()
-
-        # Register the conversation in the bus's conversations table so it
-        # shows up in GET /api/conversations?type=proxy (which is how the
-        # chat-list sidebar and some frontend paths discover
-        # conversations).  Writing messages alone populates the messages
-        # table but not the conversations table — the accordion iframe's
-        # participant chat logic then sees a ``match``-less fetch and may
-        # leave the UI in an unhydrated state.
         proxy_bus.create_conversation(ConversationType.PROXY, qualifier)
 
-        # Post the question as a message from the requesting agent so the
-        # accordion iframe shows *what the teammate actually asked*, not
-        # just the ``/escalation`` slash command.  proxy_build_prompt
-        # preserves the sender name for non-human / non-proxy messages,
-        # so Claude reads this as a third-party turn (not the proxy's
-        # own prior output) on first invocation.
+        # Post the question as a message from the requesting agent so
+        # the accordion iframe shows what the teammate actually asked.
         requestor = self._dispatcher_session.agent_name or 'caller'
         proxy_bus.send(proxy_conv_id, requestor, question)
 
-        # Seed the conversation with the /escalation slash command as the
-        # initial "human" message.  Claude Code's skill dispatcher picks
-        # this up on the proxy's first turn and loads the skill.  The
-        # argument is the project's escalation policy for the caller's
-        # current CfA state — the /escalation SKILL.md dispatches on it
-        # to delegate.md / collaborate.md / escalate.md (or unknown.md
-        # when empty / unrecognized).
+        # Seed with /escalation so the skill loads on the proxy's first
+        # turn.  The argument is the project's escalation policy for the
+        # caller's current CfA state; the skill's SKILL.md dispatches on
+        # it to delegate.md / collaborate.md / escalate.md.
         policy = self._resolve_escalation_policy()
         seed = f'/escalation {policy}' if policy else '/escalation'
         proxy_bus.send(proxy_conv_id, 'human', seed)
 
         # Take ownership of this proxy qualifier so the bridge's HTTP
-        # handler stops auto-invoking the proxy while the escalation
-        # loop is running.  Without this, every DIALOG reply the human
-        # types into the accordion would fire two proxy invocations
-        # (one from the HTTP handler, one from this loop's re-fire).
+        # handler stops auto-invoking the proxy while this loop drives
+        # it — otherwise every DIALOG reply the human types fires two
+        # proxy invocations.
         from teaparty.mcp.registry import (
             mark_escalation_active as _mark_active,
             mark_escalation_done as _mark_done,
@@ -503,18 +338,9 @@ class EscalationListener:
         _mark_active(qualifier)
 
         final_answer = ''
-        # Distinguish a terminal exit (RESPONSE / WITHDRAW — the
-        # escalation is done) from a cancellation (bridge shutdown,
-        # engine stop) so the finally block only cleans up when the
-        # escalation genuinely finished.  On cancellation we leave the
-        # proxy session directory, the dispatcher's conversation_map
-        # entry, and the registry entry in place so the next engine
-        # startup can reconstitute the in-flight state from disk.
         terminal = False
         try:
             while True:
-                # Capture the pre-invocation watermark so we can find the
-                # proxy's reply produced by *this* turn.
                 invocation_start = time.time()
 
                 await self._proxy_invoker_fn(
@@ -524,7 +350,6 @@ class EscalationListener:
                     scope=self._scope,
                 )
 
-                # Pull the proxy's last turn output from the conversation.
                 proxy_text = self._read_last_proxy_message(
                     proxy_bus, proxy_conv_id, since=invocation_start,
                 )
@@ -538,25 +363,14 @@ class EscalationListener:
                     final_answer = f'[WITHDRAW]\n{message}'
                     terminal = True
                     break
-                # Anything else — no JSON status, DIALOG marker, or an
-                # unrecognised status value — is an in-dialog turn: the
-                # proxy asked the human a clarifying question and is
-                # waiting for the reply.  Block on a ``human`` message
-                # on the proxy conversation, then re-invoke so the proxy
-                # resumes with the human's input.  RESPONSE / WITHDRAW
-                # are the only signals that terminate the loop.
+                # Anything else — DIALOG marker or unrecognised status —
+                # is an in-dialog turn: wait for the human, then re-fire.
                 await self._wait_for_human_reply(
                     proxy_bus, proxy_conv_id, since=invocation_start,
                 )
         finally:
             if terminal:
                 _mark_done(qualifier)
-                # Mark the escalation's bus record closed so the
-                # accordion drops the blade — single source of truth
-                # for conversation state (#422).  The row id is
-                # ``proxy_conv_id`` (same id messages are keyed under);
-                # closing any other id would leave the row active and
-                # the blade would persist after the escalation ended.
                 try:
                     _term_bus = SqliteMessageBus(self.bus_db_path)
                     try:
@@ -578,8 +392,8 @@ class EscalationListener:
                 )
                 shutil.rmtree(child_session.path, ignore_errors=True)
             # On non-terminal exit (cancellation) the bus record stays
-            # active; the next engine startup's recovery sweep marks
-            # it paused so the user can resume or withdraw.
+            # active; the next startup's recovery sweep marks it paused
+            # so the user can resume or withdraw.
 
         self._last_escalation_source = 'proxy_skill'
         return final_answer
@@ -587,12 +401,7 @@ class EscalationListener:
     def _emit_dispatch(
         self, event_type: str, *, parent_sid: str, child_sid: str,
     ) -> None:
-        """Fire a dispatch_started / dispatch_completed event.
-
-        ``parent_sid``/``child_sid`` are real session IDs that match the
-        on-disk metadata, so the dispatch-tree walker and the event
-        stream agree.  No-op when the hook is not attached.
-        """
+        """Fire a dispatch_started / dispatch_completed event."""
         if self._on_dispatch is None:
             return
         try:
@@ -608,55 +417,31 @@ class EscalationListener:
             )
 
     def _resolve_parent_conv_id(self) -> str:
-        """Return the bus conv_id the escalation's DISPATCH row attaches to.
+        """Return the bus conv_id the escalation's PROXY row attaches to.
 
-        The dispatch-tree walker is rooted at the *dispatcher's* bus
-        conv_id and walks via ``bus.children_of``.  The escalation is a
-        child of the agent that called AskQuestion — so its parent
-        conv_id must equal that agent's own conv_id, whatever form it
-        takes in that tier:
-
-          - chat tier (dispatched agent): ``dispatch:{session_id}``
-          - chat tier (top-level blade):  ``lead:{name}:{qualifier}``,
-                                          ``om:{...}``, ``pm:{...}``, etc.
-          - CfA job:                      ``job:{project_slug}:{sid}``
-
-        The caller MUST supply the right value via ``dispatcher_conv_id``
-        at construction time.  No fallback derivation: a fallback would
-        silently produce the wrong conv_id for any tier where the
-        caller's conv isn't ``dispatch:{session.id}`` (which is how
-        CfA-job escalations kept disappearing from the accordion —
-        ``job:joke-book:...`` was the real parent, but the fallback
-        stamped ``dispatch:...`` and the walker never matched).  If
-        this returns empty, the listener was constructed without a
-        conv_id — that's a caller bug we want to surface, not paper
-        over.
+        The caller MUST supply ``dispatcher_conv_id`` at construction
+        time — the parent conv_id varies by tier and we can't
+        reconstruct it safely.  Silent fallbacks here are how CfA-job
+        escalations kept disappearing from the accordion before #422.
         """
         if not self._dispatcher_conv_id:
             raise RuntimeError(
-                'EscalationListener: dispatcher_conv_id was not supplied '
-                'at construction time.  Every caller must pass its own '
-                'bus conv_id so the escalation row has the correct '
-                'parent.  Empty would silently misroute the accordion.',
+                'AskQuestionRunner: dispatcher_conv_id was not supplied '
+                'at construction time.  Empty would silently misroute '
+                'the accordion.',
             )
         return self._dispatcher_conv_id
 
     def _resolve_escalation_policy(self) -> str:
         """Return the project's escalation policy for the caller's CfA state.
 
-        Walks two files:
-          - ``{infra_dir}/.cfa-state.json`` — the CfA engine's current
-            state machine position for the caller.  Read ``state`` to
-            find out which gate we're at (INTENT / PLAN / EXECUTE).
-          - ``{project_root}/.teaparty/project/project.yaml`` — the
-            project's ``escalation:`` map from CfA state → mode.
-
-        Returns the mode string for the current state (``always`` /
-        ``when_unsure`` / ``never``) or ``''`` when either file is
-        missing or has no entry for this state.  Chat-tier callers
-        (AgentSession, not a CfA job) have no ``.cfa-state.json`` and
-        get ``''`` — the skill's dispatcher treats that as the fallback
-        policy.
+        Reads ``.cfa-state.json`` from ``infra_dir`` for the current
+        state, then ``{project_root}/.teaparty/project/project.yaml``
+        for its ``escalation:`` map.  Returns the mode string
+        (``always`` / ``when_unsure`` / ``never``) or ``''`` when either
+        file is missing.  Chat-tier callers have no ``.cfa-state.json``
+        and get ``''`` — the skill's dispatcher treats that as the
+        fallback policy.
         """
         if not self.infra_dir:
             return ''
@@ -669,8 +454,8 @@ class EscalationListener:
         state = cfa.get('state', '')
         if not state:
             return ''
-        # ``infra_dir`` is {project_root}/.teaparty/jobs/{job-dir}.
-        # Walk up three levels to reach {project_root}.
+        # infra_dir is {project_root}/.teaparty/jobs/{job-dir}.  Walk
+        # up three levels to reach {project_root}.
         project_root = os.path.dirname(
             os.path.dirname(os.path.dirname(self.infra_dir))
         )
@@ -688,19 +473,10 @@ class EscalationListener:
         return value if isinstance(value, str) else ''
 
     def _resolve_proxy_bus(self) -> SqliteMessageBus:
-        """Open the proxy's message bus at its canonical location.
-
-        The proxy bus lives at ``{management_teaparty_home}/proxy/
-        proxy-messages.db``.  ``self._teaparty_home`` is the proxy's
-        home — always management — set by the caller when constructing
-        the listener.  No path-walking from the caller's ``infra_dir``;
-        that was an artifact of the old chat-tier layout assumption
-        (``.teaparty/{scope}/agents/{agent}``) that doesn't hold for
-        CfA-engine-hosted listeners whose infra_dir is the job dir.
-        """
+        """Open the proxy's message bus at its canonical location."""
         if not self._teaparty_home:
             raise RuntimeError(
-                'EscalationListener needs teaparty_home to locate the proxy bus'
+                'AskQuestionRunner needs teaparty_home to locate the proxy bus'
             )
         bus_path = proxy_bus_path(self._teaparty_home)
         os.makedirs(os.path.dirname(bus_path), exist_ok=True)
@@ -709,12 +485,7 @@ class EscalationListener:
     def _read_last_proxy_message(
         self, bus: SqliteMessageBus, conv_id: str, since: float,
     ) -> str:
-        """Return the content of the proxy's most recent message, or ''.
-
-        Scans messages posted since ``since`` and returns the last one
-        whose sender is ``proxy``.  The synthesized ``/escalation`` seed
-        is a ``human`` message and never matches.
-        """
+        """Return the content of the proxy's most recent message, or ''."""
         try:
             messages = bus.receive(conv_id, since_timestamp=since)
         except Exception:
@@ -755,10 +526,10 @@ def _parse_skill_output(text: str) -> tuple[str, str]:
     Tolerates surrounding prose and nested JSON inside ``message``.  We
     walk the string locating each ``"status"`` key at the top level of a
     ``{...}`` block, balance braces to find the object's end, and attempt
-    ``json.loads`` on the slice.  The last successfully-parsed object that
-    carries a recognised status wins — per DD6 the skill's terminal turn
-    is the one that matters when the model produces intermediate thinking
-    that also contains a JSON-looking fragment.
+    ``json.loads`` on the slice.  The last successfully-parsed object
+    that carries a recognised status wins — per DD6 the skill's terminal
+    turn is the one that matters when the model produces intermediate
+    thinking that also contains a JSON-looking fragment.
 
     Returns ``(status, message)`` or ``('', '')`` if no object parses.
     """
@@ -766,7 +537,6 @@ def _parse_skill_output(text: str) -> tuple[str, str]:
         return '', ''
 
     results: list[tuple[str, str]] = []
-    # Iterate over each '{' and try to parse from there as a JSON object.
     for start in (m.start() for m in re.finditer(r'\{', text)):
         obj = _extract_json_object(text, start)
         if obj is None:
@@ -782,17 +552,11 @@ def _parse_skill_output(text: str) -> tuple[str, str]:
 
     if not results:
         return '', ''
-    # The skill's terminal turn is the last recognised object in the text.
     return results[-1]
 
 
 def _extract_json_object(text: str, start: int) -> dict | None:
-    """Return the dict parsed from the JSON object starting at ``text[start]``.
-
-    Walks forward counting braces (respecting string literals and escapes)
-    until the matching ``}``, then attempts ``json.loads`` on the slice.
-    Returns None on any failure — malformed or non-object JSON.
-    """
+    """Return the dict parsed from the JSON object starting at ``text[start]``."""
     if start >= len(text) or text[start] != '{':
         return None
     depth = 0

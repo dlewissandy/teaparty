@@ -210,7 +210,7 @@ class Session:
         self._role_enforcer = RoleEnforcer.from_humans(humans) if humans else None
         self.escalation_modes = escalation_modes or {}
         self._llm_caller = llm_caller
-        # Bridge-supplied hooks used by the CfA engine's EscalationListener
+        # Bridge-supplied hooks used by the CfA engine's AskQuestionRunner
         # so AskQuestion from a job agent routes through the same
         # /escalation skill + accordion path as chat-tier AgentSession.
         self._proxy_invoker_fn = proxy_invoker_fn

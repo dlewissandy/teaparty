@@ -21,8 +21,8 @@ The proxy agent has file-read tools, receives ACT-R memory chunks and
 learned behavioral patterns, and can engage in multi-turn dialog with
 the requester before deciding.
 
-This module is the single proxy invocation path used by both ApprovalGate
-(for approval gates) and EscalationListener (for agent questions via MCP).
+This module is the single proxy invocation path used by the
+AskQuestionRunner (for agent questions via the MCP AskQuestion tool).
 """
 from __future__ import annotations
 

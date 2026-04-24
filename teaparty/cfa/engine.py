@@ -35,7 +35,7 @@ from teaparty.cfa.actors import (
     AgentRunner,
     InputProvider,
 )
-from teaparty.cfa.gates.escalation import EscalationListener
+from teaparty.cfa.gates.escalation import AskQuestionRunner
 from teaparty.cfa.gates.intervention_listener import InterventionListener
 from teaparty.workspace.worktree import commit_artifact
 from teaparty.messaging.bus import Event, EventBus, EventType, InputRequest
@@ -158,7 +158,7 @@ class Orchestrator:
             intervention_queue.role_enforcer = role_enforcer
         self._pending_intervention: str = ''  # Prompt to inject at next agent turn
         self._intervention_active: bool = False  # True after intervention delivery (Issue #247)
-        # Hooks wired from the bridge so EscalationListener can use the
+        # Hooks wired from the bridge so AskQuestionRunner can use the
         # same proxy-skill mechanism as chat-tier AgentSession.  When
         # supplied, escalations route through the /escalation skill and
         # render as nested accordion blades.
@@ -212,8 +212,10 @@ class Orchestrator:
             llm_caller=llm_caller,
         )
 
-        # MCP escalation listener — bridges AskQuestion calls to proxy/human
-        self._escalation_listener: EscalationListener | None = None
+        # AskQuestion runner — drives the proxy + ``/escalation`` skill
+        # when an agent calls the AskQuestion MCP tool.  Same-process
+        # direct call; no bus ping-pong.
+        self._ask_question_runner: AskQuestionRunner | None = None
         # MCP intervention listener — bridges office manager tools to
         # session/dispatch operations (Issue #249)
         self._intervention_listener: InterventionListener | None = None
@@ -272,34 +274,26 @@ class Orchestrator:
         if not os.path.isfile(venv_python):
             venv_python = 'python3'  # fallback
 
-        # Start the MCP escalation listener so agents can call AskQuestion.
-        # Single route: every agent's AskQuestion spawns a proxy child
-        # session via the /escalation skill, same mechanism chat-tier
-        # uses.  The proxy is a management-level participant — its
-        # session always lives under management scope, regardless of
-        # who asked.  The caller's dispatcher session (project or
-        # management) records the proxy child in its conversation_map;
-        # the dispatch-tree walker crosses scopes to resolve it.
+        # Construct the AskQuestion runner so agents can call AskQuestion.
+        # The runner spawns a proxy child session via the /escalation
+        # skill, same mechanism chat-tier uses.  The proxy is a
+        # management-level participant — its session always lives under
+        # management scope, regardless of who asked.  The caller's
+        # dispatcher session (project or management) records the proxy
+        # child in its conversation_map; the dispatch-tree walker
+        # crosses scopes to resolve it.
         if self.input_provider:
             from teaparty.runners.launcher import (
                 create_session as _create_session,
                 load_session as _load_session,
             )
             ask_question_bus_db = os.path.join(self.infra_dir, 'messages.db')
-            ask_question_conv_id = f'escalation:{self.session_id}'
-            self._ask_question_bus_db = ask_question_bus_db
-            self._ask_question_conv_id = ask_question_conv_id
 
             # The CfA job's coordination state lives at the bridge's
-            # management scope — the job is orchestrated by the bridge,
-            # not by the target project.  The project itself owns its
-            # work under .teaparty/jobs/{job}/; the launcher.Session
-            # created here is only a conversation_map holder for the
-            # dispatch-tree walker.  Putting it at management scope
-            # means the walker's first candidate (management/sessions)
-            # always finds it — no registry lookup or project-scope
-            # handling needed, including for projects not registered
-            # in the bridge's teaparty.yaml.
+            # management scope.  The launcher.Session created here is a
+            # conversation_map holder for the dispatch-tree walker;
+            # putting it at management scope means the walker's first
+            # candidate (management/sessions) always finds it.
             dispatcher = _load_session(
                 agent_name=self.config.project_lead or 'project-lead',
                 scope='management',
@@ -314,27 +308,15 @@ class Orchestrator:
                     session_id=self.session_id,
                 )
             # Stash the dispatcher session so the Send spawn_fn adapter
-            # (registered in _run_phase) can record_child_session and emit
-            # dispatch_started events against it — same wiring chat-tier
-            # spawn_fn uses to surface a dispatched child as an accordion
-            # node.
+            # (registered in _run_phase) can record_child_session and
+            # emit dispatch_started events against it.
             self._dispatcher_session = dispatcher
 
-            # The proxy's home — where the listener creates its session
-            # and where the proxy agent.md resolves.  Same management
-            # home; same invariant.
-            proxy_teaparty_home = self.teaparty_home
-
-            self._escalation_listener = EscalationListener(
-                event_bus=self.event_bus,
-                input_provider=self.input_provider,
+            self._ask_question_runner = AskQuestionRunner(
                 bus_db_path=ask_question_bus_db,
-                conv_id=ask_question_conv_id,
                 session_id=self.session_id,
-                proxy_model_path=self.proxy_model_path,
                 project_slug=self.project_slug,
                 cfa_state=self.cfa.state,
-                session_worktree=self.session_worktree,
                 infra_dir=self.infra_dir,
                 team=self.team_override,
                 proxy_invoker_fn=self._proxy_invoker_fn,
@@ -342,14 +324,12 @@ class Orchestrator:
                 dispatcher_session=dispatcher,
                 # The dispatcher's bus conv_id is the JOB conv
                 # ``job:{project_slug}:{session_id}`` — what the job
-                # page's dispatch-tree walker starts at.  Without this,
-                # the escalation attaches under ``dispatch:{sid}`` and
-                # never appears in the accordion.
+                # page's dispatch-tree walker starts at.
                 dispatcher_conv_id=self._stream_conv_id,
-                teaparty_home=proxy_teaparty_home,
+                teaparty_home=self.teaparty_home,
                 scope='management',
             )
-            await self._escalation_listener.start()
+            self._ask_question_runner.rehydrate()
 
             # Start the intervention listener so office manager tools
             # (WithdrawSession, PauseDispatch, etc.) can execute.  The
@@ -444,8 +424,7 @@ class Orchestrator:
             self._mcp_routes = MCPRoutes(
                 spawn_fn=self._bus_spawn_agent,
                 close_fn=close_fn,
-                escalation_bus_db=self._ask_question_bus_db,
-                escalation_conv_id=self._ask_question_conv_id,
+                ask_question_runner=self._ask_question_runner,
             )
             # Install routes for the lead itself.  Dispatched children
             # are registered by launch() when their subprocess spawns.
@@ -462,8 +441,6 @@ class Orchestrator:
         finally:
             self.event_bus.unsubscribe(self._on_scratch_event)
             self._scratch_writer.cleanup()
-            if self._escalation_listener:
-                await self._escalation_listener.stop()
             if self._intervention_listener:
                 await self._intervention_listener.stop()
             if self._bus_event_listener:
@@ -1845,9 +1822,10 @@ class Orchestrator:
             )
             raise
 
-        # Keep the escalation listener's CfA state current
-        if self._escalation_listener:
-            self._escalation_listener.cfa_state = self.cfa.state
+        # Keep the AskQuestion runner's CfA state current so it can
+        # resolve the project's escalation policy for the new state.
+        if self._ask_question_runner:
+            self._ask_question_runner.cfa_state = self.cfa.state
 
         # Track data from the actor result for the next actor
         self._last_actor_data = actor_result.data

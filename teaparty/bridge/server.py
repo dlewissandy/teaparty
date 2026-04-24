@@ -1864,8 +1864,8 @@ class TeaPartyBridge:
         elif conv_id.startswith('pm:'):
             asyncio.create_task(self._invoke_pm(qualifier))
         elif conv_id.startswith('proxy:'):
-            # Skip auto-invoke when an EscalationListener owns the loop
-            # for this qualifier — the listener fires the proxy itself
+            # Skip auto-invoke when an AskQuestionRunner owns the loop
+            # for this qualifier — the runner fires the proxy itself
             # with the correct cwd / teaparty_home / scope.  A parallel
             # HTTP-triggered invoke would double-respond per human turn
             # and run the proxy in the wrong cwd (the skill would fail
@@ -2013,7 +2013,7 @@ class TeaPartyBridge:
                     # Issue #420: supply the bridge's proxy invocation hook
                     # so AskQuestion routes through the proxy + /escalation
                     # skill.  The proxy agent itself is excluded — its own
-                    # EscalationListener (if any) must not recurse through
+                    # AskQuestionRunner (if any) must not recurse through
                     # itself.
                     proxy_invoker_fn=(
                         self._invoke_proxy
