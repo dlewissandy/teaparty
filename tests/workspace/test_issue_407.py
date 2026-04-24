@@ -458,56 +458,25 @@ class TestInterpretOutputFindsArtifactInWorktree(unittest.TestCase):
 
 
 class TestCheckSkillCorrectionReadsFromWorktree(unittest.TestCase):
-    """_check_skill_correction must read PLAN.md from session_worktree (issue #407).
+    """``archive_skill_correction`` must read PLAN.md from session_worktree (issue #407).
 
-    Before this fix, plan_path used self.infra_dir. After the artifact migration,
+    Before this fix, plan_path used infra_dir. After the artifact migration,
     PLAN.md is in session_worktree, so the old path always returned early (file
     not found), silently breaking skill self-correction (Issue #142).
+
+    The hook moved out of Orchestrator in Cut 21; the regression guard
+    is preserved against ``teaparty.learning.phase_hooks.archive_skill_correction``
+    directly.
     """
-
-    def _make_orchestrator(self, worktree, infra_dir, project_dir):
-        """Build a minimal Orchestrator for _check_skill_correction tests."""
-        from unittest.mock import AsyncMock, MagicMock
-        from teaparty.cfa.engine import Orchestrator
-        from teaparty.messaging.bus import EventBus
-        from teaparty.cfa.phase_config import PhaseConfig, PhaseSpec
-        from teaparty.cfa.statemachine.cfa_state import CfaState
-
-        cfg = MagicMock(spec=PhaseConfig)
-        cfg.stall_timeout = 1800
-        cfg.phase.return_value = PhaseSpec(
-            name='planning', agent_file='agents/uber-team.json',
-            lead='project-lead', permission_mode='acceptEdits',
-            stream_file='.plan-stream.jsonl', artifact='PLAN.md',
-            approval_state='PLAN_ASSERT',
-        )
-
-        orch = Orchestrator(
-            cfa_state=CfaState(state='DRAFT', phase='planning',
-                               history=[], backtrack_count=0),
-            phase_config=cfg,
-            event_bus=MagicMock(spec=EventBus, publish=AsyncMock()),
-            input_provider=AsyncMock(),
-            infra_dir=infra_dir,
-            project_workdir=project_dir,
-            session_worktree=worktree,
-            proxy_model_path='/tmp/proxy.json',
-            project_slug='test',
-            poc_root='/tmp/poc',
-            task='Build the feature',
-            session_id='test-session',
-        )
-        return orch
 
     def test_plan_in_worktree_is_read_for_correction(self):
         """PLAN.md in session_worktree triggers skill correction comparison.
 
-        If plan_path still uses infra_dir, the file is not found and the method
-        returns early — _active_skill would never produce a correction candidate
-        regardless of whether the plan was modified.
+        If plan_path still uses infra_dir, the file is not found and the
+        function returns early — active_skill would never produce a
+        correction candidate regardless of whether the plan was modified.
         """
-        import types
-        from teaparty.learning.procedural.learning import archive_skill_candidate
+        from teaparty.learning.phase_hooks import archive_skill_correction
 
         with tempfile.TemporaryDirectory() as worktree, \
              tempfile.TemporaryDirectory() as infra_dir, \
@@ -519,47 +488,48 @@ class TestCheckSkillCorrectionReadsFromWorktree(unittest.TestCase):
             # Confirm infra_dir does NOT have it
             self.assertFalse(os.path.isfile(os.path.join(infra_dir, 'PLAN.md')))
 
-            orch = self._make_orchestrator(worktree, infra_dir, project_dir)
-            # Simulate a skill match with a different template
-            orch._active_skill = {
-                'name': 'test-skill',
-                'path': '',
-                'template': '# Plan\n\nOriginal template.\n',
-            }
-
-            # Track whether archive_skill_candidate was called
             called = []
-            original_archive = None
             try:
                 import teaparty.learning.procedural.learning as _learning_mod
                 original_archive = _learning_mod.archive_skill_candidate
 
                 def _mock_archive(**kwargs):
                     called.append(kwargs)
-                    return None  # don't actually archive
+                    return None
 
                 _learning_mod.archive_skill_candidate = _mock_archive
-                orch._check_skill_correction()
+                archive_skill_correction(
+                    active_skill={
+                        'name': 'test-skill',
+                        'path': '',
+                        'template': '# Plan\n\nOriginal template.\n',
+                    },
+                    session_worktree=worktree,
+                    infra_dir=infra_dir,
+                    project_workdir=project_dir,
+                    task='Build the feature',
+                    session_id='test-session',
+                )
             finally:
-                if original_archive is not None:
-                    _learning_mod.archive_skill_candidate = original_archive
+                _learning_mod.archive_skill_candidate = original_archive
 
             self.assertTrue(
                 called,
-                '_check_skill_correction must detect plan modification and call '
-                'archive_skill_candidate. If this fails, plan_path is still using '
-                'infra_dir — PLAN.md was not found (returns early before archive).',
+                'archive_skill_correction must detect plan modification and '
+                'call archive_skill_candidate.  If this fails, plan_path is '
+                'still using infra_dir — PLAN.md was not found (returns '
+                'early before archive).',
             )
 
     def test_plan_in_infra_dir_only_not_found(self):
         """PLAN.md in infra_dir only must NOT trigger correction — wrong location.
 
-        This is the load-bearing negative test: with the old code (infra_dir),
-        the file WOULD be found. With the fix (session_worktree), it is not found
-        and the method returns early — no correction is attempted.
-
-        This verifies the fix is structural: we explicitly reject the old path.
+        Load-bearing negative test: with the old code (infra_dir), the
+        file WOULD be found.  With the fix (session_worktree), it is not
+        found and the function returns early — no correction is attempted.
         """
+        from teaparty.learning.phase_hooks import archive_skill_correction
+
         with tempfile.TemporaryDirectory() as worktree, \
              tempfile.TemporaryDirectory() as infra_dir, \
              tempfile.TemporaryDirectory() as project_dir:
@@ -568,13 +538,6 @@ class TestCheckSkillCorrectionReadsFromWorktree(unittest.TestCase):
             plan_content = '# Plan\n\nModified version.\n'
             Path(os.path.join(infra_dir, 'PLAN.md')).write_text(plan_content)
             self.assertFalse(os.path.isfile(os.path.join(worktree, 'PLAN.md')))
-
-            orch = self._make_orchestrator(worktree, infra_dir, project_dir)
-            orch._active_skill = {
-                'name': 'test-skill',
-                'path': '',
-                'template': '# Plan\n\nOriginal template.\n',
-            }
 
             called = []
             try:
@@ -586,15 +549,26 @@ class TestCheckSkillCorrectionReadsFromWorktree(unittest.TestCase):
                     return None
 
                 _learning_mod.archive_skill_candidate = _mock_archive
-                orch._check_skill_correction()
+                archive_skill_correction(
+                    active_skill={
+                        'name': 'test-skill',
+                        'path': '',
+                        'template': '# Plan\n\nOriginal template.\n',
+                    },
+                    session_worktree=worktree,
+                    infra_dir=infra_dir,
+                    project_workdir=project_dir,
+                    task='Build the feature',
+                    session_id='test-session',
+                )
             finally:
                 _learning_mod.archive_skill_candidate = original_archive
 
             self.assertFalse(
                 called,
-                '_check_skill_correction must NOT find PLAN.md in infra_dir '
-                '(only session_worktree is checked after #407). If this fails, '
-                'plan_path is still using infra_dir.',
+                'archive_skill_correction must NOT find PLAN.md in '
+                'infra_dir (only session_worktree is checked after #407).  '
+                'If this fails, plan_path is still using infra_dir.',
             )
 
 

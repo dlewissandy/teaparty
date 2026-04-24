@@ -780,12 +780,28 @@ class Orchestrator:
             if (phase == 'planning'
                     and not result.terminal
                     and not result.infrastructure_failure):
-                self._check_skill_correction()
+                from teaparty.learning.phase_hooks import (
+                    archive_skill_correction,
+                )
+                if archive_skill_correction(
+                    active_skill=self._active_skill,
+                    session_worktree=self.session_worktree,
+                    infra_dir=self.infra_dir,
+                    project_workdir=self.project_workdir,
+                    task=self.task,
+                    session_id=self.session_id,
+                ):
+                    self._active_skill = None
 
             outcome = await self._classify_phase_result(phase, result)
             if outcome == self._ACTION_NEXT_PHASE:
                 if phase == 'planning':
-                    self._write_premortem()
+                    from teaparty.learning.phase_hooks import (
+                        try_write_premortem,
+                    )
+                    try_write_premortem(
+                        infra_dir=self.infra_dir, task=self.task,
+                    )
                 continue
             return outcome
 
@@ -866,8 +882,8 @@ class Orchestrator:
         starts in DRAFT).
 
         If the human corrects the skill-as-plan during the skill's
-        ASSERT/REVISE dialog, _check_skill_correction archives the
-        correction as a candidate.
+        ASSERT/REVISE dialog, ``learning.phase_hooks.archive_skill_correction``
+        archives the correction as a candidate after planning completes.
         """
         # Build scope-ordered skill directories: narrowest first.
         # Team scope (if team context exists) → project scope.
@@ -1549,59 +1565,6 @@ class Orchestrator:
                 except Exception as exc:
                     _log.warning('Stage retirement failed: %s', exc)
 
-    def _write_assumption_checkpoint(self, phase_name: str) -> None:
-        """Write an assumption checkpoint at phase completion.
-
-        Reads the phase's artifact (INTENT.md or PLAN.md) and includes its
-        content in the checkpoint, so the downstream in-flight extraction
-        pipeline has substantive assumptions to work with — not just metadata.
-        """
-        from pathlib import Path as _Path
-
-        artifact_names = {
-            'intent': 'INTENT.md',
-            'planning': 'PLAN.md',
-        }
-        artifact_name = artifact_names.get(phase_name)
-        artifact_content = ''
-        if artifact_name:
-            artifact_path = os.path.join(self.session_worktree, artifact_name)
-            if os.path.isfile(artifact_path):
-                try:
-                    artifact_content = _Path(artifact_path).read_text(errors='replace')
-                except OSError:
-                    pass
-
-        summary = artifact_content if artifact_content.strip() else (
-            f'{phase_name} phase completed at {self.cfa.state}'
-        )
-
-        try:
-            from teaparty.learning.extract import write_assumption_checkpoint
-            write_assumption_checkpoint(
-                infra_dir=self.infra_dir,
-                phase=phase_name,
-                cfa_state=self.cfa.state,
-                artifact_summary=summary,
-            )
-        except Exception as exc:
-            _log.warning('Assumption checkpoint failed (non-fatal): %s', exc)
-
-    def _write_premortem(self) -> None:
-        """Generate premortem from PLAN.md before execution begins.
-
-        Called at the planning→execution bridge so the post-session
-        prospective extraction pipeline has input to work with.
-        """
-        try:
-            from teaparty.learning.extract import write_premortem
-            write_premortem(
-                infra_dir=self.infra_dir,
-                task=self.task,
-            )
-        except Exception as exc:
-            _log.warning('Premortem generation failed (non-fatal): %s', exc)
-
     def _phase_spec(self, phase_name: str) -> 'PhaseSpec':
         """Get the phase spec, accounting for team and flat overrides."""
         from dataclasses import replace
@@ -1798,68 +1761,6 @@ class Orchestrator:
         if action in ('backtrack', 'withdraw'):
             return action
         return 'retry'
-
-    def _check_skill_correction(self) -> None:
-        """Check if planning corrected a skill-based plan and archive the correction.
-
-        Called after _run_phase('planning') completes normally.  Compares
-        the current PLAN.md to the original skill template.  If they differ,
-        the plan was corrected — either by the human during the planning
-        skill's ASSERT/REVISE dialog, or by the planning skill's System 2
-        fallback after backtrack — and the corrected plan is archived as a
-        skill correction candidate.
-        """
-        if not self._active_skill:
-            return
-
-        from pathlib import Path
-
-        plan_path = os.path.join(self.session_worktree, 'PLAN.md')
-        if not os.path.isfile(plan_path):
-            return
-
-        try:
-            with open(plan_path) as f:
-                current_plan = f.read()
-        except OSError:
-            return
-
-        original_template = self._active_skill.get('template', '')
-        if current_plan.strip() == original_template.strip():
-            return
-
-        skill_name = self._active_skill['name']
-        skill_path = self._active_skill.get('path', '')
-
-        skill_category = ''
-        if skill_path and os.path.isfile(skill_path):
-            try:
-                from teaparty.learning.procedural.learning import _parse_candidate_frontmatter
-                _skill_content = Path(skill_path).read_text(errors='replace')
-                _skill_meta, _ = _parse_candidate_frontmatter(_skill_content)
-                skill_category = _skill_meta.get('category', '')
-            except OSError:
-                pass
-
-        try:
-            from teaparty.learning.procedural.learning import archive_skill_candidate
-            archived = archive_skill_candidate(
-                infra_dir=self.infra_dir,
-                project_dir=self.project_workdir,
-                task=self.task,
-                session_id=f'{self.session_id}-correction',
-                corrects_skill=skill_name,
-                category=skill_category,
-            )
-            if archived:
-                _log.info(
-                    'Archived corrected plan as skill correction candidate '
-                    'for skill %s', skill_name,
-                )
-        except Exception as exc:
-            _log.warning('Failed to archive skill correction: %s', exc)
-
-        self._active_skill = None
 
     def _build_env_vars(self) -> dict[str, str]:
         return {
