@@ -284,21 +284,6 @@ def _make_caller(transcript: _Transcript | None = None) -> Any:
     return _make_phase_aware_caller(transcript)
 
 
-# ── classify_review stub ──────────────────────────────────────────────────────
-
-def _stub_classify(state: str, response: str, dialog_history: str = '', **_) -> tuple[str, str]:
-    """Parse the gate response directly instead of calling Claude Haiku.
-
-    Input providers return  'action'  or  'action\tfeedback'.
-    This stub splits on tab so the backtrack/dialog tests are deterministic
-    and don't depend on an external LLM call to classify.
-    """
-    parts = response.strip().split('\t', 1)
-    action = parts[0].strip().lower()
-    feedback = parts[1].strip() if len(parts) > 1 else ''
-    return action, feedback
-
-
 # ── Git repo fixture ──────────────────────────────────────────────────────────
 
 def _init_git_repo(path: str) -> None:
@@ -439,16 +424,14 @@ class TestSessionHappyPath(_SessionTestBase):
         t, bus = self._make_transcript_and_bus()
         gate = _GateScript('approve')
 
-        with patch('teaparty.cfa.actors.ApprovalGate._classify_review',
-                   side_effect=_stub_classify):
-            session = self._make_session(
-                t, gate,
-                task='Write a one-line project summary',
-                execute_only=True,
-                plan_file=plan_path,
-                llm_caller=_make_caller(t),
-            )
-            result = self._run_session(session, t)
+        session = self._make_session(
+            t, gate,
+            task='Write a one-line project summary',
+            execute_only=True,
+            plan_file=plan_path,
+            llm_caller=_make_caller(t),
+        )
+        result = self._run_session(session, t)
 
         self._assert_completed(result, t)
         self._assert_path_includes(t, 'EXECUTE', 'DONE')
@@ -464,16 +447,14 @@ class TestSessionHappyPath(_SessionTestBase):
         # actor), but a valid input_provider is still required.
         gate = _GateScript('approve', 'approve')
 
-        with patch('teaparty.cfa.actors.ApprovalGate._classify_review',
-                   side_effect=_stub_classify):
-            session = self._make_session(
-                t, gate,
-                task='Build a simple summary tool',
-                skip_intent=True,
-                intent_file=intent_path,
-                llm_caller=_make_phase_aware_caller(t),
-            )
-            result = self._run_session(session, t)
+        session = self._make_session(
+            t, gate,
+            task='Build a simple summary tool',
+            skip_intent=True,
+            intent_file=intent_path,
+            llm_caller=_make_phase_aware_caller(t),
+        )
+        result = self._run_session(session, t)
 
         self._assert_completed(result, t)
         self._assert_path_includes(t, 'PLAN', 'EXECUTE', 'DONE')
@@ -526,18 +507,16 @@ class TestSessionBacktrackPaths(_SessionTestBase):
         t, bus = self._make_transcript_and_bus()
         gate = _GateScript()  # unused — skill self-terminates via phase-outcome
 
-        with patch('teaparty.cfa.actors.ApprovalGate._classify_review',
-                   side_effect=_stub_classify):
-            session = self._make_session(
-                t, gate,
-                task='Build a summary tool',
-                execute_only=True,
-                plan_file=self._plan_file(),
-                llm_caller=_make_scripted_outcome_caller(
-                    exec_outcomes=['REPLAN', 'APPROVE'], transcript=t,
-                ),
-            )
-            result = self._run_session(session, t)
+        session = self._make_session(
+            t, gate,
+            task='Build a summary tool',
+            execute_only=True,
+            plan_file=self._plan_file(),
+            llm_caller=_make_scripted_outcome_caller(
+                exec_outcomes=['REPLAN', 'APPROVE'], transcript=t,
+            ),
+        )
+        result = self._run_session(session, t)
 
         self._assert_completed(result, t)
         self._assert_path_includes(t, 'EXECUTE', 'PLAN', 'DONE')
@@ -557,18 +536,16 @@ class TestSessionBacktrackPaths(_SessionTestBase):
         t, bus = self._make_transcript_and_bus()
         gate = _GateScript()  # unused — skill self-terminates via phase-outcome
 
-        with patch('teaparty.cfa.actors.ApprovalGate._classify_review',
-                   side_effect=_stub_classify):
-            session = self._make_session(
-                t, gate,
-                task='Build a summary tool',
-                execute_only=True,
-                plan_file=self._plan_file(),
-                llm_caller=_make_scripted_outcome_caller(
-                    exec_outcomes=['REALIGN', 'APPROVE'], transcript=t,
-                ),
-            )
-            result = self._run_session(session, t)
+        session = self._make_session(
+            t, gate,
+            task='Build a summary tool',
+            execute_only=True,
+            plan_file=self._plan_file(),
+            llm_caller=_make_scripted_outcome_caller(
+                exec_outcomes=['REALIGN', 'APPROVE'], transcript=t,
+            ),
+        )
+        result = self._run_session(session, t)
 
         self._assert_completed(result, t)
         self._assert_path_includes(t, 'EXECUTE', 'INTENT', 'DONE')
@@ -618,17 +595,15 @@ class TestSessionEvents(_SessionTestBase):
 
         gate = _GateScript('approve')
 
-        with patch('teaparty.cfa.actors.ApprovalGate._classify_review',
-                   side_effect=_stub_classify):
-            session = self._make_session(
-                t, gate,
-                task='event test',
-                execute_only=True,
-                plan_file=self._plan_file(),
-                llm_caller=_make_phase_aware_caller(t),
-                event_bus=bus,
-            )
-            result = self._run_session(session, t)
+        session = self._make_session(
+            t, gate,
+            task='event test',
+            execute_only=True,
+            plan_file=self._plan_file(),
+            llm_caller=_make_phase_aware_caller(t),
+            event_bus=bus,
+        )
+        result = self._run_session(session, t)
 
         types = {e.type for e in all_events}
         self.assertIn(EventType.SESSION_STARTED, types,
@@ -646,17 +621,15 @@ class TestSessionEvents(_SessionTestBase):
         t, bus = self._make_transcript_and_bus()
         gate = _GateScript('approve')
 
-        with patch('teaparty.cfa.actors.ApprovalGate._classify_review',
-                   side_effect=_stub_classify):
-            session = self._make_session(
-                t, gate,
-                task='transition test',
-                execute_only=True,
-                plan_file=self._plan_file(),
-                llm_caller=_make_phase_aware_caller(t),
-                event_bus=bus,
-            )
-            result = self._run_session(session, t)
+        session = self._make_session(
+            t, gate,
+            task='transition test',
+            execute_only=True,
+            plan_file=self._plan_file(),
+            llm_caller=_make_phase_aware_caller(t),
+            event_bus=bus,
+        )
+        result = self._run_session(session, t)
 
         self.assertGreater(len(t.transitions), 0,
                            f'No STATE_CHANGED events{t.render()}')

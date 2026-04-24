@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
-"""Tests for actors.py — AgentRunner._interpret_output and ApprovalGate.run.
+"""Tests for actors.py — AgentRunner._interpret_output and helpers.
 
-Covers:
- 1. Missing artifact triggers approval gate (not auto-approve)
- 2. Present artifact goes through normal assert → approval gate flow
- 3. No artifact configured → auto-approve (no gate)
- 4. ApprovalGate receives artifact_missing=True in context data
- 5. ApprovalGate generates missing-artifact bridge text
- 6. ApprovalGate does not auto-approve when artifact is missing
-    (even when proxy would say auto-approve for the state)
+The sibling ``ApprovalGate`` class and its test coverage were removed
+when the 5-state + skill-based redesign eliminated the gate actor
+(human review now lives inside each skill's ASSERT step via
+AskQuestion→proxy).  Remaining tests cover AgentRunner's artifact
+detection, plan relocation, and output interpretation.
 """
 import asyncio
 import os
@@ -27,7 +24,6 @@ from teaparty.cfa.actors import (
     ActorContext,
     ActorResult,
     AgentRunner,
-    ApprovalGate,
     _relocate_plan_file,
 )
 from teaparty.runners.claude import ClaudeResult
@@ -183,66 +179,7 @@ class TestInterpretOutputMissingArtifact(unittest.TestCase):
         )
 
 
-# ── ApprovalGate._generate_bridge ────────────────────────────────────────────
-
-class TestGenerateBridge(unittest.TestCase):
-    """_generate_bridge must return appropriate text for the review context."""
-
-    def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
-
-    def _make_gate(self) -> ApprovalGate:
-        return ApprovalGate(
-            proxy_model_path=os.path.join(self.tmpdir, '.proxy.json'),
-            input_provider=AsyncMock(),
-            poc_root=self.tmpdir,
-        )
-
-    def test_bridge_names_decision_and_lists_artifact(self):
-        """_generate_bridge opens with the decision line and lists the artifact."""
-        gate = self._make_gate()
-        artifact_path = os.path.join(self.tmpdir, 'WORK_SUMMARY.md')
-        Path(artifact_path).write_text('# Work Summary')
-
-        text = gate._generate_bridge(artifact_path, 'EXECUTE', 'task')
-
-        self.assertIn('Decide: Approve or revise the overall deliverable.', text)
-        self.assertIn('Available:', text)
-        self.assertIn(f'{artifact_path} — the artifact under review', text)
-
-    def test_bridge_includes_actor_message_when_provided(self):
-        """When the caller plumbs actor_message through, the bridge carries
-        it verbatim as the third slot — the gate does not substitute for it.
-        """
-        gate = self._make_gate()
-        artifact_path = os.path.join(self.tmpdir, 'INTENT.md')
-        Path(artifact_path).write_text('# Intent')
-
-        text = gate._generate_bridge(
-            artifact_path, 'INTENT', 'task',
-            actor_message="I've captured what the user asked for in INTENT.md.",
-        )
-
-        self.assertIn(
-            "I've captured what the user asked for in INTENT.md.",
-            text,
-        )
-
-    def test_bridge_without_artifact_still_names_decision(self):
-        """Even when no artifact exists yet, the bridge must name the
-        decision being requested — not fall back to a generic placeholder
-        that strips the actor's message or obscures what's being asked.
-        """
-        gate = self._make_gate()
-        text = gate._generate_bridge('', 'EXECUTE', 'task')
-        self.assertIn('Decide: Approve or revise the overall deliverable.', text)
-
-
-# ── Phase config artifact values ──────────────────────────────────────────────
+# ── Phase-config artifact fields ────────────────────────────────────────────
 
 class TestPhaseConfigArtifacts(unittest.TestCase):
     """Verify phase-config.json artifact fields are correctly set for approval gates."""
@@ -470,119 +407,6 @@ class TestAgentRunnerRelocatesPlan(unittest.TestCase):
         self.tmpdir = tempfile.mkdtemp()
 # ── Approval-gate exports ────────────────────────────────────────────────────
 
-class TestApprovalGateImports(unittest.TestCase):
-    """actors.py depends on these exports from approval_gate.py."""
-
-    def test_generate_response_importable(self):
-        from teaparty.proxy.approval_gate import generate_response
-        self.assertTrue(callable(generate_response))
-
-    def test_resolve_team_model_path_importable(self):
-        from teaparty.proxy.approval_gate import resolve_team_model_path
-        self.assertTrue(callable(resolve_team_model_path))
-
-    def test_extract_question_patterns_importable(self):
-        from teaparty.proxy.approval_gate import _extract_question_patterns
-        self.assertTrue(callable(_extract_question_patterns))
-
-    def test_generative_response_importable(self):
-        from teaparty.proxy.approval_gate import GenerativeResponse
-        self.assertTrue(GenerativeResponse is not None)
-
-
-# ── Team-scoped proxy model paths ────────────────────────────────────────────
-
-class TestTeamScopedProxyModel(unittest.TestCase):
-    """consult_proxy must receive the team parameter from env_vars."""
-
-    def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
-
-    def _make_gate(self) -> ApprovalGate:
-        return ApprovalGate(
-            proxy_model_path=os.path.join(self.tmpdir, '.proxy.json'),
-            input_provider=AsyncMock(),
-            poc_root=self.tmpdir,
-        )
-
-    def test_proxy_decide_resolves_team_path(self):
-        """consult_proxy is called with team= from POC_TEAM env var."""
-        gate = self._make_gate()
-        ctx = _make_ctx(state='INTENT_ASSERT', session_worktree=self.tmpdir, infra_dir=self.tmpdir)
-        ctx.env_vars = {'POC_TEAM': 'coding', 'POC_PROJECT': 'default'}
-
-        mock_consult = AsyncMock(return_value=ProxyResult(text='', confidence=0.0, from_agent=False))
-        with patch('teaparty.proxy.agent.consult_proxy', new=mock_consult), \
-             patch.object(gate, '_classify_review', return_value=('approve', '')), \
-             patch.object(gate, '_proxy_record'):
-            _run(gate.run(ctx))
-
-        mock_consult.assert_called_once()
-        call_kwargs = mock_consult.call_args
-        self.assertEqual(call_kwargs.kwargs.get('team'), 'coding')
-
-    @patch('teaparty.cfa.actors.save_model')
-    @patch('teaparty.cfa.actors.record_outcome')
-    @patch('teaparty.cfa.actors.load_model')
-    @patch('teaparty.cfa.actors.resolve_team_model_path')
-    def test_proxy_record_resolves_team_path(self, mock_resolve, mock_load, mock_record, mock_save):
-        gate = self._make_gate()
-        mock_resolve.return_value = '/tmp/scoped.json'
-        mock_record.return_value = MagicMock()
-
-        gate._proxy_record('INTENT_ASSERT', 'default', 'approve', team='coding')
-
-        mock_resolve.assert_called_once_with(gate.proxy_model_path, 'coding')
-        mock_save.assert_called_once()
-        # save_model should use the resolved path, not the base path
-        self.assertEqual(mock_save.call_args[0][1], '/tmp/scoped.json')
-
-
-# ── Question patterns instead of conversation_text ───────────────────────────
-
-class TestQuestionPatternExtraction(unittest.TestCase):
-    """_proxy_record must pass question_patterns, not conversation_text."""
-
-    def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
-
-    def _make_gate(self) -> ApprovalGate:
-        return ApprovalGate(
-            proxy_model_path=os.path.join(self.tmpdir, '.proxy.json'),
-            input_provider=AsyncMock(),
-            poc_root=self.tmpdir,
-        )
-
-    @patch('teaparty.cfa.actors.save_model')
-    @patch('teaparty.cfa.actors.record_outcome')
-    @patch('teaparty.cfa.actors.load_model')
-    @patch('teaparty.cfa.actors.resolve_team_model_path', side_effect=lambda b, t: b)
-    @patch('teaparty.cfa.actors._extract_question_patterns')
-    def test_record_passes_question_patterns(self, mock_extract, mock_resolve, mock_load, mock_record, mock_save):
-        gate = self._make_gate()
-        mock_extract.return_value = [{'question': 'Why?', 'concern': 'scope'}]
-        mock_record.return_value = MagicMock()
-
-        gate._proxy_record('INTENT_ASSERT', 'default', 'correct',
-                           conversation='Why did you do it that way?')
-
-        mock_extract.assert_called_once_with('Why did you do it that way?', 'correct')
-        # record_outcome should receive question_patterns, NOT conversation_text
-        call_kwargs = mock_record.call_args
-        self.assertIn('question_patterns', call_kwargs.kwargs or dict(zip(
-            ['model', 'state', 'task_type', 'outcome'], call_kwargs.args)))
-
-
-# ── Generative response for escalation states ────────────────────────────────
-
 class TestEscalationGenerativeResponse(unittest.TestCase):
     """Escalation states try generate_response() before falling through to human."""
 
@@ -641,117 +465,6 @@ class TestEscalationGenerativeResponse(unittest.TestCase):
 
 
 # ── Regression tests for #120: approval gate classification failures ──────────
-
-class TestClassifyReviewFallbackOnException(unittest.TestCase):
-    """_classify_review must never return 'approve' on exception.  It
-    returns 'dialog' so the gate loop re-prompts instead of silently
-    auto-approving (regression from #120 — the old code caught all
-    exceptions and returned ('approve', '')).
-    """
-
-    def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
-
-    def _make_gate(self) -> ApprovalGate:
-        return ApprovalGate(
-            proxy_model_path=os.path.join(self.tmpdir, '.proxy.json'),
-            input_provider=AsyncMock(),
-            poc_root=self.tmpdir,
-        )
-
-    def test_import_error_returns_fallback_not_approve(self):
-        """If classify_review cannot be imported, must NOT auto-approve."""
-        gate = self._make_gate()
-        with patch('teaparty.scripts.classify_review.classify',
-                   side_effect=ImportError('module not found')):
-            action, feedback = gate._classify_review('PLAN_ASSERT', 'looks good')
-        self.assertEqual(action, 'dialog')
-        self.assertNotEqual(action, 'approve')
-
-    def test_runtime_error_returns_fallback_not_approve(self):
-        """If classify() raises RuntimeError, must NOT auto-approve."""
-        gate = self._make_gate()
-        with patch('teaparty.scripts.classify_review.classify',
-                   side_effect=RuntimeError('subprocess crashed')):
-            action, feedback = gate._classify_review('PLAN_ASSERT', 'the plan is great')
-        self.assertEqual(action, 'dialog')
-
-    def test_timeout_error_returns_fallback_not_approve(self):
-        """If classify() times out, must NOT auto-approve."""
-        gate = self._make_gate()
-        import subprocess
-        with patch('teaparty.scripts.classify_review.classify',
-                   side_effect=subprocess.TimeoutExpired('claude', 30)):
-            action, feedback = gate._classify_review('WORK_ASSERT', 'approve this')
-        self.assertEqual(action, 'dialog')
-
-    def test_normal_classification_still_works(self):
-        """Sanity check: normal classify output is parsed correctly."""
-        gate = self._make_gate()
-        with patch('teaparty.scripts.classify_review.classify',
-                   return_value='correct\tFix the tests'):
-            action, feedback = gate._classify_review('PLAN_ASSERT', 'fix the tests')
-        self.assertEqual(action, 'correct')
-        self.assertEqual(feedback, 'Fix the tests')
-
-
-class TestDialogLoopsBackThroughProxy(unittest.TestCase):
-    """Dialog classification loops back through the proxy on the next turn."""
-
-    def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
-
-    def test_dialog_loops_back_then_terminates(self):
-        """When classify returns 'dialog', the loop calls consult_proxy again.
-        On the second turn, a terminal action ends the loop."""
-        input_count = [0]
-
-        async def _input_provider(req):
-            input_count[0] += 1
-            return 'approve'
-
-        gate = ApprovalGate(
-            proxy_model_path=os.path.join(self.tmpdir, '.proxy.json'),
-            input_provider=_input_provider,
-            poc_root=self.tmpdir,
-        )
-        ctx = _make_ctx(state='PLAN_ASSERT', session_worktree=self.tmpdir,
-                        infra_dir=self.tmpdir)
-        artifact_path = os.path.join(self.tmpdir, 'PLAN.md')
-        Path(artifact_path).write_text('# Plan')
-        ctx.data = {'artifact_path': artifact_path}
-
-        # consult_proxy called twice: first escalates (human asked, dialog),
-        # second escalates again (human asked, approve).
-        classify_returns = iter([
-            ('dialog', 'Have you tested it?'),
-            ('approve', ''),
-        ])
-
-        with patch('teaparty.proxy.agent.consult_proxy',
-                   new=AsyncMock(return_value=ProxyResult(text='', confidence=0.0, from_agent=False))), \
-             patch.object(gate, '_classify_review', side_effect=lambda *a, **kw: next(classify_returns)), \
-             patch.object(gate, '_proxy_record'):
-            result = _run(gate.run(ctx))
-
-        # Human asked twice — once per loop turn (proxy escalated both times).
-        # After dialog, "approve" becomes "correct" to feed back to the agent.
-        self.assertEqual(input_count[0], 2)
-        self.assertEqual(result.action, 'correct')
-
-
-from teaparty.messaging.bus import EventType
-
-
-# ── Stderr surfacing ─────────────────────────────────────────────────────────
 
 class TestStderrInActorResult(unittest.TestCase):
     """ClaudeResult.stderr_lines flows through to ActorResult.data."""

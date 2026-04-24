@@ -219,7 +219,6 @@ class TestSkillLookupIntegrationWithEngine(unittest.TestCase):
 
         cfg = MagicMock(spec=PhaseConfig)
         cfg.stall_timeout = 1800
-        cfg.human_actor_states = frozenset()
         cfg.phase.return_value = PhaseSpec(
             name='planning', agent_file='agents/uber-team.json',
             lead='project-lead', permission_mode='acceptEdits',

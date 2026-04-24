@@ -270,107 +270,12 @@ class TestHappyPathThroughNewMachine(unittest.TestCase):
             )
 
 
-# ── ApprovalGate machinery removal ─────────────────────────────────────────
-
-class TestApprovalGateMachineryRemoved(unittest.TestCase):
-    """`_MAX_DIALOG_TURNS`, `_MAX_FALLBACK_RETRIES`, `_NEVER_ESCALATE_STATES`,
-    and the `__fallback__` retry branch are all dead with task-level gates
-    gone. Verify the module no longer carries them."""
-
-    def test_max_dialog_turns_constant_absent(self):
-        from teaparty.cfa import actors
-        self.assertFalse(
-            hasattr(actors, '_MAX_DIALOG_TURNS'),
-            '_MAX_DIALOG_TURNS module constant must be removed; '
-            'probe-loop cap was only needed for task-level retry loops',
-        )
-
-    def test_max_fallback_retries_constant_absent(self):
-        from teaparty.cfa import actors
-        self.assertFalse(
-            hasattr(actors, '_MAX_FALLBACK_RETRIES'),
-            '_MAX_FALLBACK_RETRIES module constant must be removed',
-        )
-
-    def test_never_escalate_states_absent_or_empty(self):
-        from teaparty.cfa import actors
-        states = getattr(actors, '_NEVER_ESCALATE_STATES', None)
-        if states is None:
-            return  # preferred: constant deleted entirely
-        self.assertEqual(
-            set(states), set(),
-            f'_NEVER_ESCALATE_STATES must be empty or removed; '
-            f'got {sorted(states)}. No task-level gates remain to mark.',
-        )
-
-    def test_approval_gate_run_source_has_no_fallback_branch(self):
-        from teaparty.cfa import actors
-        src = inspect.getsource(actors.ApprovalGate.run)
-        self.assertNotIn(
-            '__fallback__', src,
-            'ApprovalGate.run must not branch on __fallback__; the retry '
-            'machinery was part of the task-level loop and is removed',
-        )
-        self.assertNotIn(
-            '_MAX_DIALOG_TURNS', src,
-            'ApprovalGate.run must not cap dialog turns; probe-loop cap removed',
-        )
-
-    def test_gate_templates_have_no_task_level_entries(self):
-        from teaparty.cfa import actors
-        templates = getattr(actors, '_GATE_TEMPLATES', {})
-        for banned in ('TASK_ASSERT', 'TASK_ESCALATE', 'WORK_ASSERT'):
-            self.assertNotIn(
-                banned, templates,
-                f'_GATE_TEMPLATES entry for {banned} must be removed; '
-                'no task-level or collapsed-execution gates remain',
-            )
-
-    def test_cfa_state_to_phase_has_no_task_level_entries(self):
-        from teaparty.cfa import actors
-        mapping = getattr(actors, '_CFA_STATE_TO_PHASE', {})
-        for banned in ('TASK_ASSERT', 'TASK_ESCALATE'):
-            self.assertNotIn(
-                banned, mapping,
-                f'_CFA_STATE_TO_PHASE entry for {banned} must be removed',
-            )
-
-    def test_classifier_fallback_sentinel_is_coerced_to_dialog(self):
-        """classify_review.py still emits '__fallback__' when it cannot
-        parse its own output.  The gate loop treats any non-'dialog' action
-        as terminal, so returning that sentinel as the CfA action would
-        crash the engine on ``transition(cfa, '__fallback__')``.
-        _classify_review must map '__fallback__' to ('dialog', '') so the
-        gate re-prompts instead.
-        """
-        import tempfile
-        from unittest.mock import AsyncMock, patch
-        from teaparty.cfa.actors import ApprovalGate
-
-        tmp = tempfile.mkdtemp()
-        try:
-            gate = ApprovalGate(
-                proxy_model_path=os.path.join(tmp, '.proxy.json'),
-                input_provider=AsyncMock(),
-                poc_root=tmp,
-            )
-            with patch('teaparty.scripts.classify_review.classify',
-                       return_value='__fallback__\t'):
-                action, feedback = gate._classify_review(
-                    'PLAN', 'unparseable response',
-                )
-            self.assertEqual(
-                action, 'dialog',
-                "classify_review's '__fallback__' sentinel must be coerced "
-                "to 'dialog'; got {!r}".format(action),
-            )
-            self.assertEqual(
-                feedback, '',
-                "coerced fallback must carry no feedback; got {!r}".format(feedback),
-            )
-        finally:
-            import shutil
-            shutil.rmtree(tmp, ignore_errors=True)
+# ── ApprovalGate removed ───────────────────────────────────────────────────
+# The former ``TestApprovalGateMachineryRemoved`` test class proved that
+# the task-level gate constants (``_MAX_DIALOG_TURNS``, ``_GATE_TEMPLATES``,
+# ``_CFA_STATE_TO_PHASE``, etc.) and the ``__fallback__`` retry branch
+# were dead.  ``ApprovalGate`` itself is now deleted, along with every
+# one of those constants — the tests it held are redundant.
 
 
 # ── Engine machinery removal ───────────────────────────────────────────────

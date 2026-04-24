@@ -25,7 +25,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from teaparty.cfa.actors import ActorContext, ActorResult, AgentRunner, ApprovalGate
+from teaparty.cfa.actors import ActorContext, ActorResult, AgentRunner
 from teaparty.cfa.engine import Orchestrator
 from teaparty.messaging.bus import EventBus
 from teaparty.cfa.phase_config import PhaseConfig, PhaseSpec
@@ -64,7 +64,6 @@ def _make_phase_config() -> PhaseConfig:
     """Build a minimal PhaseConfig mock without needing real config files."""
     cfg = MagicMock(spec=PhaseConfig)
     cfg.stall_timeout = 1800
-    cfg.human_actor_states = frozenset()
     cfg.phase.return_value = _make_phase_spec()
     cfg.team.return_value = MagicMock()
     return cfg
@@ -233,41 +232,6 @@ class TestInvokeActorStderrInjection(unittest.TestCase):
         ctx = captured_ctx[0]
         # The block must follow the header with a newline
         self.assertIn('[stderr from previous turn]\nError: tool failed', ctx.backtrack_context)
-
-    def test_stderr_injection_skipped_for_human_actor_states(self):
-        """When the current state is a human-actor state, the agent runner is not called."""
-        orch = _make_orchestrator(
-            cfa_state=_make_cfa_state(state='EXECUTE'),
-            last_actor_data={'stderr_lines': ['Error: tool failed']},
-        )
-        # Mark EXECUTE as a human actor state
-        orch.config.human_actor_states = frozenset({'EXECUTE'})
-
-        captured_agent_ctx = []
-
-        async def agent_capture(ctx: ActorContext) -> ActorResult:
-            captured_agent_ctx.append(ctx)
-            return ActorResult(action='auto-approve')
-
-        orch._agent_runner = MagicMock(spec=AgentRunner)
-        orch._agent_runner.run = agent_capture
-
-        gate_ctx = []
-
-        async def gate_capture(ctx: ActorContext) -> ActorResult:
-            gate_ctx.append(ctx)
-            return ActorResult(action='approve')
-
-        orch._approval_gate = MagicMock(spec=ApprovalGate)
-        orch._approval_gate.run = gate_capture
-
-        spec = _make_phase_spec()
-        _run(orch._invoke_actor(spec, 'intent'))
-
-        # Agent runner must not have been called
-        self.assertEqual(captured_agent_ctx, [])
-        # Approval gate was called
-        self.assertEqual(len(gate_ctx), 1)
 
 
 class TestInvokeActorEscalationFeedbackInjection(unittest.TestCase):

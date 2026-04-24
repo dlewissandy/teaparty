@@ -1271,7 +1271,6 @@ class TestSuppressBacktracks(unittest.TestCase):
 
         phase_config = MagicMock()
         phase_config.stall_timeout = 1800
-        phase_config.human_actor_states = frozenset()
         phase_config.phase.return_value = PhaseSpec(
             name='intent',
             agent_file='agents/intent-team.json',
@@ -1379,7 +1378,6 @@ class TestProxyEnabled(unittest.TestCase):
 
         phase_config = MagicMock()
         phase_config.stall_timeout = 1800
-        phase_config.human_actor_states = frozenset()
         phase_config.phase.return_value = PhaseSpec(
             name='intent',
             agent_file='agents/intent-team.json',
@@ -1415,12 +1413,10 @@ class TestProxyEnabled(unittest.TestCase):
     def test_proxy_enabled_default_true(self):
         orch = self._make_orchestrator()
         self.assertTrue(orch.proxy_enabled)
-        self.assertTrue(orch._approval_gate.proxy_enabled)
 
     def test_proxy_disabled_stored(self):
         orch = self._make_orchestrator(proxy_enabled=False)
         self.assertFalse(orch.proxy_enabled)
-        self.assertFalse(orch._approval_gate.proxy_enabled)
 
     def test_config_proxy_enabled_default(self):
         config = ExperimentConfig(

@@ -53,8 +53,6 @@ class PhaseConfig:
         self.max_dispatch_retries: int = 5
 
         # Derived from state machine — not hardcoded
-        self.human_actor_states: frozenset[str] = frozenset()
-        self.approval_gate_successors: dict[str, str] = {}
         self.valid_actions_by_state: dict[str, list[str]] = {}
         self.phase_for_state: dict[str, str] = {}
 
@@ -105,24 +103,6 @@ class PhaseConfig:
         for phase_name, phase_def in machine['phases'].items():
             for state in phase_def['states']:
                 self.phase_for_state[state] = phase_name
-
-        # Derive human-actor states: states where ALL outgoing transitions
-        # have actor in ('human', 'approval_gate').
-        human_states = set()
-        for state, edges in machine['transitions'].items():
-            if not edges:
-                continue  # terminal states
-            actors = {e['actor'] for e in edges}
-            if actors <= {'human', 'approval_gate'}:
-                human_states.add(state)
-        self.human_actor_states = frozenset(human_states)
-
-        # Derive approval gate successors: for each *_ASSERT state,
-        # the 'approve' action's target.
-        for state, edges in machine['transitions'].items():
-            for edge in edges:
-                if edge['action'] == 'approve':
-                    self.approval_gate_successors[state] = edge['to']
 
         # Valid actions per state (for review classification)
         for state, edges in machine['transitions'].items():

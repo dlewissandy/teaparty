@@ -34,10 +34,8 @@ from teaparty.cfa.actors import (
     ActorContext,
     ActorResult,
     AgentRunner,
-    ApprovalGate,
     InputProvider,
 )
-from teaparty.cfa.gates.queue import GateQueue
 from teaparty.cfa.gates.escalation import EscalationListener
 from teaparty.cfa.gates.intervention_listener import InterventionListener
 from teaparty.workspace.worktree import commit_artifact
@@ -235,7 +233,6 @@ class Orchestrator:
         intervention_queue: InterventionQueue | None = None,
         role_enforcer: RoleEnforcer | None = None,
         escalation_modes: dict[str, str] | None = None,
-        gate_queue: GateQueue | None = None,
         cost_tracker: CostTracker | None = None,
         llm_backend: str = 'claude',
         llm_caller: Any = None,
@@ -313,21 +310,14 @@ class Orchestrator:
             else None
         )
 
-        # Agent runners
+        # Agent runner — single actor type.  The project lead runs
+        # every phase's skill; human review happens inside the skill's
+        # ASSERT step via AskQuestion→proxy, not in a separate gate.
         self._agent_runner = AgentRunner(
             stall_timeout=phase_config.stall_timeout,
             llm_backend=llm_backend,
             on_stream_event=_on_stream_event,
             llm_caller=llm_caller,
-        )
-        self._approval_gate = ApprovalGate(
-            proxy_model_path=proxy_model_path,
-            input_provider=input_provider,
-            poc_root=poc_root,
-            proxy_enabled=proxy_enabled,
-            never_escalate=never_escalate,
-            escalation_modes=escalation_modes,
-            gate_queue=gate_queue,
         )
 
         # MCP escalation listener — bridges AskQuestion calls to proxy/human
@@ -1563,9 +1553,6 @@ class Orchestrator:
         except OSError:
             _log.warning('Failed to write .active-skill.json sidecar')
 
-        # Propagate active skill to approval gate for log tagging (Issue #146)
-        self._approval_gate._active_skill = self._active_skill
-
         # Pre-seed PLAN.md with the matched skill template; the planning
         # skill will pick it up in ALIGN on the next turn and propose it
         # for approval via its own ASSERT dialog, rather than bypassing
@@ -1752,10 +1739,10 @@ class Orchestrator:
             await self._transition(actor_result.action, actor_result)
 
             # Turn boundary: check for pending interventions (Issue #246).
-            # Only deliver when the next actor is an agent, not a human gate.
+            # In the 5-state machine every actor is an agent — the old
+            # ``human_actor_states`` guard is unreachable (always empty).
             if (self._intervention_queue
                     and self._intervention_queue.has_pending()
-                    and self.cfa.state not in self.config.human_actor_states
                     and not is_globally_terminal(self.cfa.state)):
                 await self._deliver_intervention()
 
@@ -1805,11 +1792,6 @@ class Orchestrator:
             parent_heartbeat=self._parent_heartbeat,
             children_file=os.path.join(self.infra_dir, '.children'),
         )
-
-        if state in self.config.human_actor_states:
-            # Human or approval gate — run the approval gate
-            ctx.data = self._last_actor_data
-            return await self._approval_gate.run(ctx)
 
         # Inject human feedback from escalation/correction so the agent
         # can see what the human said (feedback + optional dialog transcript).
@@ -2919,7 +2901,6 @@ class Orchestrator:
 
         # Clear active skill — the correction has been recorded
         self._active_skill = None
-        self._approval_gate._active_skill = None
 
     def _get_observation_count(self, phase_name: str = '') -> int:
         """Get the proxy model's observation count for the current phase's approval state.
