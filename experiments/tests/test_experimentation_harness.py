@@ -810,7 +810,6 @@ class TestExperimentConfig(unittest.TestCase):
         self.assertTrue(cfg.backtracks_enabled)
         self.assertEqual(cfg.input_mode, 'pattern')
         self.assertEqual(cfg.approval_seed, 42)
-        self.assertIsNone(cfg.regret_weight)
 
 
 # ── CorpusConfig ──────────────────────────────────────────────────────────────
@@ -901,12 +900,10 @@ tasks:
             corpus.tasks[0],
             flat=True,
             skip_intent=True,
-            regret_weight=5,
             backtracks_enabled=False,
         )
         self.assertTrue(cfg.flat)
         self.assertTrue(cfg.skip_intent)
-        self.assertEqual(cfg.regret_weight, 5)
         self.assertFalse(cfg.backtracks_enabled)
 
     def test_make_config_ignores_unknown_overrides(self):
@@ -949,7 +946,6 @@ class TestAllCorpusFiles(unittest.TestCase):
         'proxy-convergence.yaml': 'proxy-convergence',
         'cfa-backtrack-effectiveness.yaml': 'cfa-backtrack-effectiveness',
         'hierarchical-vs-flat.yaml': 'hierarchical-vs-flat',
-        'regret-calibration.yaml': 'regret-calibration',
         'scoped-vs-flat-retrieval.yaml': 'scoped-vs-flat-retrieval',
         'cost-quality-frontier.yaml': 'cost-quality-frontier',
         'cfa-phase-timing.yaml': 'cfa-phase-timing',

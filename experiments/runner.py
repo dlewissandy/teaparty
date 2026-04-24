@@ -85,13 +85,10 @@ class ExperimentRunner:
             default_rate=config.default_rate,
         )
 
-        # 5. Apply overrides
-        self._apply_overrides()
-
-        # 6. Find POC root
+        # 5. Find POC root
         poc_root = self._find_poc_root()
 
-        # 7. Create and run Session
+        # 6. Create and run Session
         start_time = time.time()
         try:
             session = Session(
@@ -117,8 +114,6 @@ class ExperimentRunner:
                 session_id='',
                 backtrack_count=0,
             )
-        finally:
-            self._restore_overrides()
 
         elapsed = time.time() - start_time
 
@@ -186,20 +181,6 @@ class ExperimentRunner:
         )
 
         return metrics
-
-    def _apply_overrides(self) -> None:
-        """Apply experiment overrides.
-
-        Historically overrode ``REGRET_WEIGHT`` on the approval gate
-        confidence model.  That model and its regret-weighted EMA are
-        gone; this hook is a no-op now, preserved so callers that set
-        overrides still run cleanly.
-        """
-        return
-
-    def _restore_overrides(self) -> None:
-        """Restore original values after the run (no-op)."""
-        return
 
     @staticmethod
     def _find_poc_root() -> str:

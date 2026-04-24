@@ -218,15 +218,6 @@ async def extract_learnings(
         project_dir=project_dir,
     )
 
-    # ── Proxy pattern compaction (#11) ────────────────────────────────────────
-
-    await _run_scope(
-        'proxy-patterns', _compact_proxy_patterns,
-        project_dir=project_dir,
-        log_path=os.path.join(project_dir, '.proxy-interactions.jsonl'),
-        embed_fn=_make_embed_fn(),
-    )
-
     # ── Summary diagnostic ────────────────────────────────────────────────────
 
     total = succeeded + failed
@@ -778,14 +769,11 @@ def _reflect_on_skill_outcomes(*, infra_dir: str, project_dir: str) -> None:
 
 
 def _refine_skill_unified(*, infra_dir: str, project_dir: str) -> None:
-    """Unified skill refinement: gate corrections + friction events.
+    """Refine a skill from friction events observed during execution.
 
-    Issue #229: Replaces the separate skill-reflect (#146) and
-    skill-friction-refine steps.  Reads all available signals (gate
-    outcomes from .proxy-interactions.jsonl AND friction events from
-    .friction-events.json) and sends them to a single reflect_on_skill
-    call.  Updates skill stats with all metrics (approval rate, friction
-    counts, correction themes, sessions_since_refinement).
+    Reads ``.friction-events.json`` (the only live signal source since
+    gate-outcome logging was retired) and calls ``reflect_on_skill`` +
+    ``update_skill_stats`` with those events.
     """
     import json
     from teaparty.learning.procedural.learning import (
@@ -800,48 +788,11 @@ def _refine_skill_unified(*, infra_dir: str, project_dir: str) -> None:
     except (OSError, json.JSONDecodeError):
         return
 
-    skill_name = skill_info.get('name', '')
     skill_path = skill_info.get('path', '')
-    session_id = skill_info.get('session_id', '')
-    if not skill_name or not skill_path or not os.path.isfile(skill_path):
+    if not skill_path or not os.path.isfile(skill_path):
         return
 
-    # ── Collect gate outcomes ─────────────────────────────────────────────
-    corrections = []
-    outcomes = []
-    correction_deltas = []
-
-    log_path = os.path.join(project_dir, '.proxy-interactions.jsonl')
-    if os.path.isfile(log_path):
-        try:
-            with open(log_path) as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        entry = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    if entry.get('skill_name') != skill_name:
-                        continue
-                    if session_id and entry.get('session_id') != session_id:
-                        continue
-                    outcome = entry.get('outcome', '')
-                    if outcome:
-                        outcomes.append(outcome)
-                    if outcome == 'correct' and entry.get('delta'):
-                        corrections.append({
-                            'state': entry.get('state', ''),
-                            'outcome': outcome,
-                            'delta': entry['delta'],
-                        })
-                        correction_deltas.append(entry['delta'])
-        except OSError:
-            pass
-
-    # ── Collect friction events ───────────────────────────────────────────
-    friction_events = []
+    friction_events: list[dict] = []
     friction_path = os.path.join(infra_dir, '.friction-events.json')
     if os.path.isfile(friction_path):
         try:
@@ -850,24 +801,18 @@ def _refine_skill_unified(*, infra_dir: str, project_dir: str) -> None:
         except (OSError, json.JSONDecodeError):
             pass
 
-    # ── Unified refinement: single LLM call with all signals ─────────────
-    was_refined = False
-    if corrections or friction_events:
-        was_refined = reflect_on_skill(
-            skill_path=skill_path,
-            corrections=corrections,
-            friction_events=friction_events,
-        )
+    if not friction_events:
+        return
 
-    # ── Update all quality metrics ────────────────────────────────────────
-    if outcomes or friction_events or was_refined:
-        update_skill_stats(
-            skill_path=skill_path,
-            outcomes=outcomes,
-            friction_events=friction_events,
-            correction_deltas=correction_deltas,
-            was_refined=was_refined,
-        )
+    was_refined = reflect_on_skill(
+        skill_path=skill_path,
+        friction_events=friction_events,
+    )
+    update_skill_stats(
+        skill_path=skill_path,
+        friction_events=friction_events,
+        was_refined=was_refined,
+    )
 
 
 # ── Task and institutional contradiction consolidation (#244) ─────────────────
@@ -1317,148 +1262,6 @@ def _detect_and_write_friction(*, infra_dir: str) -> None:
         _log.info('Wrote %d friction events to %s', len(events), sidecar_path)
     except OSError as exc:
         _log.warning('Failed to write friction events sidecar: %s', exc)
-
-
-CLUSTER_SIMILARITY_THRESHOLD = 0.85
-
-
-def _cluster_deltas_semantic(
-    deltas: list[str],
-    embed_fn,
-) -> list[tuple[str, int]]:
-    """Cluster deltas by embedding similarity, return (representative, count) pairs.
-
-    Uses single-linkage clustering: a delta joins an existing cluster if its
-    cosine similarity to any member exceeds CLUSTER_SIMILARITY_THRESHOLD.
-    The longest delta in each cluster is chosen as the representative.
-    """
-    from teaparty.proxy.memory import cosine_similarity
-
-    # Embed all deltas; pair each with its vector
-    embedded: list[tuple[str, list[float] | None]] = []
-    for d in deltas:
-        vec = embed_fn(d.strip())
-        embedded.append((d.strip(), vec))
-
-    # clusters: list of (members, vectors)
-    clusters: list[tuple[list[str], list[list[float] | None]]] = []
-
-    for text, vec in embedded:
-        if vec is None:
-            # Can't compare — treat as its own cluster
-            clusters.append(([text], [vec]))
-            continue
-
-        merged = False
-        for members, vecs in clusters:
-            for existing_vec in vecs:
-                if existing_vec is None:
-                    continue
-                if cosine_similarity(vec, existing_vec) >= CLUSTER_SIMILARITY_THRESHOLD:
-                    members.append(text)
-                    vecs.append(vec)
-                    merged = True
-                    break
-            if merged:
-                break
-
-        if not merged:
-            clusters.append(([text], [vec]))
-
-    # For each cluster: longest member as representative, len as frequency
-    results = []
-    for members, _ in clusters:
-        representative = max(members, key=len)
-        results.append((representative, len(members)))
-    return results
-
-
-def _cluster_deltas_exact(deltas: list[str]) -> list[tuple[str, int]]:
-    """Cluster deltas by case-insensitive exact match, return (representative, count) pairs."""
-    groups: dict[str, list[str]] = {}
-    order: list[str] = []
-    for d in deltas:
-        key = d.strip().lower()
-        if key not in groups:
-            groups[key] = []
-            order.append(key)
-        groups[key].append(d.strip())
-
-    results = []
-    for key in order:
-        members = groups[key]
-        representative = max(members, key=len)
-        results.append((representative, len(members)))
-    return results
-
-
-def _compact_proxy_patterns(
-    *,
-    project_dir: str,
-    log_path: str,
-    embed_fn=None,
-) -> None:
-    """Extract recurring proxy correction patterns from the interaction log.
-
-    Groups interactions by state, clusters semantically equivalent deltas
-    (using embedding similarity when embed_fn is provided, falling back to
-    case-insensitive exact match otherwise), tracks frequency, and writes
-    distilled patterns to proxy-patterns.md.
-    """
-    from pathlib import Path
-    import json
-    from collections import defaultdict
-
-    if not os.path.isfile(log_path):
-        return
-
-    # Read all interactions
-    interactions = []
-    try:
-        with open(log_path) as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    interactions.append(json.loads(line))
-                except json.JSONDecodeError:
-                    continue
-    except OSError:
-        return
-
-    if not interactions:
-        return
-
-    # Group corrections by state
-    corrections_by_state = defaultdict(list)
-    for entry in interactions:
-        if entry.get('outcome') in ('correct', 'reject') and entry.get('delta'):
-            corrections_by_state[entry.get('state', 'unknown')].append(entry['delta'])
-
-    if not corrections_by_state:
-        return
-
-    # Build patterns file — recurring corrections become proxy patterns
-    lines = ['# Proxy Behavioral Patterns\n']
-    lines.append('Extracted from proxy interaction history. These represent\n')
-    lines.append('recurring human corrections that the proxy should anticipate.\n\n')
-
-    for state, deltas in sorted(corrections_by_state.items()):
-        lines.append(f'## {state}\n\n')
-        if embed_fn is not None:
-            clusters = _cluster_deltas_semantic(deltas, embed_fn)
-        else:
-            clusters = _cluster_deltas_exact(deltas)
-        for representative, count in clusters:
-            lines.append(f'- {representative} (×{count})\n')
-        lines.append('\n')
-
-    patterns_path = os.path.join(project_dir, 'proxy-patterns.md')
-    from filelock import FileLock
-    lock = FileLock(patterns_path + '.lock', timeout=30)
-    with lock:
-        Path(patterns_path).write_text(''.join(lines))
 
 
 # ── In-flight signal generation (Issue #199) ─────────────────────────────────

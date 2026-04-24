@@ -59,8 +59,6 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
                         help='Feedback text for corrections')
 
     # Experiment overrides
-    parser.add_argument('--regret-weight', type=int, default=None,
-                        help='Override REGRET_WEIGHT for proxy experiments')
     parser.add_argument('--no-backtracks', action='store_true',
                         help='Suppress CfA backtracks (forward-only baseline)')
 
@@ -84,8 +82,6 @@ def _build_overrides(args: argparse.Namespace) -> dict:
         overrides['project'] = args.project
     if args.results_base:
         overrides['results_base'] = args.results_base
-    if args.regret_weight is not None:
-        overrides['regret_weight'] = args.regret_weight
     if args.no_backtracks:
         overrides['backtracks_enabled'] = False
     return overrides
@@ -108,7 +104,6 @@ def cmd_run(args: argparse.Namespace) -> int:
         skip_intent=overrides.get('skip_intent', False),
         skip_learnings=overrides.get('skip_learnings', False),
         execute_only=overrides.get('execute_only', False),
-        regret_weight=overrides.get('regret_weight'),
         backtracks_enabled=not args.no_backtracks,
         input_mode=args.input_mode,
         approval_seed=args.approval_seed,

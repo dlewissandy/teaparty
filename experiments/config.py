@@ -32,7 +32,6 @@ class ExperimentConfig:
     execute_only: bool = False
 
     # Overrides
-    regret_weight: int | None = None
     backtracks_enabled: bool = True
     proxy_enabled: bool = True
 
@@ -102,7 +101,7 @@ class CorpusConfig:
             default_rate=overrides.get('default_rate', self.default_rate),
             **{k: v for k, v in overrides.items()
                if k in ('flat', 'skip_intent', 'skip_learnings', 'execute_only',
-                         'regret_weight', 'backtracks_enabled', 'proxy_enabled',
+                         'backtracks_enabled', 'proxy_enabled',
                          'project', 'results_base', 'scripted_decisions',
                          'proxy_model_path')},
         )
