@@ -1,10 +1,10 @@
-"""Context budget monitoring — stream-level token tracking and compaction triggers.
+"""Context budget monitoring — token tracking and ``/compact`` trigger.
 
-Extracts token usage from stream-json ``result`` events, computes context
-utilization, and signals when compaction thresholds are crossed.
-
-Design reference: docs/proposals/context-budget/proposal.md
-Threshold reference: docs/proposals/context-budget/references/compaction-thresholds.md
+Extracts token usage from stream-json ``result`` events and signals
+when the compact threshold is crossed.  The orchestrator checks
+:attr:`should_compact` at turn boundaries and, when True, injects a
+``/compact`` prompt on the next ``--resume`` so the agent stays under
+Claude's 200k context window.
 """
 from __future__ import annotations
 
@@ -14,8 +14,7 @@ from dataclasses import dataclass, field
 # Default context window size for Claude models (tokens).
 DEFAULT_CONTEXT_WINDOW = 200_000
 
-# Default thresholds (fraction of context window).
-DEFAULT_WARNING_THRESHOLD = 0.70
+# Fraction of context window at which to inject ``/compact``.
 DEFAULT_COMPACT_THRESHOLD = 0.78
 
 
@@ -25,12 +24,11 @@ class ContextBudget:
 
     The orchestrator feeds every parsed stream-json event via
     :meth:`update`.  When a ``result`` event contains token usage,
-    the utilization is recomputed.  Callers check :attr:`should_warn`
-    and :attr:`should_compact` at turn boundaries.
+    the utilization is recomputed.  Callers check :attr:`should_compact`
+    at turn boundaries.
     """
 
     context_window: int = DEFAULT_CONTEXT_WINDOW
-    warning_threshold: float = DEFAULT_WARNING_THRESHOLD
     compact_threshold: float = DEFAULT_COMPACT_THRESHOLD
 
     # ── Observed state ──────────────────────────────────────────────────
@@ -38,8 +36,7 @@ class ContextBudget:
     cache_creation_input_tokens: int = 0
     cache_read_input_tokens: int = 0
 
-    # Flags latched at threshold crossing — cleared by caller after acting.
-    _warning_fired: bool = field(default=False, repr=False)
+    # Latched at threshold crossing — cleared by caller after acting.
     _compact_fired: bool = field(default=False, repr=False)
 
     # ── Public API ──────────────────────────────────────────────────────
@@ -65,12 +62,8 @@ class ContextBudget:
             source.get('cache_read_input_tokens', 0),
         )
 
-        util = self.utilization
-        if util >= self.compact_threshold:
+        if self.utilization >= self.compact_threshold:
             self._compact_fired = True
-            self._warning_fired = True  # warning is implied
-        elif util >= self.warning_threshold:
-            self._warning_fired = True
 
     @property
     def used_tokens(self) -> int:
@@ -89,30 +82,19 @@ class ContextBudget:
         return self.used_tokens / self.context_window
 
     @property
-    def should_warn(self) -> bool:
-        """True if warning threshold was crossed since last clear."""
-        return self._warning_fired
-
-    @property
     def should_compact(self) -> bool:
         """True if compaction threshold was crossed since last clear."""
         return self._compact_fired
 
-    def clear_warning(self) -> None:
-        """Acknowledge the warning — resets the flag."""
-        self._warning_fired = False
-
     def clear_compact(self) -> None:
-        """Acknowledge compaction — resets both flags."""
+        """Acknowledge compaction — resets the flag."""
         self._compact_fired = False
-        self._warning_fired = False
 
 
 def build_compact_prompt(*, cfa_state: str, task: str, scratch_path: str = '') -> str:
     """Build the ``/compact`` command with a focus argument.
 
-    The focus is derived from the current CfA state and task description,
-    per the compaction-thresholds design doc.
+    The focus is derived from the current CfA state and task description.
     """
     focus = f'focus on {task} -- current CfA state is {cfa_state}'
     parts = [f'/compact {focus}']

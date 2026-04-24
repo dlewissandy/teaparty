@@ -25,7 +25,6 @@ from teaparty.config.config_reader import (
     WorkgroupEntry,
     WorkgroupRef,
     add_project,
-    apply_budget_precedence,
     apply_norms_precedence,
     create_project,
     default_teaparty_home,
@@ -46,7 +45,6 @@ from teaparty.config.config_reader import (
     project_teaparty_dir,
     read_pins,
     remove_project,
-    resolve_budget,
     resolve_norms,
     resolve_pins,
     resolve_workgroups,
@@ -430,23 +428,6 @@ class TestNormsResolution(unittest.TestCase):
         )
         self.assertIn('project rule', result)
         self.assertNotIn('org rule', result)
-
-
-class TestBudgetResolution(unittest.TestCase):
-    """Budgets must follow key-level precedence: org < workgroup < project."""
-
-    def test_higher_level_overrides_key(self):
-        org = {'max_turns': 10.0}
-        wg = {'max_turns': 5.0}
-        merged = apply_budget_precedence(org, wg)
-        self.assertEqual(merged['max_turns'], 5.0)
-
-    def test_disjoint_keys_merge(self):
-        org = {'max_turns': 10.0}
-        wg = {'max_cost': 1.0}
-        merged = apply_budget_precedence(org, wg)
-        self.assertEqual(merged['max_turns'], 10.0)
-        self.assertEqual(merged['max_cost'], 1.0)
 
 
 class TestPins(unittest.TestCase):

@@ -30,9 +30,6 @@ class EventType(Enum):
     FAILURE = 'failure'
     LOG = 'log'
     API_OVERLOADED = 'api_overloaded'
-    COST_WARNING = 'cost_warning'
-    COST_LIMIT = 'cost_limit'
-    CONTEXT_WARNING = 'context_warning'
     TURN_COST = 'turn_cost'  # Per-actor-turn stats: total_cost_usd, input_tokens, output_tokens, duration_ms
 
 

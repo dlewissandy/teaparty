@@ -826,42 +826,6 @@ def resolve_norms(
     return format_norms(effective)
 
 
-# ── Budgets ───────��───────────────────────────────────────────────────────────
-
-def apply_budget_precedence(*levels: dict[str, float]) -> dict[str, float]:
-    """Apply budget precedence across configuration levels.
-
-    Higher-precedence levels override individual keys from lower levels.
-    Unlike norms (which replace entire categories), budgets merge at the
-    key level — a project can override job_limit_usd without losing the
-    org-level project_limit_usd.
-
-    Args are ordered lowest-to-highest precedence: org, workgroup, project.
-    """
-    result: dict[str, float] = {}
-    for level in levels:
-        result.update(level)
-    return result
-
-
-def resolve_budget(
-    org_budget: dict[str, float] | None = None,
-    workgroup_budget: dict[str, float] | None = None,
-    project_budget: dict[str, float] | None = None,
-) -> dict[str, float]:
-    """Resolve budgets across all three levels.
-
-    Applies precedence (org < workgroup < project) and returns the
-    effective budget dict.  This is the integration point for reading
-    budget limits in the orchestrator.
-    """
-    return apply_budget_precedence(
-        org_budget or {},
-        workgroup_budget or {},
-        project_budget or {},
-    )
-
-
 # ── YAML persistence ───────────────────────��──────────────────────────────────
 
 def _save_management_yaml(

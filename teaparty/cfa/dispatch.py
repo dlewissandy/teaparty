@@ -22,10 +22,9 @@ from teaparty.messaging.bus import EventBus, EventType, InputRequest
 from teaparty.workspace.merge import git_output, squash_merge
 from teaparty.scripts.generate_commit_message import generate_async, build_fallback
 from teaparty.config.config_reader import (
-    load_project_team, load_management_team, resolve_budget, resolve_workgroups,
+    load_project_team, load_management_team,
     WorkgroupRef,
 )
-from teaparty.util.cost_tracker import CostTracker
 from teaparty.cfa.phase_config import PhaseConfig
 from teaparty.workspace.job_store import create_task, release_worktree
 from teaparty.cfa.statemachine.cfa_state import (
@@ -34,40 +33,6 @@ from teaparty.cfa.statemachine.cfa_state import (
     load_state,
     save_state,
 )
-
-
-def _resolve_cost_tracker(project_dir: str) -> CostTracker | None:
-    """Create a CostTracker from resolved budget config for dispatch."""
-    org_budget: dict[str, float] = {}
-    workgroup_budget: dict[str, float] = {}
-    project_budget: dict[str, float] = {}
-
-    try:
-        mgmt = load_management_team()
-        org_budget = mgmt.budget
-    except (FileNotFoundError, OSError):
-        pass
-
-    try:
-        proj = load_project_team(project_dir)
-        project_budget = proj.budget
-        try:
-            workgroups = resolve_workgroups(proj.workgroups, project_dir)
-            for wg in workgroups:
-                workgroup_budget.update(wg.budget)
-        except (FileNotFoundError, OSError):
-            pass
-    except (FileNotFoundError, OSError):
-        pass
-
-    budget = resolve_budget(
-        org_budget=org_budget,
-        workgroup_budget=workgroup_budget,
-        project_budget=project_budget,
-    )
-    if not budget:
-        return None
-    return CostTracker(budget=budget)
 
 
 def _attach_event_writer(event_bus: EventBus, infra_dir: str) -> None:
@@ -371,7 +336,6 @@ async def dispatch(
         team_override=team,
         phase_session_ids=phase_session_ids if phase_session_ids else None,
         parent_heartbeat=os.path.join(infra_dir, '.heartbeat') if infra_dir else '',
-        cost_tracker=_resolve_cost_tracker(project_dir),
         llm_backend=os.environ.get('TEAPARTY_LLM_BACKEND', 'claude'),
     )
 

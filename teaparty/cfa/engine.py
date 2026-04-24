@@ -46,9 +46,6 @@ from teaparty.util.interrupt_propagation import (
 )
 from teaparty.util.context_budget import ContextBudget, build_compact_prompt
 from teaparty.cfa.phase_config import PhaseConfig
-from teaparty.util.cost_tracker import (
-    CostTracker, ProjectCostLedger, WARNING_THRESHOLD, LIMIT_THRESHOLD,
-)
 from teaparty.util.role_enforcer import RoleEnforcer
 from teaparty.util.scratch import ScratchModel, ScratchWriter, extract_text
 from teaparty.learning.extract import (
@@ -115,7 +112,6 @@ class Orchestrator:
         intervention_queue: InterventionQueue | None = None,
         role_enforcer: RoleEnforcer | None = None,
         escalation_modes: dict[str, str] | None = None,
-        cost_tracker: CostTracker | None = None,
         llm_backend: str = 'claude',
         llm_caller: Any = None,
         proxy_invoker_fn: Callable[..., Awaitable[None]] | None = None,
@@ -153,16 +149,10 @@ class Orchestrator:
         self._intervention_active: bool = False
         self._proxy_invoker_fn = proxy_invoker_fn
         self._on_dispatch = on_dispatch
-        from teaparty.cfa._budgets import BudgetMonitor
-        self._budgets = BudgetMonitor(
-            event_bus=event_bus,
-            session_id=session_id,
-            input_provider=input_provider,
-            cost_tracker=cost_tracker,
-            project_cost_ledger=(
-                ProjectCostLedger(project_workdir) if cost_tracker else None
-            ),
-        )
+        # Running cost total for this session (telemetry only — no limits).
+        # Written to infra_dir/.cost after each turn so the bridge dashboard
+        # and stats bar can surface per-session USD spend.
+        self._total_cost_usd: float = 0.0
 
         self._scratch_model = ScratchModel(job=task, phase='')
         self._scratch_writer = ScratchWriter(session_worktree)
@@ -1225,10 +1215,8 @@ class Orchestrator:
 
             turn_cost = actor_result.data.get('cost_usd', 0.0)
             if turn_cost:
-                await self._budgets.record_turn_cost(
-                    actor_result.data, self.session_id,
-                )
-                self._budgets.write_sidecar(self.infra_dir)
+                self._total_cost_usd += turn_cost
+                self._write_cost_sidecar()
                 turn_stats: dict[str, Any] = {'total_cost_usd': turn_cost}
                 for key in ('input_tokens', 'output_tokens', 'duration_ms'):
                     val = actor_result.data.get(key)
@@ -1283,18 +1271,45 @@ class Orchestrator:
                 self._update_scratch(phase_name)
 
             if not is_globally_terminal(self.cfa.state):
-                compact_prompt = await self._budgets.check_context(
-                    budget=actor_result.data.get('context_budget'),
-                    phase_name=phase_name,
-                    task=self._task_for_phase(phase_name),
+                compact_prompt = self._maybe_compact(
+                    actor_result.data.get('context_budget'),
+                    phase_name,
                 )
                 if compact_prompt:
                     self._pending_intervention = compact_prompt
-            if (self._budgets.cost_tracker
-                    and not is_globally_terminal(self.cfa.state)):
-                wrap_up = await self._budgets.check_costs()
-                if wrap_up:
-                    self._pending_intervention = wrap_up
+
+    def _write_cost_sidecar(self) -> None:
+        """Write the running cost total to ``{infra_dir}/.cost``.
+
+        Consumed by the bridge dashboard (``bridge/stats.py``,
+        ``bridge/state/reader.py``) and by ``cfa/dispatch.py`` as a
+        fallback when per-turn events are unavailable.
+        """
+        if not self.infra_dir:
+            return
+        try:
+            with open(os.path.join(self.infra_dir, '.cost'), 'w') as f:
+                f.write(f'{self._total_cost_usd:.6f}\n')
+        except OSError:
+            pass
+
+    def _maybe_compact(self, budget: Any, phase_name: str) -> str:
+        """Return a ``/compact`` prompt when context utilization crosses
+        the compact threshold; empty string otherwise.
+
+        The caller stores the returned prompt in ``_pending_intervention``
+        so ``_invoke_actor`` injects it as ``--resume`` backtrack context
+        on the next turn, keeping the agent under Claude's 200k window.
+        """
+        if not isinstance(budget, ContextBudget) or not budget.should_compact:
+            return ''
+        compact_prompt = build_compact_prompt(
+            cfa_state='',
+            task=self._task_for_phase(phase_name),
+            scratch_path='.context/scratch.md',
+        )
+        budget.clear_compact()
+        return compact_prompt
 
     async def _invoke_actor(self, spec: 'PhaseSpec', phase_name: str,
                              phase_start_time: float = 0.0) -> ActorResult:

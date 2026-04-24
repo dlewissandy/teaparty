@@ -38,9 +38,8 @@ from teaparty.messaging.conversations import (
 )
 from teaparty.config.config_reader import (
     load_project_team, load_management_team, resolve_norms,
-    resolve_budget, resolve_workgroups,
+    resolve_workgroups,
 )
-from teaparty.util.cost_tracker import CostTracker
 from teaparty.cfa.gates.intervention import InterventionQueue
 from teaparty.cfa.phase_config import PhaseConfig
 from teaparty.util.role_enforcer import RoleEnforcer
@@ -94,43 +93,6 @@ def _resolve_project_lead_sender(project_dir: str) -> str:
         return load_project_team(project_dir).lead or 'orchestrator'
     except (FileNotFoundError, OSError):
         return 'orchestrator'
-
-
-def _resolve_cost_tracker_impl(project_dir: str) -> CostTracker | None:
-    """Create a CostTracker from the resolved budget configuration.
-
-    Shared by both Session._resolve_cost_tracker and the static resume path.
-    """
-    org_budget: dict[str, float] = {}
-    workgroup_budget: dict[str, float] = {}
-    project_budget: dict[str, float] = {}
-
-    try:
-        mgmt = load_management_team()
-        org_budget = mgmt.budget
-    except (FileNotFoundError, OSError):
-        pass
-
-    try:
-        proj = load_project_team(project_dir)
-        project_budget = proj.budget
-        try:
-            workgroups = resolve_workgroups(proj.workgroups, project_dir)
-            for wg in workgroups:
-                workgroup_budget.update(wg.budget)
-        except (FileNotFoundError, OSError):
-            pass
-    except (FileNotFoundError, OSError):
-        pass
-
-    budget = resolve_budget(
-        org_budget=org_budget,
-        workgroup_budget=workgroup_budget,
-        project_budget=project_budget,
-    )
-    if not budget:
-        return None
-    return CostTracker(budget=budget)
 
 
 # ── Per-type retrieval budget allocation (characters) ─────────────────────────
@@ -432,7 +394,6 @@ class Session:
                 project_dir=project_dir,
                 role_enforcer=self._role_enforcer,
                 escalation_modes=self.escalation_modes,
-                cost_tracker=self._resolve_cost_tracker(project_dir),
                 intervention_queue=self._intervention_queue,
                 llm_backend=os.environ.get('TEAPARTY_LLM_BACKEND', 'claude'),
                 llm_caller=self._llm_caller,
@@ -642,10 +603,6 @@ class Session:
         if not text:
             return ''
         return f'--- Norms (advisory) ---\n{text}\n--- end ---'
-
-    def _resolve_cost_tracker(self, project_dir: str) -> CostTracker | None:
-        """Create a CostTracker from the resolved budget configuration."""
-        return _resolve_cost_tracker_impl(project_dir)
 
     def _retrieve_memory(self, project_dir: str) -> str:
         """Retrieve relevant memory entries for the task."""
@@ -934,7 +891,6 @@ class Session:
                 project_dir=project_dir,
                 role_enforcer=role_enforcer,
                 escalation_modes=escalation_modes,
-                cost_tracker=_resolve_cost_tracker_impl(project_dir),
                 intervention_queue=intervention_queue,
                 proxy_invoker_fn=proxy_invoker_fn,
                 on_dispatch=on_dispatch,
