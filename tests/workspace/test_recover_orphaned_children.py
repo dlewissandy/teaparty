@@ -1,15 +1,17 @@
 """Tests for ``teaparty.workspace.recovery.recover_orphaned_children``.
 
-The function reconciles ``{infra_dir}/.children`` after a parent
-restart: completed children get squash-merged into the parent worktree,
-dead non-terminal children get re-dispatched (via a caller-supplied
-callable), live children are left alone, and the registry is compacted.
+Cut 19: the bus is the single source of truth for orphan recovery.
+Both tiers (CfA engine + chat-tier AgentSession) call this same
+function.  No ``.children`` JSONL walks, no heartbeat-file reads —
+the bus's ``conversations`` table records ``parent_conversation_id``,
+``state``, ``worktree_path``, ``pid``, ``pid_started`` per dispatch,
+and recovery walks ``children_of(parent_conv_id)`` and asks the OS
+whether each PID is still alive.
 
 These are scenario tests around the behavioral contract.  Each test
-sets up a real ``.children`` registry on disk plus matching heartbeat
-files, calls the function, and asserts on the outcome — merge invoked
-or not, redispatch_fn called or not, registry compacted to the right
-shape.
+seeds a real SQLite bus with DISPATCH conversations, calls the
+function, and asserts on the outcome — merge invoked or not, redispatch
+called or not, conversation row closed.
 
 The merge step itself (``squash_merge``) is stubbed because its real
 implementation needs git worktrees on disk, which are out of scope for
@@ -19,17 +21,20 @@ calls in the right cases, not that git merging works.
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import tempfile
-import time
 import unittest
 from typing import Any
 from unittest.mock import patch, AsyncMock
 
+from teaparty.messaging.conversations import (
+    ConversationState,
+    ConversationType,
+    SqliteMessageBus,
+)
 from teaparty.workspace.recovery import (
     recover_orphaned_children,
-    find_dispatch_worktree,
+    _is_pid_dead,
 )
 
 
@@ -37,321 +42,271 @@ def _run(coro):
     return asyncio.new_event_loop().run_until_complete(coro)
 
 
-def _write_heartbeat(path: str, *, status: str, age_seconds: float = 0.0,
-                     pid: int | None = None) -> None:
-    """Write a heartbeat file with a given status and age.
-
-    ``age_seconds=0`` means "fresh now"; pass a value larger than the
-    staleness threshold (120s) to make ``is_heartbeat_stale`` return
-    True for non-terminal entries.
-
-    ``pid=None`` defaults to a guaranteed-dead PID (1) so the staleness
-    check's PID liveness probe agrees.
-    """
-    if pid is None:
-        pid = 1  # init — for staleness, we want any live-PID check to
-                 # not save us.  Combined with a stale mtime + non-
-                 # terminal status, scan_children classifies as 'dead'.
-    data = {
-        'pid': pid,
-        'parent_heartbeat': '',
-        'role': 'team',
-        'started': time.time() - age_seconds,
-        'status': status,
-    }
-    with open(path, 'w') as f:
-        json.dump(data, f)
-    if age_seconds > 0:
-        old = time.time() - age_seconds
-        os.utime(path, (old, old))
+def _seed_dispatch(
+    bus: SqliteMessageBus,
+    *,
+    qualifier: str,
+    parent: str,
+    agent: str,
+    worktree_path: str,
+    pid: int,
+    pid_started: float,
+    state: ConversationState = ConversationState.ACTIVE,
+) -> str:
+    """Create a DISPATCH conversation with the given (pid, started) fingerprint."""
+    conv = bus.create_conversation(
+        ConversationType.DISPATCH, qualifier,
+        agent_name=agent,
+        parent_conversation_id=parent,
+        state=state,
+        worktree_path=worktree_path,
+    )
+    if pid:
+        bus.set_conversation_process(conv.id, pid, pid_started)
+    return conv.id
 
 
-def _write_cfa_state(path: str, state: str) -> None:
-    """Write a minimal CfA state file."""
-    data = {
-        'phase': 'terminal' if state in ('DONE', 'WITHDRAWN') else 'execution',
-        'state': state,
-        'history': [],
-        'backtrack_count': 0,
-        'task_id': '',
-    }
-    with open(path, 'w') as f:
-        json.dump(data, f)
+# ── _is_pid_dead (pure helper) ─────────────────────────────────────────────
 
+class TestIsPidDead(unittest.TestCase):
+    """The OS-liveness check used at recovery time."""
 
-def _make_child(*, root: str, team: str, status: str, cfa_state: str | None,
-                heartbeat_age: float = 0.0,
-                with_worktree: bool = True) -> dict:
-    """Lay out one child's infra dir + heartbeat + optional CfA state.
+    def test_pid_zero_is_dead(self):
+        """PID 0 means ``set_conversation_process`` never ran — dead."""
+        self.assertTrue(_is_pid_dead(0, 0.0))
 
-    Returns the child registry entry dict.
-    """
-    child_infra = os.path.join(root, f'child-{team}')
-    os.makedirs(child_infra, exist_ok=True)
+    def test_negative_pid_is_dead(self):
+        self.assertTrue(_is_pid_dead(-1, 0.0))
 
-    if with_worktree:
-        wt = os.path.join(child_infra, 'worktree')
-        os.makedirs(wt, exist_ok=True)
+    def test_live_self_pid_is_alive(self):
+        """Our own PID is alive by construction."""
+        # No started given → falls back to OS-only check; should be alive.
+        self.assertFalse(_is_pid_dead(os.getpid(), 0.0))
 
-    hb_path = os.path.join(child_infra, '.heartbeat')
-    _write_heartbeat(hb_path, status=status, age_seconds=heartbeat_age)
-
-    if cfa_state is not None:
-        _write_cfa_state(
-            os.path.join(child_infra, '.cfa-state.json'), cfa_state,
-        )
-
-    return {
-        'heartbeat': hb_path,
-        'team': team,
-        'task_id': None,
-        'status': 'active',
-    }
-
-
-def _write_children_registry(path: str, entries: list[dict]) -> None:
-    with open(path, 'w') as f:
-        for entry in entries:
-            f.write(json.dumps(entry) + '\n')
-
-
-def _read_children_registry(path: str) -> list[dict]:
-    if not os.path.exists(path):
-        return []
-    with open(path) as f:
-        return [json.loads(line) for line in f if line.strip()]
-
-
-# ── find_dispatch_worktree (pure helper) ───────────────────────────────────
-
-class TestFindDispatchWorktree(unittest.TestCase):
-    """The job-store layout convention: worktree at ``{infra}/worktree/``."""
-
-    def test_returns_worktree_path_when_directory_exists(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            wt = os.path.join(tmp, 'worktree')
-            os.makedirs(wt)
-            self.assertEqual(find_dispatch_worktree(tmp), wt)
-
-    def test_returns_empty_when_worktree_missing(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            self.assertEqual(find_dispatch_worktree(tmp), '')
-
-    def test_returns_empty_when_worktree_is_a_file_not_a_directory(self):
-        """A file at the worktree path is not a worktree."""
-        with tempfile.TemporaryDirectory() as tmp:
-            with open(os.path.join(tmp, 'worktree'), 'w') as f:
-                f.write('not a dir')
-            self.assertEqual(find_dispatch_worktree(tmp), '')
+    def test_obviously_dead_pid_is_dead(self):
+        """A very large PID we never created is dead."""
+        # Use 999999999 — wildly out of range, can't possibly be alive.
+        # If by some miracle the OS has assigned this PID, started=999.0
+        # disagrees with create_time and the staleness branch trips.
+        self.assertTrue(_is_pid_dead(999999999, 999.0))
 
 
 # ── Recovery scenarios ─────────────────────────────────────────────────────
 
 class TestRecoverOrphanedChildren(unittest.TestCase):
-    """End-to-end behavior around the .children registry."""
+    """End-to-end behavior of the bus-based recovery codepath."""
 
     def setUp(self):
         self._tmp = tempfile.mkdtemp()
-        self._infra = os.path.join(self._tmp, 'parent-infra')
-        os.makedirs(self._infra)
+        self._bus_path = os.path.join(self._tmp, 'messages.db')
+        self._bus = SqliteMessageBus(self._bus_path)
         self._session_worktree = os.path.join(self._tmp, 'session-wt')
         os.makedirs(self._session_worktree)
+        # The parent conv (a JOB / OM root) — recovery walks its children.
+        self._parent_conv_id = 'job:demo:parent'
+        self._bus.create_conversation(
+            ConversationType.JOB, 'demo:parent',
+            agent_name='parent',
+        )
 
     def tearDown(self):
+        self._bus.close()
         import shutil
         shutil.rmtree(self._tmp, ignore_errors=True)
 
-    def test_no_children_registry_returns_immediately(self):
-        """Common case on first run — no registry, recovery is a no-op."""
-        # Patch the merge so any accidental call would explode the test.
+    def _make_worktree(self, name: str) -> str:
+        wt = os.path.join(self._tmp, f'wt-{name}')
+        os.makedirs(wt, exist_ok=True)
+        return wt
+
+    def test_no_children_means_nothing_to_do(self):
+        """A parent with no DISPATCH children → recovery is a no-op."""
         with patch(
             'teaparty.workspace.merge.squash_merge', new_callable=AsyncMock,
         ) as merge_mock:
             _run(recover_orphaned_children(
-                infra_dir=self._infra,
+                parent_conversation_id=self._parent_conv_id,
+                bus=self._bus,
                 session_worktree=self._session_worktree,
                 task='whatever',
             ))
             merge_mock.assert_not_awaited()
 
-    def test_completed_done_child_is_merged_and_compacted(self):
-        """Completed heartbeat + DONE state → squash_merge + drop from registry."""
-        child = _make_child(
-            root=self._tmp, team='alpha',
-            status='completed', cfa_state='DONE',
+    def test_dead_pid_with_worktree_is_merged_and_closed(self):
+        """Dead PID + extant worktree → squash_merge + state→CLOSED."""
+        wt = self._make_worktree('alpha')
+        conv_id = _seed_dispatch(
+            self._bus, qualifier='alpha', parent=self._parent_conv_id,
+            agent='alpha', worktree_path=wt,
+            pid=999999999, pid_started=999.0,  # guaranteed dead
         )
-        children_path = os.path.join(self._infra, '.children')
-        _write_children_registry(children_path, [child])
 
         with patch(
             'teaparty.workspace.merge.squash_merge', new_callable=AsyncMock,
         ) as merge_mock:
             _run(recover_orphaned_children(
-                infra_dir=self._infra,
+                parent_conversation_id=self._parent_conv_id,
+                bus=self._bus,
                 session_worktree=self._session_worktree,
                 task='ship the joke',
             ))
 
         merge_mock.assert_awaited_once()
         kwargs = merge_mock.await_args.kwargs
-        self.assertEqual(
-            os.path.realpath(kwargs['source']),
-            os.path.realpath(os.path.join(
-                os.path.dirname(child['heartbeat']), 'worktree')),
-        )
-        self.assertEqual(
-            os.path.realpath(kwargs['target']),
-            os.path.realpath(self._session_worktree),
-        )
+        self.assertEqual(kwargs['source'], wt)
+        self.assertEqual(kwargs['target'], self._session_worktree)
         self.assertIn('alpha', kwargs['message'])
 
-        # Registry compacted: completed entries removed.
-        self.assertEqual(_read_children_registry(children_path), [])
+        # Conversation transitioned out of ACTIVE.
+        conv = self._bus.get_conversation(conv_id)
+        self.assertEqual(conv.state, ConversationState.CLOSED)
 
-    def test_completed_but_cfa_state_disagrees_is_skipped(self):
-        """Heartbeat says 'completed' but CfA state isn't DONE → no merge.
-
-        Half-finished work must not be merged automatically — a status
-        mismatch is a signal of a bug or a partial shutdown, not of
-        completion.
-        """
-        child = _make_child(
-            root=self._tmp, team='beta',
-            status='completed', cfa_state='EXECUTE',
-        )
-        _write_children_registry(
-            os.path.join(self._infra, '.children'), [child],
+    def test_already_closed_conversation_is_skipped(self):
+        """CLOSED rows are not visited — recovery only acts on live rows."""
+        wt = self._make_worktree('beta')
+        _seed_dispatch(
+            self._bus, qualifier='beta', parent=self._parent_conv_id,
+            agent='beta', worktree_path=wt,
+            pid=999999999, pid_started=999.0,
+            state=ConversationState.CLOSED,
         )
 
         with patch(
             'teaparty.workspace.merge.squash_merge', new_callable=AsyncMock,
         ) as merge_mock:
             _run(recover_orphaned_children(
-                infra_dir=self._infra,
+                parent_conversation_id=self._parent_conv_id,
+                bus=self._bus,
                 session_worktree=self._session_worktree,
                 task='whatever',
             ))
             merge_mock.assert_not_awaited()
 
-    def test_dead_non_terminal_child_invokes_redispatch_fn(self):
-        """Stale mtime + non-terminal status + dead PID → redispatch_fn."""
-        child = _make_child(
-            root=self._tmp, team='gamma',
-            status='running', cfa_state='EXECUTE',
-            heartbeat_age=300.0,  # well past the 120s staleness threshold
+    def test_live_pid_is_left_alone(self):
+        """Living PID + ACTIVE state → no merge, no close."""
+        wt = self._make_worktree('gamma')
+        conv_id = _seed_dispatch(
+            self._bus, qualifier='gamma', parent=self._parent_conv_id,
+            agent='gamma', worktree_path=wt,
+            pid=os.getpid(), pid_started=0.0,  # our own PID — alive
         )
-        _write_children_registry(
-            os.path.join(self._infra, '.children'), [child],
+
+        with patch(
+            'teaparty.workspace.merge.squash_merge', new_callable=AsyncMock,
+        ) as merge_mock:
+            _run(recover_orphaned_children(
+                parent_conversation_id=self._parent_conv_id,
+                bus=self._bus,
+                session_worktree=self._session_worktree,
+                task='whatever',
+            ))
+            merge_mock.assert_not_awaited()
+
+        conv = self._bus.get_conversation(conv_id)
+        self.assertEqual(conv.state, ConversationState.ACTIVE)
+
+    def test_dead_pid_no_worktree_invokes_redispatch_fn(self):
+        """No worktree on disk + dead PID → redispatch (no merge)."""
+        # We seed worktree_path to something that doesn't exist.
+        missing_wt = os.path.join(self._tmp, 'never-existed')
+        _seed_dispatch(
+            self._bus, qualifier='delta', parent=self._parent_conv_id,
+            agent='delta', worktree_path=missing_wt,
+            pid=999999999, pid_started=999.0,
         )
 
         captured: list[dict] = []
 
-        async def redispatch(*, child, worktree_path, child_infra):
+        async def redispatch(*, conversation, worktree_path):
             captured.append({
-                'team': child['team'],
+                'agent': conversation.agent_name,
                 'worktree_path': worktree_path,
-                'child_infra': child_infra,
             })
 
-        _run(recover_orphaned_children(
-            infra_dir=self._infra,
-            session_worktree=self._session_worktree,
-            task='whatever',
-            redispatch_fn=redispatch,
-        ))
-
-        self.assertEqual(len(captured), 1)
-        self.assertEqual(captured[0]['team'], 'gamma')
-        self.assertTrue(captured[0]['worktree_path'].endswith('worktree'))
-        self.assertTrue(os.path.isdir(captured[0]['worktree_path']))
-
-    def test_dead_child_without_redispatch_fn_is_logged_not_relaunched(self):
-        """No callable supplied → the dead child is not re-launched.
-
-        The caller has chosen to take responsibility for the worktree;
-        recovery must not call into anything we didn't explicitly opt
-        into.  Without a callable, we just log + leave the worktree in
-        place + drop nothing extra from the registry.
-        """
-        child = _make_child(
-            root=self._tmp, team='delta',
-            status='running', cfa_state='EXECUTE',
-            heartbeat_age=300.0,
-        )
-        _write_children_registry(
-            os.path.join(self._infra, '.children'), [child],
-        )
-
-        # No redispatch_fn passed.  Should not raise; merge should not run.
         with patch(
             'teaparty.workspace.merge.squash_merge', new_callable=AsyncMock,
         ) as merge_mock:
             _run(recover_orphaned_children(
-                infra_dir=self._infra,
-                session_worktree=self._session_worktree,
-                task='whatever',
-            ))
-            merge_mock.assert_not_awaited()
-
-    def test_live_child_is_left_alone(self):
-        """Fresh heartbeat with non-terminal status → no merge, no redispatch."""
-        child = _make_child(
-            root=self._tmp, team='epsilon',
-            status='running', cfa_state='EXECUTE',
-            heartbeat_age=0.0,  # fresh
-        )
-        _write_children_registry(
-            os.path.join(self._infra, '.children'), [child],
-        )
-
-        captured: list[dict] = []
-
-        async def redispatch(**kw):
-            captured.append(kw)
-
-        with patch(
-            'teaparty.workspace.merge.squash_merge', new_callable=AsyncMock,
-        ) as merge_mock:
-            _run(recover_orphaned_children(
-                infra_dir=self._infra,
+                parent_conversation_id=self._parent_conv_id,
+                bus=self._bus,
                 session_worktree=self._session_worktree,
                 task='whatever',
                 redispatch_fn=redispatch,
             ))
             merge_mock.assert_not_awaited()
 
-        self.assertEqual(captured, [])
+        self.assertEqual(len(captured), 1)
+        self.assertEqual(captured[0]['agent'], 'delta')
+
+    def test_dead_pid_no_worktree_no_redispatch_fn_just_closes(self):
+        """Without redispatch_fn, a dead-no-worktree row is just closed."""
+        missing_wt = os.path.join(self._tmp, 'never-existed')
+        conv_id = _seed_dispatch(
+            self._bus, qualifier='epsilon', parent=self._parent_conv_id,
+            agent='epsilon', worktree_path=missing_wt,
+            pid=999999999, pid_started=999.0,
+        )
+
+        with patch(
+            'teaparty.workspace.merge.squash_merge', new_callable=AsyncMock,
+        ):
+            _run(recover_orphaned_children(
+                parent_conversation_id=self._parent_conv_id,
+                bus=self._bus,
+                session_worktree=self._session_worktree,
+                task='whatever',
+            ))
+
+        conv = self._bus.get_conversation(conv_id)
+        self.assertEqual(conv.state, ConversationState.CLOSED)
+
+    def test_pid_zero_is_treated_as_dead(self):
+        """A row with pid=0 (subprocess never started) → dead, gets closed."""
+        wt = self._make_worktree('zeta')
+        conv_id = _seed_dispatch(
+            self._bus, qualifier='zeta', parent=self._parent_conv_id,
+            agent='zeta', worktree_path=wt,
+            pid=0, pid_started=0.0,
+        )
+
+        with patch(
+            'teaparty.workspace.merge.squash_merge', new_callable=AsyncMock,
+        ) as merge_mock:
+            _run(recover_orphaned_children(
+                parent_conversation_id=self._parent_conv_id,
+                bus=self._bus,
+                session_worktree=self._session_worktree,
+                task='whatever',
+            ))
+            merge_mock.assert_awaited_once()  # worktree exists → merge
+
+        conv = self._bus.get_conversation(conv_id)
+        self.assertEqual(conv.state, ConversationState.CLOSED)
 
     def test_redispatch_failure_does_not_block_other_children(self):
-        """One redispatch raising must not abort the rest of recovery.
-
-        The contract: recovery is best-effort.  If one child can't be
-        re-dispatched, we log it and move on so other children aren't
-        stranded by an unrelated failure.
-        """
-        c1 = _make_child(
-            root=self._tmp, team='one',
-            status='running', cfa_state='EXECUTE',
-            heartbeat_age=300.0,
+        """One redispatch raising must not abort the rest of recovery."""
+        missing_wt = os.path.join(self._tmp, 'never-existed')
+        _seed_dispatch(
+            self._bus, qualifier='one', parent=self._parent_conv_id,
+            agent='one', worktree_path=missing_wt,
+            pid=999999999, pid_started=999.0,
         )
-        c2 = _make_child(
-            root=self._tmp, team='two',
-            status='running', cfa_state='EXECUTE',
-            heartbeat_age=300.0,
-        )
-        _write_children_registry(
-            os.path.join(self._infra, '.children'), [c1, c2],
+        _seed_dispatch(
+            self._bus, qualifier='two', parent=self._parent_conv_id,
+            agent='two', worktree_path=missing_wt,
+            pid=999999999, pid_started=999.0,
         )
 
         seen: list[str] = []
 
-        async def redispatch(*, child, worktree_path, child_infra):
-            seen.append(child['team'])
-            if child['team'] == 'one':
+        async def redispatch(*, conversation, worktree_path):
+            seen.append(conversation.agent_name)
+            if conversation.agent_name == 'one':
                 raise RuntimeError('boom')
 
         _run(recover_orphaned_children(
-            infra_dir=self._infra,
+            parent_conversation_id=self._parent_conv_id,
+            bus=self._bus,
             session_worktree=self._session_worktree,
             task='whatever',
             redispatch_fn=redispatch,
@@ -362,17 +317,17 @@ class TestRecoverOrphanedChildren(unittest.TestCase):
 
     def test_emits_recovery_log_events_when_event_bus_provided(self):
         """When an event_bus is given, every merge / redispatch emits LOG."""
-        completed = _make_child(
-            root=self._tmp, team='alpha',
-            status='completed', cfa_state='DONE',
+        wt = self._make_worktree('alpha')
+        _seed_dispatch(
+            self._bus, qualifier='alpha', parent=self._parent_conv_id,
+            agent='alpha', worktree_path=wt,
+            pid=999999999, pid_started=999.0,
         )
-        dead = _make_child(
-            root=self._tmp, team='beta',
-            status='running', cfa_state='EXECUTE',
-            heartbeat_age=300.0,
-        )
-        _write_children_registry(
-            os.path.join(self._infra, '.children'), [completed, dead],
+        missing_wt = os.path.join(self._tmp, 'never-existed')
+        _seed_dispatch(
+            self._bus, qualifier='beta', parent=self._parent_conv_id,
+            agent='beta', worktree_path=missing_wt,
+            pid=999999999, pid_started=999.0,
         )
 
         events: list[Any] = []
@@ -387,7 +342,8 @@ class TestRecoverOrphanedChildren(unittest.TestCase):
             'teaparty.workspace.merge.squash_merge', new_callable=AsyncMock,
         ):
             _run(recover_orphaned_children(
-                infra_dir=self._infra,
+                parent_conversation_id=self._parent_conv_id,
+                bus=self._bus,
                 session_worktree=self._session_worktree,
                 task='whatever',
                 session_id='sess-1',
@@ -398,30 +354,35 @@ class TestRecoverOrphanedChildren(unittest.TestCase):
         categories = [e.data['category'] for e in events]
         self.assertIn('recovery_merge', categories)
         self.assertIn('recovery_redispatch', categories)
-        # Every event must carry the parent session_id we passed.
         for e in events:
             self.assertEqual(e.session_id, 'sess-1')
 
-    def test_no_event_bus_means_silent_recovery(self):
-        """``event_bus=None`` → recovery happens without trying to publish."""
-        child = _make_child(
-            root=self._tmp, team='alpha',
-            status='completed', cfa_state='DONE',
-        )
-        _write_children_registry(
-            os.path.join(self._infra, '.children'), [child],
+    def test_recovery_only_acts_on_dispatch_type(self):
+        """JOB / TASK / OM rows under a parent are not "orphans" to merge.
+
+        Only DISPATCH conversations represent dispatched subprocesses
+        with worktrees + PIDs.  Other types (a JOB hanging under
+        another JOB, say) are organizational and recovery must skip
+        them — merging a JOB row's worktree would be category-error.
+        """
+        # Seed a JOB child (not a DISPATCH).
+        self._bus.create_conversation(
+            ConversationType.JOB, 'demo:nested-job',
+            agent_name='nested',
+            parent_conversation_id=self._parent_conv_id,
+            worktree_path=self._make_worktree('nested'),
         )
 
-        # If recovery tries to use a missing event_bus it will AttributeError.
         with patch(
             'teaparty.workspace.merge.squash_merge', new_callable=AsyncMock,
-        ):
+        ) as merge_mock:
             _run(recover_orphaned_children(
-                infra_dir=self._infra,
+                parent_conversation_id=self._parent_conv_id,
+                bus=self._bus,
                 session_worktree=self._session_worktree,
                 task='whatever',
-                event_bus=None,
             ))
+            merge_mock.assert_not_awaited()
 
 
 if __name__ == '__main__':

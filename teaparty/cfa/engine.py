@@ -212,27 +212,46 @@ class Orchestrator:
     async def run(self) -> OrchestratorResult:
         """Drive the CfA state machine to a terminal state."""
         from teaparty.workspace.recovery import recover_orphaned_children
+        from teaparty.messaging.conversations import SqliteMessageBus
 
-        async def _redispatch(*, child, worktree_path, child_infra):
-            from teaparty.cfa.dispatch import dispatch
-            await dispatch(
-                team=child.get('team', ''),
-                task=self.task,
-                session_worktree=self.session_worktree,
-                infra_dir=self.infra_dir,
-                project_slug=self.project_slug,
-                resume_worktree=worktree_path,
-                resume_infra=child_infra,
-            )
+        # Bus-based recovery (Cut 19): the bus is the single source of
+        # truth for "what children did I dispatch, where are they, are
+        # they still running?"  Only run when this session has a bus
+        # (project + session_id give us a stream conv_id; the bus DB
+        # may exist on disk from a prior run).
+        bus_db_path = os.path.join(self.infra_dir, 'messages.db')
+        if (
+            self._stream_conv_id and os.path.exists(bus_db_path)
+        ):
+            async def _redispatch(*, conversation, worktree_path):
+                from teaparty.cfa.dispatch import dispatch
+                # Job-store layout: child_infra is the worktree's parent.
+                child_infra = (
+                    os.path.dirname(worktree_path) if worktree_path else ''
+                )
+                await dispatch(
+                    team=conversation.agent_name,
+                    task=self.task,
+                    session_worktree=self.session_worktree,
+                    infra_dir=self.infra_dir,
+                    project_slug=self.project_slug,
+                    resume_worktree=worktree_path,
+                    resume_infra=child_infra,
+                )
 
-        await recover_orphaned_children(
-            infra_dir=self.infra_dir,
-            session_worktree=self.session_worktree,
-            task=self.task,
-            session_id=self.session_id,
-            event_bus=self.event_bus,
-            redispatch_fn=_redispatch,
-        )
+            recovery_bus = SqliteMessageBus(bus_db_path)
+            try:
+                await recover_orphaned_children(
+                    parent_conversation_id=self._stream_conv_id,
+                    bus=recovery_bus,
+                    session_worktree=self.session_worktree,
+                    task=self.task,
+                    session_id=self.session_id,
+                    event_bus=self.event_bus,
+                    redispatch_fn=_redispatch,
+                )
+            finally:
+                recovery_bus.close()
 
         repo_root = os.path.dirname(os.path.dirname(self.poc_root))
         venv_python = os.path.join(repo_root, '.venv', 'bin', 'python3')
@@ -503,6 +522,7 @@ class Orchestrator:
                         request_id=context_id,
                         project_slug=self.project_slug or '',
                         state=_ConvState.ACTIVE,
+                        worktree_path=worktree_path,
                     )
                 finally:
                     _bus.close()

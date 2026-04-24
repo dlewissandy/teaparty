@@ -1,26 +1,37 @@
-"""Orphan recovery for sessions that spawn child worktrees.
+"""Bus-based orphan recovery — one codepath, both tiers (Cut 19).
 
-A session that dispatches children registers each one in
-``{infra_dir}/.children`` (heartbeat path + team name).  If the parent
-dies mid-run — bridge restart, kill, crash — those children keep going
-with no parent to merge their results back in.  When the parent
-restarts (resume), this module reconciles the registry:
+A session that dispatches children records each one as a ``DISPATCH``
+conversation in the SQLite bus.  The conversation row carries:
 
-- **completed** (status == ``'completed'``/``'withdrawn'`` and CfA state
-  ``DONE``): squash-merge the child's worktree into the parent's
-  session worktree, log the merge.
-- **dead** (heartbeat stale or missing, non-terminal): emit a
-  ``recovery_redispatch`` LOG, and if the caller passed a
-  ``redispatch_fn``, call it so the caller can re-launch the child.
-- **live** (fresh heartbeat or live PID): leave alone.
+- ``state``           — ACTIVE / PAUSED / CLOSED / WITHDRAWN
+- ``worktree_path``   — the child's worktree (merge source)
+- ``pid``             — the spawned subprocess PID
+- ``pid_started``     — OS create_time at spawn (defeats PID reuse)
 
-Then compact ``.children`` so the registry only contains entries that
-are still meaningful.
+If the parent dies mid-run — bridge restart, kill, crash — those rows
+persist in the bus.  When the parent restarts, this module reconciles
+them by asking three questions:
 
-This module is intentionally tier-agnostic.  The re-dispatch step is
-the only thing that varies between callers (CfA's ``dispatch()`` helper
-vs. a chat-tier spawn_fn), so it's threaded through as a callable
-rather than imported here.  Pass ``redispatch_fn=None`` to log + skip.
+1. **Is the conversation in a terminal state?**  ``CLOSED`` /
+   ``WITHDRAWN`` were already finished cleanly; nothing to do.
+2. **Is the child's worktree merged?**  If the conversation is still
+   ``ACTIVE`` but the subprocess is gone *and* the worktree exists,
+   we squash-merge it into the parent's session worktree.
+3. **Is the child still running?**  If the OS says yes (PID alive,
+   create_time matches), leave it.  If no, optionally re-dispatch via
+   a caller-supplied callable.
+
+This is the **only** recovery codepath.  Both tiers — CfA's
+``Orchestrator.run()`` and chat tier's ``AgentSession`` — call this
+function with their parent conv_id and bus.  No ``.children`` JSONL
+walks, no heartbeat-file reads, no per-tier divergence.
+
+The heartbeat-file machinery in ``teaparty/bridge/state/heartbeat.py``
+is not gone — it still serves parent-death detection in
+``runners/claude.py`` (a child polls its parent's heartbeat to commit
+suicide if the parent dies).  But it is no longer in the recovery
+path: liveness is asked of the OS at recovery time, not derived from
+file mtimes.
 """
 from __future__ import annotations
 
@@ -32,155 +43,160 @@ _log = logging.getLogger('teaparty.workspace.recovery')
 
 
 # redispatch_fn signature:
-#   async fn(*, child: dict, worktree_path: str, child_infra: str) -> None
-# child is the .children registry entry (keys: 'team', 'heartbeat', ...).
+#   async fn(*, conversation, worktree_path) -> None
+# conversation is the bus Conversation dataclass.
 RedispatchFn = Callable[..., Awaitable[None]]
 
 
-def find_dispatch_worktree(child_infra: str) -> str:
-    """Return the worktree path for a dispatch given its infra dir.
+def _is_pid_dead(pid: int, started: float) -> bool:
+    """Return True when the PID is dead OR was reused by a different process.
 
-    In the job-store layout, ``child_infra`` is the task_dir and the
-    worktree lives at ``{task_dir}/worktree/``.  Returns ``''`` when
-    no worktree directory exists.
+    A bus row records ``(pid, started)`` at spawn.  Recovery later asks
+    the OS: does that PID still exist, and if so, is it the same
+    process (matching create_time within tolerance)?  Any divergence —
+    process gone, or PID recycled by an unrelated process — counts as
+    dead.
+
+    PID 0 means "no process was ever recorded" (the bus row was
+    created but ``set_conversation_process`` never ran — e.g. the
+    subprocess failed to spawn).  Treat that as dead so recovery can
+    redispatch or merge what's there.
     """
-    candidate = os.path.join(child_infra, 'worktree')
-    if os.path.isdir(candidate):
-        return candidate
-    return ''
+    if pid <= 0:
+        return True
+
+    # Identical to bridge.state.heartbeat._is_pid_dead_or_reused, but
+    # consulted at recovery time against the bus's recorded values
+    # rather than a heartbeat file's contents.  Same OS calls, same
+    # tolerance — different source of truth.
+    try:
+        import psutil
+        proc = psutil.Process(pid)
+        if started and abs(proc.create_time() - started) > 2.0:
+            return True   # different process reused this PID
+        return False
+    except Exception:
+        pass
+
+    try:
+        os.kill(pid, 0)
+        return False  # PID exists; can't verify create_time, assume same
+    except (ProcessLookupError, OSError):
+        return True
+    except PermissionError:
+        return False
 
 
 async def recover_orphaned_children(
     *,
-    infra_dir: str,
+    parent_conversation_id: str,
+    bus: Any,
     session_worktree: str,
     task: str,
     session_id: str = '',
     event_bus: Any = None,
     redispatch_fn: RedispatchFn | None = None,
 ) -> None:
-    """Reconcile ``{infra_dir}/.children`` after a parent restart.
-
-    Runs before any new dispatches arrive so the registry is consistent
-    when the parent's listeners come up.  Safe to call when the registry
-    file doesn't exist (returns immediately).
+    """Reconcile a parent conversation's dispatched children on restart.
 
     Args:
-        infra_dir: Parent session's infra dir; the registry lives at
-            ``{infra_dir}/.children`` and the parent's heartbeat at
-            ``{infra_dir}/.heartbeat``.
-        session_worktree: Merge target — the parent's session worktree.
-            Completed children's worktrees are squash-merged into this.
-        task: Free-form task description, used to build the fallback
+        parent_conversation_id: The parent's bus conv_id.  Recovery
+            scans ``bus.children_of(parent_conversation_id)``.
+        bus: An open ``SqliteMessageBus`` for the relevant tier.
+        session_worktree: Merge target — completed children's worktrees
+            squash-merge into this.
+        task: Free-form description used when synthesizing a fallback
             commit message for recovered merges.
-        session_id: Parent session id (for tagging LOG events).  May be
-            empty if the caller has no event_bus.
+        session_id: Parent session id (for tagging LOG events).  Empty
+            when the caller has no event_bus.
         event_bus: Optional event bus for ``recovery_merge`` /
-            ``recovery_redispatch`` LOG events.  Pass ``None`` to skip
-            event emission (recovery still happens, just silently to
-            the bus).
-        redispatch_fn: Optional callable invoked for each dead child:
-            ``await redispatch_fn(child=..., worktree_path=...,
-            child_infra=...)``.  When ``None``, dead children are
-            logged but not re-dispatched (the caller takes
-            responsibility for whatever happens to that worktree).
+            ``recovery_redispatch`` LOG events.  ``None`` → silent.
+        redispatch_fn: Optional callable invoked once per dead child:
+            ``await redispatch_fn(conversation=..., worktree_path=...)``.
+            ``None`` means "log + leave the worktree alone."  CfA wires
+            its ``cfa.dispatch.dispatch`` resume helper here; chat tier
+            currently passes nothing because it has no equivalent
+            (the child's bus row already records everything needed for
+            the user to resume manually).
     """
-    children_path = os.path.join(infra_dir, '.children')
-    if not os.path.exists(children_path):
-        return
-
-    from teaparty.bridge.state.heartbeat import (
-        scan_children, compact_children, create_heartbeat,
+    from teaparty.messaging.conversations import (
+        ConversationState, ConversationType,
     )
     from teaparty.workspace.merge import squash_merge
-    from teaparty.cfa.statemachine.cfa_state import load_state
 
-    # Refresh the parent's heartbeat so any still-live child sees a
-    # live parent — without this, a child's own watchdog might trip
-    # immediately after we adopt it.
-    parent_hb = os.path.join(infra_dir, '.heartbeat')
-    if not os.path.exists(parent_hb):
-        create_heartbeat(parent_hb, role='session')
-
-    scan = scan_children(children_path)
-
-    # ── Merge completed children ─────────────────────────────────────────
-    for child in scan['completed']:
-        hb_path = child.get('heartbeat', '')
-        if not hb_path:
+    children = bus.children_of(parent_conversation_id)
+    for conv in children:
+        # Recovery only applies to dispatched subprocesses — root
+        # conversations and other types have no worktree to merge.
+        if conv.type != ConversationType.DISPATCH:
             continue
-        child_infra = os.path.dirname(hb_path)
-        cfa_path = os.path.join(child_infra, '.cfa-state.json')
-        if not os.path.exists(cfa_path):
-            continue
+        if conv.state in (
+            ConversationState.CLOSED, ConversationState.WITHDRAWN,
+        ):
+            continue   # already finished cleanly
 
-        cfa_data = load_state(cfa_path)
-        if cfa_data.state != 'DONE':
-            # Status said completed but CfA state disagrees — leave it
-            # alone, don't merge half-finished work.
+        wt = conv.worktree_path
+        process_dead = _is_pid_dead(conv.pid, conv.pid_started)
+
+        if not process_dead:
+            # Still running — leave alone.  Parent's listeners will
+            # hear from it via the existing channels.
+            _log.info('Recovery: live child %s — leaving alone', conv.agent_name)
             continue
 
-        worktree_path = find_dispatch_worktree(child_infra)
-        if not worktree_path or not os.path.isdir(worktree_path):
-            _log.warning('Recovery: no worktree found for %s', child_infra)
-            continue
-
-        team = child.get('team', '')
-        _log.info('Recovery: merging completed child %s', team)
-        try:
-            from teaparty.scripts.generate_commit_message import (
-                build_fallback,
-            )
-            message = build_fallback(team, task)
-            await squash_merge(
-                source=worktree_path,
-                target=session_worktree,
-                message=message,
-            )
-            await _emit_log(
-                event_bus, session_id,
-                category='recovery_merge', team=team,
-                heartbeat=hb_path, status='merged',
-            )
-        except Exception as exc:
-            _log.warning('Recovery: merge failed for %s: %s', team, exc)
-
-    # ── Re-dispatch dead non-terminal children ───────────────────────────
-    for child in scan['dead']:
-        hb_path = child.get('heartbeat', '')
-        child_infra = os.path.dirname(hb_path) if hb_path else ''
-        worktree_path = (
-            find_dispatch_worktree(child_infra) if child_infra else ''
-        )
-        team = child.get('team', '')
-
-        _log.warning('Recovery: re-dispatching dead child %s', team)
-        await _emit_log(
-            event_bus, session_id,
-            category='recovery_redispatch', team=team, heartbeat=hb_path,
-        )
-
-        if redispatch_fn is not None and worktree_path and child_infra:
+        # Process is dead.  If a worktree exists, squash-merge it; the
+        # child did real work that the parent never got to absorb.
+        merged = False
+        if wt and os.path.isdir(wt):
+            _log.info('Recovery: merging dead child %s', conv.agent_name)
             try:
-                await redispatch_fn(
-                    child=child,
-                    worktree_path=worktree_path,
-                    child_infra=child_infra,
+                from teaparty.scripts.generate_commit_message import (
+                    build_fallback,
+                )
+                message = build_fallback(conv.agent_name, task)
+                await squash_merge(
+                    source=wt, target=session_worktree, message=message,
+                )
+                merged = True
+                await _emit_log(
+                    event_bus, session_id,
+                    category='recovery_merge', team=conv.agent_name,
+                    conversation_id=conv.id, status='merged',
                 )
             except Exception as exc:
                 _log.warning(
-                    'Recovery: re-dispatch failed for %s: %s', team, exc,
+                    'Recovery: merge failed for %s: %s',
+                    conv.agent_name, exc,
                 )
 
-    # ── Log live children — leave them running ───────────────────────────
-    for child in scan['live']:
-        _log.info(
-            'Recovery: live child %s — leaving alone',
-            child.get('team', ''),
-        )
+        # Mark the conversation closed regardless of merge outcome —
+        # the subprocess is gone; the row should not stay ACTIVE.
+        # (A failed merge surfaces in the LOG; the user can deal with
+        # the worktree manually.)
+        try:
+            bus.close_conversation(conv.id)
+        except Exception:
+            _log.debug(
+                'close_conversation raised during recovery',
+                exc_info=True,
+            )
 
-    # Compact the registry — drop terminal entries we just handled.
-    compact_children(children_path)
+        if not merged and redispatch_fn is not None:
+            _log.warning(
+                'Recovery: re-dispatching dead child %s', conv.agent_name,
+            )
+            await _emit_log(
+                event_bus, session_id,
+                category='recovery_redispatch',
+                team=conv.agent_name, conversation_id=conv.id,
+            )
+            try:
+                await redispatch_fn(conversation=conv, worktree_path=wt)
+            except Exception as exc:
+                _log.warning(
+                    'Recovery: re-dispatch failed for %s: %s',
+                    conv.agent_name, exc,
+                )
 
 
 async def _emit_log(

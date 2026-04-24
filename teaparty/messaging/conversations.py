@@ -99,6 +99,14 @@ class Conversation:
     "what request created it?", or "what project does it belong to?"
     goes through the bus record.  No session metadata walks, no
     conv-id parsing, no disk resolution.
+
+    The ``worktree_path`` / ``pid`` / ``pid_started`` triple is the
+    bus-as-source-of-truth for orphan recovery (Cut 19): given a
+    parent's conv_id, ``children_of`` plus these three columns answers
+    "what subworktrees do I own, and are their processes still alive?"
+    without reading any heartbeat files or ``.children`` registries.
+    PID liveness is checked at recovery time against the OS;
+    ``pid_started`` defeats PID reuse.
     """
     id: str
     type: ConversationType
@@ -109,6 +117,9 @@ class Conversation:
     parent_conversation_id: str = ''       # empty for roots; set for every dispatch
     request_id: str = ''                   # the parent's Send request that created this
     project_slug: str = ''                 # '' for OM-level; project slug for project conversations
+    worktree_path: str = ''                # the child's worktree (DISPATCH only); '' otherwise
+    pid: int = 0                           # child subprocess PID; 0 before launch / for non-process convs
+    pid_started: float = 0.0               # process create_time, for PID-reuse defense
 
 
 _PREFIXES = {
@@ -227,6 +238,16 @@ class SqliteMessageBus:
             "ALTER TABLE conversations ADD COLUMN parent_conversation_id TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE conversations ADD COLUMN request_id TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE conversations ADD COLUMN project_slug TEXT NOT NULL DEFAULT ''",
+            # Cut 19: bus is the single source of truth for orphan
+            # recovery.  worktree_path identifies the child's
+            # worktree (merge target on close, source on recovery
+            # merge); pid + pid_started identify the running
+            # subprocess so recovery can ask the OS "is this PID
+            # still the same process I launched?"  Replaces the
+            # parallel ``.children`` + ``.heartbeat`` tracking system.
+            "ALTER TABLE conversations ADD COLUMN worktree_path TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE conversations ADD COLUMN pid INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE conversations ADD COLUMN pid_started REAL NOT NULL DEFAULT 0.0",
         ):
             try:
                 self._conn.execute(col_ddl)
@@ -388,6 +409,7 @@ class SqliteMessageBus:
         request_id: str = '',
         project_slug: str = '',
         state: ConversationState = ConversationState.ACTIVE,
+        worktree_path: str = '',
     ) -> Conversation:
         """Create a conversation or return the existing one if it already exists.
 
@@ -395,8 +417,11 @@ class SqliteMessageBus:
         accordion blade displays.  ``parent_conversation_id`` is the
         conversation this one was dispatched from (empty for roots).
         ``request_id`` is the originating Send request id, used for reply
-        matching.  These are the single source of truth (issue #422);
-        readers must consult this record rather than deriving them.
+        matching.  ``worktree_path`` is the child's worktree (DISPATCH
+        only) — recovery and CloseConversation read it from here, no
+        disk walk.  These are the single source of truth (issue #422,
+        Cut 19); readers must consult this record rather than deriving
+        them.
 
         Idempotent: if a record exists under the same id, it is returned
         unchanged.  The caller MUST NOT pass different agent_name or
@@ -412,11 +437,12 @@ class SqliteMessageBus:
         self._conn.execute(
             'INSERT INTO conversations '
             '(id, type, state, created_at, agent_name, '
-            ' parent_conversation_id, request_id, project_slug) '
-            'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            ' parent_conversation_id, request_id, project_slug, '
+            ' worktree_path) '
+            'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
             (cid, conv_type.value, state.value, ts,
              agent_name, parent_conversation_id, request_id,
-             project_slug),
+             project_slug, worktree_path),
         )
         self._conn.commit()
         return Conversation(
@@ -426,18 +452,34 @@ class SqliteMessageBus:
             parent_conversation_id=parent_conversation_id,
             request_id=request_id,
             project_slug=project_slug,
+            worktree_path=worktree_path,
         )
 
-    def get_conversation(self, conversation_id: str) -> Conversation | None:
-        """Retrieve conversation metadata by ID, or None if not found."""
-        row = self._conn.execute(
-            'SELECT id, type, state, created_at, awaiting_input, '
-            'agent_name, parent_conversation_id, request_id, project_slug '
-            'FROM conversations WHERE id = ?',
-            (conversation_id,),
-        ).fetchone()
-        if row is None:
-            return None
+    def set_conversation_process(
+        self, conversation_id: str, pid: int, pid_started: float,
+    ) -> None:
+        """Stamp the running subprocess identity onto a conversation.
+
+        Called by ``launch()`` immediately after the subprocess spawns.
+        The pair ``(pid, pid_started)`` lets recovery ask the OS at any
+        future time whether the same process is still alive — defeating
+        PID reuse since the OS-reported create_time will diverge if the
+        kernel has recycled the PID for another process.
+        """
+        self._conn.execute(
+            'UPDATE conversations SET pid = ?, pid_started = ? WHERE id = ?',
+            (pid, pid_started, conversation_id),
+        )
+        self._conn.commit()
+
+    _CONV_COLS = (
+        'id, type, state, created_at, awaiting_input, '
+        'agent_name, parent_conversation_id, request_id, project_slug, '
+        'worktree_path, pid, pid_started'
+    )
+
+    @staticmethod
+    def _row_to_conversation(row) -> Conversation:
         return Conversation(
             id=row[0],
             type=ConversationType(row[1]),
@@ -447,7 +489,18 @@ class SqliteMessageBus:
             agent_name=row[5],
             parent_conversation_id=row[6],
             request_id=row[7], project_slug=row[8],
+            worktree_path=row[9], pid=row[10], pid_started=row[11],
         )
+
+    def get_conversation(self, conversation_id: str) -> Conversation | None:
+        """Retrieve conversation metadata by ID, or None if not found."""
+        row = self._conn.execute(
+            f'SELECT {self._CONV_COLS} FROM conversations WHERE id = ?',
+            (conversation_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_conversation(row)
 
     def children_of(self, parent_conversation_id: str) -> list[Conversation]:
         """Return every conversation whose parent is *parent_conversation_id*.
@@ -457,23 +510,12 @@ class SqliteMessageBus:
         and the dispatch_tree walker's metadata resolution.
         """
         cursor = self._conn.execute(
-            'SELECT id, type, state, created_at, awaiting_input, '
-            'agent_name, parent_conversation_id, request_id, project_slug '
-            'FROM conversations WHERE parent_conversation_id = ? '
-            'ORDER BY created_at',
+            f'SELECT {self._CONV_COLS} '
+            f'FROM conversations WHERE parent_conversation_id = ? '
+            f'ORDER BY created_at',
             (parent_conversation_id,),
         )
-        return [
-            Conversation(
-                id=row[0], type=ConversationType(row[1]),
-                state=ConversationState(row[2]), created_at=row[3],
-                awaiting_input=bool(row[4]),
-                agent_name=row[5],
-                parent_conversation_id=row[6],
-                request_id=row[7], project_slug=row[8],
-            )
-            for row in cursor.fetchall()
-        ]
+        return [self._row_to_conversation(row) for row in cursor.fetchall()]
 
     def project_conversations(self, project_slug: str) -> list[Conversation]:
         """Return every conversation belonging to *project_slug* (#422).
@@ -483,22 +525,11 @@ class SqliteMessageBus:
         walking session metadata on disk.
         """
         cursor = self._conn.execute(
-            'SELECT id, type, state, created_at, awaiting_input, '
-            'agent_name, parent_conversation_id, request_id, project_slug '
-            'FROM conversations WHERE project_slug = ? ORDER BY created_at',
+            f'SELECT {self._CONV_COLS} '
+            f'FROM conversations WHERE project_slug = ? ORDER BY created_at',
             (project_slug,),
         )
-        return [
-            Conversation(
-                id=row[0], type=ConversationType(row[1]),
-                state=ConversationState(row[2]), created_at=row[3],
-                awaiting_input=bool(row[4]),
-                agent_name=row[5],
-                parent_conversation_id=row[6],
-                request_id=row[7], project_slug=row[8],
-            )
-            for row in cursor.fetchall()
-        ]
+        return [self._row_to_conversation(row) for row in cursor.fetchall()]
 
     def update_conversation_state(
         self, conversation_id: str, state: ConversationState,
@@ -556,23 +587,11 @@ class SqliteMessageBus:
     def conversations_awaiting_input(self) -> list[Conversation]:
         """Return active conversations with awaiting_input=1."""
         cursor = self._conn.execute(
-            'SELECT id, type, state, created_at, awaiting_input, '
-            'agent_name, parent_conversation_id, request_id, project_slug '
-            'FROM conversations '
-            'WHERE state = ? AND awaiting_input = 1 ORDER BY created_at',
+            f'SELECT {self._CONV_COLS} FROM conversations '
+            f'WHERE state = ? AND awaiting_input = 1 ORDER BY created_at',
             (ConversationState.ACTIVE.value,),
         )
-        return [
-            Conversation(
-                id=row[0], type=ConversationType(row[1]),
-                state=ConversationState(row[2]), created_at=row[3],
-                awaiting_input=bool(row[4]),
-                agent_name=row[5],
-                parent_conversation_id=row[6],
-                request_id=row[7], project_slug=row[8],
-            )
-            for row in cursor.fetchall()
-        ]
+        return [self._row_to_conversation(row) for row in cursor.fetchall()]
 
     def active_conversations(
         self, conv_type: ConversationType | None = None,
@@ -580,31 +599,17 @@ class SqliteMessageBus:
         """List all active conversations, optionally filtered by type."""
         if conv_type is not None:
             cursor = self._conn.execute(
-                'SELECT id, type, state, created_at, awaiting_input, '
-                'agent_name, parent_conversation_id, request_id, project_slug '
-                'FROM conversations '
-                'WHERE state = ? AND type = ? ORDER BY created_at',
+                f'SELECT {self._CONV_COLS} FROM conversations '
+                f'WHERE state = ? AND type = ? ORDER BY created_at',
                 (ConversationState.ACTIVE.value, conv_type.value),
             )
         else:
             cursor = self._conn.execute(
-                'SELECT id, type, state, created_at, awaiting_input, '
-                'agent_name, parent_conversation_id, request_id, project_slug '
-                'FROM conversations '
-                'WHERE state = ? ORDER BY created_at',
+                f'SELECT {self._CONV_COLS} FROM conversations '
+                f'WHERE state = ? ORDER BY created_at',
                 (ConversationState.ACTIVE.value,),
             )
-        return [
-            Conversation(
-                id=row[0], type=ConversationType(row[1]),
-                state=ConversationState(row[2]), created_at=row[3],
-                awaiting_input=bool(row[4]),
-                agent_name=row[5],
-                parent_conversation_id=row[6],
-                request_id=row[7], project_slug=row[8],
-            )
-            for row in cursor.fetchall()
-        ]
+        return [self._row_to_conversation(row) for row in cursor.fetchall()]
 
     def find_conversation(
         self, conv_type: ConversationType, qualifier: str,

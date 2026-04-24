@@ -1028,6 +1028,7 @@ async def _default_ollama_caller(**kwargs) -> ClaudeResult:
     from teaparty.runners.ollama import OllamaRunner
     _sanitize_caller_kwargs(kwargs)
     kwargs.pop('agent_name', None)
+    kwargs.pop('on_pid', None)  # Ollama runner doesn't have a subprocess PID hook
     message = kwargs.pop('message')
     runner = OllamaRunner(message, **kwargs)
     return await runner.run()
@@ -1040,7 +1041,8 @@ def _sanitize_caller_kwargs(kwargs: dict) -> dict:
     so the real ClaudeRunner can wire up per-launch config, but scripted
     test callers and older adapters don't accept them — drop them here.
     """
-    for k in ('settings_path', 'mcp_config_path', 'strict_mcp_config'):
+    for k in ('settings_path', 'mcp_config_path', 'strict_mcp_config',
+              'on_pid'):
         kwargs.pop(k, None)
     return kwargs
 
@@ -1112,6 +1114,31 @@ async def launch(
     register_agent_mcp_routes(agent_name, mcp_routes)
     from teaparty.config.config_reader import read_agent_frontmatter
     from teaparty.runners.claude import ClaudeRunner
+
+    # Cut 19: when launching a child whose conv_id we know, hand
+    # ClaudeRunner an on_pid callback that stamps the spawn PID +
+    # OS create_time onto the bus's DISPATCH conversation row.
+    # Recovery later reads (pid, started) and asks the OS whether
+    # the same process is still alive — the bus is the single
+    # source of truth, no heartbeat files involved in recovery.
+    on_pid_callback: Callable[[int, float], None] | None = None
+    if caller_conversation_id and caller_conversation_id.startswith('dispatch:'):
+        # The teaparty_home is the convention root; the bus DB lives
+        # at <scope>/messages.db beneath it.  We resolve here so
+        # ClaudeRunner doesn't need to know the bus layout.
+        _bus_db = os.path.join(teaparty_home, scope, 'messages.db')
+        if os.path.exists(_bus_db):
+            _conv_id = caller_conversation_id
+
+            def _stamp_pid(pid: int, started: float, _db=_bus_db, _cid=_conv_id) -> None:
+                from teaparty.messaging.conversations import SqliteMessageBus
+                _bus = SqliteMessageBus(_db)
+                try:
+                    _bus.set_conversation_process(_cid, pid, started)
+                finally:
+                    _bus.close()
+
+            on_pid_callback = _stamp_pid
 
     # Two launch tiers:
     #   job:  CfA jobs — compose a worktree, run subprocess inside it.
@@ -1260,6 +1287,7 @@ async def launch(
         add_dirs=add_dirs or [],
         resume_session=resume_session or None,
         on_stream_event=on_stream_event,
+        on_pid=on_pid_callback,
         event_bus=event_bus,
         session_id=session_id,
         heartbeat_file=heartbeat_file,

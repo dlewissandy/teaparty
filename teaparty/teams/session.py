@@ -546,8 +546,11 @@ class AgentSession:
             if existing_child is None:
                 # Register the DISPATCH conversation in the bus — single
                 # source of truth for who leads this conversation, what
-                # its parent is, and which Send created it (#422).
-                # Thread-continuation reuses the existing row.
+                # its parent is, which Send created it, and where the
+                # child's worktree lives (#422, Cut 19).  Recovery and
+                # CloseConversation both read the worktree from this
+                # row — no disk walk.  Thread-continuation reuses the
+                # existing row.
                 from teaparty.messaging.conversations import ConversationState
                 self._bus.create_conversation(
                     ConversationType.DISPATCH, child_session.id,
@@ -556,6 +559,7 @@ class AgentSession:
                     request_id=context_id,
                     project_slug=self.project_slug,
                     state=ConversationState.ACTIVE,
+                    worktree_path=worktree_path,
                 )
 
             # Write the parent's request to the bus (visible in child chat).
@@ -739,6 +743,31 @@ class AgentSession:
         # Register the bundle for the lead itself.  Dispatched children
         # are registered by launch() when their subprocess spawns.
         register_agent_mcp_routes(self.agent_name, self._mcp_routes)
+
+        # Cut 19: bus-based orphan recovery — same function CfA calls.
+        # Walks ``self.conversation_id``'s children, asks the OS whether
+        # each child's recorded PID is still alive, merges or marks
+        # closed accordingly.  The merge target is the lead's launch
+        # cwd (best effort — squash_merge no-ops if cwd isn't a git
+        # worktree).  Replaces the no-recovery state chat tier had
+        # before; both tiers now go through the single codepath at
+        # ``teaparty/workspace/recovery.py``.
+        from teaparty.workspace.recovery import recover_orphaned_children
+        try:
+            await recover_orphaned_children(
+                parent_conversation_id=self.conversation_id,
+                bus=self._bus,
+                session_worktree=cwd,
+                task=f'{self.agent_name} session',
+                session_id=self._dispatch_session.id if self._dispatch_session else '',
+                event_bus=None,
+                redispatch_fn=None,
+            )
+        except Exception:
+            _log.debug(
+                '%s: recover_orphaned_children raised', self.agent_name,
+                exc_info=True,
+            )
 
         return {
             'AGENT_ID': self.agent_name,

@@ -18,6 +18,7 @@ from typing import Any, Callable, Protocol
 from teaparty.util.context_budget import ContextBudget
 from teaparty.messaging.bus import Event, EventBus, EventType
 from teaparty.runners.machine import RunnerSM
+from teaparty.bridge.state.heartbeat import _process_create_time
 
 
 @dataclass
@@ -87,6 +88,7 @@ class ClaudeRunner:
         children_file: str = '',
         tools: str | None = None,
         on_stream_event: Callable[[dict], None] | None = None,
+        on_pid: Callable[[int, float], None] | None = None,
         settings_path: str = '',
         mcp_config_path: str = '',
         strict_mcp_config: bool = False,
@@ -98,6 +100,11 @@ class ClaudeRunner:
         self.agents_json = agents_json
         self.tools = tools
         self.on_stream_event = on_stream_event
+        # Cut 19: invoked once after create_subprocess_exec returns,
+        # with the spawn PID and OS-reported create_time.  The launcher
+        # uses this to stamp the bus's DISPATCH conversation row so
+        # recovery can later check OS liveness against (pid, started).
+        self.on_pid = on_pid
         self.settings_path = settings_path
         self.mcp_config_path = mcp_config_path
         self.strict_mcp_config = strict_mcp_config
@@ -175,6 +182,18 @@ class ClaudeRunner:
                 # uses; see also issue #159.)
                 start_new_session=True,
             )
+
+            # Cut 19: hand the spawn PID + OS create_time to the
+            # launcher so it can stamp the bus's DISPATCH row.
+            # Recovery later checks (pid, started) against the OS to
+            # decide if this child's process is still the one we
+            # launched — the bus is the single source of truth.
+            if self.on_pid is not None:
+                try:
+                    started = _process_create_time(self._process.pid)
+                    self.on_pid(self._process.pid, started)
+                except Exception:
+                    _log.debug('on_pid callback raised', exc_info=True)
 
             # Feed prompt via stdin
             if self._process.stdin:
