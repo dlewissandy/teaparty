@@ -42,7 +42,7 @@ def _derive_state_actions() -> dict[str, list[str]]:
     for state, edges in TRANSITIONS.items():
         if not edges:
             continue  # terminal states
-        actions = [action for action, _target, _actor in edges]
+        actions = [action for action, _target in edges]
         if any(state.endswith(sfx) for sfx in _DIALOG_STATE_SUFFIXES):
             actions = ['dialog'] + actions
         result[state] = actions

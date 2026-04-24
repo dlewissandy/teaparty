@@ -64,11 +64,13 @@ def _advance(cfa: CfaState, *actions: str) -> CfaState:
 
 def _make_at_state(state: str, **kwargs) -> CfaState:
     """Create a CfaState positioned at a specific state node, with correct phase."""
-    phase = phase_for_state(state)
-    # Determine a plausible actor for the state (use any valid next actor or 'system')
-    actions = available_actions(state)
-    actor = actions[0][1] if actions else 'system'
-    return _make_cfa(phase=phase, state=state, actor=actor, **kwargs)
+    from teaparty.cfa.statemachine.cfa_state import actor_for_state
+    return _make_cfa(
+        phase=phase_for_state(state),
+        state=state,
+        actor=actor_for_state(state),
+        **kwargs,
+    )
 
 
 # ── make_initial_state ──────────────────────────────────────────────────────────
@@ -136,7 +138,7 @@ class TestPhaseForState(unittest.TestCase):
 class TestAvailableActions(unittest.TestCase):
 
     def test_intent_actions(self):
-        actions = dict(available_actions('INTENT'))
+        actions = available_actions('INTENT')
         self.assertIn('approve', actions)
         self.assertIn('withdraw', actions)
 
@@ -227,8 +229,10 @@ class TestTransitionPhase1(unittest.TestCase):
         new_cfa = transition(cfa, 'approve')
         self.assertEqual(new_cfa.state, 'PLAN')
         self.assertEqual(new_cfa.phase, 'planning')
-        # actor reflects who performed the INTENT→PLAN approve
-        self.assertEqual(new_cfa.actor, 'intent_team')
+        # ``actor`` is the actor for the NEW state — who will act next.
+        # (History records ``intent_team`` as the actor who did the
+        # approve.)
+        self.assertEqual(new_cfa.actor, 'planning_team')
 
     def test_intent_withdraw_to_withdrawn(self):
         cfa = _make_cfa()
@@ -246,8 +250,8 @@ class TestTransitionPhase2(unittest.TestCase):
         new_cfa = transition(cfa, 'approve')
         self.assertEqual(new_cfa.state, 'EXECUTE')
         self.assertEqual(new_cfa.phase, 'execution')
-        # actor reflects who performed the PLAN→EXECUTE approve
-        self.assertEqual(new_cfa.actor, 'planning_team')
+        # ``actor`` is the actor for the NEW state — who will act next.
+        self.assertEqual(new_cfa.actor, 'project_lead')
 
     def test_plan_realign_to_intent(self):
         cfa = _make_at_state('PLAN')
@@ -587,15 +591,17 @@ class TestCompleteTransitionCoverage(unittest.TestCase):
     def test_all_transitions_produce_valid_next_state(self):
         """For every (from_state, action, target) in TRANSITIONS, the transition
         produces a CfaState with state == target and phase == phase_for_state(target)."""
+        from teaparty.cfa.statemachine.cfa_state import actor_for_state
         for from_state, edges in TRANSITIONS.items():
-            for action, expected_target, expected_actor in edges:
+            for action, expected_target in edges:
                 with self.subTest(from_state=from_state, action=action):
                     cfa = _make_at_state(from_state)
                     new_cfa = transition(cfa, action)
                     self.assertEqual(new_cfa.state, expected_target,
                         f"{from_state} --{action}--> expected {expected_target}, got {new_cfa.state}")
-                    self.assertEqual(new_cfa.actor, expected_actor,
-                        f"{from_state} --{action}--> expected actor {expected_actor}, got {new_cfa.actor}")
+                    self.assertEqual(new_cfa.actor, actor_for_state(expected_target),
+                        f"{from_state} --{action}--> expected actor "
+                        f"{actor_for_state(expected_target)}, got {new_cfa.actor}")
                     self.assertEqual(new_cfa.phase, phase_for_state(expected_target))
 
 

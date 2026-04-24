@@ -1704,9 +1704,13 @@ class Orchestrator:
 
     async def _invoke_actor(self, spec: 'PhaseSpec', phase_name: str,
                              phase_start_time: float = 0.0) -> ActorResult:
-        """Dispatch to the correct actor based on current state."""
+        """Dispatch to the actor for the current phase.
+
+        In the 5-state model there is one actor — the project lead
+        running the phase's skill.  ``cfa.actor`` is carried for
+        telemetry/history, not for dispatch routing.
+        """
         state = self.cfa.state
-        actor = self.cfa.actor
 
         ctx = ActorContext(
             state=state,

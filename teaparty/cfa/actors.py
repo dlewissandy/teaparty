@@ -462,22 +462,22 @@ class AgentRunner:
         if outcome == 'APPROVE':
             # Forward advance — 'approve' (intent/planning/WORK_ASSERT)
             # or 'auto-approve' (WORK_IN_PROGRESS).
-            for a, _, _ in edges:
+            for a, _ in edges:
                 if a in ('approve', 'auto-approve'):
                     action = a
                     break
         elif outcome == 'REALIGN':
-            for a, to, _ in edges:
+            for a, to in edges:
                 if to == 'INTENT':
                     action = a
                     break
         elif outcome == 'REPLAN':
-            for a, to, _ in edges:
+            for a, to in edges:
                 if to == 'PLAN':
                     action = a
                     break
         elif outcome == 'WITHDRAW':
-            for a, to, _ in edges:
+            for a, to in edges:
                 if to == 'WITHDRAWN':
                     action = a
                     break
@@ -496,7 +496,7 @@ class AgentRunner:
         would advance the phase without evidence the work was done.
         """
         edges = TRANSITIONS.get(state, [])
-        valid = {a for a, _, _ in edges}
+        valid = {a for a, _ in edges}
         if 'withdraw' in valid:
             return 'withdraw'
         return edges[0][0] if edges else 'withdraw'
@@ -510,14 +510,14 @@ class AgentRunner:
         valid action from the transition table.
         """
         edges = TRANSITIONS.get(state, [])
-        valid = {a for a, _, _ in edges}
+        valid = {a for a, _ in edges}
 
         if tentative in valid:
             return tentative
 
         # Map generic success signals to the first forward-advancing action
         if tentative in ('assert', 'auto-approve'):
-            for action, _, _ in edges:
+            for action, _ in edges:
                 if action not in _NEGATIVE_ACTIONS:
                     return action
 

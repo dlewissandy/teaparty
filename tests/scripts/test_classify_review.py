@@ -66,7 +66,7 @@ class TestStateActions(unittest.TestCase):
             if state == 'FAILURE':
                 continue  # synthetic state, not in state machine
             sm_actions = {
-                action for action, _target, _actor in TRANSITIONS.get(state, [])
+                action for action, _target in TRANSITIONS.get(state, [])
             }
             for action in actions:
                 if action == 'dialog':

@@ -34,23 +34,29 @@ from datetime import datetime, timezone
 
 # ── State machine definition (the entire machine is here) ──────────────────
 
-# Each entry: state → [(action, target_state, actor), ...]
-# Terminal states have no outgoing edges.
-TRANSITIONS: dict[str, list[tuple[str, str, str]]] = {
+# Each entry: state → [(action, target_state), ...]
+# Terminal states have no outgoing edges.  The "actor" who performs
+# every action from a given state was previously a third element on
+# each tuple, but it's a per-state property — all outgoing edges from
+# INTENT are performed by the intent team, all from PLAN by the
+# planning team, all from EXECUTE by the project lead — so storing
+# it per-edge was just redundant columns.  Use ``actor_for_state`` if
+# you need the value.
+TRANSITIONS: dict[str, list[tuple[str, str]]] = {
     'INTENT': [
-        ('approve',  'PLAN',      'intent_team'),
-        ('withdraw', 'WITHDRAWN', 'intent_team'),
+        ('approve',  'PLAN'),
+        ('withdraw', 'WITHDRAWN'),
     ],
     'PLAN': [
-        ('approve',  'EXECUTE',   'planning_team'),
-        ('realign',  'INTENT',    'planning_team'),
-        ('withdraw', 'WITHDRAWN', 'planning_team'),
+        ('approve',  'EXECUTE'),
+        ('realign',  'INTENT'),
+        ('withdraw', 'WITHDRAWN'),
     ],
     'EXECUTE': [
-        ('approve',  'DONE',      'project_lead'),
-        ('replan',   'PLAN',      'project_lead'),
-        ('realign',  'INTENT',    'project_lead'),
-        ('withdraw', 'WITHDRAWN', 'project_lead'),
+        ('approve',  'DONE'),
+        ('replan',   'PLAN'),
+        ('realign',  'INTENT'),
+        ('withdraw', 'WITHDRAWN'),
     ],
     'DONE': [],
     'WITHDRAWN': [],
@@ -61,6 +67,21 @@ PLANNING_STATES  = frozenset({'PLAN'})
 EXECUTION_STATES = frozenset({'EXECUTE', 'DONE', 'WITHDRAWN'})
 ALL_STATES       = INTENT_STATES | PLANNING_STATES | EXECUTION_STATES
 TERMINAL_STATES  = frozenset({'DONE', 'WITHDRAWN'})
+
+# Actor-per-state — who performs any action from that state.
+_STATE_ACTORS: dict[str, str] = {
+    'INTENT':    'intent_team',
+    'PLAN':      'planning_team',
+    'EXECUTE':   'project_lead',
+    'DONE':      'system',
+    'WITHDRAWN': 'system',
+}
+
+
+def actor_for_state(state: str) -> str:
+    """Return the actor who performs actions on *state*."""
+    return _STATE_ACTORS.get(state, 'system')
+
 
 # Phase progression — used for backtrack detection.
 _PHASE_ORDER = {'intent': 0, 'planning': 1, 'execution': 2}
@@ -134,14 +155,14 @@ def phase_for_state(state: str) -> str:
     raise ValueError(f'Unknown state: {state!r}')
 
 
-def available_actions(state: str) -> list[tuple[str, str]]:
-    """Return list of (action, actor) pairs valid from *state*.
+def available_actions(state: str) -> list[str]:
+    """Return the list of actions valid from *state*.
 
     Empty list for terminal states.  Raises ValueError for unknown states.
     """
     if state not in TRANSITIONS:
         raise ValueError(f'Unknown state: {state!r}')
-    return [(action, actor) for action, _target, actor in TRANSITIONS[state]]
+    return [action for action, _target in TRANSITIONS[state]]
 
 
 def is_phase_terminal(state: str) -> bool:
@@ -161,7 +182,7 @@ def is_root(cfa: CfaState) -> bool:
 
 def is_backtrack(from_state: str, action: str) -> bool:
     """True if this transition moves to an earlier phase."""
-    for act, target, _actor in TRANSITIONS.get(from_state, []):
+    for act, target in TRANSITIONS.get(from_state, []):
         if act == action:
             return (
                 _PHASE_ORDER[phase_for_state(target)]
@@ -179,7 +200,7 @@ def transition(cfa: CfaState, action: str) -> CfaState:
     current state.  Does not mutate ``cfa``.  Appends a history entry
     and increments ``backtrack_count`` for cross-phase backward moves.
     """
-    for act, target, actor in TRANSITIONS.get(cfa.state, []):
+    for act, target in TRANSITIONS.get(cfa.state, []):
         if act == action:
             history_entry = {
                 'state': cfa.state,
@@ -196,7 +217,7 @@ def transition(cfa: CfaState, action: str) -> CfaState:
             return CfaState(
                 phase=new_phase,
                 state=target,
-                actor=actor,
+                actor=actor_for_state(target),
                 history=cfa.history + [history_entry],
                 backtrack_count=new_backtrack_count,
                 task_id=cfa.task_id,
@@ -204,10 +225,9 @@ def transition(cfa: CfaState, action: str) -> CfaState:
                 team_id=cfa.team_id,
                 depth=cfa.depth,
             )
-    valid = [a for a, _ in available_actions(cfa.state)]
     raise InvalidTransition(
         f'Action {action!r} is not valid from state {cfa.state!r}. '
-        f'Valid actions: {valid}'
+        f'Valid actions: {available_actions(cfa.state)}'
     )
 
 
@@ -221,8 +241,6 @@ def set_state_direct(cfa: CfaState, target_state: str) -> CfaState:
     """
     if target_state not in ALL_STATES:
         raise ValueError(f'Unknown state: {target_state!r}')
-    edges = TRANSITIONS.get(target_state, [])
-    next_actor = edges[0][2] if edges else 'system'
     history_entry = {
         'state': cfa.state,
         'action': 'set-state',
@@ -233,7 +251,7 @@ def set_state_direct(cfa: CfaState, target_state: str) -> CfaState:
     return CfaState(
         phase=phase_for_state(target_state),
         state=target_state,
-        actor=next_actor,
+        actor=actor_for_state(target_state),
         history=cfa.history + [history_entry],
         backtrack_count=cfa.backtrack_count,
         task_id=cfa.task_id,

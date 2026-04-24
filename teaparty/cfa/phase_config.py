@@ -145,7 +145,7 @@ class PhaseConfig:
         for state in TRANSITIONS:
             self.phase_for_state[state] = phase_for_state(state)
             self.valid_actions_by_state[state] = [
-                action for action, _target, _actor in TRANSITIONS[state]
+                action for action, _target in TRANSITIONS[state]
             ]
 
     def _load_project_lead(self) -> None:

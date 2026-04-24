@@ -91,7 +91,7 @@ class TestExecutionPhaseShape(unittest.TestCase):
 
     def test_no_transition_targets_a_removed_task_state(self):
         for source, edges in TRANSITIONS.items():
-            for action, target, _actor in edges:
+            for action, target in edges:
                 self.assertNotIn(
                     target, REMOVED_TASK_STATES,
                     f'transition {source} --{action}--> {target} targets a removed task-level state',
@@ -111,7 +111,7 @@ class TestNewDelegatePath(unittest.TestCase):
     def test_plan_approves_to_execute(self):
         plan_edges = TRANSITIONS.get('PLAN', [])
         approve_targets = [
-            target for action, target, _actor in plan_edges
+            target for action, target in plan_edges
             if action == 'approve'
         ]
         self.assertEqual(
@@ -124,7 +124,7 @@ class TestNewDelegatePath(unittest.TestCase):
         """EXECUTE has exactly four outgoing actions:
         approve (→DONE), replan (→PLAN), realign (→INTENT), withdraw (→WITHDRAWN)."""
         edges = TRANSITIONS.get('EXECUTE', [])
-        action_to_target = {action: target for action, target, _actor in edges}
+        action_to_target = {action: target for action, target in edges}
 
         self.assertEqual(
             set(action_to_target.keys()),
@@ -156,16 +156,21 @@ class TestNewDelegatePath(unittest.TestCase):
 
 
 class TestExecutionActorsRemoved(unittest.TestCase):
-    """Actors execution_worker / execution_lead must not appear in any edge."""
+    """Actors execution_worker / execution_lead must not appear for any state.
 
-    def test_no_transition_names_a_removed_actor(self):
-        for source, edges in TRANSITIONS.items():
-            for action, target, actor in edges:
-                self.assertNotIn(
-                    actor, REMOVED_EXECUTION_ACTORS,
-                    f'transition {source} --{action}--> {target} actor={actor!r} '
-                    'uses a removed execution actor',
-                )
+    Actors moved from per-edge tuples to a per-state lookup
+    (``actor_for_state``).  This test pins that no legacy execution
+    actor name survives.
+    """
+
+    def test_no_state_names_a_removed_actor(self):
+        from teaparty.cfa.statemachine.cfa_state import actor_for_state
+        for state in ALL_STATES:
+            self.assertNotIn(
+                actor_for_state(state), REMOVED_EXECUTION_ACTORS,
+                f'state {state!r} actor={actor_for_state(state)!r} '
+                'uses a removed execution actor',
+            )
 
 
 class TestActionsRemoved(unittest.TestCase):
@@ -176,7 +181,7 @@ class TestActionsRemoved(unittest.TestCase):
 
     def test_send_and_wait_action_not_present(self):
         for source, edges in TRANSITIONS.items():
-            for action, _target, _actor in edges:
+            for action, _target in edges:
                 self.assertNotEqual(
                     action, 'send-and-wait',
                     f'action {action!r} still present from {source}; '
@@ -186,7 +191,7 @@ class TestActionsRemoved(unittest.TestCase):
 
     def test_resume_action_not_present(self):
         for source, edges in TRANSITIONS.items():
-            for action, _target, _actor in edges:
+            for action, _target in edges:
                 self.assertNotEqual(
                     action, 'resume',
                     f'action {action!r} still present from {source}; '
@@ -197,7 +202,7 @@ class TestActionsRemoved(unittest.TestCase):
         """assert, auto-approve, correct, refine-intent, revise-plan, plan
         were part of the old multi-state execution/intent/planning paths."""
         for source, edges in TRANSITIONS.items():
-            for action, _target, _actor in edges:
+            for action, _target in edges:
                 self.assertNotIn(
                     action, REMOVED_ACTIONS,
                     f'action {action!r} still present from {source}; '
@@ -212,7 +217,7 @@ class TestProjectLevelBacktracksPreserved(unittest.TestCase):
 
     def test_execute_can_replan(self):
         edges = TRANSITIONS.get('EXECUTE', [])
-        replan = [(a, t) for a, t, _ in edges if a == 'replan']
+        replan = [(a, t) for a, t in edges if a == 'replan']
         self.assertEqual(
             replan, [('replan', 'PLAN')],
             f'EXECUTE --replan--> PLAN must be preserved '
@@ -221,7 +226,7 @@ class TestProjectLevelBacktracksPreserved(unittest.TestCase):
 
     def test_execute_can_realign(self):
         edges = TRANSITIONS.get('EXECUTE', [])
-        realign = [(a, t) for a, t, _ in edges if a == 'realign']
+        realign = [(a, t) for a, t in edges if a == 'realign']
         self.assertEqual(
             realign, [('realign', 'INTENT')],
             f'EXECUTE --realign--> INTENT must be preserved '
@@ -230,7 +235,7 @@ class TestProjectLevelBacktracksPreserved(unittest.TestCase):
 
     def test_plan_can_realign_to_intent(self):
         edges = TRANSITIONS.get('PLAN', [])
-        back = [(a, t) for a, t, _ in edges if a == 'realign']
+        back = [(a, t) for a, t in edges if a == 'realign']
         self.assertEqual(
             back, [('realign', 'INTENT')],
             f'PLAN --realign--> INTENT must be preserved; got {back}',
