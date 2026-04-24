@@ -29,6 +29,7 @@ from teaparty.util.cost_tracker import CostTracker
 from teaparty.cfa.phase_config import PhaseConfig
 from teaparty.workspace.job_store import create_task, release_worktree
 from teaparty.cfa.statemachine.cfa_state import (
+    TERMINAL_STATES,
     make_initial_state,
     load_state,
     save_state,
@@ -381,7 +382,7 @@ async def dispatch(
 
     while retries <= max_retries:
         result = await orchestrator.run()
-        if result.terminal_state in ('DONE', 'WITHDRAWN'):
+        if result.terminal_state in TERMINAL_STATES:
             break
         if result.escalation_type:  # escalation — don't retry, surface it
             break

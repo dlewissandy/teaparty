@@ -16,6 +16,8 @@ from __future__ import annotations
 import json
 import os
 
+from teaparty.cfa.statemachine.cfa_state import TERMINAL_STATES
+
 
 def withdraw_session(infra_dir: str) -> dict:
     """Withdraw a session by setting CfA state to WITHDRAWN.
@@ -36,7 +38,7 @@ def withdraw_session(infra_dir: str) -> dict:
         return {'status': 'error', 'reason': f'CfA state not found: {cfa_path}'}
 
     # Already terminal — no-op
-    if cfa.get('state') in ('DONE', 'WITHDRAWN'):
+    if cfa.get('state') in TERMINAL_STATES:
         return {'status': 'already_terminal', 'state': cfa['state']}
 
     # Record pre-transition state, then set to WITHDRAWN

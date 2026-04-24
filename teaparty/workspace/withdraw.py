@@ -12,8 +12,8 @@ if TYPE_CHECKING:
     from teaparty.bridge.state.reader import SessionState
     from teaparty.messaging.bus import EventBus
 
+from teaparty.cfa.statemachine.cfa_state import TERMINAL_STATES
 
-_TERMINAL_STATES = frozenset({'DONE', 'WITHDRAWN'})
 
 def _dispatch_teams() -> tuple[str, ...]:
     """Team names from phase-config.json (cached in phase_config module)."""
@@ -40,7 +40,7 @@ async def withdraw_session(
     6. Emit learning signal (LOG event)
     7. Emit SESSION_COMPLETED event
     """
-    if session.cfa_state in _TERMINAL_STATES:
+    if session.cfa_state in TERMINAL_STATES:
         return False
 
     # 1. Cancel in-process orchestrator task

@@ -11,8 +11,7 @@ import datetime
 import json
 import os
 
-
-_TERMINAL_STATES = frozenset({'DONE', 'WITHDRAWN'})
+from teaparty.cfa.statemachine.cfa_state import TERMINAL_STATES
 
 # States where the agent escalated to a human (questions and escalations,
 # not approval gates which are scheduled checkpoints).
@@ -266,7 +265,7 @@ def compute_stats(teaparty_home: str, projects_dir: str | None = None) -> dict:
     # ── Summary scalars ──────────────────────────────────────────────────────
     jobs_done   = sum(1 for s in all_sessions if s.cfa_state == 'DONE')
     withdrawals = sum(1 for s in all_sessions if s.cfa_state == 'WITHDRAWN')
-    active_jobs = sum(1 for s in all_sessions if s.cfa_state not in _TERMINAL_STATES)
+    active_jobs = sum(1 for s in all_sessions if s.cfa_state not in TERMINAL_STATES)
     backtracks  = sum(s.backtrack_count for s in all_sessions)
     total_cost  = sum(s.total_cost_usd for s in all_sessions)
     escalations = _count_historical_escalations(all_sessions)

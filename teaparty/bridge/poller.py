@@ -19,9 +19,9 @@ import asyncio
 import logging
 from typing import Awaitable, Callable
 
-_log = logging.getLogger('teaparty.bridge.poller')
+from teaparty.cfa.statemachine.cfa_state import TERMINAL_STATES
 
-_TERMINAL_STATES = frozenset({'DONE', 'WITHDRAWN'})
+_log = logging.getLogger('teaparty.bridge.poller')
 
 
 class StatePoller:
@@ -82,7 +82,7 @@ class StatePoller:
     async def _process_session(self, session) -> None:
         sid = session.session_id
         is_first = sid not in self._prev_cfa_state
-        is_terminal = session.cfa_state in _TERMINAL_STATES
+        is_terminal = session.cfa_state in TERMINAL_STATES
 
         if not is_first:
             await self._diff_cfa_state(sid, session)
@@ -119,7 +119,7 @@ class StatePoller:
             })
 
     async def _diff_completion(self, sid: str, session, is_terminal: bool) -> None:
-        prev_terminal = self._prev_cfa_state[sid] in _TERMINAL_STATES
+        prev_terminal = self._prev_cfa_state[sid] in TERMINAL_STATES
         if is_terminal and not prev_terminal:
             await self._broadcast({
                 'type': 'session_completed',

@@ -9,6 +9,7 @@ import os
 from dataclasses import dataclass
 
 from teaparty.bridge.state.navigation import DashboardLevel, NavigationContext
+from teaparty.cfa.statemachine.cfa_state import TERMINAL_STATES
 
 
 @dataclass
@@ -18,9 +19,6 @@ class CardItem:
     label: str = ''
     detail: str = ''
     data: object = None  # arbitrary payload for click handling
-
-
-_TERMINAL_STATES = frozenset({'DONE', 'WITHDRAWN'})
 
 
 # ── Display helpers ──────────────────────────────────────────────────────────
@@ -52,7 +50,7 @@ def _status_icon(status: str, needs_input: bool = False, is_orphaned: bool = Fal
 def _state_display(phase: str, state: str) -> str:
     if not phase and not state:
         return '\u2014'
-    if state in ('DONE', 'WITHDRAWN'):
+    if state in TERMINAL_STATES:
         return state
     if phase:
         return f'{phase}/{state}'
@@ -74,7 +72,7 @@ def _colored_state(session) -> str:
 def _colored_dispatch_state(dispatch) -> str:
     """Return the CFA state with color markup for a dispatch."""
     state_text = _state_display(dispatch.cfa_phase, dispatch.cfa_state)
-    if dispatch.cfa_state in _TERMINAL_STATES:
+    if dispatch.cfa_state in TERMINAL_STATES:
         if dispatch.cfa_state == 'DONE':
             return f'[green]{state_text}[/green]  {dispatch.team or "?"}'
         return f'[dim]{state_text}[/dim]  {dispatch.team or "?"}'
@@ -230,7 +228,7 @@ def _build_session_items(
     for slug, s in tagged_sessions:
         if s.needs_input:
             escalations.append((slug, s))
-        elif s.cfa_state in _TERMINAL_STATES:
+        elif s.cfa_state in TERMINAL_STATES:
             terminal.append((slug, s))
         else:
             active.append((slug, s))

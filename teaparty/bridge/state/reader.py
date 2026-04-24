@@ -20,6 +20,7 @@ from teaparty.bridge.state.heartbeat import (
     is_heartbeat_stale,
     read_heartbeat,
 )
+from teaparty.cfa.statemachine.cfa_state import TERMINAL_STATES
 
 
 def _check_fifo_has_reader(infra_dir: str) -> bool:
@@ -363,7 +364,7 @@ class StateReader:
         # Orphan detection: no live process is driving this non-terminal session.
         # Issue #149: check .heartbeat first, fall back to .running.
         is_orphaned = False
-        if cfa_state not in ('DONE', 'WITHDRAWN', ''):
+        if cfa_state and cfa_state not in TERMINAL_STATES:
             if _is_heartbeat_terminal(infra_dir):
                 # Terminal heartbeat — not orphaned, just finished
                 is_orphaned = False
@@ -408,7 +409,7 @@ class StateReader:
         if status == 'withdrawn':
             status = 'complete'
         elif not status:
-            if cfa_state in ('DONE', 'WITHDRAWN'):
+            if cfa_state in TERMINAL_STATES:
                 status = 'complete'
             elif cfa_state:
                 status = 'active'
