@@ -131,13 +131,6 @@ class Orchestrator:
         self.proxy_model_path = proxy_model_path
         self.project_slug = project_slug
         self.poc_root = poc_root
-        # Management-scope .teaparty/ directory.  ``poc_root`` is the
-        # repo root (from ``find_poc_root()``); session records, agent
-        # configs, and everything the bridge's session walker reads
-        # live inside ``{repo_root}/.teaparty/``.  Stash this once so
-        # every spawn/resume/launch call uses a single source of
-        # truth — forgetting to append ``/.teaparty`` to poc_root was
-        # the recurring ``agent_name='unknown'`` regression trap.
         self.teaparty_home = os.path.join(poc_root, '.teaparty')
         self.task = task
         self.session_id = session_id
@@ -156,18 +149,10 @@ class Orchestrator:
         self._role_enforcer = role_enforcer
         if intervention_queue and role_enforcer:
             intervention_queue.role_enforcer = role_enforcer
-        self._pending_intervention: str = ''  # Prompt to inject at next agent turn
-        self._intervention_active: bool = False  # True after intervention delivery (Issue #247)
-        # Hooks wired from the bridge so AskQuestionRunner can use the
-        # same proxy-skill mechanism as chat-tier AgentSession.  When
-        # supplied, escalations route through the /escalation skill and
-        # render as nested accordion blades.
+        self._pending_intervention: str = ''
+        self._intervention_active: bool = False
         self._proxy_invoker_fn = proxy_invoker_fn
         self._on_dispatch = on_dispatch
-        # Budget monitor owns the cost_tracker, the once-per-job warning
-        # flags, context-budget checks, and the cost sidecar.  Extracted
-        # from ~180 lines of inline engine methods whose only connection
-        # to the CfA loop was timing.
         from teaparty.cfa._budgets import BudgetMonitor
         self._budgets = BudgetMonitor(
             event_bus=event_bus,
@@ -179,12 +164,9 @@ class Orchestrator:
             ),
         )
 
-        # Scratch file lifecycle (Issue #261): working memory for context budget.
         self._scratch_model = ScratchModel(job=task, phase='')
         self._scratch_writer = ScratchWriter(session_worktree)
 
-        # Stream-to-bus callback: write agent output events to the job
-        # conversation so the chat UI can display them in real time.
         self._stream_bus: Any = None
         self._stream_conv_id = ''
         bus_path = os.path.join(infra_dir, 'messages.db')
@@ -202,9 +184,6 @@ class Orchestrator:
         else:
             _on_stream_event = None
 
-        # Agent runner — single actor type.  The project lead runs
-        # every phase's skill; human review happens inside the skill's
-        # ASSERT step via AskQuestion→proxy, not in a separate gate.
         self._agent_runner = AgentRunner(
             stall_timeout=phase_config.stall_timeout,
             llm_backend=llm_backend,
@@ -212,76 +191,32 @@ class Orchestrator:
             llm_caller=llm_caller,
         )
 
-        # AskQuestion runner — drives the proxy + ``/escalation`` skill
-        # when an agent calls the AskQuestion MCP tool.  Same-process
-        # direct call; no bus ping-pong.
         self._ask_question_runner: AskQuestionRunner | None = None
-        # MCP intervention listener — bridges office manager tools to
-        # session/dispatch operations (Issue #249)
         self._intervention_listener: InterventionListener | None = None
         self._intervention_resolver: dict[str, str] = {}
-        # Bus event listener — bridges Send/Reply MCP calls to bus-mediated
-        # agent dispatch (Issue #351).  Started alongside other MCP listeners.
-        self._bus_event_listener: Any | None = None  # BusEventListener
-        # Fan-in synchronization: set when the turn loop is waiting for all
-        # dispatched workers to complete; cleared and set by _bus_reinvoke_agent.
+        self._bus_event_listener: Any | None = None
         self._fan_in_event: asyncio.Event | None = None
-        # Context ID of the orchestrator's own bus context record.
-        # Workers spawned via Send have this as their parent_context_id.
         self._bus_lead_context_id: str = ''
 
-        # Track resume session IDs per phase (for --resume on corrections).
-        # Pre-populated on session resume by parsing stream JSONL files.
         self._phase_session_ids: dict[str, str] = phase_session_ids or {}
 
-        # Track data between actors (e.g., artifact path from agent → approval gate).
-        # Pre-populated on session resume from PhaseSpec + worktree.
         self._last_actor_data: dict[str, Any] = last_actor_data or {}
 
-        # Track which skill was used for the current plan (Issue #142).
-        # Set by _try_skill_lookup() on match; cleared when System 2
-        # fallback produces a new plan.  Used by _mark_false_positives()
-        # to archive corrected plans as skill correction candidates.
         self._active_skill: dict[str, str] | None = None
 
-        # In-flight child tasks keyed by child session_id — same shape
-        # and semantics as chat tier's AgentSession._tasks_by_child
-        # (issue #422).  Aliased onto the BusEventListener on start so
-        # the shared close_fn reads this dict through the listener.
         self._tasks_by_child: dict[str, asyncio.Task] = {}
 
-        # MCP routes bundle installed at every launch in this engine's
-        # tree (lead phase, dispatched children via Send, resumed
-        # children via --resume).  Built right after the BusEventListener
-        # starts, used by launch() to register handler routes per
-        # agent_name before the subprocess spawns.
         self._mcp_routes = None
 
     async def run(self) -> OrchestratorResult:
         """Drive the CfA state machine to a terminal state."""
-        # Recovery scan: merge/re-dispatch orphaned children before starting
-        # MCP listeners.  This runs at every level of the hierarchy — any
-        # dispatching agent might resume into a world with orphaned children.
-        # Issue #149.
         await self._recover_orphaned_children()
 
-        # The MCP server runs as a subprocess of Claude Code, whose cwd
-        # is the session worktree — not the repo root.  Two fixes:
-        # 1. Use the venv Python (system python3 lacks the mcp package)
-        # 2. Set PYTHONPATH to repo root so the module path resolves
         repo_root = os.path.dirname(os.path.dirname(self.poc_root))
         venv_python = os.path.join(repo_root, '.venv', 'bin', 'python3')
         if not os.path.isfile(venv_python):
-            venv_python = 'python3'  # fallback
+            venv_python = 'python3'
 
-        # Construct the AskQuestion runner so agents can call AskQuestion.
-        # The runner spawns a proxy child session via the /escalation
-        # skill, same mechanism chat-tier uses.  The proxy is a
-        # management-level participant — its session always lives under
-        # management scope, regardless of who asked.  The caller's
-        # dispatcher session (project or management) records the proxy
-        # child in its conversation_map; the dispatch-tree walker
-        # crosses scopes to resolve it.
         if self.input_provider:
             from teaparty.runners.launcher import (
                 create_session as _create_session,
@@ -289,11 +224,6 @@ class Orchestrator:
             )
             ask_question_bus_db = os.path.join(self.infra_dir, 'messages.db')
 
-            # The CfA job's coordination state lives at the bridge's
-            # management scope.  The launcher.Session created here is a
-            # conversation_map holder for the dispatch-tree walker;
-            # putting it at management scope means the walker's first
-            # candidate (management/sessions) always finds it.
             dispatcher = _load_session(
                 agent_name=self.config.project_lead or 'project-lead',
                 scope='management',
@@ -307,9 +237,6 @@ class Orchestrator:
                     teaparty_home=self.teaparty_home,
                     session_id=self.session_id,
                 )
-            # Stash the dispatcher session so the Send spawn_fn adapter
-            # (registered in _run_phase) can record_child_session and
-            # emit dispatch_started events against it.
             self._dispatcher_session = dispatcher
 
             self._ask_question_runner = AskQuestionRunner(
@@ -322,20 +249,12 @@ class Orchestrator:
                 proxy_invoker_fn=self._proxy_invoker_fn,
                 on_dispatch=self._on_dispatch,
                 dispatcher_session=dispatcher,
-                # The dispatcher's bus conv_id is the JOB conv
-                # ``job:{project_slug}:{session_id}`` — what the job
-                # page's dispatch-tree walker starts at.
                 dispatcher_conv_id=self._stream_conv_id,
                 teaparty_home=self.teaparty_home,
                 scope='management',
             )
             self._ask_question_runner.rehydrate()
 
-            # Start the intervention listener so office manager tools
-            # (WithdrawSession, PauseDispatch, etc.) can execute.  The
-            # resolver is a mutable dict — the orchestrator adds entries
-            # as sessions/dispatches start.  Seeded with this session.
-            # Issue #249.
             self._intervention_resolver[self.session_id] = self.infra_dir
             intervention_conv_id = f'intervention:{self.session_id}'
             self._intervention_listener = InterventionListener(
@@ -346,14 +265,9 @@ class Orchestrator:
             )
             await self._intervention_listener.start()
 
-            # Start the bus event listener so agents can use Send/Reply for
-            # bus-mediated agent-to-agent dispatch (Issue #351, #358).
             from teaparty.messaging.listener import BusEventListener  # noqa: PLC0415
             bus_db_path = os.path.join(self.infra_dir, 'messages.db')
-            # Project lead agent ID: {project}/lead per routing.md Agent Identity spec
             lead_agent_id = f'{self.project_slug}/lead' if self.project_slug else 'om'
-            # Create the orchestrator's own context record so workers spawned
-            # via Send have a valid parent_context_id to decrement pending_count against.
             self._bus_lead_context_id = (
                 f'agent:{lead_agent_id}:lead:{self.session_id}'
                 if self.session_id
@@ -369,16 +283,9 @@ class Orchestrator:
                         recipient_agent_id=lead_agent_id,
                     )
                 except Exception:
-                    pass  # Already exists from prior run — idempotent
+                    pass
                 finally:
                     _bus.close()
-            # resume_fn / reinvoke_fn are not wired: the bus-native
-            # dispatch flow re-enters an existing child inside
-            # ``_bus_spawn_agent`` itself (via the ``context_id`` handle
-            # lookup + ``_launch(resume_session=...)`` in ``_run_child``).
-            # Fan-in is signalled directly by ``_run_child`` when the
-            # last task drains — no ``trigger_reply`` / ``_locked_reinvoke``
-            # callback chain.
             self._bus_event_listener = BusEventListener(
                 bus_db_path=bus_db_path,
                 initiator_agent_id=lead_agent_id,
@@ -387,27 +294,11 @@ class Orchestrator:
                 reply_fn=self._bus_inject_reply,
                 dispatcher=self._build_bus_dispatcher(),
             )
-            # Alias the engine's tasks_by_child onto the listener so the
-            # shared close_fn (workspace/close_conversation.py::build_close_fn)
-            # reads the same dict — issue #422.  Same mechanism chat tier uses.
             self._bus_event_listener.tasks_by_child = self._tasks_by_child
             await self._bus_event_listener.start()
 
-            # Build the MCPRoutes bundle this engine installs at every
-            # launch in its tree — the phase lead, dispatched children,
-            # resumed children.  Same pattern chat tier uses in
-            # AgentSession._ensure_bus_listener (issue #422).  The
-            # spawn_fn in the bundle is the adapter that records child
-            # sessions into the dispatcher's conversation_map and emits
-            # dispatch_started events; close_fn is the tier-neutral
-            # function that merges the subteam's worktree back and
-            # emits dispatch_completed per removed session.
             from teaparty.mcp.registry import MCPRoutes, register_agent_mcp_routes
             from teaparty.workspace.close_conversation import build_close_fn
-            # The CfA engine's dispatch bus — same db the MCPRoutes
-            # spawn_fn writes to and the accordion walker reads from
-            # (#422).  Passing it here is what makes close_fn walk the
-            # bus's children_of instead of session metadata on disk.
             from teaparty.messaging.conversations import (
                 SqliteMessageBus as _CloseBus,
             )
@@ -426,14 +317,11 @@ class Orchestrator:
                 close_fn=close_fn,
                 ask_question_runner=self._ask_question_runner,
             )
-            # Install routes for the lead itself.  Dispatched children
-            # are registered by launch() when their subprocess spawns.
             register_agent_mcp_routes(
                 self.config.project_lead or 'project-lead',
                 self._mcp_routes,
             )
 
-        # Subscribe to stream events for scratch file extraction (Issue #261).
         self.event_bus.subscribe(self._on_scratch_event)
 
         try:
@@ -484,20 +372,17 @@ class Orchestrator:
         return BusDispatcher(routing_table)
 
     async def _bus_spawn_agent(self, member: str, composite: str, context_id: str) -> tuple[str, str, str]:
-        """Spawn a recipient agent for bus-mediated dispatch (#351, #422).
+        """Spawn a recipient agent for bus-mediated dispatch.
 
-        Follows the same shape as chat tier's ``spawn_fn``: set up the
-        child's session record and worktree synchronously, hand off to
-        ``BusEventListener.schedule_child_task`` which records the child
-        in the dispatcher's conversation_map, emits ``dispatch_started``,
-        creates the asyncio.Task that runs the subprocess, and registers
-        the task in ``tasks_by_child``.  Send returns immediately; the
-        child runs concurrently with siblings and is cancelled cleanly
-        by the shared ``close_fn``.
+        Sets up the child's session record and worktree synchronously,
+        hands off to ``BusEventListener.schedule_child_task`` which
+        records the child in the dispatcher's conversation_map, emits
+        ``dispatch_started``, creates the asyncio.Task that runs the
+        subprocess, and registers the task in ``tasks_by_child``.  Send
+        returns immediately; the child runs concurrently with siblings
+        and is cancelled cleanly by the shared ``close_fn``.
 
-        Returns ``(child_session.id, worktree_path, refusal_reason)`` —
-        the session-record id, so ``dispatch:{sid}`` maps 1:1 to the
-        on-disk session directory the close_conversation walker reads.
+        Returns ``(child_session.id, worktree_path, refusal_reason)``.
         """
         from teaparty.runners.launcher import (
             launch as _launch,
@@ -511,17 +396,7 @@ class Orchestrator:
             resolve_launch_placement, LaunchCwdNotResolved,
         )
 
-        # Validate ``member`` against the registry before creating any
-        # session state.  ``resolve_launch_placement`` accepts real
-        # dispatchable names — project leads, workgroup leads,
-        # workgroup members — and refuses anything else (e.g. a
-        # workgroup *slug* like ``coding`` that the LLM mistakes for
-        # a roster entry).  Without this, an invalid member was
-        # accepted, a session was created with ``agent_name='coding'``,
-        # the accordion blade rendered "Coding" (the slug, not the
-        # lead), and the subprocess launched without a matching agent
-        # definition.  Refuse loudly — no silent acceptance of an
-        # unknown member name.
+        # Validate member against the registry before creating any session state.
         try:
             resolve_launch_placement(member, self.teaparty_home)
         except LaunchCwdNotResolved as exc:
@@ -531,17 +406,9 @@ class Orchestrator:
             )
             return ('', '', f'unresolved_member:{member}')
 
-        # Thread continuation: if the caller passed a dispatch handle
-        # (``context_id='dispatch:{sid}'``) and the bus still has that
-        # conversation ACTIVE with the same lead, re-launch that
-        # existing child with ``--resume`` and the new composite as
-        # the next message.  No new session, no new worktree — the
-        # handle stays valid until the caller explicitly closes it.
-        #
-        # Previously the Send tool had a SessionRegistry lookup for
-        # this, but nothing populated the registry; every call
-        # unconditionally spawned a new session.  The bus IS the
-        # registry now — single source of truth for what's open.
+        # Thread continuation: if the caller passed an ACTIVE dispatch handle
+        # with the same lead, re-launch that existing child with --resume
+        # and the new composite as the next message.
         from teaparty.messaging.conversations import (
             ConversationState as _ConvState,
             ConversationType as _ConvType,
@@ -568,8 +435,6 @@ class Orchestrator:
                     session_id=existing_child_sid,
                 )
 
-        # The parent conv_id check needs to happen regardless of
-        # resume vs new — both paths register/update the bus.
         from teaparty.mcp.registry import (
             current_conversation_id as _current_conv_var,
         )
@@ -587,12 +452,9 @@ class Orchestrator:
             )
 
         # Slot limit: the caller cannot hold more than
-        # ``MAX_CONVERSATIONS_PER_AGENT`` live dispatches at once.  The
-        # chat tier's ``spawn_fn`` enforces this; CfA ``_bus_spawn_agent``
-        # never did, so a CfA job lead could open an unbounded number of
-        # children (the user hit this at N=4).  Skip the check on the
-        # resume path — re-entering an existing dispatch reuses a slot,
-        # it does not add one.
+        # MAX_CONVERSATIONS_PER_AGENT live dispatches at once.  Skip the
+        # check on the resume path — re-entering an existing dispatch
+        # reuses a slot.
         if existing_child is None:
             from teaparty.runners.launcher import check_slot_available
             _slot_bus = _Bus(self._bus_event_listener.bus_db_path)
@@ -613,15 +475,10 @@ class Orchestrator:
                 return ('', '', 'slot_limit')
 
         if existing_child is not None:
-            # Resume path: the child session + worktree + bus row all
-            # already exist.  Skip creation; just re-use.  The bus
-            # conv stays ACTIVE (the caller hasn't closed it); no
-            # state update needed.
             child_session = existing_child
             worktree_path = child_session.worktree_path
             session_branch = child_session.worktree_branch
         else:
-            # Fresh dispatch: create session, worktree, bus row.
             child_session = _create_session(
                 agent_name=member, scope='management',
                 teaparty_home=self.teaparty_home,
@@ -629,8 +486,6 @@ class Orchestrator:
             worktree_path = os.path.join(child_session.path, 'worktree')
             session_branch = f'session/{child_session.id}'
 
-            # Register the dispatch in the bus — the single source of
-            # truth for tree / lead / parent (issue #422).
             if self._bus_event_listener is not None and self._bus_event_listener.bus_db_path:
                 _bus = _Bus(self._bus_event_listener.bus_db_path)
                 try:
@@ -645,9 +500,8 @@ class Orchestrator:
                 finally:
                     _bus.close()
 
-            # Fork source + merge target = the lead's session worktree, falling
-            # back to the project repo root for bootstrap paths that don't yet
-            # have a session worktree.  Matches chat tier's same-repo branch.
+            # Fork source + merge target = the lead's session worktree,
+            # falling back to the project repo root for bootstrap paths.
             source_repo = self.session_worktree or self.project_workdir
             merge_target_worktree = source_repo
             merge_target_repo = self.project_workdir
@@ -684,16 +538,10 @@ class Orchestrator:
             child_session.parent_session_id = (
                 self._dispatcher_session.id if self._dispatcher_session else ''
             )
-        # The composite message we want to deliver on this (re-)invocation.
-        # For resume, this replaces ``initial_message`` — the next
-        # ``_launch`` will pass this as the message for the claude
-        # subprocess.  Keeps the thread-continuation semantic: each
-        # Send in the thread delivers a new message to the same child.
         child_session.initial_message = composite
         _save_meta(child_session)
 
-        # Child bus listener for recipients with a sub-roster — scheduled
-        # for the lifetime of the child's task.
+        # Child bus listener for recipients with a sub-roster.
         child_listener = None
         try:
             from teaparty.config.roster import has_sub_roster
@@ -711,11 +559,7 @@ class Orchestrator:
         mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
 
         # Stream the child's output into the bus under its dispatch
-        # conv_id so the accordion iframe can render it.  Without
-        # this callback the child writes to .stream.jsonl on disk but
-        # nothing reaches the bus — the blade opens to "No messages
-        # in this conversation" even though the worker is doing work.
-        # Same pattern the chat-tier ``_child_lifecycle_loop`` uses.
+        # conv_id so the accordion iframe can render it.
         from teaparty.teams.stream import _classify_event
         child_conv_id = f'dispatch:{child_session.id}'
         seen_tu: set[str] = set()
@@ -728,10 +572,7 @@ class Orchestrator:
                 for sender, content in _classify_event(
                     ev, member, seen_tu, seen_tr, child_state,
                 ):
-                    # Filter out tool_result for dispatch blades — the
-                    # child's tool output is noisy and clutters the
-                    # accordion view.  UI decision, not classification
-                    # logic.
+                    # Filter out tool_result for dispatch blades.
                     if content and sender != 'tool_result':
                         child_bus.send(child_conv_id, sender, content)
                         if sender == member:
@@ -745,12 +586,6 @@ class Orchestrator:
         async def _run_child() -> str:
             response_text = ''
             try:
-                # Resume if the child has run before (claude_session_id
-                # stored from a prior ``_launch`` return).  Without this,
-                # a second Send to the same dispatch handle always
-                # starts a fresh claude session and the child has no
-                # memory of the prior exchange — defeats the "continue
-                # a thread" semantics of the Send tool.
                 resume_sid = child_session.claude_session_id or ''
                 result = await _launch(
                     agent_name=member,
@@ -762,20 +597,10 @@ class Orchestrator:
                     session_id=child_session.id,
                     resume_session=resume_sid,
                     mcp_routes=self._mcp_routes,
-                    # Child's own conv_id — parent of any dispatches
-                    # it makes.  Middleware wires this into the
-                    # ``current_conversation_id`` contextvar the next
-                    # spawn_fn reads.
                     caller_conversation_id=f'dispatch:{child_session.id}',
                     on_stream_event=_on_child_event,
                 )
                 response_text = getattr(result, 'response_text', '') or ''
-                # Persist the claude session id so a follow-up Send in
-                # this thread can --resume this child instead of
-                # spawning a new one.  The whole point of the Send
-                # tool's ``context_id`` parameter is durable
-                # thread-continuation; it is durable only if we
-                # remember which claude session to resume.
                 new_claude_sid = getattr(result, 'session_id', '') or ''
                 if new_claude_sid:
                     child_session.claude_session_id = new_claude_sid
@@ -793,15 +618,8 @@ class Orchestrator:
                         _log.debug(
                             'child_listener.stop raised', exc_info=True,
                         )
-                # Fan-in bookkeeping (no silent errors — this is the
-                # hook that makes the engine notice the child is done).
-                # Remove this child from the in-flight set.  If that
-                # drains the set, wake the lead's ``_await_fan_in_and_reinvoke``
-                # so it can re-invoke the lead to synthesize the reply
-                # and run the skill's ASSERT gate.  Without this, the
-                # lead's turn ended after a dispatch, no one noticed the
-                # child completed, and the engine silently auto-approved
-                # EXECUTE → DONE.
+                # Fan-in bookkeeping: remove this child from the in-flight
+                # set and wake the lead's fan-in waiter when the set drains.
                 self._tasks_by_child.pop(child_session.id, None)
                 lead_sid = self._phase_session_ids.get(
                     phase_for_state(self.cfa.state), ''
@@ -826,8 +644,6 @@ class Orchestrator:
                     pass
             return response_text
 
-        # Shared with chat tier (#422): same helper records the child,
-        # emits dispatch_started, creates + registers the task.
         self._bus_event_listener.schedule_child_task(
             child_session_id=child_session.id,
             launch_coro=_run_child(),
@@ -871,8 +687,6 @@ class Orchestrator:
 
         child_context_id = f'agent:{child_agent_id}:{context_id}'
 
-        # Build child's routing table from its roster
-        # For now, derive roster based on the member's level
         child_roster: dict = {}
         child_id_map: dict[str, str] = {}
         try:
@@ -895,7 +709,6 @@ class Orchestrator:
         else:
             dispatcher = None
 
-        # Build child spawn/resume/reinvoke closures
         async def child_spawn_fn(
             child_member: str, composite: str, child_ctx_id: str,
         ) -> tuple[str, str, str]:
@@ -906,9 +719,6 @@ class Orchestrator:
             from teaparty.workspace.worktree import (
                 create_subchat_worktree, current_branch_of, head_commit_of,
             )
-            # Session = worktree (1:1).  Set merge metadata like
-            # _bus_spawn_agent does so close_fn can squash-merge
-            # recursive subteam work back into the lead (#422).
             child_session = _cs(
                 agent_name=child_member, scope='management',
                 teaparty_home=self.teaparty_home,
@@ -1013,8 +823,6 @@ class Orchestrator:
 
         await listener.start()
 
-        # Build MCP config for the child; Send/Close now go through the
-        # dispatch bus (DISPATCH_BUS_PATH + DISPATCH_CONV_ID), not sockets.
         venv_python = sys.executable
         mcp_config = {
             'ask-question': {
@@ -1058,7 +866,7 @@ class Orchestrator:
 
         Called after each agent turn so BusEventListener.trigger_reply (run at
         child subprocess exit) can retrieve the session_id needed to call
-        reinvoke_fn when all workers have replied (Issue #358).
+        reinvoke_fn when all workers have replied.
         """
         if not self._bus_lead_context_id:
             return
@@ -1080,11 +888,6 @@ class Orchestrator:
     ) -> 'ActorResult':
         """Block the lead until all dispatched workers reply, then resume it.
 
-        Early exit: if ``_tasks_by_child`` is already empty the fan-in
-        has completed — children finished before we got here — so skip
-        the wait and go straight to re-invoke.  Without that guard the
-        lead would hang forever on an Event that nobody will fire.
-
         Fan-in is a framework-level turn-boundary concern, not a state-machine
         transition.  When the lead's turn completes with open worker contexts
         on the bus, this coroutine waits for BusEventListener.trigger_reply
@@ -1092,7 +895,6 @@ class Orchestrator:
         replied), then re-invokes the lead via --resume so it can synthesize
         the workers' replies before advancing the CfA.
         """
-        # Fast path: nothing to wait for.
         if not self._tasks_by_child:
             _log.info(
                 'Fan-in wait: no workers in flight; re-invoking lead '
@@ -1101,12 +903,8 @@ class Orchestrator:
             return await self._invoke_actor(
                 spec, phase_name, phase_start_time,
             )
-        # Arm the event *before* re-checking ``_tasks_by_child`` — a
-        # child completion is synchronous (no await between its pop
-        # and its ``_fan_in_event.set()``), so if it fires between
-        # arming and re-check we see a set event and ``wait()`` returns
-        # immediately; if we saw a non-empty dict we are guaranteed
-        # the child will see the armed event when it fires.
+        # Arm the event before re-checking _tasks_by_child to avoid a
+        # race where a child completion fires between check and arm.
         self._fan_in_event = asyncio.Event()
         try:
             if self._tasks_by_child:
@@ -1120,14 +918,12 @@ class Orchestrator:
         _log.info('Fan-in complete: resuming lead via --resume for synthesis')
         return await self._invoke_actor(spec, phase_name, phase_start_time)
 
-    # Sentinel values returned by ``_classify_phase_result`` to the
-    # outer ``_run_loop``.  Kept private because the mapping is
-    # shared with the retry/withdraw handlers and nowhere else.
-    _ACTION_NEXT_PHASE = 'next'          # phase ok; advance sequence
-    _ACTION_RETRY_SEQUENCE = 'retry'     # re-enter the sequence from the top
-    _ACTION_TERMINAL = 'terminal'        # CfA reached a terminal state
-    _ACTION_WITHDRAW = 'withdraw'        # mark WITHDRAWN, return
-    _ACTION_RETURN_CURRENT = 'return'    # give up, return self.cfa.state
+    # Sentinel values returned by _classify_phase_result to _run_loop.
+    _ACTION_NEXT_PHASE = 'next'
+    _ACTION_RETRY_SEQUENCE = 'retry'
+    _ACTION_TERMINAL = 'terminal'
+    _ACTION_WITHDRAW = 'withdraw'
+    _ACTION_RETURN_CURRENT = 'return'
 
     def _phase_sequence(self) -> list[str]:
         """The phases to run, honoring ``skip_intent`` / ``*_only`` flags."""
@@ -1148,10 +944,8 @@ class Orchestrator:
 
         Every phase follows the same shape — run, classify the result
         (terminal / backtrack / infrastructure_failure / normal), and
-        either continue, retry the sequence, or return.  The earlier
-        version repeated that handling three times in-place.  This
-        version drives it from a single loop and lets
-        ``_classify_phase_result`` own the policy.
+        either continue, retry the sequence, or return.
+        ``_classify_phase_result`` owns the policy.
         """
         while True:
             outcome = await self._run_sequence_once()
@@ -1168,22 +962,17 @@ class Orchestrator:
                 return self._make_result(self.cfa.state)
             if isinstance(outcome, OrchestratorResult):
                 return outcome
-            # ``_ACTION_NEXT_PHASE`` falling past the last phase — done.
             return self._make_result(self.cfa.state)
 
     async def _run_sequence_once(self) -> 'OrchestratorResult | str':
         """One pass through the phase sequence.  See ``_run_loop``."""
         for phase in self._phase_sequence():
-            # Pre-phase hooks (phase-specific; cheap no-ops when not
-            # applicable).  Planning gets a System-1 skill-library probe;
-            # execution gets a premortem written from the approved plan.
             if phase == 'planning':
                 await self._try_skill_lookup()
 
             result = await self._run_phase(phase)
 
-            # Post-phase hooks (regression learning — runs only on
-            # normal completion, not on backtrack or infra failure).
+            # Post-phase hooks run only on normal completion.
             if (phase == 'planning'
                     and not result.terminal
                     and not result.infrastructure_failure):
@@ -1237,8 +1026,6 @@ class Orchestrator:
                 target,
             )
             return self._ACTION_NEXT_PHASE
-        # Re-enter the sequence.  ``skip_intent`` / ``execute_only`` are
-        # reset so the earlier phases replay as needed.
         if target == 'intent':
             self.skip_intent = False
             if phase == 'execution':
@@ -1277,9 +1064,9 @@ class Orchestrator:
 
         If the human corrects the skill-as-plan during the skill's
         ASSERT/REVISE dialog, _check_skill_correction archives the
-        correction as a candidate (Issue #142).
+        correction as a candidate.
         """
-        # Build scope-ordered skill directories: narrowest first (Issue #196).
+        # Build scope-ordered skill directories: narrowest first.
         # Team scope (if team context exists) → project scope.
         skills_dirs: list[tuple[str, str]] = []
         if self.team_override:
@@ -1303,7 +1090,6 @@ class Orchestrator:
         except OSError:
             pass
 
-        # Build embed_fn from memory_indexer if available (Issue #215).
         embed_fn = None
         try:
             from teaparty.learning.episodic.indexer import try_embed, detect_provider
@@ -1332,12 +1118,8 @@ class Orchestrator:
         with open(plan_path, 'w') as f:
             f.write(match.template)
 
-        # Track which skill was used (Issue #142 — skill self-correction).
-        # Store the original template so we can detect corrections later:
-        # after planning completes, if PLAN.md differs from the template,
-        # the plan was corrected (by the human during the planning skill's
-        # ASSERT/REVISE dialog, or by System 2 after backtrack) and should
-        # be archived as a correction candidate.
+        # Track which skill was used, storing the original template so
+        # we can detect corrections later when PLAN.md diverges from it.
         self._active_skill = {
             'name': match.name,
             'path': match.path,
@@ -1346,8 +1128,7 @@ class Orchestrator:
             'template': match.template,
         }
 
-        # Persist active skill to disk so extract_learnings can find it
-        # post-session (Issue #146 — gate outcomes as skill reward signal).
+        # Persist active skill to disk so extract_learnings can find it post-session.
         import json as _json
         sidecar_path = os.path.join(self.infra_dir, '.active-skill.json')
         try:
@@ -1392,12 +1173,6 @@ class Orchestrator:
         """Run a single CfA phase to completion or backtrack."""
         spec = self._phase_spec(phase_name)
         phase_start_time = time.monotonic()
-
-        # MCP routes (spawn_fn, close_fn, escalation route) are
-        # registered by launch() for each agent it spawns — the phase
-        # lead here, every Send-dispatched child inside this engine's
-        # tree.  The bundle is built once in Orchestrator.run (issue
-        # #422) and threaded through every launch call site.
 
         await self.event_bus.publish(Event(
             type=EventType.PHASE_STARTED,
@@ -1449,14 +1224,12 @@ class Orchestrator:
                         failure_reason=reason,
                     )
 
-            # Accumulate cost from this turn (Issues #262, #341)
             turn_cost = actor_result.data.get('cost_usd', 0.0)
             if turn_cost:
                 await self._budgets.record_turn_cost(
                     actor_result.data, self.session_id,
                 )
                 self._budgets.write_sidecar(self.infra_dir)
-                # Publish turn stats so job chat cost filter receives them (Issue #341)
                 turn_stats: dict[str, Any] = {'total_cost_usd': turn_cost}
                 for key in ('input_tokens', 'output_tokens', 'duration_ms'):
                     val = actor_result.data.get(key)
@@ -1468,28 +1241,9 @@ class Orchestrator:
                     session_id=self.session_id,
                 ))
 
-            # ``action=''`` is the "skill turn ended without declaring
-            # an outcome" sentinel from ``_interpret_output``.  It is
-            # the normal mid-execute state: the lead dispatched via
-            # Send, its turn ended, and fan-in must re-invoke it to
-            # synthesize the reply.  The re-invoked turn can ALSO end
-            # in that state — e.g. the lead receives one child's
-            # reply, dispatches follow-up work to the same or a
-            # different member, and ends its turn again.  Loop until
-            # the skill actually declares a terminal outcome (valid
-            # action) or we run out of workers to wait for.
-            #
-            # The previous code raised as soon as one re-invoke ended
-            # in ``''`` — which killed the legitimate multi-turn
-            # dispatch pattern (agent A replies, lead dispatches B,
-            # lead's second turn ends in ''; we raised instead of
-            # waiting for B).  The job task died, the lead went to
-            # sleep, and the user saw the Wake button activate.
-            #
-            # The invariant still holds: we never advance the CfA
-            # state without a real outcome, and we never silently
-            # approve.  If workers are open, wait.  If not and no
-            # outcome, raise.
+            # action='' is the "skill turn ended without declaring an outcome"
+            # sentinel.  If workers are open, wait for fan-in and re-invoke.
+            # If no workers remain, raise — never silently approve.
             while actor_result.action == '':
                 if self._tasks_by_child:
                     actor_result = await self._await_fan_in_and_reinvoke(
@@ -1519,25 +1273,16 @@ class Orchestrator:
             # Apply the CfA transition
             await self._transition(actor_result.action, actor_result)
 
-            # Turn boundary: check for pending interventions (Issue #246).
-            # In the 5-state machine every actor is an agent — the old
-            # ``human_actor_states`` guard is unreachable (always empty).
             if (self._intervention_queue
                     and self._intervention_queue.has_pending()
                     and not is_globally_terminal(self.cfa.state)):
                 await self._deliver_intervention()
 
-            # Turn boundary: update scratch file (Issue #261).
-            # Must happen BEFORE the compaction check so that
-            # .context/scratch.md exists when compaction fires and
-            # the compact prompt tells the agent to read it.
+            # Update scratch file BEFORE the compaction check so
+            # .context/scratch.md exists when compaction fires.
             if not is_globally_terminal(self.cfa.state):
                 self._update_scratch(phase_name)
 
-            # Turn boundary: budgets (context + job + project).  The
-            # monitor returns a pending-intervention prompt when it
-            # needs one injected at the next turn (compaction, or
-            # human-declines-past-budget); empty string otherwise.
             if not is_globally_terminal(self.cfa.state):
                 compact_prompt = await self._budgets.check_context(
                     budget=actor_result.data.get('context_budget'),
@@ -1578,7 +1323,6 @@ class Orchestrator:
             add_dirs=self._build_add_dirs(),
             phase_start_time=phase_start_time,
             mcp_routes=self._mcp_routes,
-            # Heartbeat liveness (issue #149)
             heartbeat_file=os.path.join(self.infra_dir, '.heartbeat'),
             parent_heartbeat=self._parent_heartbeat,
             children_file=os.path.join(self.infra_dir, '.children'),
@@ -1609,7 +1353,6 @@ class Orchestrator:
                 + f'[stderr from previous turn]\n{stderr_block}'
             )
 
-        # Inject pending intervention from the queue (Issue #246).
         # The intervention prompt replaces backtrack_context so the agent
         # receives it as the next --resume prompt at the turn boundary.
         if self._pending_intervention:
@@ -1619,7 +1362,6 @@ class Orchestrator:
             )
             self._pending_intervention = ''
 
-        # Agent actor — run agent
         return await self._agent_runner.run(ctx)
 
     async def _deliver_intervention(self) -> None:
@@ -1629,8 +1371,6 @@ class Orchestrator:
         Stores the intervention prompt in ``_pending_intervention`` so
         ``_invoke_actor()`` injects it as backtrack context on the next
         agent turn (delivered via ``--resume``).
-
-        Issue #246.
         """
         if not self._intervention_queue:
             return
@@ -1641,16 +1381,13 @@ class Orchestrator:
 
         prompt = build_intervention_prompt(messages, role_enforcer=self._role_enforcer)
         self._pending_intervention = prompt
-        self._intervention_active = True  # Issue #247: track for cascade
+        self._intervention_active = True
 
-        # Determine current phase name for the learning chunk context.
         try:
             current_phase = phase_for_state(self.cfa.state)
         except ValueError:
             current_phase = 'unknown'
 
-        # Record as a learning-system chunk for post-session proxy extraction.
-        # Issue #276.
         write_intervention_chunk(
             infra_dir=self.infra_dir,
             content=prompt,
@@ -1674,14 +1411,14 @@ class Orchestrator:
 
         Updates the in-memory CfA state so the engine's turn-boundary
         check sees WITHDRAWN and exits.  The file has already been
-        written by withdraw_session().  Issue #386.
+        written by withdraw_session().
         """
         _log.info('External withdrawal received for session %s', session_id)
         self.cfa = set_state_direct(self.cfa, 'WITHDRAWN')
 
 
     async def _on_scratch_event(self, event: Event) -> None:
-        """Feed events into the scratch model (Issue #261).
+        """Feed events into the scratch model.
 
         Subscribed to the event bus in run().  Processes two event types:
         - STREAM_DATA: extracts human input and file modifications
@@ -1711,12 +1448,12 @@ class Orchestrator:
             )
 
     def _update_scratch(self, phase_name: str) -> None:
-        """Serialize the scratch model to disk at a turn boundary (Issue #261)."""
+        """Serialize the scratch model to disk at a turn boundary."""
         self._scratch_model.phase = phase_name
         self._scratch_writer.write_scratch(self._scratch_model)
 
     def _record_dead_end(self, phase: str, reason: str, feedback: str = '') -> None:
-        """Record a dead end from a backtrack (Issue #261)."""
+        """Record a dead end from a backtrack."""
         desc = f'{phase}: {reason}'
         if feedback:
             desc += f' — {feedback[:200]}'
@@ -1724,7 +1461,7 @@ class Orchestrator:
         self._scratch_writer.append_dead_end(desc)
 
     async def _check_interrupt_propagation(self, old_state: str) -> None:
-        """Cascade intervention decisions to active child dispatches (Issue #247).
+        """Cascade intervention decisions to active child dispatches.
 
         Called after every CfA transition.  When an intervention was recently
         delivered (_intervention_active) and the lead's response caused a
@@ -1743,7 +1480,7 @@ class Orchestrator:
         if new_state == 'WITHDRAWN':
             withdrawn = cascade_withdraw_children(self.infra_dir)
             self._intervention_active = False
-            write_intervention_outcome(  # Issue #276
+            write_intervention_outcome(
                 infra_dir=self.infra_dir,
                 outcome='withdraw',
             )
@@ -1768,7 +1505,7 @@ class Orchestrator:
             new_phase = phase_for_state(new_state)
         except ValueError:
             self._intervention_active = False
-            write_intervention_outcome(  # Issue #276
+            write_intervention_outcome(
                 infra_dir=self.infra_dir,
                 outcome='continue',
             )
@@ -1777,7 +1514,7 @@ class Orchestrator:
         if is_backtrack(old_phase, new_phase):
             withdrawn = cascade_withdraw_children(self.infra_dir)
             self._intervention_active = False
-            write_intervention_outcome(  # Issue #276
+            write_intervention_outcome(
                 infra_dir=self.infra_dir,
                 outcome='backtrack',
                 backtrack_phase=new_phase,
@@ -1799,12 +1536,9 @@ class Orchestrator:
                 ))
             return
 
-        # Continue/adjustment: we reach here only when the transition is
-        # same-phase or forward (WITHDRAWN and backtrack both returned above).
-        # The lead processed the intervention and chose to continue.
-        # Dispatches keep running.
+        # Continue/adjustment: same-phase or forward transition.
         self._intervention_active = False
-        write_intervention_outcome(  # Issue #276
+        write_intervention_outcome(
             infra_dir=self.infra_dir,
             outcome='continue',
         )
@@ -1822,43 +1556,31 @@ class Orchestrator:
             )
             raise
 
-        # Keep the AskQuestion runner's CfA state current so it can
-        # resolve the project's escalation policy for the new state.
         if self._ask_question_runner:
             self._ask_question_runner.cfa_state = self.cfa.state
 
-        # Track data from the actor result for the next actor
         self._last_actor_data = actor_result.data
         if actor_result.feedback:
             self._last_actor_data['feedback'] = actor_result.feedback
         if actor_result.dialog_history:
             self._last_actor_data['dialog_history'] = actor_result.dialog_history
 
-        # Track claude session ID for --resume
         claude_sid = actor_result.data.get('claude_session_id', '')
         if claude_sid:
             phase = phase_for_state(self.cfa.state)
             self._phase_session_ids[phase] = claude_sid
-            # Keep the orchestrator's bus context record up to date so
-            # BusEventListener.trigger_reply (run at child subprocess exit)
-            # can retrieve the latest session_id when all workers reply
-            # (Issue #358).
             self._update_lead_bus_session(claude_sid)
 
-        # Persist and emit
         state_path = os.path.join(self.infra_dir, '.cfa-state.json')
         save_state(self.cfa, state_path)
 
-        # Telemetry — phase_changed on every transition, phase_backtrack
-        # when the machine counted one (Issue #405).
         try:
             from teaparty.telemetry import record_event
             from teaparty.telemetry import events as _telem_events
             _scope = self.project_slug or 'management'
             old_phase = phase_for_state(old_state)
             # Save the previous phase-entry timestamp before overwriting —
-            # the backtrack cost query needs the window from when the prior
-            # phase was entered until now.
+            # the backtrack cost query needs the window from prior phase entry until now.
             _prev_phase_entry = getattr(self, '_phase_entry_ts', 0.0)
             self._phase_entry_ts = time.time()
             record_event(
@@ -1875,15 +1597,11 @@ class Orchestrator:
                     'state_machine': 'cfa',
                 },
             )
-            # The CfA machine increments backtrack_count when a backtrack
-            # edge fires — emit phase_backtrack for those transitions.
             if self.cfa.backtrack_count > (
                 getattr(self, '_last_backtrack_count', 0)
             ):
-                # Estimate cost being discarded by summing turn_complete
-                # costs for this session recorded since the backtracked
-                # phase was entered. Scoped to session_id so concurrent
-                # sessions in the same scope are excluded.
+                # Estimate discarded cost by summing turn_complete costs
+                # since the backtracked phase was entered, scoped to session_id.
                 _discarded = 0.0
                 try:
                     from teaparty.telemetry import query as _tq
@@ -1930,13 +1648,10 @@ class Orchestrator:
             session_id=self.session_id,
         ))
 
-        # Interrupt propagation: cascade intervention decisions to children (Issue #247)
         await self._check_interrupt_propagation(old_state)
 
-        # Auto-commit artifacts to the session worktree after writes
         await self._commit_artifacts(old_state, action)
 
-        # Post-intent-approval: detect project stage and retire old-stage memory
         if old_state == 'INTENT' and action == 'approve':
             self._detect_and_retire_stage()
 
@@ -1972,7 +1687,6 @@ class Orchestrator:
 
         new_stage = detect_stage_from_content(content)
 
-        # Track stage in infra dir
         stage_file = os.path.join(self.infra_dir, '.current-stage')
         old_stage = ''
         if os.path.exists(stage_file):
@@ -1995,7 +1709,6 @@ class Orchestrator:
                     text = Path(institutional).read_text(errors='replace')
                     entries = parse_memory_file(text)
                     if entries:
-                        # Use module-level retire_stage_entries for testability
                         updated, count = retire_stage_entries(entries, old_stage)
                         if count > 0:
                             Path(institutional).write_text(
@@ -2009,7 +1722,7 @@ class Orchestrator:
                     _log.warning('Stage retirement failed: %s', exc)
 
     def _write_assumption_checkpoint(self, phase_name: str) -> None:
-        """Write an assumption checkpoint at phase completion (Issue #199).
+        """Write an assumption checkpoint at phase completion.
 
         Reads the phase's artifact (INTENT.md or PLAN.md) and includes its
         content in the checkpoint, so the downstream in-flight extraction
@@ -2017,7 +1730,6 @@ class Orchestrator:
         """
         from pathlib import Path as _Path
 
-        # Read the artifact that this phase produced
         artifact_names = {
             'intent': 'INTENT.md',
             'planning': 'PLAN.md',
@@ -2048,7 +1760,7 @@ class Orchestrator:
             _log.warning('Assumption checkpoint failed (non-fatal): %s', exc)
 
     def _write_premortem(self) -> None:
-        """Generate premortem from PLAN.md before execution begins (Issue #199).
+        """Generate premortem from PLAN.md before execution begins.
 
         Called at the planning→execution bridge so the post-session
         prospective extraction pipeline has input to work with.
@@ -2086,10 +1798,7 @@ class Orchestrator:
 
         # --flat: swap the project team for a flat team where the lead
         # recruits agents dynamically via the Agent tool.  Only affects
-        # phases that use uber-team.json (planning, execution).  Use the
-        # already-resolved base.lead so the project lead from
-        # project.yaml is preserved rather than re-hardcoding
-        # 'project-lead' (Issue #408).
+        # phases that use uber-team.json (planning, execution).
         if self.flat and base.agent_file == 'uber':
             return replace(base, agent_file='flat')
 
@@ -2140,14 +1849,10 @@ class Orchestrator:
                 pass
 
         if not base_task:
-            # Intent phase, or artifacts not yet written
             base_task = self.task or self.project_slug
 
         # Prepend CfA phase framing.  agent.md is role-only; this layer
         # supplies deliverable, boundary, and re-entry rule per phase.
-        # Working scope — same for every phase. Your current directory is a
-        # self-contained worktree that holds everything this phase needs.
-        # Absolute paths outside cwd are outside the sandbox and will fail.
         scope = (
             '--- Working scope ---\n'
             'Your current directory is the worktree for this job. Every file '
@@ -2183,7 +1888,6 @@ class Orchestrator:
                 + base_task
             )
 
-        # Inject phase-specific constraints (Issue #141)
         if phase_name == 'intent':
             constraints = self._resolve_intent_constraints()
             if constraints:
@@ -2193,7 +1897,6 @@ class Orchestrator:
             if teams_block:
                 base_task += teams_block
 
-        # Append cold-start context for intent and planning phases
         if phase_name in ('intent', 'planning'):
             obs_count = self._get_observation_count(phase_name)
             if obs_count < COLD_START_THRESHOLD:
@@ -2217,8 +1920,6 @@ class Orchestrator:
 
         Loads norms from the configuration tree and frames them as constraints
         with escalation guidance. Returns empty string if no constraints exist.
-
-        Issue #141: agents must know their constraints and escalate.
         """
         from teaparty.config.config_reader import (
             load_management_team,
@@ -2264,12 +1965,9 @@ class Orchestrator:
         Reads the project-scoped team list from PhaseConfig and available
         skills from the project's skills directories.  Formats both for
         injection into the planning task context.
-
-        Issue #141: planning agent must know what teams and skills exist.
         """
         parts = []
 
-        # Teams
         teams = self.config.project_teams
         if teams:
             team_names = sorted(teams.keys())
@@ -2280,7 +1978,6 @@ class Orchestrator:
                 'capabilities not covered by these teams, escalate.'
             )
 
-        # Skills
         skills_summary = self._list_available_skills()
         if skills_summary:
             parts.append(
@@ -2344,8 +2041,6 @@ class Orchestrator:
         return '\n'.join(entries)
 
     # Maximum auto-retries for API overloaded (529) before escalating to human.
-    # Each retry adds a flat cooldown — not exponential, since the CLI already
-    # did exponential backoff internally.
     _MAX_OVERLOAD_RETRIES = 3
     _OVERLOAD_COOLDOWN_SECONDS = 120
 
@@ -2365,7 +2060,6 @@ class Orchestrator:
         if count > self._MAX_OVERLOAD_RETRIES:
             return 'escalate'
 
-        # Emit event for bridge observability
         await self.event_bus.publish(Event(
             type=EventType.API_OVERLOADED,
             data={
@@ -2416,7 +2110,7 @@ class Orchestrator:
         return 'retry'
 
     def _mark_false_positives(self, reason: str) -> None:
-        """Mark prior auto-approvals as false positives on backtrack (#11)."""
+        """Mark prior auto-approvals as false positives on backtrack."""
         try:
             from teaparty.proxy.approval_gate import mark_false_positive_approvals
             log_path = os.path.join(
@@ -2445,8 +2139,6 @@ class Orchestrator:
         skill's ASSERT/REVISE dialog, or by the planning skill's System 2
         fallback after backtrack — and the corrected plan is archived as a
         skill correction candidate.
-
-        Issue #142: skill self-correction on backtrack.
         """
         if not self._active_skill:
             return
@@ -2465,13 +2157,11 @@ class Orchestrator:
 
         original_template = self._active_skill.get('template', '')
         if current_plan.strip() == original_template.strip():
-            # Plan unchanged — skill was approved as-is, no correction needed
             return
 
         skill_name = self._active_skill['name']
         skill_path = self._active_skill.get('path', '')
 
-        # Read category from the skill file (Issue #239)
         skill_category = ''
         if skill_path and os.path.isfile(skill_path):
             try:
@@ -2500,7 +2190,6 @@ class Orchestrator:
         except Exception as exc:
             _log.warning('Failed to archive skill correction: %s', exc)
 
-        # Clear active skill — the correction has been recorded
         self._active_skill = None
 
     def _get_observation_count(self, phase_name: str = '') -> int:
@@ -2543,21 +2232,18 @@ class Orchestrator:
             'POC_SESSION_DIR': self.infra_dir,
             'POC_SESSION_WORKTREE': self.session_worktree,
             'POC_CFA_STATE': os.path.join(self.infra_dir, '.cfa-state.json'),
-            # SCRIPT_DIR and PROJECTS_DIR needed by subprocesses (e.g. dispatch_cli.py)
             'SCRIPT_DIR': self.poc_root,
             'PROJECTS_DIR': os.path.dirname(self.project_workdir),
             'POC_PROXY_OBSERVATIONS': str(obs_count),
         }
 
     def _build_add_dirs(self) -> list[str]:
-        # Issue #150: return empty — agents must not receive --add-dir flags.
-        # The worktree (set as cwd) contains everything the agent needs.
-        # Extra --add-dir paths leak absolute paths into the agent's context,
-        # causing writes to wrong locations.
+        # Agents must not receive --add-dir flags; the worktree (set as cwd)
+        # contains everything they need.
         return []
 
     async def _recover_orphaned_children(self) -> None:
-        """Scan .children registry and recover orphaned dispatches (issue #149).
+        """Scan .children registry and recover orphaned dispatches.
 
         Runs before MCP listeners start so no new dispatches arrive during
         recovery.  Any dispatching agent at any level needs this.
@@ -2575,8 +2261,7 @@ class Orchestrator:
         )
         from teaparty.workspace.merge import squash_merge
 
-        # Write a fresh heartbeat for ourselves so adopted children see a live
-        # parent instead of triggering their shutdown sequence (gap 5/12).
+        # Write a fresh heartbeat for ourselves so adopted children see a live parent.
         my_hb = os.path.join(self.infra_dir, '.heartbeat')
         if not os.path.exists(my_hb):
             create_heartbeat(my_hb, role='session')
@@ -2597,7 +2282,6 @@ class Orchestrator:
             if cfa_data.state != 'DONE':
                 continue
 
-            # Find the worktree path from the manifest
             worktree_path = self._find_dispatch_worktree(child_infra)
             if not worktree_path or not os.path.isdir(worktree_path):
                 _log.warning('Recovery: no worktree found for %s', child_infra)
@@ -2671,7 +2355,6 @@ class Orchestrator:
         In the job store layout, child_infra is the task_dir and the
         worktree is at {task_dir}/worktree/.
         """
-        # New layout: task_dir/worktree/
         candidate = os.path.join(child_infra, 'worktree')
         if os.path.isdir(candidate):
             return candidate
