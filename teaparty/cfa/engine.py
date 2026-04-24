@@ -1711,140 +1711,24 @@ class Orchestrator:
             )
 
         if phase_name == 'intent':
-            constraints = self._resolve_intent_constraints()
+            from teaparty.config.phase_context import intent_constraints_block
+            constraints = intent_constraints_block(
+                project_dir=self.project_dir,
+                teaparty_home=self.teaparty_home,
+            )
             if constraints:
                 base_task += constraints
         elif phase_name == 'planning':
-            teams_block = self._resolve_available_teams()
+            from teaparty.config.phase_context import available_teams_block
+            teams_block = available_teams_block(
+                project_teams=self.config.project_teams,
+                project_workdir=self.project_workdir,
+                team_override=self.team_override,
+            )
             if teams_block:
                 base_task += teams_block
 
         return base_task
-
-    def _resolve_intent_constraints(self) -> str:
-        """Resolve norms/guardrails as constraints for the intent phase.
-
-        Loads norms from the configuration tree and frames them as constraints
-        with escalation guidance. Returns empty string if no constraints exist.
-        """
-        from teaparty.config.config_reader import (
-            load_management_team,
-            load_project_team,
-            resolve_norms,
-        )
-
-        org_norms: dict[str, list[str]] = {}
-        project_norms: dict[str, list[str]] = {}
-
-        try:
-            mgmt = load_management_team()
-            org_norms = mgmt.norms
-        except (FileNotFoundError, OSError):
-            pass
-
-        if self.project_dir:
-            try:
-                proj = load_project_team(self.project_dir)
-                project_norms = proj.norms
-            except (FileNotFoundError, OSError):
-                pass
-
-        norms_text = resolve_norms(
-            org_norms=org_norms, project_norms=project_norms,
-        )
-        if not norms_text:
-            return ''
-
-        return (
-            '\n\n--- Constraints ---\n'
-            'The following constraints apply to this project. If the request '
-            'would violate any of these constraints, escalate — do not accept '
-            'the request as-is. Escalation is the correct response when '
-            'constraints cannot be met.\n\n'
-            f'{norms_text}\n'
-            '--- end ---'
-        )
-
-    def _resolve_available_teams(self) -> str:
-        """Resolve dynamically-available teams and skills for the planning phase.
-
-        Reads the project-scoped team list from PhaseConfig and available
-        skills from the project's skills directories.  Formats both for
-        injection into the planning task context.
-        """
-        parts = []
-
-        teams = self.config.project_teams
-        if teams:
-            team_names = sorted(teams.keys())
-            parts.append(
-                'Available teams for dispatch: '
-                + ', '.join(team_names) + '.\n'
-                'Only reference these teams in the plan. If the task requires '
-                'capabilities not covered by these teams, escalate.'
-            )
-
-        skills_summary = self._list_available_skills()
-        if skills_summary:
-            parts.append(
-                'Available skills (learned procedures that can seed the plan):\n'
-                + skills_summary
-            )
-
-        if not parts:
-            return ''
-
-        return (
-            '\n\n--- Planning Constraints ---\n'
-            + '\n\n'.join(parts)
-            + '\n--- end ---'
-        )
-
-    def _list_available_skills(self) -> str:
-        """List skill names and descriptions from the project's skills directories.
-
-        Returns a formatted summary or empty string if no skills exist.
-        """
-        from teaparty.util.skill_lookup import _parse_frontmatter
-
-        skills_dirs: list[tuple[str, str]] = []
-        if self.team_override:
-            team_skills = os.path.join(
-                self.project_workdir, 'teams', self.team_override, 'skills',
-            )
-            skills_dirs.append(('team', team_skills))
-        project_skills = os.path.join(self.project_workdir, 'skills')
-        skills_dirs.append(('project', project_skills))
-
-        seen_names: set[str] = set()
-        entries: list[str] = []
-
-        for _scope, dirpath in skills_dirs:
-            if not os.path.isdir(dirpath):
-                continue
-            for filename in sorted(os.listdir(dirpath)):
-                if not filename.endswith('.md'):
-                    continue
-                path = os.path.join(dirpath, filename)
-                if not os.path.isfile(path):
-                    continue
-                try:
-                    meta, _ = _parse_frontmatter(path)
-                except Exception:
-                    continue
-                if meta.get('needs_review', '').lower() == 'true':
-                    continue
-                name = meta.get('name', filename[:-3])
-                if name in seen_names:
-                    continue
-                seen_names.add(name)
-                desc = meta.get('description', '')
-                entry = f'- {name}'
-                if desc:
-                    entry += f': {desc}'
-                entries.append(entry)
-
-        return '\n'.join(entries)
 
     # Maximum auto-retries for API overloaded (529) before escalating to human.
     _MAX_OVERLOAD_RETRIES = 3
