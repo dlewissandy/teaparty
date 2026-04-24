@@ -1074,180 +1074,41 @@ class AgentSession:
     ) -> str:
         """Run a dispatched child through its full subtree lifecycle.
 
-        Shared by spawn_fn's newly-spawned children and by the cross-
-        restart resume walker (issue #403). Caller supplies everything
-        that would normally live in spawn_fn's closure.
-
-        Loop:
-          1. Launch — writes phase='launching' + current_message before
-             the await so a pause cancellation lands accurately.
-          2. If new grandchildren spawned, writes phase='awaiting' with
-             their ids and gathers on their tasks.
-          3. Re-enters launch with --resume and the integrated replies.
-          4. Repeats until a turn produces no new dispatches.
-
-        ``start_at_phase='awaiting'`` skips the initial _launch and
-        enters directly at gather — the path that avoids re-running an
-        already-completed turn on awaiting-phase resume.
+        Delegates the launch / gather-grandchildren / resume loop to the
+        shared ``run_child_lifecycle`` helper, then invokes the session
+        lead with the child's reply when the dispatcher was the top-level
+        session.  Nested dispatches return their text up through the
+        ``tasks_by_child`` fan-in.
         """
-        import asyncio as _asyncio
-        import time as _time
-        from teaparty.teams.stream import _classify_event
-        from teaparty.runners.launcher import (
-            launch as _launch,
-            _save_session_metadata as _save_meta,
-            mark_launching as _mark_launching,
-            mark_awaiting as _mark_awaiting,
-            mark_complete as _mark_complete,
-        )
+        from teaparty.messaging.child_dispatch import run_child_lifecycle
 
-        t0 = _time.monotonic()
-        seen_tu: set[str] = set()
-        seen_tr: set[str] = set()
-        response_parts: list[str] = []
-
-        def on_event(ev: dict) -> None:
-            for sender, content in _classify_event(ev, member, seen_tu, seen_tr):
-                if content and sender != 'tool_result':
-                    self._bus.send(child_conv_id, sender, content)
-                if sender == member and content:
-                    response_parts.append(content)
-
-        mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
-        current_claude_session = resume_claude_session or ''
-        current_message = composite
-
-        # Legacy callers may not supply the member's placement (scope +
-        # teaparty_home). Fall back to the dispatcher's values so old
-        # tests and any unmigrated code paths keep working unchanged.
+        # Legacy callers may not supply the member's placement.  Fall
+        # back to the dispatcher's values so old tests and any
+        # unmigrated code paths keep working unchanged.
         if not member_scope:
             member_scope = self.scope
         if not member_teaparty_home:
             member_teaparty_home = self.teaparty_home
 
-        if start_at_phase == 'awaiting':
-            gc_tasks = [
-                self._tasks_by_child[g]
-                for g in (initial_gc_task_ids or [])
-                if g in self._tasks_by_child
-            ]
-            if gc_tasks:
-                _mark_awaiting(
-                    child_session, list(initial_gc_task_ids or []))
-                gc_results = await _asyncio.gather(
-                    *gc_tasks, return_exceptions=True)
-                gc_replies: list[str] = []
-                for gid, r in zip(initial_gc_task_ids or [], gc_results):
-                    if isinstance(r, str) and r:
-                        gc_replies.append(f'[dispatch:{gid}] {r}')
-                if gc_replies:
-                    current_message = '\n'.join(gc_replies)
-
-        while True:
-            # Fan-in tracking (#422): bus is the single source of truth
-            # for "what has this child dispatched?"  Diffing before/after
-            # identifies new grandchildren to gather replies from.
-            child_conv_id = f'dispatch:{child_session.id}'
-            before_ids = {
-                c.id[len('dispatch:'):]
-                for c in self._bus.children_of(child_conv_id)
-                if c.id.startswith('dispatch:')
-            }
-            response_parts.clear()
-
-            if worktree_path:
-                # Same-repo dispatch: child runs inside its own
-                # per-session git worktree (job tier). Scope +
-                # teaparty_home track the member's placement, so a
-                # project lead dispatched from OM resolves its agent
-                # definition and settings.yaml from project/agents/.
-                launch_kwargs = dict(
-                    agent_name=member, message=current_message,
-                    scope=member_scope, teaparty_home=member_teaparty_home,
-                    telemetry_scope=self._telemetry_scope,
-                    worktree=worktree_path,
-                    mcp_port=mcp_port,
-                    session_id=child_session.id,
-                    stream_file=os.path.join(child_session.path, 'stream.jsonl'),
-                    on_stream_event=on_event,
-                )
-            else:
-                # Cross-repo dispatch: child is a project lead running
-                # directly at its own repo root (chat tier). Config
-                # files are composed under the member's teaparty home
-                # (its own project's .teaparty/).
-                from teaparty.runners.launcher import chat_config_dir as _chat_cfg_dir
-                child_config_dir = _chat_cfg_dir(
-                    member_teaparty_home, member_scope,
-                    member, child_session.id,
-                )
-                launch_kwargs = dict(
-                    agent_name=member, message=current_message,
-                    scope=member_scope, teaparty_home=member_teaparty_home,
-                    telemetry_scope=self._telemetry_scope,
-                    tier='chat',
-                    launch_cwd=child_session.launch_cwd,
-                    config_dir=child_config_dir,
-                    mcp_port=mcp_port,
-                    session_id=child_session.id,
-                    stream_file=os.path.join(child_session.path, 'stream.jsonl'),
-                    on_stream_event=on_event,
-                )
-            if current_claude_session:
-                launch_kwargs['resume_session'] = current_claude_session
-            if self._llm_caller is not None:
-                launch_kwargs['llm_caller'] = self._llm_caller
-            launch_kwargs['mcp_routes'] = self._mcp_routes
-            # The child's own conv_id — parent of any dispatches it
-            # makes.  Middleware wires this into the contextvar the
-            # spawn_fn reads.
-            launch_kwargs['caller_conversation_id'] = child_conv_id
-
-            try:
-                _mark_launching(child_session, current_message)
-                result = await _launch(**launch_kwargs)
-                if result.session_id:
-                    child_session.claude_session_id = result.session_id
-                    current_claude_session = result.session_id
-                    _save_meta(child_session)
-            except Exception:
-                _log.exception('Child %s failed', member)
-                break
-
-            after_ids = {
-                c.id[len('dispatch:'):]
-                for c in self._bus.children_of(child_conv_id)
-                if c.id.startswith('dispatch:')
-            }
-            new_gc_ids = after_ids - before_ids
-            if not new_gc_ids:
-                break
-
-            gc_tasks = [
-                self._tasks_by_child[g] for g in new_gc_ids
-                if g in self._tasks_by_child
-            ]
-            if not gc_tasks:
-                break
-            _mark_awaiting(child_session, list(new_gc_ids))
-            gc_results = await _asyncio.gather(
-                *gc_tasks, return_exceptions=True)
-            gc_replies: list[str] = []
-            for gid, r in zip(new_gc_ids, gc_results):
-                if isinstance(r, str) and r:
-                    gc_replies.append(f'[dispatch:{gid}] {r}')
-                elif isinstance(r, Exception) and not isinstance(
-                        r, _asyncio.CancelledError):
-                    _log.warning('Grandchild %s raised: %s', gid, r)
-            if not gc_replies:
-                break
-            current_message = '\n'.join(gc_replies)
-
-        _log.info('%s subtree: %s completed in %.2fs',
-                  self.agent_name, member, _time.monotonic() - t0)
-
-        response_text = '\n'.join(response_parts)
-        _mark_complete(child_session, response_text)
+        from teaparty.runners.launcher import launch as _launch
+        response_text = await run_child_lifecycle(
+            member=member,
+            child_session=child_session,
+            worktree_path=worktree_path,
+            composite=composite,
+            child_conv_id=child_conv_id,
+            bus=self._bus,
+            tasks_by_child=self._tasks_by_child,
+            launch_fn=_launch,
+            mcp_routes=self._mcp_routes,
+            llm_caller=self._llm_caller,
+            member_scope=member_scope,
+            member_teaparty_home=member_teaparty_home,
+            telemetry_scope=self._telemetry_scope,
+            start_at_phase=start_at_phase,
+            initial_gc_task_ids=initial_gc_task_ids,
+            resume_claude_session=resume_claude_session,
+        )
         if not response_text:
             return ''
 
@@ -1256,8 +1117,10 @@ class AgentSession:
             try:
                 await self.invoke(cwd=repo_root, resume_message=reply)
             except Exception:
-                _log.exception('Failed to resume %s after %s reply',
-                               self.agent_name, member)
+                _log.exception(
+                    'Failed to resume %s after %s reply',
+                    self.agent_name, member,
+                )
         return response_text
 
     def rehydrate_paused_factories(

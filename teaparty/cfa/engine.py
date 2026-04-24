@@ -575,55 +575,33 @@ class Orchestrator:
                 member, exc_info=True,
             )
 
-        mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
-
-        # Stream the child's output into the bus under its dispatch
-        # conv_id so the accordion iframe can render it.
-        from teaparty.teams.stream import _classify_event
         child_conv_id = f'dispatch:{child_session.id}'
-        seen_tu: set[str] = set()
-        seen_tr: set[str] = set()
-        child_state: dict = {}
         child_bus = _Bus(self._bus_event_listener.bus_db_path)
-
-        def _on_child_event(ev: dict) -> None:
-            try:
-                for sender, content in _classify_event(
-                    ev, member, seen_tu, seen_tr, child_state,
-                ):
-                    # Filter out tool_result for dispatch blades.
-                    if content and sender != 'tool_result':
-                        child_bus.send(child_conv_id, sender, content)
-                        if sender == member:
-                            child_state['wrote_text'] = True
-            except Exception:
-                _log.debug(
-                    '_run_child on_event failed for %s', member,
-                    exc_info=True,
-                )
+        # Capture launch at spawn time so tests that monkeypatch
+        # ``launcher.launch`` see the stub even if the background
+        # task runs after the test's teardown restores the original.
+        from teaparty.runners.launcher import launch as _spawn_launch
 
         async def _run_child() -> str:
+            from teaparty.messaging.child_dispatch import run_child_lifecycle
             response_text = ''
             try:
-                resume_sid = child_session.claude_session_id or ''
-                result = await _launch(
-                    agent_name=member,
-                    message=composite,
-                    scope='management',
-                    teaparty_home=self.teaparty_home,
-                    worktree=worktree_path,
-                    mcp_port=mcp_port,
-                    session_id=child_session.id,
-                    resume_session=resume_sid,
+                response_text = await run_child_lifecycle(
+                    member=member,
+                    child_session=child_session,
+                    worktree_path=worktree_path,
+                    composite=composite,
+                    child_conv_id=child_conv_id,
+                    bus=child_bus,
+                    tasks_by_child=self._tasks_by_child,
+                    launch_fn=_spawn_launch,
                     mcp_routes=self._mcp_routes,
-                    caller_conversation_id=f'dispatch:{child_session.id}',
-                    on_stream_event=_on_child_event,
+                    llm_caller=None,
+                    member_scope='management',
+                    member_teaparty_home=self.teaparty_home,
+                    telemetry_scope=self.project_slug,
+                    resume_claude_session=child_session.claude_session_id or '',
                 )
-                response_text = getattr(result, 'response_text', '') or ''
-                new_claude_sid = getattr(result, 'session_id', '') or ''
-                if new_claude_sid:
-                    child_session.claude_session_id = new_claude_sid
-                    _save_meta(child_session)
             except Exception:
                 _log.exception(
                     '_bus_spawn_agent task failed for %s', member,
