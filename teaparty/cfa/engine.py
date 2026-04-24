@@ -2453,44 +2453,34 @@ class Orchestrator:
 
     def _phase_spec(self, phase_name: str) -> 'PhaseSpec':
         """Get the phase spec, accounting for team and flat overrides."""
+        from dataclasses import replace
         if self.team_override:
             team = self.config.team(self.team_override)
             base = self.config.phase(phase_name)
-            # Override agent file and lead from team config.
             # Teams can specify their own planning permission mode
             # (e.g., subteams use 'plan' for tactical planning).
-            perm = base.permission_mode
-            if phase_name == 'planning' and team.planning_permission_mode:
-                perm = team.planning_permission_mode
-            from teaparty.cfa.phase_config import PhaseSpec
-            return PhaseSpec(
-                name=base.name,
+            perm = (
+                team.planning_permission_mode
+                if phase_name == 'planning' and team.planning_permission_mode
+                else base.permission_mode
+            )
+            return replace(
+                base,
                 agent_file=team.agent_file,
                 lead=team.lead,
                 permission_mode=perm,
-                stream_file=base.stream_file,
-                artifact=base.artifact,
-                approval_state=base.approval_state,
             )
 
         base = self.config.resolve_phase(phase_name)
 
         # --flat: swap the project team for a flat team where the lead
-        # recruits agents dynamically via the Agent tool.
-        # Only affects phases that use uber-team.json (planning, execution).
-        # Use the already-resolved base.lead so the project lead from project.yaml
-        # is preserved rather than re-hardcoding 'project-lead' (Issue #408).
+        # recruits agents dynamically via the Agent tool.  Only affects
+        # phases that use uber-team.json (planning, execution).  Use the
+        # already-resolved base.lead so the project lead from
+        # project.yaml is preserved rather than re-hardcoding
+        # 'project-lead' (Issue #408).
         if self.flat and base.agent_file == 'uber':
-            from teaparty.cfa.phase_config import PhaseSpec
-            return PhaseSpec(
-                name=base.name,
-                agent_file='flat',
-                lead=base.lead,
-                permission_mode=base.permission_mode,
-                stream_file=base.stream_file,
-                artifact=base.artifact,
-                approval_state=base.approval_state,
-            )
+            return replace(base, agent_file='flat')
 
         return base
 

@@ -93,8 +93,10 @@ _DEFAULT_MAX_DISPATCH_RETRIES = 5
 class PhaseConfig:
     """Unified configuration derived from phase-config.json + cfa-state-machine.json.
 
-    Optionally layered with project-scoped overrides from project_dir/project.json.
-    Resolution order: org defaults → project overrides.
+    The ``project.json`` overlay path (legacy per-phase / per-team
+    overrides) was never adopted by any project and has been removed;
+    ``project.yaml`` is still read for the project's configured lead
+    name (the ``project-lead`` sentinel substitution).
     """
 
     def __init__(self, poc_root: str, project_dir: str | None = None):
@@ -102,7 +104,6 @@ class PhaseConfig:
         self.project_dir = project_dir
         self._phases: dict[str, PhaseSpec] = {}
         self._teams: dict[str, TeamSpec] = {}
-        self._project_config: dict[str, Any] = {}
         self._org_agents: dict[str, dict[str, Any]] = {}
         self._project_claude_md: str = ''
         self._project_lead: str = ''
@@ -118,7 +119,7 @@ class PhaseConfig:
     def _load(self) -> None:
         self._load_phase_config()
         self._load_state_machine()
-        self._load_project_config()
+        self._load_project_lead()
         self._load_project_claude_md()
 
     def _load_phase_config(self) -> None:
@@ -147,32 +148,28 @@ class PhaseConfig:
                 action for action, _target, _actor in TRANSITIONS[state]
             ]
 
-    def _load_project_config(self) -> None:
-        """Load project-scoped config from project.yaml (lead) and project.json (overrides)."""
+    def _load_project_lead(self) -> None:
+        """Read the project's configured lead from ``project.yaml``.
+
+        This is the same file the bridge reads via
+        ``load_project_team()`` (issue #408).  The lead substitutes
+        the generic ``'project-lead'`` sentinel in ``resolve_phase``.
+        """
         if not self.project_dir:
             return
-
-        # Load project lead from project.yaml — the canonical project config.
-        # This is the same file the bridge reads via load_project_team() (Issue #408).
         yaml_path = os.path.join(
             self.project_dir, '.teaparty', 'project', 'project.yaml',
         )
-        if os.path.exists(yaml_path):
-            try:
-                import yaml as _yaml
-                with open(yaml_path) as f:
-                    data = _yaml.safe_load(f)
-                if data and isinstance(data, dict):
-                    self._project_lead = data.get('lead', '') or ''
-            except Exception:
-                pass
-
-        # Legacy: project.json phase/team overrides (no project currently has one).
-        path = os.path.join(self.project_dir, 'project.json')
-        if not os.path.exists(path):
+        if not os.path.exists(yaml_path):
             return
-        with open(path) as f:
-            self._project_config = json.load(f)
+        try:
+            import yaml as _yaml
+            with open(yaml_path) as f:
+                data = _yaml.safe_load(f)
+            if data and isinstance(data, dict):
+                self._project_lead = data.get('lead', '') or ''
+        except Exception:
+            pass
 
     def _load_project_claude_md(self) -> None:
         """Load project rules from .teaparty/project/project.md if it exists."""
@@ -288,20 +285,8 @@ class PhaseConfig:
 
     @property
     def project_teams(self) -> dict[str, TeamSpec]:
-        """Teams available to the current project.
-
-        If a project config exists with a 'teams' key, returns only those
-        teams that are both listed in the project config and defined in the
-        org catalogue.  Otherwise returns all org teams.
-        """
-        project_team_names = self._project_config.get('teams')
-        if project_team_names is None:
-            return dict(self._teams)
-        return {
-            name: spec
-            for name, spec in self._teams.items()
-            if name in project_team_names
-        }
+        """Teams available to the current project.  Always the full set."""
+        return dict(self._teams)
 
     @property
     def project_claude_md(self) -> str:
@@ -309,20 +294,11 @@ class PhaseConfig:
         return self._project_claude_md
 
     def resolve_team_spec(self, team_name: str) -> TeamSpec:
-        """Resolve a TeamSpec with project overrides applied.
-
-        Handles planning_permission_mode override from project config.
-        """
-        import copy
+        """Return the TeamSpec for *team_name*, raising on unknown."""
         base = self._teams.get(team_name)
         if not base:
             raise KeyError(f'Unknown team: {team_name}')
-        result = copy.copy(base)
-        project_teams = self._project_config.get('teams', {})
-        team_overrides = project_teams.get(team_name, {})
-        if 'planning_permission_mode' in team_overrides:
-            result.planning_permission_mode = team_overrides['planning_permission_mode']
-        return result
+        return base
 
     def resolve_agents_json(self, team_name: str) -> str:
         """Produce the JSON string for a team's agents, suitable for --agents."""
@@ -332,49 +308,19 @@ class PhaseConfig:
         return json.dumps(agents)
 
     def resolve_phase(self, phase_name: str) -> PhaseSpec:
-        """Resolve a PhaseSpec with project overrides applied.
-
-        Resolution order:
-          1. Org defaults from phase-config.json.
-          2. Project.json phase overrides (legacy, no project currently uses this).
-          3. Project lead from project.yaml: substituted when the org default is
-             the generic 'project-lead' sentinel (Issue #408).
+        """Resolve a PhaseSpec, substituting the project's configured lead.
 
         Intent, planning, and execution phases all use the generic
-        'project-lead' sentinel in phase-config.json and get substituted
-        for the project's actual lead (e.g. 'joke-book-lead'). One agent
-        carries the job across all three phases; skills differentiate the
-        phase-specific behaviour.
+        ``'project-lead'`` sentinel in the phase table; when the
+        project sets a specific lead in ``project.yaml`` (e.g.
+        ``joke-book-lead``) we substitute it here (issue #408).  One
+        agent carries the job across all three phases; skills
+        differentiate the phase-specific behaviour.
         """
+        from dataclasses import replace
         base = self._phases[phase_name]
-
-        # Apply legacy project.json phase overrides if present.
-        project_phases = self._project_config.get('phases', {})
-        overrides = project_phases.get(phase_name, {})
-        if overrides:
-            base = PhaseSpec(
-                name=base.name,
-                agent_file=overrides.get('agent_file', base.agent_file),
-                lead=overrides.get('lead', base.lead),
-                permission_mode=overrides.get('permission_mode', base.permission_mode),
-                stream_file=base.stream_file,
-                artifact=base.artifact,
-                approval_state=base.approval_state,
-            )
-
-        # Substitute project lead from project.yaml when the phase uses the generic
-        # 'project-lead' sentinel and the project has a configured lead (Issue #408).
         if base.lead == 'project-lead' and self._project_lead:
-            base = PhaseSpec(
-                name=base.name,
-                agent_file=base.agent_file,
-                lead=self._project_lead,
-                permission_mode=base.permission_mode,
-                stream_file=base.stream_file,
-                artifact=base.artifact,
-                approval_state=base.approval_state,
-            )
-
+            return replace(base, lead=self._project_lead)
         return base
 
     @property
@@ -383,42 +329,8 @@ class PhaseConfig:
         return self._project_lead
 
     def resolve_team_agents(self, team_name: str) -> dict[str, dict[str, Any]]:
-        """Resolve agent definitions for a team with project overrides applied.
-
-        Resolution order: org defaults → project overrides.
-        - model: project value replaces org value
-        - prompt_addition: appended to org prompt with newline separator
-        - disallowedTools: project value replaces org value
-        """
-        org_agents = self._load_org_agents(team_name)
-        if not org_agents:
-            return {}
-
-        # Deep copy to avoid mutating cached org definitions
-        import copy
-        resolved = copy.deepcopy(org_agents)
-
-        # Apply project overrides if they exist
-        project_teams = self._project_config.get('teams', {})
-        team_overrides = project_teams.get(team_name, {})
-        agent_overrides = team_overrides.get('agent_overrides', {})
-
-        for agent_name, overrides in agent_overrides.items():
-            if agent_name not in resolved:
-                continue
-            agent = resolved[agent_name]
-            if 'model' in overrides:
-                agent['model'] = overrides['model']
-            if 'prompt_addition' in overrides:
-                agent['prompt'] = agent.get('prompt', '') + '\n\n' + overrides['prompt_addition']
-            if 'disallowedTools' in overrides:
-                agent['disallowedTools'] = overrides['disallowedTools']
-            if 'allowedTools' in overrides:
-                agent['allowedTools'] = overrides['allowedTools']
-            if 'permission_mode' in overrides:
-                agent['permission_mode'] = overrides['permission_mode']
-
-        return resolved
+        """Return the org agent definitions for *team_name*, or {}."""
+        return self._load_org_agents(team_name)
 
     def phase(self, name: str) -> PhaseSpec:
         return self._phases[name]
