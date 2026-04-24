@@ -722,6 +722,32 @@ class Orchestrator:
                 'silently produce the wrong tree.',
             )
 
+        # Slot limit: the caller cannot hold more than
+        # ``MAX_CONVERSATIONS_PER_AGENT`` live dispatches at once.  The
+        # chat tier's ``spawn_fn`` enforces this; CfA ``_bus_spawn_agent``
+        # never did, so a CfA job lead could open an unbounded number of
+        # children (the user hit this at N=4).  Skip the check on the
+        # resume path — re-entering an existing dispatch reuses a slot,
+        # it does not add one.
+        if existing_child is None:
+            from teaparty.runners.launcher import check_slot_available
+            _slot_bus = _Bus(self._bus_event_listener.bus_db_path)
+            try:
+                _ok = check_slot_available(
+                    self._dispatcher_session,
+                    bus=_slot_bus,
+                    conv_id=parent_conv_id,
+                )
+            finally:
+                _slot_bus.close()
+            if not _ok:
+                _log.warning(
+                    '_bus_spawn_agent: at conversation limit '
+                    '(parent %s); dispatch to %s blocked',
+                    parent_conv_id, member,
+                )
+                return ('', '', 'slot_limit')
+
         if existing_child is not None:
             # Resume path: the child session + worktree + bus row all
             # already exist.  Skip creation; just re-use.  The bus
