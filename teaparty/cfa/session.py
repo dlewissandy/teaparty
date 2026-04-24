@@ -167,7 +167,6 @@ class Session:
         plan_only: bool = False,
         execute_only: bool = False,
         show_memory: bool = False,
-        show_proxy: bool = False,
         dry_run: bool = False,
         skip_learnings: bool = False,
         verbose: bool = False,
@@ -196,7 +195,6 @@ class Session:
         self.plan_only = plan_only
         self.execute_only = execute_only
         self.show_memory = show_memory
-        self.show_proxy = show_proxy
         self.dry_run = dry_run
         self.skip_learnings = skip_learnings
         self.verbose = verbose
@@ -369,10 +367,6 @@ class Session:
             # 8b. Show memory context if requested
             if self.show_memory or self.dry_run:
                 self._print_memory_context(memory_context)
-
-            # 8c. Show proxy confidence model if requested
-            if self.show_proxy or self.dry_run:
-                self._print_proxy_model(project_dir)
 
             if self.dry_run:
                 await self.event_bus.publish(Event(
@@ -738,62 +732,6 @@ class Session:
         else:
             print('  (no memory context retrieved)', file=sys.stderr)
         print('── END MEMORY CONTEXT ──\n', file=sys.stderr)
-
-    @staticmethod
-    def _print_proxy_model(project_dir: str) -> None:
-        """Print proxy confidence model state to stderr for debugging."""
-        from teaparty.proxy.approval_gate import (
-            load_model, compute_confidence, is_generative_state,
-            ConfidenceEntry, COLD_START_THRESHOLD,
-        )
-        print('\n── PROXY CONFIDENCE MODEL ──', file=sys.stderr)
-        model_path = os.path.join(project_dir, '.proxy-confidence.json')
-        if not os.path.exists(model_path):
-            print(f'  (no model file at {model_path})', file=sys.stderr)
-            print('── END PROXY MODEL ──\n', file=sys.stderr)
-            return
-
-        model = load_model(model_path)
-        if not model.entries:
-            print('  (model exists but has no entries)', file=sys.stderr)
-            print('── END PROXY MODEL ──\n', file=sys.stderr)
-            return
-
-        header = f"  {'STATE':<22} {'TASK_TYPE':<20} {'CONF':>6} {'APP':>4} {'TOT':>4} {'DIFFS':>5} {'UPDATED'}"
-        print(header, file=sys.stderr)
-        print('  ' + '-' * (len(header) - 2), file=sys.stderr)
-
-        for key, raw in sorted(model.entries.items()):
-            if isinstance(raw, dict):
-                if 'differentials' not in raw:
-                    raw['differentials'] = []
-                if 'artifact_lengths' not in raw:
-                    raw['artifact_lengths'] = []
-                if 'question_patterns' not in raw:
-                    raw['question_patterns'] = []
-                entry = ConfidenceEntry(**raw)
-            else:
-                entry = raw
-            conf = compute_confidence(entry)
-            threshold = (
-                model.generative_threshold
-                if is_generative_state(entry.state)
-                else model.global_threshold
-            )
-            diff_count = len(entry.differentials)
-            marker = '*' if conf >= threshold and entry.total_count >= COLD_START_THRESHOLD else ' '
-            print(
-                f'  {entry.state:<22} {entry.task_type:<20} {conf:>6.3f} '
-                f'{entry.approve_count:>4} {entry.total_count:>4} {diff_count:>5}  '
-                f'{entry.last_updated} {marker}',
-                file=sys.stderr,
-            )
-        print(
-            f'\n  thresholds: binary={model.global_threshold}  '
-            f'generative={model.generative_threshold}  (* = would auto-approve)',
-            file=sys.stderr,
-        )
-        print('── END PROXY MODEL ──\n', file=sys.stderr)
 
     # ── Resume from disk ─────────────────────────────────────────────────────
 

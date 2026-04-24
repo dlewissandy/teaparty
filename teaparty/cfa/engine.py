@@ -1019,7 +1019,6 @@ class Orchestrator:
         target = result.backtrack_to or ''
         reason = f'{phase} backtracked to {target}'
         self._record_dead_end(phase, reason, result.backtrack_feedback)
-        self._mark_false_positives(reason)
         if self.suppress_backtracks:
             _log.info(
                 'Suppressing backtrack to %s (suppress_backtracks=True)',
@@ -1813,13 +1812,7 @@ class Orchestrator:
             dynamically-resolved available teams injected.
         Execution phase: reads PLAN.md as the workflow to follow,
             with INTENT.md appended as reference context.
-
-        On cold start (< COLD_START_THRESHOLD observations for the phase's
-        approval state), appends context informing the agent that this is a
-        first encounter and the proxy has no model of the human's preferences.
         """
-        from teaparty.proxy.approval_gate import COLD_START_THRESHOLD
-
         base_task = ''
         if phase_name == 'execution':
             plan_path = os.path.join(self.session_worktree, 'PLAN.md')
@@ -1896,22 +1889,6 @@ class Orchestrator:
             teams_block = self._resolve_available_teams()
             if teams_block:
                 base_task += teams_block
-
-        if phase_name in ('intent', 'planning'):
-            obs_count = self._get_observation_count(phase_name)
-            if obs_count < COLD_START_THRESHOLD:
-                cold_start_context = (
-                    '\n\n--- Cold Start Context ---\n'
-                    f'This is a cold start — the proxy has {obs_count} prior '
-                    f'observation(s) for this project and phase (threshold: '
-                    f'{COLD_START_THRESHOLD}). The system has no model of the '
-                    f"human's preferences yet. Exploring within your cwd and "
-                    f'engaging the human with what you find before producing '
-                    f'the artifact will lead to a better result than a '
-                    f'one-shot attempt.\n'
-                    '--- end ---'
-                )
-                base_task += cold_start_context
 
         return base_task
 
@@ -2109,27 +2086,6 @@ class Orchestrator:
             return action
         return 'retry'
 
-    def _mark_false_positives(self, reason: str) -> None:
-        """Mark prior auto-approvals as false positives on backtrack."""
-        try:
-            from teaparty.proxy.approval_gate import mark_false_positive_approvals
-            log_path = os.path.join(
-                os.path.dirname(self.proxy_model_path),
-                '.proxy-interactions.jsonl',
-            )
-            count = mark_false_positive_approvals(
-                log_path=log_path,
-                session_id=self.session_id,
-                reason=reason,
-            )
-            if count > 0:
-                _log.info(
-                    'Marked %d prior auto-approvals as false positives: %s',
-                    count, reason,
-                )
-        except Exception:
-            pass
-
     def _check_skill_correction(self) -> None:
         """Check if planning corrected a skill-based plan and archive the correction.
 
@@ -2192,40 +2148,7 @@ class Orchestrator:
 
         self._active_skill = None
 
-    def _get_observation_count(self, phase_name: str = '') -> int:
-        """Get the proxy model's observation count for the current phase's approval state.
-
-        Looks up the (approval_state, project_slug) pair — one per phase
-        (INTENT, PLAN, EXECUTE) — so proxy observations cluster by phase
-        identity rather than by whichever internal state the skill happens
-        to be in.
-
-        Returns 0 if the proxy model doesn't exist or the pair has no entries.
-        """
-        from teaparty.proxy.approval_gate import load_model, _entry_key
-
-        if not phase_name:
-            phase_name = phase_for_state(self.cfa.state)
-        try:
-            spec = self.config.phase(phase_name)
-        except KeyError:
-            return 0
-
-        try:
-            model = load_model(self.proxy_model_path)
-        except Exception:
-            return 0
-
-        key = _entry_key(spec.approval_state, self.project_slug)
-        raw = model.entries.get(key)
-        if raw is None:
-            return 0
-        if isinstance(raw, dict):
-            return raw.get('total_count', 0)
-        return getattr(raw, 'total_count', 0)
-
     def _build_env_vars(self) -> dict[str, str]:
-        obs_count = self._get_observation_count()
         return {
             'POC_PROJECT': self.project_slug,
             'POC_PROJECT_DIR': self.project_workdir,
@@ -2234,7 +2157,6 @@ class Orchestrator:
             'POC_CFA_STATE': os.path.join(self.infra_dir, '.cfa-state.json'),
             'SCRIPT_DIR': self.poc_root,
             'PROJECTS_DIR': os.path.dirname(self.project_workdir),
-            'POC_PROXY_OBSERVATIONS': str(obs_count),
         }
 
     def _build_add_dirs(self) -> list[str]:

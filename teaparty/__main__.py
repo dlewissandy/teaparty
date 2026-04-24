@@ -17,9 +17,8 @@ Context injection:
 
 Testing:
     python -m teaparty --no-human --execute-only "Fully automated"
-    python -m teaparty --dry-run -p myproject "Show memory + proxy"
+    python -m teaparty --dry-run -p myproject "Show memory context"
     python -m teaparty --show-memory "Show memory then run"
-    python -m teaparty --show-proxy -p myproject "Show proxy model"
     python -m teaparty --skip-learnings "Skip learning extraction"
     python -m teaparty -v "Verbose proxy/artifact tracing"
     python -m teaparty --flat "No hierarchical dispatch"
@@ -212,8 +211,6 @@ async def main() -> int:
                             help='Never block for human input; auto-approve all review gates')
     test_group.add_argument('--show-memory', action='store_true',
                             help='Print memory context that will be injected (for debugging)')
-    test_group.add_argument('--show-proxy', action='store_true',
-                            help='Print proxy confidence model state (for debugging)')
     test_group.add_argument('--dry-run', action='store_true',
                             help='Print memory context and exit without running the session')
     test_group.add_argument('--skip-learnings', action='store_true',
@@ -288,7 +285,6 @@ async def main() -> int:
         plan_only=args.plan_only,
         execute_only=args.execute_only,
         show_memory=args.show_memory or args.dry_run,
-        show_proxy=args.show_proxy or args.dry_run,
         dry_run=args.dry_run,
         skip_learnings=args.skip_learnings,
         verbose=args.verbose,

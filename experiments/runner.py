@@ -1,12 +1,11 @@
-"""ExperimentRunner — wraps Session with event collection and experiment overrides.
+"""ExperimentRunner — wraps Session with event collection.
 
 Orchestrates a single experiment run:
   1. Creates the results directory
   2. Sets up EventBus with EventCollector
   3. Selects the InputProvider based on config
-  4. Applies experiment overrides (regret_weight, suppress_backtracks)
-  5. Runs the Session
-  6. Writes summary metrics
+  4. Runs the Session
+  5. Writes summary metrics
 """
 from __future__ import annotations
 
@@ -46,7 +45,6 @@ class ExperimentRunner:
         self.config = config
         self.verbose = verbose
         self.collect_ratings = collect_ratings
-        self._original_regret_weight: int | None = None
         self._collector: EventCollector | None = None
 
     async def run(self) -> dict[str, Any]:
@@ -190,23 +188,18 @@ class ExperimentRunner:
         return metrics
 
     def _apply_overrides(self) -> None:
-        """Apply experiment overrides via monkey-patching."""
-        config = self.config
+        """Apply experiment overrides.
 
-        # Override REGRET_WEIGHT in approval_gate module
-        if config.regret_weight is not None:
-            import teaparty.proxy.approval_gate as ag
-            self._original_regret_weight = ag.REGRET_WEIGHT
-            ag.REGRET_WEIGHT = config.regret_weight
-            _log.info('Override REGRET_WEIGHT: %d → %d',
-                       self._original_regret_weight, config.regret_weight)
+        Historically overrode ``REGRET_WEIGHT`` on the approval gate
+        confidence model.  That model and its regret-weighted EMA are
+        gone; this hook is a no-op now, preserved so callers that set
+        overrides still run cleanly.
+        """
+        return
 
     def _restore_overrides(self) -> None:
-        """Restore original values after the run."""
-        if self._original_regret_weight is not None:
-            import teaparty.proxy.approval_gate as ag
-            ag.REGRET_WEIGHT = self._original_regret_weight
-            self._original_regret_weight = None
+        """Restore original values after the run (no-op)."""
+        return
 
     @staticmethod
     def _find_poc_root() -> str:

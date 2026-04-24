@@ -87,14 +87,10 @@ async def consult_proxy(
     if not proxy_enabled:
         return ProxyResult(text='', confidence=0.0, from_agent=False)
 
-    from teaparty.proxy.approval_gate import (
-        resolve_team_model_path,
-        retrieve_similar_interactions,
-    )
+    from teaparty.proxy.approval_gate import resolve_team_model_path
 
-    # Gather learning context (patterns, similar interactions) for the agent.
+    # Gather learning context (patterns + ACT-R memories) for the agent.
     learned_patterns = ''
-    similar: list = []
     actr_retrieval = _EMPTY_RETRIEVAL
     try:
         model_path = resolve_team_model_path(proxy_model_path, team)
@@ -109,11 +105,10 @@ async def consult_proxy(
             except OSError:
                 pass
 
-        # Tier 2: retrieve similar past interactions (legacy)
-        log_path = os.path.join(project_dir, '.proxy-interactions.jsonl')
-        similar = retrieve_similar_interactions(
-            log_path=log_path, state=state, project=project_slug, top_k=5,
-        )
+        # Tier 2 (retrieval of similar past interactions) has been retired:
+        # nothing writes ``.proxy-interactions.jsonl`` in the current
+        # architecture.  Behavioral signal now comes from Tier 1 (flat
+        # patterns) and Tier 3 (ACT-R memory) only.
 
         # Tier 3: ACT-R memory retrieval
         actr_retrieval = _retrieve_actr_memories(
@@ -157,7 +152,6 @@ async def consult_proxy(
             session_worktree=session_worktree,
             infra_dir=infra_dir,
             learned_patterns=learned_patterns,
-            similar_interactions=similar,
             actr_memories=actr_text,
             accuracy_context=accuracy_context,
             dialog_history=dialog_history,
@@ -641,7 +635,6 @@ async def run_proxy_agent(
     session_worktree: str = '',
     infra_dir: str = '',
     learned_patterns: str = '',
-    similar_interactions: list | None = None,
     actr_memories: str = '',
     accuracy_context: str = '',
     dialog_history: str = '',
@@ -670,22 +663,6 @@ async def run_proxy_agent(
             f'These are patterns the human has established through past reviews:\n'
             f'{learned_patterns}\n'
         )
-    if similar_interactions:
-        interaction_lines = []
-        for entry in similar_interactions[-5:]:
-            outcome = entry.get('outcome', '?')
-            delta = entry.get('delta', '')
-            ts = entry.get('timestamp', '')
-            line = f'  {ts}: outcome={outcome}'
-            if delta:
-                line += f' — {delta[:200]}'
-            interaction_lines.append(line)
-        if interaction_lines:
-            learning_block += (
-                f'\n--- PAST INTERACTIONS AT THIS GATE ---\n'
-                + '\n'.join(interaction_lines) + '\n'
-            )
-
     task_learning_block = ''
     if task_learnings:
         task_learning_block = (
