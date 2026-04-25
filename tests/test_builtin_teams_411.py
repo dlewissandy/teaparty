@@ -91,6 +91,7 @@ _UNIFIED_LEAD_TOOLS: set[str] = {
     'mcp__teaparty-config__Send',
     'mcp__teaparty-config__CloseConversation',
     'mcp__teaparty-config__AskQuestion',
+    'mcp__teaparty-config__ListTeamMembers',
 }
 
 # Required tools per agent per design doc.

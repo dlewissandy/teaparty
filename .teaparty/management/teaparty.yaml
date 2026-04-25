@@ -14,7 +14,8 @@ members:
   - pybayes
   - Jainai
   - comics
-  workgroups: []
+  workgroups:
+  - Configuration
 workgroups:
 - name: Analytics
   config: workgroups/analytics.yaml

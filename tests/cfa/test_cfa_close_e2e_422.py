@@ -101,7 +101,7 @@ class TestCfACloseE2E(unittest.IsolatedAsyncioTestCase):
         self._tp = os.path.join(self._project, '.teaparty')
         os.makedirs(os.path.join(self._tp, 'management', 'sessions'),
                     exist_ok=True)
-        # Minimal workgroups dir so has_sub_roster() never explodes.
+        # Minimal workgroups dir so config walks never explode.
         os.makedirs(os.path.join(self._tp, 'management', 'workgroups'),
                     exist_ok=True)
         os.makedirs(os.path.join(self._tp, 'management', 'agents'),

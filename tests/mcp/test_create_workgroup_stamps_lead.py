@@ -34,6 +34,7 @@ _EXPECTED_TOOLS = {
     'mcp__teaparty-config__Send',
     'mcp__teaparty-config__CloseConversation',
     'mcp__teaparty-config__AskQuestion',
+    'mcp__teaparty-config__ListTeamMembers',
 }
 
 
@@ -56,8 +57,8 @@ class CreateWorkgroupStampsLeadTest(unittest.TestCase):
             f'{name}-lead', 'agent.md',
         )
 
-    def test_unified_tool_list_is_the_lean_eight(self) -> None:
-        """The tool constant used by the stamper matches the 8-item whitelist."""
+    def test_unified_tool_list_is_the_lean_nine(self) -> None:
+        """The tool constant used by the stamper matches the 9-item whitelist."""
         actual = {t.strip() for t in _WORKGROUP_LEAD_TOOLS.split(',')}
         self.assertEqual(
             actual, _EXPECTED_TOOLS,

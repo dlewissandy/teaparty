@@ -416,16 +416,15 @@ class AgentSession:
             ChildDispatchContext,
             make_spawn_fn,
         )
-        from teaparty.config.roster import resolve_lead_project_path
 
-        proj_dir = ''
-        if self.project_slug:
-            proj_dir = resolve_lead_project_path(
-                self.agent_name, self.teaparty_home,
-            ) or ''
+        # Single roster-derivation entry point: derive_team_roster
+        # looks up the team headed by this session's lead in the org
+        # tree.  No project_dir lookup needed at the call site — the
+        # tree walk handles OM, project-lead, and workgroup-lead
+        # sessions uniformly because each is its team's lead.
         dispatcher = build_session_dispatcher(
             teaparty_home=self.teaparty_home,
-            project_dir=proj_dir,
+            lead_name=self.agent_name,
         )
 
         # Cut 24: build the unified spawn_fn from a shared
@@ -1031,7 +1030,7 @@ class AgentSession:
             create_session as _create_session, load_session as _load_session,
         )
         from teaparty.config.roster import (
-            resolve_launch_cwd, LaunchCwdNotResolved,
+            resolve_launch_placement, LaunchCwdNotResolved,
         )
         from teaparty.runners.launcher import chat_config_dir as _chat_cfg_dir
 
@@ -1088,7 +1087,7 @@ class AgentSession:
             launch_cwd = launch_cwd_override
         else:
             try:
-                launch_cwd = resolve_launch_cwd(
+                launch_cwd, _scope = resolve_launch_placement(
                     self.agent_name, self.teaparty_home,
                 )
             except LaunchCwdNotResolved:

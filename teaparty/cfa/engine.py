@@ -363,7 +363,7 @@ class Orchestrator:
             )
             dispatcher = build_session_dispatcher(
                 teaparty_home=self.teaparty_home,
-                project_dir=self.project_dir,
+                lead_name=lead_agent_id,
             )
 
             # Cut 24: unified spawn_fn prelude across tiers.  CfA's

@@ -1,28 +1,27 @@
 """Bus dispatcher: routing table and transport-level authorization for agent-to-agent messaging.
 
 The RoutingTable holds the set of permitted ``(sender, recipient)``
-pairs derived from a session's roster.  Each slot is the agent's
-**name** as it appears in the roster — an agent's name is its
-identity, with 1:1 correspondence between the string and the agent.
-No aliases, no translation map, no parallel namespace.  A roster with
-duplicate names is a configuration error and must be rejected at load
-time.
+pairs for ONE session, derived from that session's team roster.
+Each slot is the agent's **name** as it appears in the roster — an
+agent's name is its identity, with 1:1 correspondence between the
+string and the agent.  No aliases, no translation map, no parallel
+namespace.
 
 The BusDispatcher wraps the table and is the independent enforcement
 point — every bus post goes through it, whether via the Send MCP tool
 or via a direct bus write.
 
 ONE WAY OF BUILDING ROUTING TABLES: ``build_routing_table(roster)``.
-The Roster shape (in ``teaparty.config.roster``) is recursive — a
-project roster nests its workgroup sub-rosters — and the table builder
-walks that structure once.  No per-team-type classmethods.
+The Roster (in ``teaparty.config.roster``) is **flat** — one team's
+lead, members, mesh flag, and parent_lead.  Sub-team routing happens
+in the sub-team's own session's dispatcher, built from the sub-team's
+own flat roster; no global tree.
 
-Routing rules emerge from the Roster shape:
+Routing rules emerge from the flat Roster:
 
   * lead ↔ each direct member (always)
-  * within-team mesh among members + lead (when ``mesh_among_members``)
-  * lead ↔ ``parent_lead`` (cross-team gateway)
-  * recurse into ``sub_rosters`` and merge
+  * within-team mesh among members (when ``mesh_among_members``)
+  * lead ↔ ``parent_lead`` (cross-team gateway, conversation-scoped)
 
 See docs/proposals/agent-dispatch/references/routing.md for the spec.
 """
@@ -40,11 +39,19 @@ class RoutingError(Exception):
 
 
 class DuplicateAgentName(ValueError):
-    """Raised when a roster contains the same agent name twice.
+    """Raised when the same agent name appears as the lead of two teams.
 
-    Agent names are identifiers; uniqueness within a routing scope is a
-    correctness precondition, not a soft constraint.  Caller config is
-    wrong and must be fixed.
+    Leads are in 1:1 correspondence with their team — one lead heads
+    exactly one team.  Two teams sharing a lead is a config error.
+
+    Routing-table construction itself can no longer detect this
+    (each session builds a flat roster for one team, so its lead
+    appears exactly once).  Detection happens at config-load time
+    against the management catalog.
+
+    Member-name duplication across teams is *allowed*: the same agent
+    can be a member of multiple workgroups; routing simply adds them
+    to each group's mesh in each group's own session.
     """
 
 
@@ -73,52 +80,18 @@ class RoutingTable:
 
 
 def build_routing_table(roster: 'Roster') -> RoutingTable:
-    """Build a RoutingTable from a Roster.
+    """Build a RoutingTable from a flat Roster.
 
-    ONE function, all team types.  Walks the recursive Roster
-    structure, adding pairs from each level:
+    ONE function, all team types — selected by the roster's flags
+    (``mesh_among_members``) and ``parent_lead`` field, not by
+    per-team-type branching:
 
       * lead ↔ each direct member
-      * lead ↔ parent_lead (when set)
-      * within-team mesh (when ``mesh_among_members``) — every member
-        pair plus lead↔member already covered above
-      * recursive merge of ``sub_rosters``
-
-    Validates uniqueness across the full tree: collects every name
-    visited and raises ``DuplicateAgentName`` on a repeat.  ``proxy``
-    is the deliberate exception (one ``proxy`` agent serves multiple
-    humans by qualifier).
+      * lead ↔ parent_lead (when set, cross-team gateway)
+      * within-team mesh among members (when ``mesh_among_members``)
     """
     table = RoutingTable()
-    seen: set[str] = set()
-    _populate(table, roster, seen)
-    return table
-
-
-def _populate(
-    table: RoutingTable, roster: 'Roster', seen: set[str],
-) -> None:
-    """Add pairs for one Roster level + recurse into sub_rosters."""
-    if roster.lead:
-        if roster.lead in seen:
-            raise DuplicateAgentName(
-                f'Agent name {roster.lead!r} appears more than once in '
-                f'the roster tree.  Names are identifiers; rename or '
-                f'restructure.',
-            )
-        seen.add(roster.lead)
-
     member_names = [m.name for m in roster.members]
-
-    for name in member_names:
-        if name == 'proxy':
-            continue
-        if name in seen:
-            raise DuplicateAgentName(
-                f'Agent name {name!r} appears more than once in the '
-                f'roster tree.  Names are identifiers; rename.',
-            )
-        seen.add(name)
 
     # lead ↔ parent_lead (cross-team gateway)
     if roster.parent_lead and roster.lead:
@@ -138,8 +111,7 @@ def _populate(
                 if i != j and a and b:
                     table.add_pair(a, b)
 
-    for sub in roster.sub_rosters:
-        _populate(table, sub, seen)
+    return table
 
 
 class BusDispatcher:

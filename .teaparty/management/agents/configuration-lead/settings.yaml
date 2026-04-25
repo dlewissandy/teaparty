@@ -9,3 +9,4 @@ permissions:
   - mcp__teaparty-config__CloseConversation
   - mcp__teaparty-config__AskQuestion
   - Bash
+  - mcp__teaparty-config__ListTeamMembers

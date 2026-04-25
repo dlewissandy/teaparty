@@ -2,9 +2,9 @@
 """Tests for teaparty.config.roster.
 
 Covers:
- 1. derive_roster — single source of truth for "who is on the OM's team"
- 2. has_sub_roster — structural check for sub-roster presence
- 3. RoutingTable.from_management_roster — OM-level routing
+ 1. derive_team_roster — the single public entry point: given a lead
+    name, returns the flat roster of the team that lead heads
+ 2. build_routing_table from a management Roster — OM-level routing
 """
 import os
 import sys
@@ -15,10 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from teaparty.config.roster import (
-    derive_roster,
-    has_sub_roster,
-)
+from teaparty.config.roster import derive_team_roster
 from teaparty.messaging.dispatcher import RoutingTable, build_routing_table
 
 
@@ -105,10 +102,15 @@ WORKGROUP_RESEARCH_YAML = textwrap.dedent("""\
 """)
 
 
-# ── 1. derive_roster ─────────────────────────────────────────────────────
+# ── 1. derive_team_roster (OM's team) ───────────────────────────────────────
 
 class TestDeriveRoster(unittest.TestCase):
-    """OM roster includes project leads and management agents."""
+    """OM roster includes project leads and management agents.
+
+    Calls ``derive_team_roster('office-manager', teaparty_home)`` —
+    the single public entry point.  The OM is found at the root of
+    the org tree, so its team's roster is returned.
+    """
 
     def setUp(self):
         self.proj = _make_project_dir(textwrap.dedent("""\
@@ -144,15 +146,17 @@ class TestDeriveRoster(unittest.TestCase):
         )
 
     def test_roster_includes_project_lead(self):
-        roster = _names(derive_roster(teaparty_home=os.path.join(self.home, '.teaparty')))
+        roster = _names(derive_team_roster(
+            'office-manager', os.path.join(self.home, '.teaparty'),
+        ))
         self.assertIn('alpha-lead', roster)
         self.assertEqual(roster['alpha-lead']['description'], 'Alpha project.')
 
     def test_roster_excludes_unlisted_agents(self):
         """Agents in members.agents are not included — membership is derived
         from humans, members.projects, and members.workgroups only."""
-        roster = _names(derive_roster(
-            teaparty_home=os.path.join(self.home, '.teaparty'),
+        roster = _names(derive_team_roster(
+            'office-manager', os.path.join(self.home, '.teaparty'),
         ))
         self.assertNotIn('auditor', roster)
 
@@ -187,7 +191,9 @@ class TestDeriveRoster(unittest.TestCase):
             members: {{}}
         """)
         home = _make_teaparty_home(yaml_text)
-        roster = _names(derive_roster(teaparty_home=os.path.join(home, '.teaparty')))
+        roster = _names(derive_team_roster(
+            'office-manager', os.path.join(home, '.teaparty'),
+        ))
         lead_names = sorted(k for k in roster if k.endswith('-lead'))
         self.assertEqual(
             lead_names, ['alpha-lead', 'bravo-lead'],
@@ -215,7 +221,9 @@ class TestDeriveRoster(unittest.TestCase):
               projects: []
         """)
         home = _make_teaparty_home(yaml_text)
-        roster = _names(derive_roster(teaparty_home=os.path.join(home, '.teaparty')))
+        roster = _names(derive_team_roster(
+            'office-manager', os.path.join(home, '.teaparty'),
+        ))
         self.assertIn(
             'alpha-lead', roster,
             'A legacy empty members.projects list on disk must not '
@@ -251,7 +259,9 @@ class TestDeriveRoster(unittest.TestCase):
             """),
             workgroup_files={'configuration.yaml': wg_yaml},
         )
-        roster = _names(derive_roster(teaparty_home=os.path.join(home, '.teaparty')))
+        roster = _names(derive_team_roster(
+            'office-manager', os.path.join(home, '.teaparty'),
+        ))
         self.assertIn(
             'configuration-lead', roster,
             'A workgroup declared in members.workgroups must surface '
@@ -288,7 +298,9 @@ class TestDeriveRoster(unittest.TestCase):
             """),
             workgroup_files={'coding.yaml': wg_yaml},
         )
-        roster = _names(derive_roster(teaparty_home=os.path.join(home, '.teaparty')))
+        roster = _names(derive_team_roster(
+            'office-manager', os.path.join(home, '.teaparty'),
+        ))
         self.assertNotIn(
             'coding-lead', roster,
             'A workgroup in the catalog but not declared via '
@@ -312,7 +324,9 @@ class TestDeriveRoster(unittest.TestCase):
               workgroups: []
         """)
         home = _make_teaparty_home(yaml_text)
-        roster = _names(derive_roster(teaparty_home=os.path.join(home, '.teaparty')))
+        roster = _names(derive_team_roster(
+            'office-manager', os.path.join(home, '.teaparty'),
+        ))
         self.assertIn(
             'proxy', roster,
             'Proxy must be in the roster for the OM to dispatch to it.',
@@ -320,64 +334,187 @@ class TestDeriveRoster(unittest.TestCase):
         self.assertEqual(roster['proxy']['role'], 'proxy')
 
 
-# ── 2. has_sub_roster ───────────────────────────────────────────────────────
+# ── 1b. derive_team_roster lead-only contract ──────────────────────────────
 
-class TestHasSubRoster(unittest.TestCase):
-    """Structural check for sub-roster presence."""
+class TestDeriveTeamRosterLeadOnly(unittest.TestCase):
+    """``derive_team_roster`` is keyed by **lead**, not by any agent name.
+
+    A workgroup member can belong to several workgroups — the same
+    agent can appear in multiple ``members.agents`` lists — so
+    "their team" is ambiguous.  Leads, on the other hand, are 1:1
+    with their team: a lead heads exactly one team.  The lookup is
+    therefore restricted to leads; non-leads return ``None``.
+    """
 
     def setUp(self):
-        self.proj = _make_project_dir(
-            textwrap.dedent("""\
-                name: Alpha
-                description: Alpha project.
-                lead: alpha-lead
-                members:
-                  workgroups:
-                    - Coding
-                workgroups:
-                  - ref: Coding
-            """),
-            workgroup_files={'Coding.yaml': WORKGROUP_CODING_YAML},
-        )
-        yaml_text = textwrap.dedent(f"""\
-            name: Management Team
-            description: Management.
-            lead: office-manager
-            projects:
-              - name: Alpha
-                path: {self.proj}
-                config: .teaparty/project/project.yaml
+        # Two workgroups that BOTH contain agent 'shared-dev'.
+        wg_alpha = textwrap.dedent("""\
+            name: Alpha-WG
+            description: Alpha workgroup.
+            lead: alpha-wg-lead
             members:
-              projects:
-                - Alpha
               agents:
-                - auditor
+                - shared-dev
+                - alpha-only
         """)
-        self.home = _make_teaparty_home(yaml_text)
-        self.teaparty_home = os.path.join(self.home, '.teaparty')
+        wg_beta = textwrap.dedent("""\
+            name: Beta-WG
+            description: Beta workgroup.
+            lead: beta-wg-lead
+            members:
+              agents:
+                - shared-dev
+                - beta-only
+        """)
+        self.home = _make_teaparty_home(
+            textwrap.dedent("""\
+                name: Management Team
+                description: Test.
+                lead: office-manager
+                projects: []
+                members:
+                  projects: []
+                  workgroups:
+                    - Alpha-WG
+                    - Beta-WG
+                workgroups:
+                  - name: Alpha-WG
+                    config: workgroups/alpha.yaml
+                  - name: Beta-WG
+                    config: workgroups/beta.yaml
+            """),
+            workgroup_files={
+                'alpha.yaml': wg_alpha,
+                'beta.yaml': wg_beta,
+            },
+        )
+        self.tp = os.path.join(self.home, '.teaparty')
 
-    def test_project_lead_has_sub_roster(self):
-        self.assertTrue(has_sub_roster(
-            'alpha-lead', self.teaparty_home, project_dir=self.proj,
-        ))
+    def test_lead_lookup_returns_their_team(self):
+        """A workgroup lead's lookup returns their workgroup's roster."""
+        roster = derive_team_roster('alpha-wg-lead', self.tp)
+        self.assertIsNotNone(roster, 'workgroup lead must resolve')
+        self.assertEqual(roster.lead, 'alpha-wg-lead')
+        names = {m.name for m in roster.members}
+        self.assertIn('shared-dev', names)
+        self.assertIn('alpha-only', names)
+        # The OTHER workgroup's members must not bleed in.
+        self.assertNotIn('beta-only', names)
 
-    def test_workgroup_lead_has_sub_roster(self):
-        self.assertTrue(has_sub_roster(
-            'coding-lead', self.teaparty_home, project_dir=self.proj,
-        ))
+    def test_om_lookup_returns_om_team(self):
+        roster = derive_team_roster('office-manager', self.tp)
+        self.assertIsNotNone(roster)
+        self.assertEqual(roster.lead, 'office-manager')
 
-    def test_leaf_agent_has_no_sub_roster(self):
-        self.assertFalse(has_sub_roster(
-            'developer', self.teaparty_home, project_dir=self.proj,
-        ))
+    def test_member_in_multiple_workgroups_returns_none(self):
+        """An agent who is a member of multiple workgroups has no
+        single team — the lookup returns ``None`` rather than
+        arbitrarily picking one.  Ambiguity is the exact reason
+        the function is keyed by lead.
+        """
+        result = derive_team_roster('shared-dev', self.tp)
+        self.assertIsNone(
+            result,
+            'A non-lead agent in two workgroups must not resolve to '
+            'either one — that lookup is ill-defined and the function '
+            'must say so by returning None',
+        )
 
-    def test_management_agent_has_no_sub_roster(self):
-        self.assertFalse(has_sub_roster(
-            'auditor', self.teaparty_home, project_dir=self.proj,
-        ))
+    def test_unknown_agent_returns_none(self):
+        result = derive_team_roster('does-not-exist', self.tp)
+        self.assertIsNone(result)
 
 
-# ── 5. build_routing_table from a management Roster ────────────────────────
+# ── 1c. Matrix workgroup loans (regression: shared workgroup) ──────────────
+
+class TestMatrixWorkgroupLoan(unittest.TestCase):
+    """A workgroup loaned to multiple projects is ONE team.
+
+    Pre-fix bug: ``_org_tree`` materialized the org as a recursive
+    structure where every project got its own copy of every workgroup
+    it referenced.  When the SAME workgroup was loaned to two projects,
+    its lead appeared as the lead of two distinct sub-rosters and the
+    OM session crashed with ``DuplicateAgentName``.
+
+    Under the matrix model the team is one team; ``parent_lead`` is a
+    conversation property set by the dispatcher per-session, not baked
+    into a global tree.
+    """
+
+    def setUp(self):
+        # Two projects that BOTH reference the management-level
+        # 'Research' workgroup via ``ref:``.  Pre-fix, this layout
+        # crashed OM dispatcher construction.
+        proj_comics = _make_project_dir(textwrap.dedent("""\
+            name: Comics
+            description: Comics project.
+            lead: comics-lead
+            members:
+              workgroups:
+                - Research
+            workgroups:
+              - ref: Research
+        """))
+        proj_jokebook = _make_project_dir(textwrap.dedent("""\
+            name: JokeBook
+            description: JokeBook project.
+            lead: joke-book-lead
+            members:
+              workgroups:
+                - Research
+            workgroups:
+              - ref: Research
+        """))
+        self.home = _make_teaparty_home(
+            textwrap.dedent(f"""\
+                name: Management Team
+                description: Test.
+                lead: office-manager
+                projects:
+                  - name: Comics
+                    path: {proj_comics}
+                    config: .teaparty/project/project.yaml
+                  - name: JokeBook
+                    path: {proj_jokebook}
+                    config: .teaparty/project/project.yaml
+                members:
+                  projects:
+                    - Comics
+                    - JokeBook
+            """),
+            workgroup_files={'Research.yaml': WORKGROUP_RESEARCH_YAML},
+        )
+        self.tp = os.path.join(self.home, '.teaparty')
+
+    def test_om_roster_builds_without_duplicate_lead_crash(self):
+        """The OM session derivation must succeed with shared workgroups."""
+        roster = derive_team_roster('office-manager', self.tp)
+        self.assertIsNotNone(roster)
+        # And the routing table builds cleanly.
+        table = build_routing_table(roster)
+        self.assertTrue(
+            table.allows('office-manager', 'comics-lead'),
+            'OM must reach both project leads regardless of any '
+            'workgroup they share',
+        )
+        self.assertTrue(table.allows('office-manager', 'joke-book-lead'))
+
+    def test_workgroup_lead_resolves_to_one_team(self):
+        """``research-lead`` is the lead of ONE Research workgroup,
+        no matter how many projects loan it.
+        """
+        roster = derive_team_roster('research-lead', self.tp)
+        self.assertIsNotNone(
+            roster,
+            'Workgroup leads loaned to multiple projects must still '
+            'resolve to their (single) team',
+        )
+        self.assertEqual(roster.lead, 'research-lead')
+        member_names = {m.name for m in roster.members}
+        self.assertIn('surveyor', member_names)
+
+
+# ── 2. build_routing_table from a management Roster ───────────────────────
 
 class TestRoutingTableFromManagementRoster(unittest.TestCase):
     """OM-level routing table — keys directly on agent names."""
@@ -389,7 +526,6 @@ class TestRoutingTableFromManagementRoster(unittest.TestCase):
             members=[
                 Member(name=n, role='project-lead') for n in member_names
             ],
-            sub_rosters=[],
             mesh_among_members=False,
             parent_lead='',
         )
@@ -407,13 +543,77 @@ class TestRoutingTableFromManagementRoster(unittest.TestCase):
         table = build_routing_table(self._make_roster(['alpha-lead', 'auditor']))
         self.assertFalse(table.allows('alpha-lead', 'auditor'))
 
-    def test_om_in_its_own_roster_raises(self):
-        """OM as both lead and a member is a duplicate; reject it."""
-        from teaparty.messaging.dispatcher import DuplicateAgentName
-        with self.assertRaises(DuplicateAgentName):
-            build_routing_table(
-                self._make_roster(['office-manager', 'alpha-lead']),
-            )
+    def test_same_agent_in_two_workgroup_rosters(self):
+        """``shared-dev`` is a legitimate member of two workgroups.
+
+        Each workgroup's session has its OWN flat roster with its own
+        dispatcher.  ``shared-dev`` ends up in alpha's mesh in alpha's
+        session and in beta's mesh in beta's session — no nesting,
+        no shared routing table, no duplicate-name conflict.
+        """
+        from teaparty.config.roster import Roster, Member
+        wg_alpha = Roster(
+            lead='alpha-wg-lead',
+            members=[
+                Member(name='shared-dev', role='workgroup-agent'),
+                Member(name='alpha-only', role='workgroup-agent'),
+            ],
+            mesh_among_members=True,
+        )
+        wg_beta = Roster(
+            lead='beta-wg-lead',
+            members=[
+                Member(name='shared-dev', role='workgroup-agent'),
+                Member(name='beta-only', role='workgroup-agent'),
+            ],
+            mesh_among_members=True,
+        )
+        # Each workgroup builds its own routing table — independent
+        # sessions, independent dispatchers, no conflict.
+        alpha_table = build_routing_table(wg_alpha)
+        beta_table = build_routing_table(wg_beta)
+        self.assertTrue(alpha_table.allows('shared-dev', 'alpha-only'))
+        self.assertTrue(beta_table.allows('shared-dev', 'beta-only'))
+        # Alpha's session can't route to beta-only (it isn't on alpha's
+        # team), and vice versa.  Cross-team routing happens via the
+        # parent_lead gateway in each session.
+        self.assertFalse(alpha_table.allows('shared-dev', 'beta-only'))
+        self.assertFalse(beta_table.allows('shared-dev', 'alpha-only'))
+
+    def test_parent_lead_gateway_pair(self):
+        """``parent_lead`` is conversation-scoped and creates the
+        cross-team gateway pair lead↔parent_lead in this session's
+        routing table.  Same workgroup loaned to a different project
+        sets a different ``parent_lead`` — same team, different
+        conversation context.
+        """
+        from teaparty.config.roster import Roster, Member
+        # Coding workgroup loaned to Comics project.
+        coding_in_comics = Roster(
+            lead='coding-lead',
+            members=[
+                Member(name='developer', role='workgroup-agent'),
+            ],
+            mesh_among_members=True,
+            parent_lead='comics-lead',
+        )
+        comics_table = build_routing_table(coding_in_comics)
+        self.assertTrue(comics_table.allows('coding-lead', 'comics-lead'))
+        self.assertTrue(comics_table.allows('comics-lead', 'coding-lead'))
+
+        # Same workgroup, different conversation context (loaned to
+        # JokeBook).  Same team, different parent_lead.
+        coding_in_jokebook = Roster(
+            lead='coding-lead',
+            members=[
+                Member(name='developer', role='workgroup-agent'),
+            ],
+            mesh_among_members=True,
+            parent_lead='joke-book-lead',
+        )
+        jb_table = build_routing_table(coding_in_jokebook)
+        self.assertTrue(jb_table.allows('coding-lead', 'joke-book-lead'))
+        self.assertFalse(jb_table.allows('coding-lead', 'comics-lead'))
 
 
 if __name__ == '__main__':

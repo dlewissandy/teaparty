@@ -119,8 +119,8 @@ def _make_env(root: str, *, with_project: bool = False) -> tuple[str, str, str]:
     return tp, teaparty_repo, project_repo
 
 
-class TestResolveLaunchCwd(unittest.TestCase):
-    """`resolve_launch_cwd` returns the right repo for each agent role."""
+class TestResolveLaunchPlacement(unittest.TestCase):
+    """`resolve_launch_placement` returns (cwd, scope) for each agent role."""
 
     def setUp(self):
         self._tmpdir = tempfile.mkdtemp()
@@ -132,44 +132,47 @@ class TestResolveLaunchCwd(unittest.TestCase):
         tp, teaparty_repo, project_repo = _make_env(
             self._tmpdir, with_project=True,
         )
-        from teaparty.config.roster import resolve_launch_cwd
-        cwd = resolve_launch_cwd('comics-lead', tp)
+        from teaparty.config.roster import resolve_launch_placement
+        cwd, scope = resolve_launch_placement('comics-lead', tp)
         self.assertEqual(os.path.realpath(cwd), os.path.realpath(project_repo))
+        self.assertEqual(scope, 'project')
 
     def test_management_agent_falls_back_to_teaparty_repo(self):
         tp, teaparty_repo, _ = _make_env(self._tmpdir, with_project=True)
-        from teaparty.config.roster import resolve_launch_cwd
-        cwd = resolve_launch_cwd('configuration-lead', tp)
+        from teaparty.config.roster import resolve_launch_placement
+        cwd, scope = resolve_launch_placement('configuration-lead', tp)
         self.assertEqual(
             os.path.realpath(cwd), os.path.realpath(teaparty_repo),
         )
+        self.assertEqual(scope, 'management')
 
     def test_missing_registry_raises(self):
         tp, teaparty_repo, _ = _make_env(self._tmpdir, with_project=False)
         os.unlink(os.path.join(tp, 'management', 'teaparty.yaml'))
         from teaparty.config.roster import (
-            resolve_launch_cwd, LaunchCwdNotResolved,
+            resolve_launch_placement, LaunchCwdNotResolved,
         )
         with self.assertRaises(LaunchCwdNotResolved):
-            resolve_launch_cwd('configuration-lead', tp)
+            resolve_launch_placement('configuration-lead', tp)
 
     def test_unknown_member_raises(self):
         tp, _, _ = _make_env(self._tmpdir, with_project=True)
         from teaparty.config.roster import (
-            resolve_launch_cwd, LaunchCwdNotResolved,
+            resolve_launch_placement, LaunchCwdNotResolved,
         )
         with self.assertRaises(LaunchCwdNotResolved):
-            resolve_launch_cwd('nonexistent-lead', tp)
+            resolve_launch_placement('nonexistent-lead', tp)
 
     def test_management_lead_resolves_to_teaparty_repo(self):
         tp, teaparty_repo, _ = _make_env(self._tmpdir, with_project=True)
-        from teaparty.config.roster import resolve_launch_cwd
+        from teaparty.config.roster import resolve_launch_placement
         # The management team's `lead` (office-manager by default) must
         # resolve to the teaparty repo via registry walk.
-        cwd = resolve_launch_cwd('office-manager', tp)
+        cwd, scope = resolve_launch_placement('office-manager', tp)
         self.assertEqual(
             os.path.realpath(cwd), os.path.realpath(teaparty_repo),
         )
+        self.assertEqual(scope, 'management')
 
 
 class TestComposeLaunchConfig(unittest.TestCase):
@@ -532,8 +535,8 @@ class TestInvokeInnerUsesResolvedCwd(unittest.TestCase):
     """`AgentSession.invoke` (the top-level path) must launch the
     subprocess at the cwd resolved from the registry, not the caller's
     fallback cwd. This closes the wiring gap between
-    `resolve_launch_cwd` (unit-tested) and `_invoke_inner` (the only
-    place the OM's own launch is assembled)."""
+    `resolve_launch_placement` (unit-tested) and `_invoke_inner` (the
+    only place the OM's own launch is assembled)."""
 
     def setUp(self):
         self._tmpdir = tempfile.mkdtemp()

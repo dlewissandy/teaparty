@@ -2,6 +2,7 @@ permissions:
   allow:
   - mcp__teaparty-config__Send
   - mcp__teaparty-config__ListAgents
+  - mcp__teaparty-config__ListTeamMembers
   - mcp__teaparty-config__GetAgent
   - mcp__teaparty-config__ListSkills
   - mcp__teaparty-config__GetSkill

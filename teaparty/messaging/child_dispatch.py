@@ -39,65 +39,45 @@ _log = logging.getLogger('teaparty.messaging.child_dispatch')
 def build_session_dispatcher(
     *,
     teaparty_home: str,
-    project_dir: str = '',
+    lead_name: str,
 ) -> Any | None:
-    """Build the ``BusDispatcher`` for a session.
+    """Build the ``BusDispatcher`` for a session led by ``lead_name``.
 
     The dispatcher is the single transport-level enforcement point Send
     consults before invoking ``spawn_fn``: an agent whose prompt is
     broken or hostile cannot reach a recipient outside its permitted
     set, because Send refuses the post before it touches the bus.
 
-    ONE WAY OF BUILDING ROSTERS: ``derive_roster`` produces a unified
-    Roster shape; ``build_routing_table`` consumes it.  No per-team-type
-    branching at this layer — the team type is selected by which
-    keyword args ``derive_roster`` receives, and the same Roster /
-    RoutingTable code paths handle every team.
+    A session always has a lead (the agent the session was launched
+    for: OM, project lead, workgroup lead).  Leads are in 1:1
+    correspondence with their team, so :func:`derive_team_roster`
+    looks up that team's roster unambiguously, and
+    ``build_routing_table`` consumes it.  No per-team-type branching
+    at this layer — same code path for OM sessions, project-lead
+    sessions, and workgroup-lead sessions.
 
-    ``project_dir`` empty → **OM session**.  Roster includes the OM's
-    project-lead members, member workgroup leads, and proxy.
-
-    ``project_dir`` set → **project-lead session**.  Roster includes
-    the project lead's workgroup-lead members, with each workgroup as a
-    sub-roster (lead + agents, mesh-among-members) so the project's
-    full routing table includes within-workgroup mesh.
-
-    Returns ``None`` when the relevant config is missing or empty.
-    Send treats absent dispatcher as "no enforcement".
+    Returns ``None`` when the lead isn't a known lead or the relevant
+    config is missing.  Send treats absent dispatcher as
+    "no enforcement".
     """
     from teaparty.messaging.dispatcher import BusDispatcher, build_routing_table
-    from teaparty.config.roster import derive_roster
-    from teaparty.config.config_reader import load_management_team
+    from teaparty.config.roster import derive_team_roster
 
-    # The OM's agent name comes from management/teaparty.yaml's lead
-    # field — single source of truth for "who is the OM".  Used both
-    # to identify the OM in the roster and (for project sessions) as
-    # the parent_lead so the project lead can route back to OM.
-    try:
-        mgmt_team = load_management_team(teaparty_home=teaparty_home)
-        om_agent_name = mgmt_team.lead
-    except (FileNotFoundError, OSError):
-        return None
-
-    if not om_agent_name:
+    if not lead_name:
         return None
 
     try:
-        roster = derive_roster(
-            teaparty_home=teaparty_home,
-            project_dir=project_dir,
-            parent_lead=om_agent_name if project_dir else '',
-        )
+        roster = derive_team_roster(lead_name, teaparty_home)
     except (FileNotFoundError, OSError):
         return None
     except Exception:
         _log.debug(
-            'derive_roster failed (project_dir=%r)', project_dir,
+            'derive_team_roster failed (lead_name=%r)', lead_name,
             exc_info=True,
         )
         return None
 
-    if not roster.lead:
+    if roster is None or not roster.lead:
         return None
 
     return BusDispatcher(build_routing_table(roster))

@@ -458,51 +458,51 @@ def project_status_handler(name: str, days: int = 7, teaparty_home: str = '') ->
 
 
 def list_team_members_handler(teaparty_home: str = '') -> str:
-    """List the team members for the calling agent's team.
+    """List the team members for the calling lead's team.
 
-    Thin serialization shim over ``derive_roster`` — the single source
-    of truth for any team's membership.  Same function routing uses to
-    build the dispatcher; reporting and routing cannot disagree because
-    they read the same data.
+    Thin serialization shim over :func:`derive_team_roster` — the
+    single public entry point for "who is on the team this lead
+    heads?"  Same function the routing layer uses to build the
+    dispatcher; reporting and routing cannot disagree because they
+    walk the same code path.
 
-    Selects which team's roster to return based on the caller's
-    identity (``current_agent_name`` set by the MCP middleware):
-
-      * If the caller is the OM → return the management roster.
-      * If the caller is a project lead → return that project's roster.
-      * If the caller is a workgroup lead → return that workgroup's roster.
-      * Otherwise (no caller context) → fall back to the OM roster.
+    The caller is identified by ``current_agent_name`` (set by the
+    MCP middleware) and must be a lead — OM, a project lead, or a
+    workgroup lead — because leads are in 1:1 correspondence with
+    their team.  Non-lead workgroup members can belong to several
+    workgroups; "their team" is ambiguous and this tool refuses
+    rather than guessing.
 
     The agent's frontmatter ``description`` overrides the roster's
     default description when an ``agent.md`` exists.
     """
-    from teaparty.config.roster import derive_roster, resolve_lead_project_path
+    from teaparty.config.roster import derive_team_roster
     from teaparty.config.config_reader import load_management_team
     from teaparty.mcp.registry import current_agent_name
 
     home = _teaparty_home(teaparty_home)
 
-    # Resolve the caller's team via current_agent_name.  Default to OM.
     caller = current_agent_name.get('') if current_agent_name else ''
-    project_dir = ''
+    if not caller:
+        # No caller context — fall back to the OM roster.
+        try:
+            mgmt_team = load_management_team(teaparty_home=home)
+        except FileNotFoundError as e:
+            return _err(str(e))
+        caller = mgmt_team.lead
+
     try:
-        mgmt_team = load_management_team(teaparty_home=home)
+        roster = derive_team_roster(caller, home)
     except FileNotFoundError as e:
         return _err(str(e))
 
-    if caller and caller != mgmt_team.lead:
-        proj_path = resolve_lead_project_path(caller, home)
-        if proj_path:
-            project_dir = proj_path
-
-    try:
-        roster = derive_roster(
-            teaparty_home=home,
-            project_dir=project_dir,
-            parent_lead=mgmt_team.lead if project_dir else '',
+    if roster is None or not roster.lead:
+        return _err(
+            f'{caller!r} is not a team lead.  ListTeamMembers is '
+            f'defined for leads (OM, project lead, workgroup lead); '
+            f'a workgroup member can belong to several workgroups, '
+            f'so "their team" is ambiguous.'
         )
-    except FileNotFoundError as e:
-        return _err(str(e))
 
     mgmt_agents_dir = os.path.join(home, 'management', 'agents')
 
@@ -526,8 +526,6 @@ def list_team_members_handler(teaparty_home: str = '') -> str:
             entry['workgroup'] = m.workgroup
         if m.human:
             entry['human'] = m.human
-        # Frontmatter description, when present, overrides the roster
-        # default — UI prefers the canonical agent description.
         fm_desc = _read_desc(m.name)
         if fm_desc:
             entry['description'] = fm_desc
@@ -911,7 +909,8 @@ _WORKGROUP_LEAD_TOOLS = (
     'Read, Glob, Grep, Write, Edit, '
     'mcp__teaparty-config__Send, '
     'mcp__teaparty-config__CloseConversation, '
-    'mcp__teaparty-config__AskQuestion'
+    'mcp__teaparty-config__AskQuestion, '
+    'mcp__teaparty-config__ListTeamMembers'
 )
 
 

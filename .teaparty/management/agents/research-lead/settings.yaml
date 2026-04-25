@@ -6,6 +6,7 @@ permissions:
   - Write
   - Edit
   - mcp__teaparty-config__Send
+  - mcp__teaparty-config__ListTeamMembers
   - mcp__teaparty-config__CloseConversation
   - mcp__teaparty-config__AskQuestion
   - Bash

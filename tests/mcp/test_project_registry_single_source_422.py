@@ -187,7 +187,7 @@ class TestAddProjectMakesItDispatchable(unittest.TestCase):
     def test_added_project_appears_in_om_roster(self) -> None:
         """The OM's derived roster must include the new project lead."""
         from teaparty.config.config_reader import add_project
-        from teaparty.config.roster import derive_roster
+        from teaparty.config.roster import derive_team_roster
 
         project_dir = os.path.join(self._dir, 'gadgets')
         os.makedirs(project_dir)
@@ -198,7 +198,13 @@ class TestAddProjectMakesItDispatchable(unittest.TestCase):
             teaparty_home=self._tp,
         )
 
-        roster = derive_roster(teaparty_home=self._tp)
+        # The OM's lead in this fixture is 'office-manager'.
+        roster = derive_team_roster('office-manager', self._tp)
+        self.assertIsNotNone(
+            roster,
+            'OM lead must be locatable in the org tree after a project '
+            'is registered — derive_team_roster returned None',
+        )
         member_names = {m.name for m in roster.members}
         self.assertIn(
             'gadgets-lead', member_names,
