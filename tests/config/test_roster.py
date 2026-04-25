@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
-"""Tests for teaparty.config.roster — roster derivation for recursive bus dispatch.
+"""Tests for teaparty.config.roster.
 
 Covers:
- 1. derive_om_roster — OM roster from teaparty.yaml members.projects + members.agents
- 2. derive_project_roster — project lead roster from project.yaml members.workgroups
- 3. derive_workgroup_roster — workgroup lead roster from workgroup YAML members.agents
- 4. has_sub_roster — structural check for sub-roster presence
- 5. RoutingTable.from_management_roster — OM-level routing
+ 1. derive_om_roster — single source of truth for "who is on the OM's team"
+ 2. has_sub_roster — structural check for sub-roster presence
+ 3. RoutingTable.from_management_roster — OM-level routing
 """
 import os
 import sys
@@ -19,8 +17,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from teaparty.config.roster import (
     derive_om_roster,
-    derive_project_roster,
-    derive_workgroup_roster,
     has_sub_roster,
 )
 from teaparty.messaging.dispatcher import RoutingTable
@@ -211,86 +207,105 @@ class TestDeriveOmRoster(unittest.TestCase):
             'shadow the catalog — otherwise the two-source bug is back',
         )
 
-
-# ── 2. derive_project_roster ────────────────────────────────────────────────
-
-class TestDeriveProjectRoster(unittest.TestCase):
-    """Project lead roster includes workgroup leads."""
-
-    def setUp(self):
-        self.proj = _make_project_dir(
+    def test_roster_includes_member_workgroup_leads(self):
+        """Workgroups declared under members.workgroups appear in the
+        OM's roster — both the routing layer (via build_session_dispatcher)
+        and the list-members tool consume the same dict, so reporting
+        and authorization cannot disagree.
+        """
+        wg_yaml = textwrap.dedent("""\
+            name: Configuration
+            description: Config team.
+            lead: configuration-lead
+            members:
+              agents: []
+        """)
+        home = _make_teaparty_home(
             textwrap.dedent("""\
-                name: Alpha
-                description: Alpha project.
-                lead: alpha-lead
+                name: Management Team
+                description: Test.
+                lead: office-manager
+                projects: []
                 members:
+                  projects: []
                   workgroups:
-                    - Coding
+                  - Configuration
                 workgroups:
-                  - ref: Coding
+                - name: Configuration
+                  config: workgroups/configuration.yaml
             """),
-            workgroup_files={'Coding.yaml': WORKGROUP_CODING_YAML},
+            workgroup_files={'configuration.yaml': wg_yaml},
         )
-        self.home = _make_teaparty_home(textwrap.dedent("""\
+        roster = derive_om_roster(os.path.join(home, '.teaparty'))
+        self.assertIn(
+            'configuration-lead', roster,
+            'A workgroup declared in members.workgroups must surface '
+            'its lead in the OM roster — otherwise routing refuses '
+            'OM → workgroup-lead dispatches that the list-members '
+            'tool reports as valid.',
+        )
+        self.assertEqual(
+            roster['configuration-lead']['role'], 'workgroup-lead',
+        )
+
+    def test_catalog_only_workgroup_excluded_from_roster(self):
+        """A workgroup in the catalog but not in members.workgroups
+        must NOT appear in the OM roster — catalog ≠ membership."""
+        wg_yaml = textwrap.dedent("""\
+            name: Coding
+            description: Code team.
+            lead: coding-lead
+            members:
+              agents: []
+        """)
+        home = _make_teaparty_home(
+            textwrap.dedent("""\
+                name: Management Team
+                description: Test.
+                lead: office-manager
+                projects: []
+                members:
+                  projects: []
+                  workgroups: []
+                workgroups:
+                - name: Coding
+                  config: workgroups/coding.yaml
+            """),
+            workgroup_files={'coding.yaml': wg_yaml},
+        )
+        roster = derive_om_roster(os.path.join(home, '.teaparty'))
+        self.assertNotIn(
+            'coding-lead', roster,
+            'A workgroup in the catalog but not declared via '
+            'members.workgroups must not appear in the OM roster.',
+        )
+
+    def test_roster_includes_proxy(self):
+        """One ``proxy`` entry per declared human."""
+        yaml_text = textwrap.dedent(f"""\
             name: Management Team
-            description: Management.
+            description: Test.
             lead: office-manager
-            projects: []
-        """))
-
-    def test_roster_includes_workgroup_lead(self):
-        roster = derive_project_roster(
-            self.proj, os.path.join(self.home, '.teaparty'),
+            humans:
+              decider: alice
+            projects:
+              - name: Alpha
+                path: {self.proj}
+                config: .teaparty/project/project.yaml
+            members:
+              projects: []
+              workgroups: []
+        """)
+        home = _make_teaparty_home(yaml_text)
+        roster = derive_om_roster(os.path.join(home, '.teaparty'))
+        self.assertIn(
+            'proxy', roster,
+            'Proxy must be in the roster for the OM to dispatch to it.',
         )
-        self.assertIn('coding-lead', roster)
-        self.assertEqual(roster['coding-lead']['description'], 'Implements features and fixes bugs.')
-
-    def test_empty_workgroups_produces_empty_roster(self):
-        proj = _make_project_dir(textwrap.dedent("""\
-            name: Beta
-            description: Beta project.
-            lead: beta-lead
-            workgroups: []
-        """))
-        roster = derive_project_roster(
-            proj, os.path.join(self.home, '.teaparty'),
-        )
-        self.assertEqual(roster, {})
+        self.assertEqual(roster['proxy']['role'], 'proxy')
 
 
-# ── 3. derive_workgroup_roster ──────────────────────────────────────────────
-
-class TestDeriveWorkgroupRoster(unittest.TestCase):
-    """Workgroup lead roster includes member agents."""
-
-    def setUp(self):
-        self.wg_dir = tempfile.mkdtemp()
-        self.wg_path = os.path.join(self.wg_dir, 'coding.yaml')
-        with open(self.wg_path, 'w') as f:
-            f.write(WORKGROUP_CODING_YAML)
-
-    def test_roster_includes_all_agents(self):
-        roster = derive_workgroup_roster(self.wg_path)
-        self.assertIn('developer', roster)
-        self.assertIn('reviewer', roster)
-        self.assertIn('architect', roster)
-        self.assertEqual(len(roster), 3)
-
-    def test_agent_descriptions_from_frontmatter(self):
-        agents_dir = os.path.join(self.wg_dir, 'agents')
-        os.makedirs(agents_dir)
-        with open(os.path.join(agents_dir, 'developer.md'), 'w') as f:
-            f.write('---\nname: developer\ndescription: Writes code.\n---\n')
-        roster = derive_workgroup_roster(self.wg_path, agents_dir=agents_dir)
-        self.assertEqual(roster['developer']['description'], 'Writes code.')
-
-    def test_missing_agent_file_uses_name(self):
-        roster = derive_workgroup_roster(self.wg_path)
-        # No agent files exist, so description falls back to agent name
-        self.assertEqual(roster['developer']['description'], 'developer')
-
-
-# ── 4. has_sub_roster ───────────────────────────────────────────────────────
+# ── 2. has_sub_roster ───────────────────────────────────────────────────────
 
 class TestHasSubRoster(unittest.TestCase):
     """Structural check for sub-roster presence."""

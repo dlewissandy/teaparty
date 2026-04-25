@@ -15,27 +15,8 @@ from teaparty.config.config_reader import (
     load_management_team,
     load_management_workgroups,
     load_project_team,
-    load_workgroup,
-    read_agent_frontmatter,
     resolve_workgroups,
 )
-
-
-def _agent_description(agents_dir: str, agent_name: str) -> str:
-    """Read description from an agent's frontmatter.
-
-    Supports both layouts:
-    - .teaparty style: ``{agents_dir}/{name}/agent.md``
-    - .claude style:   ``{agents_dir}/{name}.md``
-    """
-    for candidate in (
-        os.path.join(agents_dir, agent_name, 'agent.md'),
-        os.path.join(agents_dir, f'{agent_name}.md'),
-    ):
-        if os.path.exists(candidate):
-            fm = read_agent_frontmatter(candidate)
-            return fm.get('description', '')
-    return ''
 
 
 def derive_om_roster(
@@ -45,9 +26,33 @@ def derive_om_roster(
 ) -> dict[str, dict[str, Any]]:
     """Derive the Office Manager's roster from teaparty.yaml.
 
-    Returns a dict suitable for ``--agents`` JSON. Keys are agent names
-    (project lead names for projects, agent names for management agents).
-    Values are dicts with at least a ``description`` field.
+    Single source of truth for "who is on the OM's team."  Used by
+    routing (``build_session_dispatcher``) to authorize Sends, by
+    ``list_team_members_handler`` to report membership to the OM, and
+    by anything else that needs to know who the OM dispatches to.
+
+    Returns a dict keyed by the member's agent name (their identity
+    everywhere else in the system).  Each value carries:
+
+      * ``role``: one of ``project-lead`` / ``workgroup-lead`` / ``proxy``.
+      * ``description``: a default description, sourced from project
+        / workgroup config or a proxy template.  Callers that want
+        agent.md frontmatter override this.
+      * Source info: ``project`` (for project leads), ``workgroup``
+        (for workgroup leads), or ``human`` (for proxy).
+
+    The roster includes:
+
+      * **Project leads** — one entry per ``members.projects`` whose
+        project YAML declares a ``lead``.
+      * **Management workgroup leads** — one entry per workgroup
+        declared in ``members.workgroups`` whose YAML declares a
+        ``lead``.
+      * **Proxy** — one entry per declared human (``humans:``).
+
+    Catalog ≠ membership: workgroups registered in the top-level
+    ``workgroups:`` catalog but not declared under
+    ``members.workgroups`` are NOT in the roster.
 
     Args:
         teaparty_home: Path to the .teaparty directory.
@@ -61,9 +66,8 @@ def derive_om_roster(
 
     roster: dict[str, dict[str, Any]] = {}
 
-    # Project leads from members.projects
+    # Project leads — one entry per ``members.projects`` with a declared lead.
     for project_name in team.members_projects:
-        # Find the project in the registry to get its path and config
         project_entry = None
         for p in team.projects:
             if p.get('name') == project_name:
@@ -77,24 +81,45 @@ def derive_om_roster(
             project_path = os.path.join(repo_root, project_path)
 
         config_path = project_entry.get('config', '')
-        if config_path:
-            full_config = os.path.join(project_path, config_path)
-        else:
-            full_config = None
+        full_config = (
+            os.path.join(project_path, config_path) if config_path else None
+        )
 
         try:
             project_team = load_project_team(
-                project_path,
-                config_path=full_config,
+                project_path, config_path=full_config,
             )
         except FileNotFoundError:
             continue
 
-        lead_name = project_team.lead
-        if lead_name:
-            roster[lead_name] = {
+        if project_team.lead:
+            roster[project_team.lead] = {
+                'role': 'project-lead',
+                'project': project_name,
                 'description': project_team.description or project_name,
             }
+
+    # Management workgroup leads — declared via ``members.workgroups``.
+    # ``member_workgroups`` filters the catalog to declared members.
+    try:
+        from teaparty.config.config_reader import member_workgroups
+        for wg in member_workgroups(team, teaparty_home=teaparty_home):
+            if wg.lead:
+                roster[wg.lead] = {
+                    'role': 'workgroup-lead',
+                    'workgroup': wg.name,
+                    'description': wg.description or wg.name,
+                }
+    except Exception:
+        pass
+
+    # Proxy — one entry per declared human.
+    for human in team.humans:
+        roster['proxy'] = {
+            'role': 'proxy',
+            'human': human.name,
+            'description': f'Human proxy for {human.name}',
+        }
 
     return roster
 
@@ -260,77 +285,6 @@ def resolve_launch_cwd(
     """
     cwd, _scope = resolve_launch_placement(member, teaparty_home)
     return cwd
-
-
-def derive_project_roster(
-    project_dir: str,
-    teaparty_home: str,
-    *,
-    agents_dir: str = '',
-) -> dict[str, dict[str, Any]]:
-    """Derive a project lead's roster from project.yaml.
-
-    Returns a dict keyed by workgroup lead names with descriptions.
-
-    Args:
-        project_dir: Path to the project root directory.
-        teaparty_home: Path to the .teaparty directory.
-        agents_dir: Path to .claude/agents/ directory.
-    """
-    project_team = load_project_team(project_dir)
-    if not agents_dir:
-        repo_root = os.path.dirname(teaparty_home)
-        agents_dir = os.path.join(repo_root, '.claude', 'agents')
-
-    roster: dict[str, dict[str, Any]] = {}
-
-    # Resolve workgroups to get lead names and descriptions
-    workgroups = resolve_workgroups(
-        project_team.workgroups,
-        project_dir=project_dir,
-        teaparty_home=teaparty_home,
-    )
-
-    for wg in workgroups:
-        if wg.lead:
-            roster[wg.lead] = {
-                'description': wg.description or wg.name,
-            }
-
-    return roster
-
-
-def derive_workgroup_roster(
-    workgroup_path: str,
-    *,
-    agents_dir: str = '',
-    teaparty_home: str = '',
-) -> dict[str, dict[str, Any]]:
-    """Derive a workgroup lead's roster from the workgroup YAML.
-
-    Returns a dict keyed by agent names with descriptions.
-
-    Args:
-        workgroup_path: Path to the workgroup YAML file.
-        agents_dir: Path to .claude/agents/ directory.
-        teaparty_home: Path to the .teaparty directory (for default agents_dir).
-    """
-    wg = load_workgroup(workgroup_path)
-    if not agents_dir and teaparty_home:
-        repo_root = os.path.dirname(teaparty_home)
-        agents_dir = os.path.join(repo_root, '.claude', 'agents')
-
-    roster: dict[str, dict[str, Any]] = {}
-
-    for agent_name in wg.members_agents:
-        desc = ''
-        if agents_dir:
-            desc = _agent_description(agents_dir, agent_name)
-        roster[agent_name] = {
-            'description': desc or agent_name,
-        }
-
-    return roster
 
 
 def has_sub_roster(

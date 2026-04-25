@@ -460,87 +460,40 @@ def project_status_handler(name: str, days: int = 7, teaparty_home: str = '') ->
 def list_team_members_handler(teaparty_home: str = '') -> str:
     """List the team members for the calling agent's team.
 
-    Membership is derived from config, not from agent definitions:
-    - Proxy agents implied by humans: entries
-    - Project leads implied by members.projects
-    - Workgroup leads implied by members.workgroups
+    Thin serialization shim over ``derive_om_roster`` — the single
+    source of truth for "who is on the OM's team."  Same function
+    routing uses to build the dispatcher; reporting and routing cannot
+    disagree because they read the same dict.
+
+    The agent's frontmatter ``description`` overrides the roster's
+    default description when an ``agent.md`` exists.
     """
-    from teaparty.config.config_reader import (
-        load_management_team,
-        load_project_team,
-        read_agent_frontmatter,
-    )
+    from teaparty.config.roster import derive_om_roster
 
     home = _teaparty_home(teaparty_home)
     try:
-        team = load_management_team(teaparty_home=home)
+        roster = derive_om_roster(home)
     except FileNotFoundError as e:
         return _err(str(e))
 
-    repo_root = os.path.dirname(home)
     mgmt_agents_dir = os.path.join(home, 'management', 'agents')
-    members: list[dict] = []
 
     def _read_desc(agent_name: str) -> str:
-        for candidate in (
-            os.path.join(mgmt_agents_dir, agent_name, 'agent.md'),
-        ):
-            if os.path.isfile(candidate):
-                fm, _ = _parse_agent_file(candidate)
-                return fm.get('description', '')
+        candidate = os.path.join(mgmt_agents_dir, agent_name, 'agent.md')
+        if os.path.isfile(candidate):
+            fm, _ = _parse_agent_file(candidate)
+            return fm.get('description', '')
         return ''
 
-    # Project leads
-    for project_name in team.members_projects:
-        project_entry = None
-        for p in team.projects:
-            if p.get('name') == project_name:
-                project_entry = p
-                break
-        if project_entry is None:
-            continue
-        project_path = project_entry.get('path', '')
-        if not os.path.isabs(project_path):
-            project_path = os.path.join(repo_root, project_path)
-        config_path = project_entry.get('config', '')
-        full_config = os.path.join(project_path, config_path) if config_path else None
-        try:
-            pt = load_project_team(project_path, config_path=full_config)
-        except FileNotFoundError:
-            continue
-        if pt.lead:
-            members.append({
-                'name': pt.lead,
-                'role': 'project-lead',
-                'project': project_name,
-                'description': _read_desc(pt.lead) or pt.description or project_name,
-            })
-
-    # Workgroup leads — only those declared members of the team.
-    # ``member_workgroups`` filters the catalog to those listed under
-    # ``members.workgroups`` in teaparty.yaml.
-    try:
-        from teaparty.config.config_reader import member_workgroups
-        for wg in member_workgroups(team, teaparty_home=home):
-            if wg.lead:
-                members.append({
-                    'name': wg.lead,
-                    'role': 'workgroup-lead',
-                    'workgroup': wg.name,
-                    'description': _read_desc(wg.lead) or wg.description or wg.name,
-                })
-    except Exception:
-        pass
-
-    # Proxy agents
-    for human in team.humans:
-        proxy_name = 'proxy'
-        members.append({
-            'name': proxy_name,
-            'role': 'proxy',
-            'human': human.name,
-            'description': _read_desc(proxy_name) or f'Human proxy for {human.name}',
-        })
+    members: list[dict] = []
+    for name, info in roster.items():
+        entry: dict = {'name': name, **info}
+        # Frontmatter description, when present, overrides the roster
+        # default — UI prefers the canonical agent description.
+        fm_desc = _read_desc(name)
+        if fm_desc:
+            entry['description'] = fm_desc
+        members.append(entry)
 
     return json.dumps({'success': True, 'members': members})
 
