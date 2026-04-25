@@ -371,7 +371,7 @@ class TestInterpretOutputFindsArtifactInWorktree(unittest.TestCase):
 
     def test_work_summary_in_worktree_routes_to_assert(self):
         """WORK_SUMMARY.md in session_worktree (not infra_dir) must trigger assert action."""
-        from teaparty.cfa.actors import AgentRunner
+        from teaparty.cfa.actors import _interpret_output
         from teaparty.runners.claude import ClaudeResult
 
         ctx = self._make_ctx('WORK_SUMMARY.md')
@@ -380,8 +380,8 @@ class TestInterpretOutputFindsArtifactInWorktree(unittest.TestCase):
         # Confirm infra_dir does NOT have it (test is only meaningful if they differ)
         self.assertFalse(os.path.isfile(os.path.join(self.infra_dir, 'WORK_SUMMARY.md')))
 
-        runner = AgentRunner()
-        result = runner._interpret_output(ctx, ClaudeResult(exit_code=0, session_id='s1'))
+        # Cut 28: AgentRunner -> module-level _interpret_output
+        result = _interpret_output(ctx, ClaudeResult(exit_code=0, session_id='s1'))
 
         self.assertEqual(
             result.action, 'assert',
@@ -400,15 +400,15 @@ class TestInterpretOutputFindsArtifactInWorktree(unittest.TestCase):
     def test_work_summary_in_infra_dir_only_not_found(self):
         """WORK_SUMMARY.md in infra_dir only (not session_worktree) must NOT be found.
         Artifacts belong in the worktree; infra_dir is not the artifact home anymore."""
-        from teaparty.cfa.actors import AgentRunner
+        from teaparty.cfa.actors import _interpret_output
         from teaparty.runners.claude import ClaudeResult
 
         ctx = self._make_ctx('WORK_SUMMARY.md')
         # Write to infra_dir only — worktree does NOT have the file
         Path(os.path.join(self.infra_dir, 'WORK_SUMMARY.md')).write_text('# Old location\n')
 
-        runner = AgentRunner()
-        result = runner._interpret_output(ctx, ClaudeResult(exit_code=0, session_id='s1'))
+        # Cut 28: AgentRunner -> module-level _interpret_output
+        result = _interpret_output(ctx, ClaudeResult(exit_code=0, session_id='s1'))
 
         self.assertNotEqual(
             result.action, 'assert',
@@ -418,7 +418,7 @@ class TestInterpretOutputFindsArtifactInWorktree(unittest.TestCase):
 
     def test_intent_md_in_worktree_routes_to_assert(self):
         """INTENT.md in session_worktree (not infra_dir) must trigger assert action."""
-        from teaparty.cfa.actors import AgentRunner, ActorContext
+        from teaparty.cfa.actors import _interpret_output, ActorContext
         from teaparty.cfa.phase_config import PhaseSpec
         from teaparty.messaging.bus import EventBus
         from teaparty.runners.claude import ClaudeResult
@@ -442,8 +442,8 @@ class TestInterpretOutputFindsArtifactInWorktree(unittest.TestCase):
         Path(os.path.join(self.worktree, 'INTENT.md')).write_text('# INTENT: Test\n')
         self.assertFalse(os.path.isfile(os.path.join(self.infra_dir, 'INTENT.md')))
 
-        runner = AgentRunner()
-        result = runner._interpret_output(ctx, ClaudeResult(exit_code=0, session_id='s1'))
+        # Cut 28: AgentRunner -> module-level _interpret_output
+        result = _interpret_output(ctx, ClaudeResult(exit_code=0, session_id='s1'))
 
         self.assertEqual(
             result.action, 'assert',

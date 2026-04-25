@@ -25,7 +25,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from teaparty.cfa.actors import ActorContext, ActorResult, AgentRunner
+from teaparty.cfa.actors import ActorContext, ActorResult
 from teaparty.cfa.engine import Orchestrator
 from teaparty.messaging.bus import EventBus
 from teaparty.cfa.phase_config import PhaseConfig, PhaseSpec
@@ -119,12 +119,13 @@ class TestInvokeActorStderrInjection(unittest.TestCase):
 
         captured_ctx = []
 
-        async def capture_ctx(ctx: ActorContext) -> ActorResult:
+        async def capture_ctx(ctx: ActorContext, **kwargs) -> ActorResult:
             captured_ctx.append(ctx)
             return ActorResult(action='auto-approve')
 
-        orch._agent_runner = MagicMock(spec=AgentRunner)
-        orch._agent_runner.run = capture_ctx
+        _ar_p = patch('teaparty.cfa.engine.run_phase', side_effect=capture_ctx)
+        _ar_p.start()
+        self.addCleanup(_ar_p.stop)
 
         spec = _make_phase_spec()
         _run(orch._invoke_actor(spec, 'intent'))
@@ -148,12 +149,13 @@ class TestInvokeActorStderrInjection(unittest.TestCase):
 
         captured_ctx = []
 
-        async def capture_ctx(ctx: ActorContext) -> ActorResult:
+        async def capture_ctx(ctx: ActorContext, **kwargs) -> ActorResult:
             captured_ctx.append(ctx)
             return ActorResult(action='auto-approve')
 
-        orch._agent_runner = MagicMock(spec=AgentRunner)
-        orch._agent_runner.run = capture_ctx
+        _ar_p = patch('teaparty.cfa.engine.run_phase', side_effect=capture_ctx)
+        _ar_p.start()
+        self.addCleanup(_ar_p.stop)
 
         spec = _make_phase_spec()
         _run(orch._invoke_actor(spec, 'intent'))
@@ -171,12 +173,13 @@ class TestInvokeActorStderrInjection(unittest.TestCase):
 
         captured_ctx = []
 
-        async def capture_ctx(ctx: ActorContext) -> ActorResult:
+        async def capture_ctx(ctx: ActorContext, **kwargs) -> ActorResult:
             captured_ctx.append(ctx)
             return ActorResult(action='auto-approve')
 
-        orch._agent_runner = MagicMock(spec=AgentRunner)
-        orch._agent_runner.run = capture_ctx
+        _ar_p = patch('teaparty.cfa.engine.run_phase', side_effect=capture_ctx)
+        _ar_p.start()
+        self.addCleanup(_ar_p.stop)
 
         spec = _make_phase_spec()
         _run(orch._invoke_actor(spec, 'intent'))
@@ -190,12 +193,13 @@ class TestInvokeActorStderrInjection(unittest.TestCase):
 
         captured_ctx = []
 
-        async def capture_ctx(ctx: ActorContext) -> ActorResult:
+        async def capture_ctx(ctx: ActorContext, **kwargs) -> ActorResult:
             captured_ctx.append(ctx)
             return ActorResult(action='auto-approve')
 
-        orch._agent_runner = MagicMock(spec=AgentRunner)
-        orch._agent_runner.run = capture_ctx
+        _ar_p = patch('teaparty.cfa.engine.run_phase', side_effect=capture_ctx)
+        _ar_p.start()
+        self.addCleanup(_ar_p.stop)
 
         spec = _make_phase_spec()
         _run(orch._invoke_actor(spec, 'intent'))
@@ -218,13 +222,14 @@ class TestInvokeActorStderrInjection(unittest.TestCase):
 
         captured_ctx = []
 
-        async def capture_ctx(ctx: ActorContext) -> ActorResult:
+        async def capture_ctx(ctx: ActorContext, **kwargs) -> ActorResult:
             # Manually simulate what the engine does when backtrack_context was pre-set
             captured_ctx.append(ctx)
             return ActorResult(action='auto-approve')
 
-        orch._agent_runner = MagicMock(spec=AgentRunner)
-        orch._agent_runner.run = capture_ctx
+        _ar_p = patch('teaparty.cfa.engine.run_phase', side_effect=capture_ctx)
+        _ar_p.start()
+        self.addCleanup(_ar_p.stop)
 
         spec = _make_phase_spec()
         _run(orch._invoke_actor(spec, 'intent'))
@@ -255,12 +260,13 @@ class TestInvokeActorEscalationFeedbackInjection(unittest.TestCase):
 
         captured_ctx = []
 
-        async def capture_ctx(ctx: ActorContext) -> ActorResult:
+        async def capture_ctx(ctx: ActorContext, **kwargs) -> ActorResult:
             captured_ctx.append(ctx)
             return ActorResult(action='assert')
 
-        orch._agent_runner = MagicMock(spec=AgentRunner)
-        orch._agent_runner.run = capture_ctx
+        _ar_p = patch('teaparty.cfa.engine.run_phase', side_effect=capture_ctx)
+        _ar_p.start()
+        self.addCleanup(_ar_p.stop)
 
         spec = _make_phase_spec()
         _run(orch._invoke_actor(spec, 'intent'))
@@ -279,12 +285,13 @@ class TestInvokeActorEscalationFeedbackInjection(unittest.TestCase):
 
         captured_ctx = []
 
-        async def capture_ctx(ctx: ActorContext) -> ActorResult:
+        async def capture_ctx(ctx: ActorContext, **kwargs) -> ActorResult:
             captured_ctx.append(ctx)
             return ActorResult(action='assert')
 
-        orch._agent_runner = MagicMock(spec=AgentRunner)
-        orch._agent_runner.run = capture_ctx
+        _ar_p = patch('teaparty.cfa.engine.run_phase', side_effect=capture_ctx)
+        _ar_p.start()
+        self.addCleanup(_ar_p.stop)
 
         spec = _make_phase_spec()
         _run(orch._invoke_actor(spec, 'intent'))
@@ -307,12 +314,13 @@ class TestInvokeActorEscalationFeedbackInjection(unittest.TestCase):
 
         captured_ctx = []
 
-        async def capture_ctx(ctx: ActorContext) -> ActorResult:
+        async def capture_ctx(ctx: ActorContext, **kwargs) -> ActorResult:
             captured_ctx.append(ctx)
             return ActorResult(action='assert')
 
-        orch._agent_runner = MagicMock(spec=AgentRunner)
-        orch._agent_runner.run = capture_ctx
+        _ar_p = patch('teaparty.cfa.engine.run_phase', side_effect=capture_ctx)
+        _ar_p.start()
+        self.addCleanup(_ar_p.stop)
 
         spec = _make_phase_spec()
         _run(orch._invoke_actor(spec, 'intent'))
@@ -336,12 +344,13 @@ class TestInvokeActorEscalationFeedbackInjection(unittest.TestCase):
 
         captured_ctx = []
 
-        async def capture_ctx(ctx: ActorContext) -> ActorResult:
+        async def capture_ctx(ctx: ActorContext, **kwargs) -> ActorResult:
             captured_ctx.append(ctx)
             return ActorResult(action='assert')
 
-        orch._agent_runner = MagicMock(spec=AgentRunner)
-        orch._agent_runner.run = capture_ctx
+        _ar_p = patch('teaparty.cfa.engine.run_phase', side_effect=capture_ctx)
+        _ar_p.start()
+        self.addCleanup(_ar_p.stop)
 
         spec = _make_phase_spec()
         _run(orch._invoke_actor(spec, 'intent'))
@@ -359,12 +368,13 @@ class TestInvokeActorEscalationFeedbackInjection(unittest.TestCase):
 
         captured_ctx = []
 
-        async def capture_ctx(ctx: ActorContext) -> ActorResult:
+        async def capture_ctx(ctx: ActorContext, **kwargs) -> ActorResult:
             captured_ctx.append(ctx)
             return ActorResult(action='assert')
 
-        orch._agent_runner = MagicMock(spec=AgentRunner)
-        orch._agent_runner.run = capture_ctx
+        _ar_p = patch('teaparty.cfa.engine.run_phase', side_effect=capture_ctx)
+        _ar_p.start()
+        self.addCleanup(_ar_p.stop)
 
         spec = _make_phase_spec()
         _run(orch._invoke_actor(spec, 'intent'))
@@ -379,12 +389,13 @@ class TestInvokeActorEscalationFeedbackInjection(unittest.TestCase):
 
         captured_ctx = []
 
-        async def capture_ctx(ctx: ActorContext) -> ActorResult:
+        async def capture_ctx(ctx: ActorContext, **kwargs) -> ActorResult:
             captured_ctx.append(ctx)
             return ActorResult(action='assert')
 
-        orch._agent_runner = MagicMock(spec=AgentRunner)
-        orch._agent_runner.run = capture_ctx
+        _ar_p = patch('teaparty.cfa.engine.run_phase', side_effect=capture_ctx)
+        _ar_p.start()
+        self.addCleanup(_ar_p.stop)
 
         spec = _make_phase_spec()
         _run(orch._invoke_actor(spec, 'intent'))
@@ -403,12 +414,13 @@ class TestInvokeActorEscalationFeedbackInjection(unittest.TestCase):
 
         captured_ctx = []
 
-        async def capture_ctx(ctx: ActorContext) -> ActorResult:
+        async def capture_ctx(ctx: ActorContext, **kwargs) -> ActorResult:
             captured_ctx.append(ctx)
             return ActorResult(action='assert')
 
-        orch._agent_runner = MagicMock(spec=AgentRunner)
-        orch._agent_runner.run = capture_ctx
+        _ar_p = patch('teaparty.cfa.engine.run_phase', side_effect=capture_ctx)
+        _ar_p.start()
+        self.addCleanup(_ar_p.stop)
 
         spec = _make_phase_spec()
         _run(orch._invoke_actor(spec, 'intent'))

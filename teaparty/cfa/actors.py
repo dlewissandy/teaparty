@@ -139,7 +139,21 @@ def _check_jail_hook(session_worktree: str, hook_script: str) -> None:
         )
 
 
-# ── AgentRunner ──────────────────────────────────────────────────────────────
+# ── Phase invocation (Cut 28) ────────────────────────────────────────────────
+#
+# The CfA engine "runs an actor" by invoking the project lead with the
+# phase's skill, reading the result, and interpreting it as a state-
+# machine action.  Cut 28 collapsed the ``AgentRunner`` class wrapper —
+# there was only one actor (the project lead) and only one runner
+# instance per session, so the OO ceremony added nothing.  The three
+# steps are plain module-level functions:
+#
+#   build_phase_prompt(ctx)          - prompt with backtrack-context header
+#   run_phase(ctx, ...)              - launch + interpret
+#   _interpret_output(ctx, result)   - turn ClaudeResult into ActorResult
+#
+# Per-call config (stall_timeout, llm_caller, llm_backend, on_stream_event)
+# is passed as kwargs to ``run_phase`` rather than carried as instance state.
 
 # Actions that indicate failure or regression — never auto-selected as the
 # "forward-advancing" action when mapping generic success signals.
@@ -149,383 +163,377 @@ _NEGATIVE_ACTIONS = frozenset({
 })
 
 
-class AgentRunner:
-    """Invokes Claude CLI as a subprocess, streams output."""
-
-    def __init__(self, stall_timeout: int = 1800, llm_backend: str = 'claude',
-                 on_stream_event: Callable[[dict], None] | None = None,
-                 llm_caller: Callable | None = None):
-        self.stall_timeout = stall_timeout
-        self.llm_backend = llm_backend
-        self.on_stream_event = on_stream_event
-        self._llm_caller = llm_caller  # explicit injection; overrides llm_backend when set
-
-    async def run(self, ctx: ActorContext) -> ActorResult:
-        """Run a Claude agent turn and interpret the result."""
-        # Build prompt
-        prompt = ctx.task
-        if ctx.backtrack_context:
-            # Distinguish escalation responses from downstream backtracks
-            has_human_feedback = '[human feedback]' in ctx.backtrack_context
-            if has_human_feedback:
-                header = '[CfA RESPONSE: The human has responded to your escalation.]'
-            else:
-                header = '[CfA BACKTRACK: Re-entering from a downstream phase.]'
-            prompt = (
-                f"{header}\n\n"
-                f"Feedback:\n{ctx.backtrack_context}\n\n"
-                f"Original task: {ctx.task}"
-            )
-
-        # On resume, all previous task/agent handles are dead.  The
-        # orchestrator process that owned them is gone — TaskOutput on
-        # any prior task ID will return "No task found".  Tell the agent
-        # so it doesn't burn budget polling phantom handles.
-        if ctx.resume_session:
-            prompt = (
-                '[SESSION RESUMED — STALE TASK HANDLES]\n'
-                'This conversation is being resumed after a restart. '
-                'All background task and agent handles from the previous '
-                'run are dead — calling TaskOutput or checking on prior '
-                'task IDs will fail with "No task found". Do not poll '
-                'them. Instead, assess progress from what is on disk '
-                '(files already written) and re-dispatch any incomplete '
-                'work.\n\n'
-                + prompt
-            )
-
-        # Resolve agent definitions — try .teaparty/ workgroup format first
-        from teaparty.cfa.phase_config import PhaseConfig
-        agents_json = ''
-        agents_path = ''
-        wg_name = ctx.phase_spec.agent_file
-        wg_yaml = os.path.join(ctx.teaparty_home, 'project', 'workgroups', f'{wg_name}.yaml')
-        if os.path.isfile(wg_yaml):
-            config = PhaseConfig(ctx.poc_root)
-            agents_json = config.resolve_agents_json(wg_name)
-        if not agents_json:
-            agents_path = os.path.join(ctx.poc_root, ctx.phase_spec.agent_file)
-
-        # Build settings from the agent's own configuration.  No hidden
-        # per-phase overlay — the agent's ``settings.yaml`` (folder
-        # permissions) plus its frontmatter ``tools:`` whitelist (what
-        # the config UI writes) are the complete source of truth.
-        # Issue #150: absolute paths in settings leak into agent context;
-        # env vars reach subprocesses via ClaudeRunner._build_env().
-        from teaparty.runners.launcher import _merge_settings as _lm
-        _teaparty_home_for_agent = os.path.join(ctx.project_workdir, '.teaparty')
-        try:
-            settings = _lm(ctx.phase_spec.lead, 'project', _teaparty_home_for_agent)
-        except Exception:
-            settings = {}
-
-        # Issue #150: worktree jail hook — reject Read/Edit/Write calls
-        # that use absolute paths or target files outside the worktree.
-        # The hook script is staged into the worktree by
-        # compose_launch_worktree (runners/launcher.py); the path here
-        # must match the staged destination.
-        #
-        # Schema must match Claude Code's documented hook shape: hooks
-        # is a dict keyed by event name, each entry is
-        # ``{matcher: "Tool|Tool", hooks: [{type, command}, ...]}``.
-        # An ad-hoc shape (event/matchers/handler) silently invalidates
-        # the entire settings file — Claude Code falls back to defaults
-        # and ``permissions.allow`` is ignored, which manifests as
-        # every tool prompting for permission.
-        _JAIL_HOOK_SCRIPT = '.claude/hooks/worktree_hook.py'
-        _stage_jail_hook(ctx.session_worktree, _JAIL_HOOK_SCRIPT)
-        _check_jail_hook(ctx.session_worktree, _JAIL_HOOK_SCRIPT)
-        jail_hook = {
-            'type': 'command',
-            'command': f'python3 {_JAIL_HOOK_SCRIPT}',
-        }
-        hooks_section = settings.setdefault('hooks', {})
-        if not isinstance(hooks_section, dict):
-            hooks_section = {}
-            settings['hooks'] = hooks_section
-        pre = hooks_section.setdefault('PreToolUse', [])
-        pre.append({
-            'matcher': 'Read|Edit|Write|Glob|Grep',
-            'hooks': [jail_hook],
-        })
-
-        from teaparty.runners.launcher import launch, _default_ollama_caller
-        _caller: Callable | None = self._llm_caller
-        if _caller is None and self.llm_backend == 'ollama':
-            _caller = _default_ollama_caller
-        launch_kwargs: dict = {}
-        if _caller is not None:
-            launch_kwargs['llm_caller'] = _caller
-        # Point the agent's claude -p at the bridge's MCP HTTP endpoint
-        # so ``mcp__teaparty-config__*`` tools (Send, CloseConversation,
-        # AskQuestion, ...) are actually reachable.  Without this the
-        # allowlist still contains them but claude -p sees no such server
-        # and the agent cannot delegate.  Env var matches the dispatch
-        # paths in engine.py.
-        _mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
-        result = await launch(
-            agent_name=ctx.phase_spec.lead,
-            message=prompt,
-            scope='project',
-            telemetry_scope=ctx.project_slug or 'project',
-            mcp_port=_mcp_port,
-            # Agent definitions live in the project's own .teaparty/project/agents/
-            # directory; the org management catalog is the fallback (Issue #408).
-            teaparty_home=os.path.join(ctx.project_workdir, '.teaparty'),
-            org_home=ctx.teaparty_home,
-            worktree=ctx.session_worktree,
-            resume_session=ctx.resume_session or '',
-            on_stream_event=self.on_stream_event,
-            event_bus=ctx.event_bus,
-            session_id=ctx.session_id,
-            heartbeat_file=ctx.heartbeat_file,
-            parent_heartbeat=ctx.parent_heartbeat,
-            children_file=ctx.children_file,
-            stall_timeout=self.stall_timeout,
-            settings_override=settings,
-            add_dirs=ctx.add_dirs,
-            agents_json=agents_json or None,
-            agents_file=agents_path or None,
-            stream_file=os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file),
-            env_vars=ctx.env_vars,
-            permission_mode_override=ctx.phase_spec.permission_mode,
-            mcp_routes=ctx.mcp_routes,
-            # The lead's own conv_id — the JOB conv.  MCP middleware
-            # uses this to set ``current_conversation_id`` so any Send
-            # the lead makes is parented under the JOB conv (which is
-            # what the job page's dispatch tree walks from).  Without
-            # this the lead's dispatches would be parented under the
-            # wrong conv_id and their blades never render.
-            caller_conversation_id=(
-                f'job:{ctx.project_slug}:{ctx.session_id}'
-                if ctx.project_slug and ctx.session_id
-                else ''
-            ),
-            **launch_kwargs,
+async def run_phase(
+    ctx: ActorContext,
+    *,
+    llm_caller: Callable | None = None,
+    stall_timeout: int = 1800,
+    llm_backend: str = 'claude',
+    on_stream_event: Callable[[dict], None] | None = None,
+) -> ActorResult:
+    """Run a Claude agent turn and interpret the result."""
+    # Build prompt
+    prompt = ctx.task
+    if ctx.backtrack_context:
+        # Distinguish escalation responses from downstream backtracks
+        has_human_feedback = '[human feedback]' in ctx.backtrack_context
+        if has_human_feedback:
+            header = '[CfA RESPONSE: The human has responded to your escalation.]'
+        else:
+            header = '[CfA BACKTRACK: Re-entering from a downstream phase.]'
+        prompt = (
+            f"{header}\n\n"
+            f"Feedback:\n{ctx.backtrack_context}\n\n"
+            f"Original task: {ctx.task}"
         )
 
-        if result.stall_killed:
-            return ActorResult(action='failed', data={
-                'reason': 'stall_timeout',
-                'exit_code': result.exit_code,
-                'stderr_lines': result.stderr_lines,
-            })
+    # On resume, all previous task/agent handles are dead.  The
+    # orchestrator process that owned them is gone — TaskOutput on
+    # any prior task ID will return "No task found".  Tell the agent
+    # so it doesn't burn budget polling phantom handles.
+    if ctx.resume_session:
+        prompt = (
+            '[SESSION RESUMED — STALE TASK HANDLES]\n'
+            'This conversation is being resumed after a restart. '
+            'All background task and agent handles from the previous '
+            'run are dead — calling TaskOutput or checking on prior '
+            'task IDs will fail with "No task found". Do not poll '
+            'them. Instead, assess progress from what is on disk '
+            '(files already written) and re-dispatch any incomplete '
+            'work.\n\n'
+            + prompt
+        )
 
-        if result.exit_code != 0:
-            reason = 'api_overloaded' if result.api_overloaded else 'nonzero_exit'
-            return ActorResult(action='failed', data={
-                'reason': reason,
-                'exit_code': result.exit_code,
-                'stderr_lines': result.stderr_lines,
-            })
+    # Resolve agent definitions — try .teaparty/ workgroup format first
+    from teaparty.cfa.phase_config import PhaseConfig
+    agents_json = ''
+    agents_path = ''
+    wg_name = ctx.phase_spec.agent_file
+    wg_yaml = os.path.join(ctx.teaparty_home, 'project', 'workgroups', f'{wg_name}.yaml')
+    if os.path.isfile(wg_yaml):
+        config = PhaseConfig(ctx.poc_root)
+        agents_json = config.resolve_agents_json(wg_name)
+    if not agents_json:
+        agents_path = os.path.join(ctx.poc_root, ctx.phase_spec.agent_file)
 
-        # Relocate plan files from ~/.claude/plans/ if needed.
-        # Claude stores plans internally when running with --permission-mode plan.
-        if ctx.phase_spec.artifact and getattr(ctx.phase_spec, "permission_mode", None) == "plan":
-            artifact_path = os.path.join(ctx.session_worktree, ctx.phase_spec.artifact)
-            if not os.path.exists(artifact_path):
-                _relocate_plan_file(artifact_path, result.start_time)
+    # Build settings from the agent's own configuration.  No hidden
+    # per-phase overlay — the agent's ``settings.yaml`` (folder
+    # permissions) plus its frontmatter ``tools:`` whitelist (what
+    # the config UI writes) are the complete source of truth.
+    # Issue #150: absolute paths in settings leak into agent context;
+    # env vars reach subprocesses via ClaudeRunner._build_env().
+    from teaparty.runners.launcher import _merge_settings as _lm
+    _teaparty_home_for_agent = os.path.join(ctx.project_workdir, '.teaparty')
+    try:
+        settings = _lm(ctx.phase_spec.lead, 'project', _teaparty_home_for_agent)
+    except Exception:
+        settings = {}
 
-        # Relocate misplaced artifacts: agents sometimes write to arbitrary
-        # absolute paths.  Parse the stream JSONL to find where the agent
-        # actually wrote, and move the file to session_worktree so it is
-        # visible to the reviewer and to subagents.
-        stream_path = os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file)
-        if ctx.phase_spec.artifact:
-            _relocate_misplaced_artifact(
-                ctx.session_worktree, stream_path,
-                ctx.phase_spec.artifact,
-            )
+    # Issue #150: worktree jail hook — reject Read/Edit/Write calls
+    # that use absolute paths or target files outside the worktree.
+    # The hook script is staged into the worktree by
+    # compose_launch_worktree (runners/launcher.py); the path here
+    # must match the staged destination.
+    #
+    # Schema must match Claude Code's documented hook shape: hooks
+    # is a dict keyed by event name, each entry is
+    # ``{matcher: "Tool|Tool", hooks: [{type, command}, ...]}``.
+    # An ad-hoc shape (event/matchers/handler) silently invalidates
+    # the entire settings file — Claude Code falls back to defaults
+    # and ``permissions.allow`` is ignored, which manifests as
+    # every tool prompting for permission.
+    _JAIL_HOOK_SCRIPT = '.claude/hooks/worktree_hook.py'
+    _stage_jail_hook(ctx.session_worktree, _JAIL_HOOK_SCRIPT)
+    _check_jail_hook(ctx.session_worktree, _JAIL_HOOK_SCRIPT)
+    jail_hook = {
+        'type': 'command',
+        'command': f'python3 {_JAIL_HOOK_SCRIPT}',
+    }
+    hooks_section = settings.setdefault('hooks', {})
+    if not isinstance(hooks_section, dict):
+        hooks_section = {}
+        settings['hooks'] = hooks_section
+    pre = hooks_section.setdefault('PreToolUse', [])
+    pre.append({
+        'matcher': 'Read|Edit|Write|Glob|Grep',
+        'hooks': [jail_hook],
+    })
 
-        # Detect what the agent produced
-        actor_result = self._interpret_output(ctx, result)
+    from teaparty.runners.launcher import launch, _default_ollama_caller
+    _caller: Callable | None = llm_caller
+    if _caller is None and llm_backend == 'ollama':
+        _caller = _default_ollama_caller
+    launch_kwargs: dict = {}
+    if _caller is not None:
+        launch_kwargs['llm_caller'] = _caller
+    # Point the agent's claude -p at the bridge's MCP HTTP endpoint
+    # so ``mcp__teaparty-config__*`` tools (Send, CloseConversation,
+    # AskQuestion, ...) are actually reachable.  Without this the
+    # allowlist still contains them but claude -p sees no such server
+    # and the agent cannot delegate.  Env var matches the dispatch
+    # paths in engine.py.
+    _mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
+    result = await launch(
+        agent_name=ctx.phase_spec.lead,
+        message=prompt,
+        scope='project',
+        telemetry_scope=ctx.project_slug or 'project',
+        mcp_port=_mcp_port,
+        # Agent definitions live in the project's own .teaparty/project/agents/
+        # directory; the org management catalog is the fallback (Issue #408).
+        teaparty_home=os.path.join(ctx.project_workdir, '.teaparty'),
+        org_home=ctx.teaparty_home,
+        worktree=ctx.session_worktree,
+        resume_session=ctx.resume_session or '',
+        on_stream_event=on_stream_event,
+        event_bus=ctx.event_bus,
+        session_id=ctx.session_id,
+        heartbeat_file=ctx.heartbeat_file,
+        parent_heartbeat=ctx.parent_heartbeat,
+        children_file=ctx.children_file,
+        stall_timeout=stall_timeout,
+        settings_override=settings,
+        add_dirs=ctx.add_dirs,
+        agents_json=agents_json or None,
+        agents_file=agents_path or None,
+        stream_file=os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file),
+        env_vars=ctx.env_vars,
+        permission_mode_override=ctx.phase_spec.permission_mode,
+        mcp_routes=ctx.mcp_routes,
+        # The lead's own conv_id — the JOB conv.  MCP middleware
+        # uses this to set ``current_conversation_id`` so any Send
+        # the lead makes is parented under the JOB conv (which is
+        # what the job page's dispatch tree walks from).  Without
+        # this the lead's dispatches would be parented under the
+        # wrong conv_id and their blades never render.
+        caller_conversation_id=(
+            f'job:{ctx.project_slug}:{ctx.session_id}'
+            if ctx.project_slug and ctx.session_id
+            else ''
+        ),
+        **launch_kwargs,
+    )
 
-        # Carry cost data for budget tracking (Issue #262)
-        if result.cost_usd:
-            actor_result.data['cost_usd'] = result.cost_usd
-        if result.cost_per_model:
-            actor_result.data['cost_per_model'] = result.cost_per_model
-        # Carry turn stats for job chat cost sender (Issue #341)
-        if result.input_tokens:
-            actor_result.data['input_tokens'] = result.input_tokens
-        if result.output_tokens:
-            actor_result.data['output_tokens'] = result.output_tokens
-        if result.duration_ms:
-            actor_result.data['duration_ms'] = result.duration_ms
+    if result.stall_killed:
+        return ActorResult(action='failed', data={
+            'reason': 'stall_timeout',
+            'exit_code': result.exit_code,
+            'stderr_lines': result.stderr_lines,
+        })
 
-        # Emit artifact detection for --verbose tracing
-        await ctx.event_bus.publish(Event(
-            type=EventType.LOG,
-            data={
-                'category': 'artifact_detection',
-                'state': ctx.state,
-                'action': actor_result.action,
-                'artifact_path': actor_result.data.get('artifact_path', ''),
-            },
-            session_id=ctx.session_id,
-        ))
+    if result.exit_code != 0:
+        reason = 'api_overloaded' if result.api_overloaded else 'nonzero_exit'
+        return ActorResult(action='failed', data={
+            'reason': reason,
+            'exit_code': result.exit_code,
+            'stderr_lines': result.stderr_lines,
+        })
 
-        return actor_result
+    # Relocate plan files from ~/.claude/plans/ if needed.
+    # Claude stores plans internally when running with --permission-mode plan.
+    if ctx.phase_spec.artifact and getattr(ctx.phase_spec, "permission_mode", None) == "plan":
+        artifact_path = os.path.join(ctx.session_worktree, ctx.phase_spec.artifact)
+        if not os.path.exists(artifact_path):
+            _relocate_plan_file(artifact_path, result.start_time)
 
-    def _interpret_output(self, ctx: ActorContext, result: ClaudeResult) -> ActorResult:
-        """Check for artifacts to determine the action."""
-        data: dict = {'claude_session_id': result.session_id}
-        if result.stderr_lines:
-            data['stderr_lines'] = result.stderr_lines
-        # Pass context budget to the engine for turn-boundary decisions (Issue #260)
-        data['context_budget'] = result.context_budget
+    # Relocate misplaced artifacts: agents sometimes write to arbitrary
+    # absolute paths.  Parse the stream JSONL to find where the agent
+    # actually wrote, and move the file to session_worktree so it is
+    # visible to the reviewer and to subagents.
+    stream_path = os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file)
+    if ctx.phase_spec.artifact:
+        _relocate_misplaced_artifact(
+            ctx.session_worktree, stream_path,
+            ctx.phase_spec.artifact,
+        )
 
-        # Carry the actor's last assistant text so the next gate can use it
-        # as the triggering message — what the agent said as they hit the
-        # gate. The gate then composes a self-contained bridge to the
-        # proxy/human instead of substituting a canonical template.
-        actor_message = _last_assistant_text(result.stream_file)
-        if actor_message:
-            data['actor_message'] = actor_message
+    # Detect what the agent produced
+    actor_result = _interpret_output(ctx, result)
 
-        # Skill-driven phases terminate by writing .phase-outcome.json with
-        # an explicit {outcome, reason} payload. When present, trust it as
-        # the authoritative signal — the skill has self-terminated, no
-        # artifact-presence inference needed.
-        outcome_action = self._read_phase_outcome(ctx)
-        if outcome_action is not None:
-            action, reason = outcome_action
-            if reason:
-                data['outcome_reason'] = reason
+    # Carry cost data for budget tracking (Issue #262)
+    if result.cost_usd:
+        actor_result.data['cost_usd'] = result.cost_usd
+    if result.cost_per_model:
+        actor_result.data['cost_per_model'] = result.cost_per_model
+    # Carry turn stats for job chat cost sender (Issue #341)
+    if result.input_tokens:
+        actor_result.data['input_tokens'] = result.input_tokens
+    if result.output_tokens:
+        actor_result.data['output_tokens'] = result.output_tokens
+    if result.duration_ms:
+        actor_result.data['duration_ms'] = result.duration_ms
+
+    # Emit artifact detection for --verbose tracing
+    await ctx.event_bus.publish(Event(
+        type=EventType.LOG,
+        data={
+            'category': 'artifact_detection',
+            'state': ctx.state,
+            'action': actor_result.action,
+            'artifact_path': actor_result.data.get('artifact_path', ''),
+        },
+        session_id=ctx.session_id,
+    ))
+
+    return actor_result
+
+def _interpret_output(ctx: ActorContext, result: ClaudeResult) -> ActorResult:
+    """Check for artifacts to determine the action."""
+    data: dict = {'claude_session_id': result.session_id}
+    if result.stderr_lines:
+        data['stderr_lines'] = result.stderr_lines
+    # Pass context budget to the engine for turn-boundary decisions (Issue #260)
+    data['context_budget'] = result.context_budget
+
+    # Carry the actor's last assistant text so the next gate can use it
+    # as the triggering message — what the agent said as they hit the
+    # gate. The gate then composes a self-contained bridge to the
+    # proxy/human instead of substituting a canonical template.
+    actor_message = _last_assistant_text(result.stream_file)
+    if actor_message:
+        data['actor_message'] = actor_message
+
+    # Skill-driven phases terminate by writing .phase-outcome.json with
+    # an explicit {outcome, reason} payload. When present, trust it as
+    # the authoritative signal — the skill has self-terminated, no
+    # artifact-presence inference needed.
+    outcome_action = _read_phase_outcome(ctx)
+    if outcome_action is not None:
+        action, reason = outcome_action
+        if reason:
+            data['outcome_reason'] = reason
+        return ActorResult(action=action, data=data)
+
+    # Check for expected artifact in the session worktree.
+    if ctx.phase_spec.artifact:
+        artifact_path = _find_artifact(
+            ctx.session_worktree, ctx.phase_spec.artifact,
+        )
+        if artifact_path:
+            data['artifact_path'] = artifact_path
+            action = _resolve_action(ctx.state, 'assert')
             return ActorResult(action=action, data=data)
 
-        # Check for expected artifact in the session worktree.
-        if ctx.phase_spec.artifact:
-            artifact_path = _find_artifact(
-                ctx.session_worktree, ctx.phase_spec.artifact,
-            )
-            if artifact_path:
-                data['artifact_path'] = artifact_path
-                action = self._resolve_action(ctx.state, 'assert')
-                return ActorResult(action=action, data=data)
+        # Artifact not produced — pick the safest loop-back action.
+        # The ASSERT gate must never be entered without the artifact.
+        action = _no_artifact_action_for_state(ctx.state)
+        return ActorResult(action=action, data=data)
 
-            # Artifact not produced — pick the safest loop-back action.
-            # The ASSERT gate must never be entered without the artifact.
-            action = self._no_artifact_action_for_state(ctx.state)
-            return ActorResult(action=action, data=data)
+    # No artifact configured AND no ``.phase-outcome.json`` — the
+    # skill ended its turn without declaring an outcome.  This is
+    # the normal mid-execute state: the lead dispatched via Send
+    # and its turn ended; fan-in must re-invoke the lead so it can
+    # synthesize the workers' replies and run its ASSERT gate
+    # before declaring APPROVE.
+    #
+    # Return ``action=''`` as the "no outcome" sentinel.  The
+    # outer ``_run_phase`` loop decides what to do:
+    #   - workers in flight → fan-in wait, re-invoke, try again
+    #   - no workers + no outcome → the skill is genuinely broken
+    #     and the engine must raise (no silent approvals).
+    #
+    # Previously this path returned ``action='auto-approve'`` —
+    # a silent approval that let EXECUTE → DONE whenever the
+    # lead's turn ended, even if it was just after a Send.  The
+    # skill's ASSERT gate never ran, the dispatched work never
+    # got reviewed.  That is the bug; this is the kill.
+    return ActorResult(action='', data=data)
 
-        # No artifact configured AND no ``.phase-outcome.json`` — the
-        # skill ended its turn without declaring an outcome.  This is
-        # the normal mid-execute state: the lead dispatched via Send
-        # and its turn ended; fan-in must re-invoke the lead so it can
-        # synthesize the workers' replies and run its ASSERT gate
-        # before declaring APPROVE.
-        #
-        # Return ``action=''`` as the "no outcome" sentinel.  The
-        # outer ``_run_phase`` loop decides what to do:
-        #   - workers in flight → fan-in wait, re-invoke, try again
-        #   - no workers + no outcome → the skill is genuinely broken
-        #     and the engine must raise (no silent approvals).
-        #
-        # Previously this path returned ``action='auto-approve'`` —
-        # a silent approval that let EXECUTE → DONE whenever the
-        # lead's turn ended, even if it was just after a Send.  The
-        # skill's ASSERT gate never ran, the dispatched work never
-        # got reviewed.  That is the bug; this is the kill.
-        return ActorResult(action='', data=data)
+def _read_phase_outcome(
+    ctx: ActorContext,
+) -> tuple[str, str] | None:
+    """Return (action, reason) when the skill wrote .phase-outcome.json.
 
-    def _read_phase_outcome(
-        self, ctx: ActorContext,
-    ) -> tuple[str, str] | None:
-        """Return (action, reason) when the skill wrote .phase-outcome.json.
+    The file is consumed (deleted) on read so a subsequent phase run
+    cannot pick up a stale outcome. Unknown outcomes are treated as
+    absent so the caller falls back to artifact inference.
+    """
+    path = os.path.join(ctx.session_worktree, '.phase-outcome.json')
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path) as f:
+            payload = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return None
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+    outcome = str(payload.get('outcome', '')).upper()
+    reason = str(payload.get('reason', ''))
 
-        The file is consumed (deleted) on read so a subsequent phase run
-        cannot pick up a stale outcome. Unknown outcomes are treated as
-        absent so the caller falls back to artifact inference.
-        """
-        path = os.path.join(ctx.session_worktree, '.phase-outcome.json')
-        if not os.path.isfile(path):
-            return None
-        try:
-            with open(path) as f:
-                payload = json.load(f)
-        except (json.JSONDecodeError, OSError):
-            return None
-        try:
-            os.unlink(path)
-        except OSError:
-            pass
-        outcome = str(payload.get('outcome', '')).upper()
-        reason = str(payload.get('reason', ''))
+    # Each skill outcome names the *target state* the skill wants to
+    # advance or backtrack to.  Resolve to the actual state-machine
+    # action by finding the edge from the current state that leads
+    # there.  Returns None if the target isn't reachable from
+    # ctx.state — strict rejection, not silent misrouting.
+    edges = TRANSITIONS.get(ctx.state, [])
+    action: str | None = None
+    if outcome == 'APPROVE':
+        # Forward advance — 'approve' (intent/planning/WORK_ASSERT)
+        # or 'auto-approve' (WORK_IN_PROGRESS).
+        for a, _ in edges:
+            if a in ('approve', 'auto-approve'):
+                action = a
+                break
+    elif outcome == 'REALIGN':
+        for a, to in edges:
+            if to == 'INTENT':
+                action = a
+                break
+    elif outcome == 'REPLAN':
+        for a, to in edges:
+            if to == 'PLAN':
+                action = a
+                break
+    elif outcome == 'WITHDRAW':
+        for a, to in edges:
+            if to == 'WITHDRAWN':
+                action = a
+                break
 
-        # Each skill outcome names the *target state* the skill wants to
-        # advance or backtrack to.  Resolve to the actual state-machine
-        # action by finding the edge from the current state that leads
-        # there.  Returns None if the target isn't reachable from
-        # ctx.state — strict rejection, not silent misrouting.
-        edges = TRANSITIONS.get(ctx.state, [])
-        action: str | None = None
-        if outcome == 'APPROVE':
-            # Forward advance — 'approve' (intent/planning/WORK_ASSERT)
-            # or 'auto-approve' (WORK_IN_PROGRESS).
-            for a, _ in edges:
-                if a in ('approve', 'auto-approve'):
-                    action = a
-                    break
-        elif outcome == 'REALIGN':
-            for a, to in edges:
-                if to == 'INTENT':
-                    action = a
-                    break
-        elif outcome == 'REPLAN':
-            for a, to in edges:
-                if to == 'PLAN':
-                    action = a
-                    break
-        elif outcome == 'WITHDRAW':
-            for a, to in edges:
-                if to == 'WITHDRAWN':
-                    action = a
-                    break
+    if action is None:
+        return None
+    return action, reason
 
-        if action is None:
-            return None
-        return action, reason
+def _no_artifact_action_for_state(state: str) -> str:
+    """Return the action to take when the expected artifact was not produced.
 
-    @staticmethod
-    def _no_artifact_action_for_state(state: str) -> str:
-        """Return the action to take when the expected artifact was not produced.
+    Skills terminate by writing .phase-outcome.json; this fallback is
+    only reached when a skill exited without both the outcome and the
+    expected artifact. Withdraw is the safe terminal — anything else
+    would advance the phase without evidence the work was done.
+    """
+    edges = TRANSITIONS.get(state, [])
+    valid = {a for a, _ in edges}
+    if 'withdraw' in valid:
+        return 'withdraw'
+    return edges[0][0] if edges else 'withdraw'
 
-        Skills terminate by writing .phase-outcome.json; this fallback is
-        only reached when a skill exited without both the outcome and the
-        expected artifact. Withdraw is the safe terminal — anything else
-        would advance the phase without evidence the work was done.
-        """
-        edges = TRANSITIONS.get(state, [])
-        valid = {a for a, _ in edges}
-        if 'withdraw' in valid:
-            return 'withdraw'
-        return edges[0][0] if edges else 'withdraw'
+def _resolve_action(state: str, tentative: str) -> str:
+    """Validate tentative action against CfA transitions; map to a valid action if needed.
 
-    @staticmethod
-    def _resolve_action(state: str, tentative: str) -> str:
-        """Validate tentative action against CfA transitions; map to a valid action if needed.
+    When the agent returns a generic success signal (assert/auto-approve) but the
+    state expects a specific advancing action, pick the first non-negative
+    valid action from the transition table.
+    """
+    edges = TRANSITIONS.get(state, [])
+    valid = {a for a, _ in edges}
 
-        When the agent returns a generic success signal (assert/auto-approve) but the
-        state expects a specific advancing action, pick the first non-negative
-        valid action from the transition table.
-        """
-        edges = TRANSITIONS.get(state, [])
-        valid = {a for a, _ in edges}
-
-        if tentative in valid:
-            return tentative
-
-        # Map generic success signals to the first forward-advancing action
-        if tentative in ('assert', 'auto-approve'):
-            for action, _ in edges:
-                if action not in _NEGATIVE_ACTIONS:
-                    return action
-
-        # Fallback: first available action (shouldn't normally reach here)
-        if edges:
-            return edges[0][0]
+    if tentative in valid:
         return tentative
+
+    # Map generic success signals to the first forward-advancing action
+    if tentative in ('assert', 'auto-approve'):
+        for action, _ in edges:
+            if action not in _NEGATIVE_ACTIONS:
+                return action
+
+    # Fallback: first available action (shouldn't normally reach here)
+    if edges:
+        return edges[0][0]
+    return tentative
 
 
 # ── Plan relocation ──────────────────────────────────────────────────────────

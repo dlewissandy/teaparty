@@ -884,7 +884,7 @@ class TestAgentRunnerLaunchArgs(unittest.TestCase):
 
     def test_launch_receives_project_teaparty_home(self):
         """launch() must receive teaparty_home={project_workdir}/.teaparty, not ctx.poc_root."""
-        from teaparty.cfa.actors import AgentRunner
+        from teaparty.cfa.actors import run_phase
         from teaparty.runners.claude import ClaudeResult
 
         project_workdir = _make_tmp(self)
@@ -899,7 +899,7 @@ class TestAgentRunnerLaunchArgs(unittest.TestCase):
             return ClaudeResult(exit_code=1)
 
         with patch('teaparty.runners.launcher.launch', side_effect=fake_launch):
-            _run(AgentRunner().run(ctx))
+            _run(run_phase(ctx))
 
         expected_teaparty_home = os.path.join(project_workdir, '.teaparty')
         self.assertEqual(
@@ -911,7 +911,7 @@ class TestAgentRunnerLaunchArgs(unittest.TestCase):
 
     def test_launch_receives_org_home_as_fallback(self):
         """launch() must receive org_home={poc_root}/.teaparty for the org catalog fallback."""
-        from teaparty.cfa.actors import AgentRunner
+        from teaparty.cfa.actors import run_phase
         from teaparty.runners.claude import ClaudeResult
 
         project_workdir = _make_tmp(self)
@@ -926,7 +926,7 @@ class TestAgentRunnerLaunchArgs(unittest.TestCase):
             return ClaudeResult(exit_code=1)
 
         with patch('teaparty.runners.launcher.launch', side_effect=fake_launch):
-            _run(AgentRunner().run(ctx))
+            _run(run_phase(ctx))
 
         expected_org_home = os.path.join(poc_root, '.teaparty')
         self.assertEqual(
@@ -937,7 +937,7 @@ class TestAgentRunnerLaunchArgs(unittest.TestCase):
 
     def test_launch_teaparty_home_differs_from_poc_root(self):
         """teaparty_home must not be ctx.poc_root — that was the original bug."""
-        from teaparty.cfa.actors import AgentRunner
+        from teaparty.cfa.actors import run_phase
         from teaparty.runners.claude import ClaudeResult
 
         project_workdir = _make_tmp(self)
@@ -952,7 +952,7 @@ class TestAgentRunnerLaunchArgs(unittest.TestCase):
             return ClaudeResult(exit_code=1)
 
         with patch('teaparty.runners.launcher.launch', side_effect=fake_launch):
-            _run(AgentRunner().run(ctx))
+            _run(run_phase(ctx))
 
         self.assertNotEqual(
             captured.get('teaparty_home'), poc_root,

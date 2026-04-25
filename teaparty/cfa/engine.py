@@ -32,8 +32,8 @@ from teaparty.util.skill_lookup import lookup_skill
 from teaparty.cfa.actors import (
     ActorContext,
     ActorResult,
-    AgentRunner,
     InputProvider,
+    run_phase,
 )
 from teaparty.cfa.gates.escalation import AskQuestionRunner
 from teaparty.cfa.gates.intervention_listener import InterventionListener
@@ -174,18 +174,21 @@ class Orchestrator:
         _agent_sender = self.config.project_lead or 'agent'
         if self._stream_bus:
             from teaparty.teams.stream import _make_live_stream_relay
-            _on_stream_event, _ = _make_live_stream_relay(
+            self._on_stream_event, _ = _make_live_stream_relay(
                 self._stream_bus, self._stream_conv_id, _agent_sender,
             )
         else:
-            _on_stream_event = None
+            self._on_stream_event = None
 
-        self._agent_runner = AgentRunner(
-            stall_timeout=phase_config.stall_timeout,
-            llm_backend=opts.llm_backend,
-            on_stream_event=_on_stream_event,
-            llm_caller=opts.llm_caller,
-        )
+        # Cut 28: AgentRunner class collapsed into module-level
+        # functions in cfa/actors.py.  Per-call config (llm_caller,
+        # stall_timeout, llm_backend, on_stream_event) is passed to
+        # ``run_phase`` as kwargs at the single call site in
+        # ``_invoke_actor`` — there's nothing instance-state-shaped
+        # about a single function call.
+        self._llm_caller = opts.llm_caller
+        self._llm_backend = opts.llm_backend
+        self._stall_timeout = phase_config.stall_timeout
 
         self._ask_question_runner: AskQuestionRunner | None = None
         self._intervention_listener: InterventionListener | None = None
@@ -976,7 +979,13 @@ class Orchestrator:
             )
             self._pending_intervention = ''
 
-        return await self._agent_runner.run(ctx)
+        return await run_phase(
+            ctx,
+            llm_caller=self._llm_caller,
+            stall_timeout=self._stall_timeout,
+            llm_backend=self._llm_backend,
+            on_stream_event=self._on_stream_event,
+        )
 
     async def _deliver_intervention(self) -> None:
         """Drain the intervention queue, publish INTERVENE, store prompt for injection.

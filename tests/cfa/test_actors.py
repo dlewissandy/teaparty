@@ -20,10 +20,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+from teaparty.cfa.actors import _interpret_output, run_phase
 from teaparty.cfa.actors import (
     ActorContext,
     ActorResult,
-    AgentRunner,
     _relocate_plan_file,
 )
 from teaparty.runners.claude import ClaudeResult
@@ -104,7 +104,7 @@ class TestInterpretOutputMissingArtifact(unittest.TestCase):
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
-        self.runner = AgentRunner()
+        self.runner = None  # Cut 28: AgentRunner collapsed to module-level functions
 
     def tearDown(self):
         import shutil
@@ -117,7 +117,7 @@ class TestInterpretOutputMissingArtifact(unittest.TestCase):
     def test_missing_artifact_never_asserts(self):
         """Absent artifact must not route 'assert' — gate invariant requires artifact present."""
         ctx = self._make_ctx_in_tmpdir()
-        result = self.runner._interpret_output(ctx, _make_claude_result())
+        result = _interpret_output(ctx, _make_claude_result())
         self.assertNotEqual(result.action, 'assert',
                             "Missing artifact must never route to the ASSERT gate")
 
@@ -127,7 +127,7 @@ class TestInterpretOutputMissingArtifact(unittest.TestCase):
         the work back through a new dispatch rather than asserting.
         """
         ctx = self._make_ctx_in_tmpdir(state='INTENT')
-        result = self.runner._interpret_output(ctx, _make_claude_result())
+        result = _interpret_output(ctx, _make_claude_result())
         self.assertEqual(result.action, 'withdraw')
         self.assertNotIn('artifact_missing', result.data)
         self.assertNotIn('artifact_expected', result.data)
@@ -135,7 +135,7 @@ class TestInterpretOutputMissingArtifact(unittest.TestCase):
     def test_missing_artifact_no_artifact_path_in_data(self):
         """artifact_path must not be set when the file does not exist."""
         ctx = self._make_ctx_in_tmpdir()
-        result = self.runner._interpret_output(ctx, _make_claude_result())
+        result = _interpret_output(ctx, _make_claude_result())
         self.assertNotIn('artifact_path', result.data)
 
     def test_present_artifact_uses_assert_with_path(self):
@@ -144,7 +144,7 @@ class TestInterpretOutputMissingArtifact(unittest.TestCase):
         artifact_path = os.path.join(self.tmpdir, 'INTENT.md')
         Path(artifact_path).write_text('# Intent\nDo something')
 
-        result = self.runner._interpret_output(ctx, _make_claude_result())
+        result = _interpret_output(ctx, _make_claude_result())
 
         self.assertEqual(result.action, 'assert')
         self.assertEqual(result.data.get('artifact_path'), artifact_path)
@@ -171,7 +171,7 @@ class TestInterpretOutputMissingArtifact(unittest.TestCase):
         spec = _make_phase_spec(artifact=None)
         ctx = _make_ctx(session_worktree=self.tmpdir, phase_spec=spec)
 
-        result = self.runner._interpret_output(ctx, _make_claude_result())
+        result = _interpret_output(ctx, _make_claude_result())
         self.assertEqual(
             result.action, '',
             'Interpreter must return the empty-action sentinel when '
@@ -218,7 +218,7 @@ class TestInterpretOutputPlanningPhaseRouting(unittest.TestCase):
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
-        self.runner = AgentRunner()
+        self.runner = None  # Cut 28: AgentRunner collapsed to module-level functions
 
     def tearDown(self):
         import shutil
@@ -241,7 +241,7 @@ class TestInterpretOutputPlanningPhaseRouting(unittest.TestCase):
         ctx = _make_ctx(state='DRAFT', session_worktree=self.tmpdir, infra_dir=self.tmpdir, phase_spec=spec)
         Path(os.path.join(self.tmpdir, 'PLAN.md')).write_text('# Plan\nStep 1\nStep 2')
 
-        result = self.runner._interpret_output(ctx, _make_claude_result())
+        result = _interpret_output(ctx, _make_claude_result())
 
         self.assertEqual(result.action, 'assert')
         self.assertIn('artifact_path', result.data)
@@ -253,7 +253,7 @@ class TestInterpretOutputPlanningPhaseRouting(unittest.TestCase):
         ctx = _make_ctx(state='DRAFT', session_worktree=self.tmpdir, infra_dir=self.tmpdir, phase_spec=spec)
         # PLAN.md deliberately not written
 
-        result = self.runner._interpret_output(ctx, _make_claude_result())
+        result = _interpret_output(ctx, _make_claude_result())
 
         self.assertNotEqual(result.action, 'auto-approve',
                             "Missing PLAN.md must never auto-approve — that bypasses PLAN_ASSERT")
@@ -267,7 +267,7 @@ class TestInterpretOutputPlanningPhaseRouting(unittest.TestCase):
         ctx = _make_ctx(state='PROPOSAL', session_worktree=self.tmpdir, infra_dir=self.tmpdir, phase_spec=spec)
         Path(os.path.join(self.tmpdir, 'INTENT.md')).write_text('# Intent')
 
-        result = self.runner._interpret_output(ctx, _make_claude_result())
+        result = _interpret_output(ctx, _make_claude_result())
 
         self.assertEqual(result.action, 'assert')
         self.assertIn('artifact_path', result.data)
@@ -426,7 +426,7 @@ class TestEscalationGenerativeResponse(unittest.TestCase):
             approval_state='PLAN_ASSERT',
         )
         ctx = _make_ctx(state='DRAFT', session_worktree=self.tmpdir, infra_dir=self.tmpdir, phase_spec=spec)
-        runner = AgentRunner()
+        runner = None  # Cut 28: AgentRunner -> module-level run_phase
         mock_result = ClaudeResult(exit_code=0, session_id='s1', start_time=1000.0)
 
         # Simulate relocation: write the artifact before _interpret_output runs,
@@ -434,7 +434,7 @@ class TestEscalationGenerativeResponse(unittest.TestCase):
         artifact_path = os.path.join(self.tmpdir, 'PLAN.md')
         Path(artifact_path).write_text('# Plan from relocation')
 
-        result = runner._interpret_output(ctx, mock_result)
+        result = _interpret_output(ctx, mock_result)
         self.assertEqual(result.action, 'assert')
         self.assertEqual(result.data.get('artifact_path'), artifact_path)
         self.assertNotIn('artifact_missing', result.data)
@@ -469,7 +469,7 @@ class TestStderrInActorResult(unittest.TestCase):
 
     def test_interpret_output_includes_stderr(self):
         """When ClaudeResult has stderr_lines, they appear in ActorResult.data."""
-        runner = AgentRunner()
+        runner = None  # Cut 28: AgentRunner -> module-level run_phase
         ctx = _make_ctx()
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -479,7 +479,7 @@ class TestStderrInActorResult(unittest.TestCase):
                 session_id='s1',
                 stderr_lines=['Error: tool execution failed', 'Warning: rate limited'],
             )
-            actor_result = runner._interpret_output(ctx, result)
+            actor_result = _interpret_output(ctx, result)
             self.assertEqual(
                 actor_result.data['stderr_lines'],
                 ['Error: tool execution failed', 'Warning: rate limited'],
@@ -487,19 +487,19 @@ class TestStderrInActorResult(unittest.TestCase):
 
     def test_interpret_output_omits_stderr_when_empty(self):
         """When ClaudeResult has no stderr, data should not contain stderr_lines."""
-        runner = AgentRunner()
+        runner = None  # Cut 28: AgentRunner -> module-level run_phase
         ctx = _make_ctx()
 
         with tempfile.TemporaryDirectory() as tmpdir:
             ctx.session_worktree = tmpdir
             result = ClaudeResult(exit_code=0, session_id='s1', stderr_lines=[])
-            actor_result = runner._interpret_output(ctx, result)
+            actor_result = _interpret_output(ctx, result)
             self.assertNotIn('stderr_lines', actor_result.data)
 
     def test_agent_runner_run_propagates_stderr_on_nonzero_exit(self):
         """AgentRunner.run() includes stderr_lines in the failed ActorResult when exit_code != 0."""
         from teaparty.runners.claude import ClaudeRunner
-        runner = AgentRunner()
+        runner = None  # Cut 28: AgentRunner -> module-level run_phase
         ctx = _make_ctx()
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -511,7 +511,7 @@ class TestStderrInActorResult(unittest.TestCase):
                 stderr_lines=['fatal: API key invalid', 'Permission denied'],
             )
             with patch.object(ClaudeRunner, 'run', new=AsyncMock(return_value=fake_claude_result)):
-                actor_result = _run(runner.run(ctx))
+                actor_result = _run(run_phase(ctx))
 
         self.assertEqual(actor_result.action, 'failed')
         self.assertEqual(
@@ -523,7 +523,7 @@ class TestStderrInActorResult(unittest.TestCase):
     def test_agent_runner_run_propagates_stderr_on_stall_killed(self):
         """AgentRunner.run() includes stderr_lines in the failed ActorResult when stall_killed."""
         from teaparty.runners.claude import ClaudeRunner
-        runner = AgentRunner()
+        runner = None  # Cut 28: AgentRunner -> module-level run_phase
         ctx = _make_ctx()
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -536,7 +536,7 @@ class TestStderrInActorResult(unittest.TestCase):
                 stderr_lines=['subprocess timed out after 1800s'],
             )
             with patch.object(ClaudeRunner, 'run', new=AsyncMock(return_value=fake_claude_result)):
-                actor_result = _run(runner.run(ctx))
+                actor_result = _run(run_phase(ctx))
 
         self.assertEqual(actor_result.action, 'failed')
         self.assertEqual(
@@ -567,7 +567,7 @@ class TestInterpretOutputExecutionArtifact(unittest.TestCase):
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
-        self.runner = AgentRunner()
+        self.runner = None  # Cut 28: AgentRunner collapsed to module-level functions
 
     def tearDown(self):
         import shutil
@@ -595,7 +595,7 @@ class TestInterpretOutputExecutionArtifact(unittest.TestCase):
         # Write the work summary to the worktree (agent writes it there)
         Path(os.path.join(self.tmpdir, 'WORK_SUMMARY.md')).write_text('# Work Summary\n')
 
-        result = self.runner._interpret_output(ctx, _make_claude_result())
+        result = _interpret_output(ctx, _make_claude_result())
 
         self.assertEqual(result.action, 'assert')
         self.assertIn('WORK_SUMMARY.md', result.data.get('artifact_path', ''))
@@ -609,7 +609,7 @@ class TestInterpretOutputExecutionArtifact(unittest.TestCase):
             phase_spec=spec,
         )
 
-        result = self.runner._interpret_output(ctx, _make_claude_result())
+        result = _interpret_output(ctx, _make_claude_result())
 
         self.assertNotEqual(result.action, 'assert',
                             "Missing artifact must never assert — gate invariant requires artifact")
@@ -773,7 +773,7 @@ class TestRelocateMisplacedArtifact(unittest.TestCase):
             self.worktree, self.stream_file, 'INTENT.md',
         )
 
-        runner = AgentRunner()
+        runner = None  # Cut 28: AgentRunner -> module-level run_phase
         spec = _make_phase_spec(artifact='INTENT.md')
         ctx = _make_ctx(
             state='PROPOSAL',
@@ -782,7 +782,7 @@ class TestRelocateMisplacedArtifact(unittest.TestCase):
             phase_spec=spec,
         )
 
-        result = runner._interpret_output(ctx, _make_claude_result())
+        result = _interpret_output(ctx, _make_claude_result())
 
         self.assertEqual(result.action, 'assert')
         self.assertNotIn('artifact_missing', result.data)
