@@ -220,10 +220,9 @@ class TestSkillLookupIntegrationWithEngine(unittest.TestCase):
         cfg = MagicMock(spec=PhaseConfig)
         cfg.stall_timeout = 1800
         cfg.phase.return_value = PhaseSpec(
-            name='planning', agent_file='agents/uber-team.json',
+            agent_file='agents/uber-team.json',
             lead='project-lead', permission_mode='acceptEdits',
             stream_file='.plan-stream.jsonl', artifact='PLAN.md',
-            approval_state='PLANNING',
         )
 
         orch = Orchestrator(

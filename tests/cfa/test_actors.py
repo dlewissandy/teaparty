@@ -51,13 +51,11 @@ def _make_phase_spec(
     artifact: str | None = 'INTENT.md',
 ) -> PhaseSpec:
     return PhaseSpec(
-        name='intent',
         agent_file='agents/intent-team.json',
         lead='intent-lead',
         permission_mode='acceptEdits',
         stream_file='.intent-stream.jsonl',
         artifact=artifact,
-        approval_state='INTENT_ASSERT',
     )
 
 
@@ -76,7 +74,6 @@ def _make_ctx(
         infra_dir=infra_dir,
         project_workdir='/tmp/project',
         session_worktree=session_worktree,
-        stream_file='.intent-stream.jsonl',
         phase_spec=phase_spec,
         poc_root='/tmp/poc',
         event_bus=_make_event_bus(),
@@ -226,13 +223,11 @@ class TestInterpretOutputPlanningPhaseRouting(unittest.TestCase):
 
     def _make_planning_spec(self) -> PhaseSpec:
         return PhaseSpec(
-            name='planning',
             agent_file='agents/uber-team.json',
             lead='project-lead',
             permission_mode='plan',
             stream_file='.plan-stream.jsonl',
             artifact='PLAN.md',
-            approval_state='PLAN_ASSERT',
         )
 
     def test_planning_present_artifact_goes_to_assert(self):
@@ -419,11 +414,9 @@ class TestEscalationGenerativeResponse(unittest.TestCase):
     def test_relocation_called_when_artifact_missing(self):
         """When PLAN.md isn't in session_worktree, _interpret_output
         still finds the artifact if relocation writes it before the check."""
-        spec = PhaseSpec(
-            name='planning', agent_file='agents/uber-team.json',
+        spec = PhaseSpec( agent_file='agents/uber-team.json',
             lead='project-lead', permission_mode='plan',
             stream_file='.plan-stream.jsonl', artifact='PLAN.md',
-            approval_state='PLAN_ASSERT',
         )
         ctx = _make_ctx(state='DRAFT', session_worktree=self.tmpdir, infra_dir=self.tmpdir, phase_spec=spec)
         runner = None  # Cut 28: AgentRunner -> module-level run_phase
@@ -441,11 +434,9 @@ class TestEscalationGenerativeResponse(unittest.TestCase):
 
     def test_no_relocation_when_artifact_already_exists(self):
         """If PLAN.md already exists in session_worktree, don't relocate."""
-        spec = PhaseSpec(
-            name='planning', agent_file='agents/uber-team.json',
+        spec = PhaseSpec( agent_file='agents/uber-team.json',
             lead='project-lead', permission_mode='plan',
             stream_file='.plan-stream.jsonl', artifact='PLAN.md',
-            approval_state='PLAN_ASSERT',
         )
         ctx = _make_ctx(state='DRAFT', session_worktree=self.tmpdir, phase_spec=spec)
 
@@ -575,13 +566,11 @@ class TestInterpretOutputExecutionArtifact(unittest.TestCase):
 
     def _make_execution_spec(self):
         return PhaseSpec(
-            name='execution',
             agent_file='agents/uber-team.json',
             lead='project-lead',
             permission_mode='acceptEdits',
             stream_file='.exec-stream.jsonl',
             artifact='WORK_SUMMARY.md',
-            approval_state='WORK_ASSERT',
         )
 
     def test_work_summary_present_routes_to_assert(self):

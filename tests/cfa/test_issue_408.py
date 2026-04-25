@@ -217,8 +217,6 @@ class TestPhaseConfigLeadResolution(unittest.TestCase):
                          'stream_file must not change when substituting lead')
         self.assertEqual(spec.artifact, base.artifact,
                          'artifact must not change when substituting lead')
-        self.assertEqual(spec.approval_state, base.approval_state,
-                         'approval_state must not change when substituting lead')
 
     def test_different_project_leads_for_different_projects(self):
         """Two different project dirs produce two different phase specs (no cross-contamination)."""
@@ -861,13 +859,11 @@ class TestAgentRunnerLaunchArgs(unittest.TestCase):
         from teaparty.messaging.bus import EventBus
 
         phase_spec = PhaseSpec(
-            name='planning',
             agent_file='uber',
             lead='comics-lead',
             permission_mode='default',
             stream_file='planning.jsonl',
             artifact=None,
-            approval_state='PLAN_ASSERT',
         )
         return ActorContext(
             state='PLANNING_RUN',
@@ -876,7 +872,6 @@ class TestAgentRunnerLaunchArgs(unittest.TestCase):
             infra_dir=project_workdir,
             project_workdir=project_workdir,
             session_worktree=project_workdir,
-            stream_file='planning.jsonl',
             phase_spec=phase_spec,
             poc_root=poc_root,
             event_bus=EventBus(),

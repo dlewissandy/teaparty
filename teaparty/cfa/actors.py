@@ -59,7 +59,6 @@ class ActorContext:
     infra_dir: str
     project_workdir: str
     session_worktree: str
-    stream_file: str
     phase_spec: 'PhaseSpec'
     poc_root: str
     event_bus: EventBus

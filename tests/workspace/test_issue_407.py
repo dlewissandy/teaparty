@@ -348,13 +348,11 @@ class TestInterpretOutputFindsArtifactInWorktree(unittest.TestCase):
         bus = MagicMock(spec=EventBus)
         bus.publish = AsyncMock()
         spec = PhaseSpec(
-            name='execution',
             agent_file='agents/uber-team.json',
             lead='project-lead',
             permission_mode='acceptEdits',
             stream_file='.exec-stream.jsonl',
             artifact=artifact,
-            approval_state='WORK_ASSERT',
         )
         return ActorContext(
             state='WORK_IN_PROGRESS',
@@ -363,7 +361,6 @@ class TestInterpretOutputFindsArtifactInWorktree(unittest.TestCase):
             infra_dir=self.infra_dir,    # separate from worktree
             project_workdir='/tmp/proj',
             session_worktree=self.worktree,
-            stream_file='.exec-stream.jsonl',
             phase_spec=spec,
             poc_root='/tmp/poc',
             event_bus=bus,
@@ -426,16 +423,14 @@ class TestInterpretOutputFindsArtifactInWorktree(unittest.TestCase):
 
         bus = MagicMock(spec=EventBus)
         bus.publish = AsyncMock()
-        spec = PhaseSpec(
-            name='intent', agent_file='agents/intent.json',
+        spec = PhaseSpec( agent_file='agents/intent.json',
             lead='intent-lead', permission_mode='acceptEdits',
             stream_file='.intent-stream.jsonl', artifact='INTENT.md',
-            approval_state='INTENT_ASSERT',
         )
         ctx = ActorContext(
             state='PROPOSAL', phase='intent', task='Build the feature',
             infra_dir=self.infra_dir, project_workdir='/tmp/proj',
-            session_worktree=self.worktree, stream_file='.intent-stream.jsonl',
+            session_worktree=self.worktree,
             phase_spec=spec, poc_root='/tmp/poc', event_bus=bus,
         )
         # Write to worktree only

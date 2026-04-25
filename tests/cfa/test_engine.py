@@ -46,17 +46,14 @@ def _make_event_bus() -> EventBus:
 
 
 def _make_phase_spec(
-    name: str = 'intent',
     artifact: str | None = None,
 ) -> PhaseSpec:
     return PhaseSpec(
-        name=name,
         agent_file='agents/intent-team.json',
         lead='intent-lead',
         permission_mode='acceptEdits',
         stream_file='.intent-stream.jsonl',
         artifact=artifact,
-        approval_state='INTENT_ASSERT',
     )
 
 

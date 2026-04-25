@@ -937,7 +937,6 @@ class Orchestrator:
             infra_dir=self.infra_dir,
             project_workdir=self.project_workdir,
             session_worktree=self.session_worktree,
-            stream_file=spec.stream_file,
             phase_spec=spec,
             poc_root=self.poc_root,
             event_bus=self.event_bus,

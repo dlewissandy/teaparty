@@ -3,10 +3,9 @@
 What varies per phase: ``stream_file`` (which .jsonl the lead's events
 go to) and ``artifact`` (which file the skill is expected to write).
 Everything else — ``agent_file='uber'``, ``lead='project-lead'``,
-``permission_mode='acceptEdits'``, ``approval_state`` (phase name
-uppercased) — is the same across all three phases.  Previously these
-lived in ``phase-config.json`` as if they might vary.  They're
-literal constants now.
+``permission_mode='acceptEdits'`` — is the same across all three
+phases.  Previously these lived in ``phase-config.json`` as if they
+might vary.  They're literal constants now.
 
 Teams (dispatch workgroups) are listed here too: a small fixed set
 of slugs used by withdraw / pause / summarize walkers and by the
@@ -26,13 +25,11 @@ from typing import Any
 @dataclass
 class PhaseSpec:
     """Configuration for a single CfA phase."""
-    name: str
     agent_file: str
     lead: str
     permission_mode: str
     stream_file: str
     artifact: str | None
-    approval_state: str
 
 
 @dataclass
@@ -55,10 +52,9 @@ _PHASE_DEFAULTS = dict(
 )
 _PHASES: dict[str, PhaseSpec] = {
     name: PhaseSpec(
-        name=name, **_PHASE_DEFAULTS,
+        **_PHASE_DEFAULTS,
         stream_file=stream,
         artifact=artifact,
-        approval_state=name.upper() if name != 'execution' else 'EXECUTE',
     )
     for name, stream, artifact in (
         ('intent',    '.intent-stream.jsonl', 'INTENT.md'),
