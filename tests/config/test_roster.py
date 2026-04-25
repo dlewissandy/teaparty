@@ -2,7 +2,7 @@
 """Tests for teaparty.config.roster.
 
 Covers:
- 1. derive_om_roster — single source of truth for "who is on the OM's team"
+ 1. derive_roster — single source of truth for "who is on the OM's team"
  2. has_sub_roster — structural check for sub-roster presence
  3. RoutingTable.from_management_roster — OM-level routing
 """
@@ -16,10 +16,26 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from teaparty.config.roster import (
-    derive_om_roster,
+    derive_roster,
     has_sub_roster,
 )
-from teaparty.messaging.dispatcher import RoutingTable
+from teaparty.messaging.dispatcher import RoutingTable, build_routing_table
+
+
+def _names(roster) -> dict[str, dict]:
+    """Convert a Roster to a {name: {role, description, ...}} dict
+    matching the legacy shape (so existing assertions read naturally)."""
+    out: dict[str, dict] = {}
+    for m in roster.members:
+        entry = {'role': m.role, 'description': m.description}
+        if m.project:
+            entry['project'] = m.project
+        if m.workgroup:
+            entry['workgroup'] = m.workgroup
+        if m.human:
+            entry['human'] = m.human
+        out[m.name] = entry
+    return out
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -89,9 +105,9 @@ WORKGROUP_RESEARCH_YAML = textwrap.dedent("""\
 """)
 
 
-# ── 1. derive_om_roster ─────────────────────────────────────────────────────
+# ── 1. derive_roster ─────────────────────────────────────────────────────
 
-class TestDeriveOmRoster(unittest.TestCase):
+class TestDeriveRoster(unittest.TestCase):
     """OM roster includes project leads and management agents."""
 
     def setUp(self):
@@ -128,17 +144,16 @@ class TestDeriveOmRoster(unittest.TestCase):
         )
 
     def test_roster_includes_project_lead(self):
-        roster = derive_om_roster(os.path.join(self.home, '.teaparty'))
+        roster = _names(derive_roster(teaparty_home=os.path.join(self.home, '.teaparty')))
         self.assertIn('alpha-lead', roster)
         self.assertEqual(roster['alpha-lead']['description'], 'Alpha project.')
 
     def test_roster_excludes_unlisted_agents(self):
         """Agents in members.agents are not included — membership is derived
         from humans, members.projects, and members.workgroups only."""
-        roster = derive_om_roster(
-            os.path.join(self.home, '.teaparty'),
-            agents_dir=os.path.join(self.home, '.claude', 'agents'),
-        )
+        roster = _names(derive_roster(
+            teaparty_home=os.path.join(self.home, '.teaparty'),
+        ))
         self.assertNotIn('auditor', roster)
 
     def test_roster_includes_every_registered_project(self):
@@ -172,7 +187,7 @@ class TestDeriveOmRoster(unittest.TestCase):
             members: {{}}
         """)
         home = _make_teaparty_home(yaml_text)
-        roster = derive_om_roster(os.path.join(home, '.teaparty'))
+        roster = _names(derive_roster(teaparty_home=os.path.join(home, '.teaparty')))
         lead_names = sorted(k for k in roster if k.endswith('-lead'))
         self.assertEqual(
             lead_names, ['alpha-lead', 'bravo-lead'],
@@ -200,7 +215,7 @@ class TestDeriveOmRoster(unittest.TestCase):
               projects: []
         """)
         home = _make_teaparty_home(yaml_text)
-        roster = derive_om_roster(os.path.join(home, '.teaparty'))
+        roster = _names(derive_roster(teaparty_home=os.path.join(home, '.teaparty')))
         self.assertIn(
             'alpha-lead', roster,
             'A legacy empty members.projects list on disk must not '
@@ -236,7 +251,7 @@ class TestDeriveOmRoster(unittest.TestCase):
             """),
             workgroup_files={'configuration.yaml': wg_yaml},
         )
-        roster = derive_om_roster(os.path.join(home, '.teaparty'))
+        roster = _names(derive_roster(teaparty_home=os.path.join(home, '.teaparty')))
         self.assertIn(
             'configuration-lead', roster,
             'A workgroup declared in members.workgroups must surface '
@@ -273,7 +288,7 @@ class TestDeriveOmRoster(unittest.TestCase):
             """),
             workgroup_files={'coding.yaml': wg_yaml},
         )
-        roster = derive_om_roster(os.path.join(home, '.teaparty'))
+        roster = _names(derive_roster(teaparty_home=os.path.join(home, '.teaparty')))
         self.assertNotIn(
             'coding-lead', roster,
             'A workgroup in the catalog but not declared via '
@@ -297,7 +312,7 @@ class TestDeriveOmRoster(unittest.TestCase):
               workgroups: []
         """)
         home = _make_teaparty_home(yaml_text)
-        roster = derive_om_roster(os.path.join(home, '.teaparty'))
+        roster = _names(derive_roster(teaparty_home=os.path.join(home, '.teaparty')))
         self.assertIn(
             'proxy', roster,
             'Proxy must be in the roster for the OM to dispatch to it.',
@@ -362,41 +377,42 @@ class TestHasSubRoster(unittest.TestCase):
         ))
 
 
-# ── 5. RoutingTable.from_management_roster ──────────────────────────────────
+# ── 5. build_routing_table from a management Roster ────────────────────────
 
 class TestRoutingTableFromManagementRoster(unittest.TestCase):
-    """OM-level routing table from roster — keys directly on agent names."""
+    """OM-level routing table — keys directly on agent names."""
+
+    def _make_roster(self, member_names: list[str]) -> 'Roster':
+        from teaparty.config.roster import Roster, Member
+        return Roster(
+            lead='office-manager',
+            members=[
+                Member(name=n, role='project-lead') for n in member_names
+            ],
+            sub_rosters=[],
+            mesh_among_members=False,
+            parent_lead='',
+        )
 
     def test_om_can_send_to_roster_members(self):
-        roster = {'alpha-lead': {}, 'auditor': {}}
-        table = RoutingTable.from_management_roster(
-            roster, om_agent_name='office-manager',
-        )
+        table = build_routing_table(self._make_roster(['alpha-lead', 'auditor']))
         self.assertTrue(table.allows('office-manager', 'alpha-lead'))
         self.assertTrue(table.allows('office-manager', 'auditor'))
 
     def test_roster_members_can_reply_to_om(self):
-        roster = {'alpha-lead': {}}
-        table = RoutingTable.from_management_roster(
-            roster, om_agent_name='office-manager',
-        )
+        table = build_routing_table(self._make_roster(['alpha-lead']))
         self.assertTrue(table.allows('alpha-lead', 'office-manager'))
 
     def test_roster_members_cannot_reach_each_other(self):
-        roster = {'alpha-lead': {}, 'auditor': {}}
-        table = RoutingTable.from_management_roster(
-            roster, om_agent_name='office-manager',
-        )
+        table = build_routing_table(self._make_roster(['alpha-lead', 'auditor']))
         self.assertFalse(table.allows('alpha-lead', 'auditor'))
 
     def test_om_in_its_own_roster_raises(self):
-        """OM is the subject of the roster, not a member.  A duplicate
-        is a configuration error."""
+        """OM as both lead and a member is a duplicate; reject it."""
         from teaparty.messaging.dispatcher import DuplicateAgentName
-        roster = {'office-manager': {}, 'alpha-lead': {}}
         with self.assertRaises(DuplicateAgentName):
-            RoutingTable.from_management_roster(
-                roster, om_agent_name='office-manager',
+            build_routing_table(
+                self._make_roster(['office-manager', 'alpha-lead']),
             )
 
 

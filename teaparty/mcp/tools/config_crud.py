@@ -460,19 +460,47 @@ def project_status_handler(name: str, days: int = 7, teaparty_home: str = '') ->
 def list_team_members_handler(teaparty_home: str = '') -> str:
     """List the team members for the calling agent's team.
 
-    Thin serialization shim over ``derive_om_roster`` — the single
-    source of truth for "who is on the OM's team."  Same function
-    routing uses to build the dispatcher; reporting and routing cannot
-    disagree because they read the same dict.
+    Thin serialization shim over ``derive_roster`` — the single source
+    of truth for any team's membership.  Same function routing uses to
+    build the dispatcher; reporting and routing cannot disagree because
+    they read the same data.
+
+    Selects which team's roster to return based on the caller's
+    identity (``current_agent_name`` set by the MCP middleware):
+
+      * If the caller is the OM → return the management roster.
+      * If the caller is a project lead → return that project's roster.
+      * If the caller is a workgroup lead → return that workgroup's roster.
+      * Otherwise (no caller context) → fall back to the OM roster.
 
     The agent's frontmatter ``description`` overrides the roster's
     default description when an ``agent.md`` exists.
     """
-    from teaparty.config.roster import derive_om_roster
+    from teaparty.config.roster import derive_roster, resolve_lead_project_path
+    from teaparty.config.config_reader import load_management_team
+    from teaparty.mcp.registry import current_agent_name
 
     home = _teaparty_home(teaparty_home)
+
+    # Resolve the caller's team via current_agent_name.  Default to OM.
+    caller = current_agent_name.get('') if current_agent_name else ''
+    project_dir = ''
     try:
-        roster = derive_om_roster(home)
+        mgmt_team = load_management_team(teaparty_home=home)
+    except FileNotFoundError as e:
+        return _err(str(e))
+
+    if caller and caller != mgmt_team.lead:
+        proj_path = resolve_lead_project_path(caller, home)
+        if proj_path:
+            project_dir = proj_path
+
+    try:
+        roster = derive_roster(
+            teaparty_home=home,
+            project_dir=project_dir,
+            parent_lead=mgmt_team.lead if project_dir else '',
+        )
     except FileNotFoundError as e:
         return _err(str(e))
 
@@ -486,11 +514,21 @@ def list_team_members_handler(teaparty_home: str = '') -> str:
         return ''
 
     members: list[dict] = []
-    for name, info in roster.items():
-        entry: dict = {'name': name, **info}
+    for m in roster.members:
+        entry: dict = {
+            'name': m.name,
+            'role': m.role,
+            'description': m.description,
+        }
+        if m.project:
+            entry['project'] = m.project
+        if m.workgroup:
+            entry['workgroup'] = m.workgroup
+        if m.human:
+            entry['human'] = m.human
         # Frontmatter description, when present, overrides the roster
         # default — UI prefers the canonical agent description.
-        fm_desc = _read_desc(name)
+        fm_desc = _read_desc(m.name)
         if fm_desc:
             entry['description'] = fm_desc
         members.append(entry)

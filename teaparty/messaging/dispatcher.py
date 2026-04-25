@@ -1,29 +1,38 @@
 """Bus dispatcher: routing table and transport-level authorization for agent-to-agent messaging.
 
 The RoutingTable holds the set of permitted ``(sender, recipient)``
-pairs derived from workgroup membership at session start, where each
-slot is the agent's **name** as it appears in the roster (not a
-fictional scoped id).  An agent's name is its identity: 1:1
-correspondence between the string and the agent — no aliases, no
-translation map, no parallel namespace.  A roster with duplicate names
-is a configuration error and must be rejected at load time.
+pairs derived from a session's roster.  Each slot is the agent's
+**name** as it appears in the roster — an agent's name is its
+identity, with 1:1 correspondence between the string and the agent.
+No aliases, no translation map, no parallel namespace.  A roster with
+duplicate names is a configuration error and must be rejected at load
+time.
 
 The BusDispatcher wraps the table and is the independent enforcement
 point — every bus post goes through it, whether via the Send MCP tool
 or via a direct bus write.
 
-Routing rules:
-  - Within-workgroup: all agent pairs (both directions)
-  - Cross-workgroup: workgroup lead ↔ project lead only
-  - Cross-project: project lead ↔ OM only
-  - Workers have no direct route to the project lead or OM
+ONE WAY OF BUILDING ROUTING TABLES: ``build_routing_table(roster)``.
+The Roster shape (in ``teaparty.config.roster``) is recursive — a
+project roster nests its workgroup sub-rosters — and the table builder
+walks that structure once.  No per-team-type classmethods.
 
-See docs/proposals/agent-dispatch/references/routing.md for the full specification.
+Routing rules emerge from the Roster shape:
+
+  * lead ↔ each direct member (always)
+  * within-team mesh among members + lead (when ``mesh_among_members``)
+  * lead ↔ ``parent_lead`` (cross-team gateway)
+  * recurse into ``sub_rosters`` and merge
+
+See docs/proposals/agent-dispatch/references/routing.md for the spec.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Iterable
+from typing import TYPE_CHECKING, Iterable
+
+if TYPE_CHECKING:
+    from teaparty.config.roster import Roster
 
 
 class RoutingError(Exception):
@@ -43,9 +52,9 @@ class DuplicateAgentName(ValueError):
 class RoutingTable:
     """Set of permitted (sender_name, recipient_name) pairs.
 
-    Built at session start from workgroup membership.  Held in memory
-    by the BusEventListener for the session's duration.  Not persisted
-    between sessions.
+    Built at session start by ``build_routing_table(roster)``.  Held in
+    memory by the BusEventListener for the session's duration.  Not
+    persisted between sessions.
     """
 
     _pairs: set[tuple[str, str]] = field(default_factory=set)
@@ -62,110 +71,75 @@ class RoutingTable:
         """Yield all (sender, recipient) pairs in the table."""
         yield from self._pairs
 
-    @classmethod
-    def from_workgroups(
-        cls,
-        workgroups: list[dict],
-        *,
-        project_lead_name: str,
-        om_agent_name: str,
-    ) -> 'RoutingTable':
-        """Derive the routing table for one project from its workgroup definitions.
 
-        Args:
-            workgroups: List of workgroup dicts with 'name', 'lead', and
-                'agents' keys.  Each agent entry has a 'role' key whose
-                value is the agent's name (its identity in the roster).
-            project_lead_name: The project lead's agent name (e.g.
-                ``teaparty-lead``).  Connected directly to the OM.
-            om_agent_name: The OM's agent name (e.g. ``office-manager``).
+def build_routing_table(roster: 'Roster') -> RoutingTable:
+    """Build a RoutingTable from a Roster.
 
-        Raises:
-            DuplicateAgentName: if any agent name appears more than once
-            across the project's workgroups.  Names are identifiers;
-            uniqueness is a precondition.
-        """
-        table = cls()
+    ONE function, all team types.  Walks the recursive Roster
+    structure, adding pairs from each level:
 
-        # Project lead ↔ OM (cross-project gateway)
-        table.add_pair(project_lead_name, om_agent_name)
-        table.add_pair(om_agent_name, project_lead_name)
+      * lead ↔ each direct member
+      * lead ↔ parent_lead (when set)
+      * within-team mesh (when ``mesh_among_members``) — every member
+        pair plus lead↔member already covered above
+      * recursive merge of ``sub_rosters``
 
-        # Validate uniqueness: every workgroup lead and every agent role
-        # name must be a unique identifier within this project.
-        seen: set[str] = set()
-        for wg in workgroups:
-            for name in [wg.get('lead', '')] + [
-                a['role'] for a in wg.get('agents', [])
-            ]:
-                if not name:
-                    continue
-                if name in seen:
-                    raise DuplicateAgentName(
-                        f'Agent name {name!r} appears more than once in '
-                        f'project workgroups.  Names are identifiers; '
-                        f'rename one or use a workgroup-prefixed role.',
-                    )
-                seen.add(name)
+    Validates uniqueness across the full tree: collects every name
+    visited and raises ``DuplicateAgentName`` on a repeat.  ``proxy``
+    is the deliberate exception (one ``proxy`` agent serves multiple
+    humans by qualifier).
+    """
+    table = RoutingTable()
+    seen: set[str] = set()
+    _populate(table, roster, seen)
+    return table
 
-        for wg in workgroups:
-            agent_names = [a['role'] for a in wg.get('agents', [])]
-            wg_lead = wg.get('lead', '')
 
-            # Within-workgroup: every agent can reach every other agent.
-            for i, a in enumerate(agent_names):
-                for j, b in enumerate(agent_names):
-                    if i != j:
-                        table.add_pair(a, b)
+def _populate(
+    table: RoutingTable, roster: 'Roster', seen: set[str],
+) -> None:
+    """Add pairs for one Roster level + recurse into sub_rosters."""
+    if roster.lead:
+        if roster.lead in seen:
+            raise DuplicateAgentName(
+                f'Agent name {roster.lead!r} appears more than once in '
+                f'the roster tree.  Names are identifiers; rename or '
+                f'restructure.',
+            )
+        seen.add(roster.lead)
 
-            # Cross-workgroup: workgroup lead ↔ project lead only.
-            if wg_lead:
-                table.add_pair(wg_lead, project_lead_name)
-                table.add_pair(project_lead_name, wg_lead)
+    member_names = [m.name for m in roster.members]
 
-        return table
+    for name in member_names:
+        if name == 'proxy':
+            continue
+        if name in seen:
+            raise DuplicateAgentName(
+                f'Agent name {name!r} appears more than once in the '
+                f'roster tree.  Names are identifiers; rename.',
+            )
+        seen.add(name)
 
-    @classmethod
-    def from_management_roster(
-        cls,
-        roster: dict[str, dict],
-        *,
-        om_agent_name: str,
-    ) -> 'RoutingTable':
-        """Derive the routing table for the OM from its roster.
+    # lead ↔ parent_lead (cross-team gateway)
+    if roster.parent_lead and roster.lead:
+        table.add_pair(roster.lead, roster.parent_lead)
+        table.add_pair(roster.parent_lead, roster.lead)
 
-        Args:
-            roster: The OM's roster dict (keys are agent names — the
-                identifiers used everywhere else: ``teaparty-lead``,
-                ``proxy``, etc.).
-            om_agent_name: The OM's agent name (e.g. ``office-manager``).
+    # lead ↔ each member
+    for name in member_names:
+        if roster.lead and name and roster.lead != name:
+            table.add_pair(roster.lead, name)
+            table.add_pair(name, roster.lead)
 
-        Returns:
-            A RoutingTable with OM ↔ each roster member.
+    # Within-team mesh (workgroup-style)
+    if roster.mesh_among_members:
+        for i, a in enumerate(member_names):
+            for j, b in enumerate(member_names):
+                if i != j and a and b:
+                    table.add_pair(a, b)
 
-        Raises:
-            DuplicateAgentName: if the roster contains the OM's own name
-            (the OM is the subject of the roster, not a member).
-        """
-        table = cls()
-        for agent_name in roster:
-            if agent_name == om_agent_name:
-                raise DuplicateAgentName(
-                    f'OM {om_agent_name!r} appears in its own roster; '
-                    f'the OM is the subject, not a member.',
-                )
-            table.add_pair(om_agent_name, agent_name)
-            table.add_pair(agent_name, om_agent_name)
-        return table
-
-    @classmethod
-    def merge(cls, tables: list['RoutingTable']) -> 'RoutingTable':
-        """Merge multiple routing tables into one (e.g. for multi-project sessions)."""
-        merged = cls()
-        for table in tables:
-            for sender, recipient in table.pairs():
-                merged.add_pair(sender, recipient)
-        return merged
+    for sub in roster.sub_rosters:
+        _populate(table, sub, seen)
 
 
 class BusDispatcher:

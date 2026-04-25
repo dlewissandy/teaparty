@@ -1,72 +1,165 @@
-"""Roster derivation for recursive bus dispatch.
+"""Roster derivation for bus dispatch routing.
 
-Produces per-agent ``--agents`` JSON rosters from the configuration tree.
-Each roster defines exactly who the agent can communicate with via Send.
+ONE way of building rosters.  ``derive_roster`` produces a ``Roster``
+from any team config (management / project / workgroup); every consumer
+that asks "who is on this team?" calls it.  Reporting (``ListTeamMembers``
+MCP tool) and routing (``BusDispatcher`` via ``build_routing_table``)
+read the same data and cannot disagree.
 
-See docs/proposals/recursive-dispatch/references/roster-derivation.md
+The Roster shape is recursive — a ManagementTeam roster doesn't nest
+project sub-rosters (each project lead's own session builds its own
+roster); a project roster nests its workgroup sub-rosters so the
+project lead's session has the full within-workgroup mesh available
+for routing.
 """
-
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass, field
 from typing import Any
 
 from teaparty.config.config_reader import (
     load_management_team,
-    load_management_workgroups,
     load_project_team,
+    load_workgroup,
+    member_workgroups,
     resolve_workgroups,
 )
 
 
-def derive_om_roster(
-    teaparty_home: str,
-    *,
-    agents_dir: str = '',
-) -> dict[str, dict[str, Any]]:
-    """Derive the Office Manager's roster from teaparty.yaml.
+# ── Roster shape ────────────────────────────────────────────────────────────
 
-    Single source of truth for "who is on the OM's team."  Used by
-    routing (``build_session_dispatcher``) to authorize Sends, by
-    ``list_team_members_handler`` to report membership to the OM, and
-    by anything else that needs to know who the OM dispatches to.
+@dataclass
+class Member:
+    """A single team member.
 
-    Returns a dict keyed by the member's agent name (their identity
-    everywhere else in the system).  Each value carries:
-
-      * ``role``: one of ``project-lead`` / ``workgroup-lead`` / ``proxy``.
-      * ``description``: a default description, sourced from project
-        / workgroup config or a proxy template.  Callers that want
-        agent.md frontmatter override this.
-      * Source info: ``project`` (for project leads), ``workgroup``
-        (for workgroup leads), or ``human`` (for proxy).
-
-    The roster includes:
-
-      * **Project leads** — one entry per ``members.projects`` whose
-        project YAML declares a ``lead``.
-      * **Management workgroup leads** — one entry per workgroup
-        declared in ``members.workgroups`` whose YAML declares a
-        ``lead``.
-      * **Proxy** — one entry per declared human (``humans:``).
-
-    Catalog ≠ membership: workgroups registered in the top-level
-    ``workgroups:`` catalog but not declared under
-    ``members.workgroups`` are NOT in the roster.
-
-    Args:
-        teaparty_home: Path to the .teaparty directory.
-        agents_dir: Path to .claude/agents/ directory. Defaults to
-            {repo_root}/.claude/agents/.
+    ``name`` is the agent's identity (its identifier everywhere else
+    in the system).  ``role`` and the source-info fields carry the
+    metadata reporting consumers need; routing consumers read only
+    ``name``.
     """
+    name: str
+    role: str                  # 'project-lead' | 'workgroup-lead' | 'workgroup-agent' | 'proxy'
+    description: str = ''
+    project: str = ''          # populated for project-lead
+    workgroup: str = ''        # populated for workgroup-lead / workgroup-agent
+    human: str = ''            # populated for proxy
+
+
+@dataclass
+class Roster:
+    """Recursive roster shape — describes a team's membership.
+
+    The same shape works for the management team (OM as lead), a
+    project team (project-lead as lead), or a workgroup (wg-lead as
+    lead).  ``build_routing_table`` walks the structure to produce the
+    routing pairs.
+    """
+    lead: str                              # team's leader (agent name)
+    members: list[Member] = field(default_factory=list)
+    sub_rosters: list['Roster'] = field(default_factory=list)
+    mesh_among_members: bool = False       # within-team peer-to-peer
+    parent_lead: str = ''                  # parent team's leader (cross-team gateway)
+
+
+# ── Derivation ──────────────────────────────────────────────────────────────
+
+def derive_roster(
+    *,
+    teaparty_home: str,
+    project_dir: str = '',
+    workgroup_path: str = '',
+    parent_lead: str = '',
+) -> Roster:
+    """Derive a roster for any team type.
+
+    Selector:
+
+      * ``workgroup_path`` set → workgroup roster (lead + member agents,
+        mesh among members).
+      * ``project_dir`` set → project roster (lead + workgroup leads;
+        nests each workgroup's roster as a sub-roster).
+      * neither set → OM/management roster (lead + project leads +
+        member workgroup leads + proxy).
+
+    ``parent_lead`` is the lead of the parent team in the hierarchy:
+
+      * For OM: empty (the OM is the top of the tree).
+      * For a project team: the OM's agent name.
+      * For a workgroup: the project lead's agent name.
+
+    Recursion: deriving a project roster auto-derives each member
+    workgroup's sub-roster.  A workgroup's roster has no sub-rosters
+    (the agents are leaves).
+    """
+    if workgroup_path:
+        wg = load_workgroup(workgroup_path)
+        members = [
+            Member(
+                name=name,
+                role='workgroup-agent',
+                workgroup=wg.name,
+            )
+            for name in wg.members_agents
+        ]
+        return Roster(
+            lead=wg.lead,
+            members=members,
+            sub_rosters=[],
+            mesh_among_members=True,
+            parent_lead=parent_lead,
+        )
+
+    if project_dir:
+        proj = load_project_team(project_dir)
+        workgroups = resolve_workgroups(
+            proj.workgroups, project_dir=project_dir,
+            teaparty_home=teaparty_home,
+        )
+        # Project members: workgroup leads (one per resolved workgroup
+        # whose name is also declared via ``members.workgroups``).
+        members_lower = {m.lower() for m in proj.members_workgroups}
+        members: list[Member] = []
+        sub_rosters: list[Roster] = []
+        for wg in workgroups:
+            if wg.name.lower() not in members_lower:
+                continue
+            if not wg.lead:
+                continue
+            members.append(Member(
+                name=wg.lead,
+                role='workgroup-lead',
+                workgroup=wg.name,
+                description=wg.description or wg.name,
+            ))
+            # Sub-roster: the workgroup's own roster, parented to this
+            # project lead.  Built inline because we already have the
+            # resolved workgroup object.
+            sub_members = [
+                Member(name=a, role='workgroup-agent', workgroup=wg.name)
+                for a in wg.members_agents
+            ]
+            sub_rosters.append(Roster(
+                lead=wg.lead,
+                members=sub_members,
+                sub_rosters=[],
+                mesh_among_members=True,
+                parent_lead=proj.lead,
+            ))
+        return Roster(
+            lead=proj.lead,
+            members=members,
+            sub_rosters=sub_rosters,
+            mesh_among_members=False,
+            parent_lead=parent_lead,
+        )
+
+    # OM / management roster.
     team = load_management_team(teaparty_home=teaparty_home)
     repo_root = os.path.dirname(teaparty_home)
-    if not agents_dir:
-        agents_dir = os.path.join(repo_root, '.claude', 'agents')
+    members: list[Member] = []
 
-    roster: dict[str, dict[str, Any]] = {}
-
-    # Project leads — one entry per ``members.projects`` with a declared lead.
+    # Project leads — one per ``members.projects`` with a declared lead.
     for project_name in team.members_projects:
         project_entry = None
         for p in team.projects:
@@ -93,36 +186,46 @@ def derive_om_roster(
             continue
 
         if project_team.lead:
-            roster[project_team.lead] = {
-                'role': 'project-lead',
-                'project': project_name,
-                'description': project_team.description or project_name,
-            }
+            members.append(Member(
+                name=project_team.lead,
+                role='project-lead',
+                project=project_name,
+                description=project_team.description or project_name,
+            ))
 
     # Management workgroup leads — declared via ``members.workgroups``.
-    # ``member_workgroups`` filters the catalog to declared members.
     try:
-        from teaparty.config.config_reader import member_workgroups
         for wg in member_workgroups(team, teaparty_home=teaparty_home):
             if wg.lead:
-                roster[wg.lead] = {
-                    'role': 'workgroup-lead',
-                    'workgroup': wg.name,
-                    'description': wg.description or wg.name,
-                }
+                members.append(Member(
+                    name=wg.lead,
+                    role='workgroup-lead',
+                    workgroup=wg.name,
+                    description=wg.description or wg.name,
+                ))
     except Exception:
         pass
 
-    # Proxy — one entry per declared human.
+    # Proxy — one entry per declared human.  All proxies share the
+    # ``proxy`` agent_name (singleton agent that takes a qualifier).
     for human in team.humans:
-        roster['proxy'] = {
-            'role': 'proxy',
-            'human': human.name,
-            'description': f'Human proxy for {human.name}',
-        }
+        members.append(Member(
+            name='proxy',
+            role='proxy',
+            human=human.name,
+            description=f'Human proxy for {human.name}',
+        ))
 
-    return roster
+    return Roster(
+        lead=team.lead,
+        members=members,
+        sub_rosters=[],
+        mesh_among_members=False,
+        parent_lead=parent_lead,
+    )
 
+
+# ── Path resolution helpers ─────────────────────────────────────────────────
 
 def resolve_lead_project_path(
     lead_name: str,
@@ -182,16 +285,7 @@ def resolve_launch_placement(
     Without returning both, the caller must guess — and guessing
     produces stale-copy bugs like the one we just deleted, where a
     project lead was served from ``management/agents/`` because the
-    dispatcher propagated its own scope.
-
-    Resolution order (same as ``resolve_launch_cwd``):
-      1. Management lead or member → (teaparty repo, 'management').
-      2. Management workgroup lead or member → (teaparty repo, 'management').
-      3. Project lead, workgroup lead, or workgroup member →
-         (project repo, 'project').
-
-    Raises:
-        LaunchCwdNotResolved: member not found anywhere in the registry.
+    name match short-circuited the registry walk.
     """
     repo_root = os.path.dirname(os.path.abspath(teaparty_home))
 
@@ -267,20 +361,17 @@ def resolve_launch_placement(
                 return project_path, 'project'
 
     raise LaunchCwdNotResolved(
-        f'resolve_launch_placement({member!r}): not found in management '
+        f'{member!r} is not registered in the management config '
         f'team, management workgroups, or any registered project roster '
-        f'under {teaparty_home}'
+        f'(under {teaparty_home}).'
     )
 
 
-def resolve_launch_cwd(
-    member: str,
-    teaparty_home: str,
-) -> str:
+def resolve_launch_cwd(member: str, teaparty_home: str) -> str:
     """Return the launch cwd for a member (scope-agnostic wrapper).
 
     Most callers want both cwd and scope — prefer
-    :func:`resolve_launch_placement`. This wrapper exists for legacy
+    :func:`resolve_launch_placement`.  This wrapper exists for legacy
     callers that only need the cwd.
     """
     cwd, _scope = resolve_launch_placement(member, teaparty_home)
@@ -347,6 +438,7 @@ def has_sub_roster(
     # Check management-level workgroups
     if team.workgroups:
         try:
+            from teaparty.config.config_reader import load_management_workgroups
             mgmt_workgroups = load_management_workgroups(team, teaparty_home)
             for wg in mgmt_workgroups:
                 if wg.lead == agent_name and wg.members_agents:
@@ -355,5 +447,3 @@ def has_sub_roster(
             pass
 
     return False
-
-
