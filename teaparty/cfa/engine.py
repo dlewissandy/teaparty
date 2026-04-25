@@ -887,31 +887,23 @@ class Orchestrator:
             if not is_globally_terminal(self.cfa.state):
                 self._update_scratch(phase_name)
 
+            # Compaction: when ContextBudget says we crossed the
+            # threshold, prepend ``/compact`` to the next turn via
+            # ``_pending_intervention`` so the agent stays inside
+            # Claude's 200k window.  ContextBudget + build_compact_prompt
+            # live in ``util/context_budget`` so any caller can wire the
+            # same mechanism — chat tier can pick it up when it grows
+            # an injection point.
             if not is_globally_terminal(self.cfa.state):
-                compact_prompt = self._maybe_compact(
-                    actor_result.data.get('context_budget'),
-                    phase_name,
-                )
-                if compact_prompt:
-                    self._pending_intervention = compact_prompt
-
-    def _maybe_compact(self, budget: Any, phase_name: str) -> str:
-        """Return a ``/compact`` prompt when context utilization crosses
-        the compact threshold; empty string otherwise.
-
-        The caller stores the returned prompt in ``_pending_intervention``
-        so ``_invoke_actor`` injects it as ``--resume`` backtrack context
-        on the next turn, keeping the agent under Claude's 200k window.
-        """
-        if not isinstance(budget, ContextBudget) or not budget.should_compact:
-            return ''
-        compact_prompt = build_compact_prompt(
-            cfa_state='',
-            task=self._task_for_phase(phase_name),
-            scratch_path='.context/scratch.md',
-        )
-        budget.clear_compact()
-        return compact_prompt
+                budget = actor_result.data.get('context_budget')
+                if (isinstance(budget, ContextBudget)
+                        and budget.should_compact):
+                    self._pending_intervention = build_compact_prompt(
+                        cfa_state='',
+                        task=self._task_for_phase(phase_name),
+                        scratch_path='.context/scratch.md',
+                    )
+                    budget.clear_compact()
 
     async def _invoke_actor(self, spec: 'PhaseSpec', phase_name: str,
                              phase_start_time: float = 0.0) -> ActorResult:
