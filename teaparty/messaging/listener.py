@@ -26,8 +26,6 @@ from typing import Awaitable, Callable
 
 _log = logging.getLogger('teaparty.messaging.listener')
 
-# spawn_fn(member, composite, context_id) -> (session_id, worktree_path, result_text)
-SpawnFn = Callable[[str, str, str], Awaitable[tuple[str, str, str]]]
 # reinvoke_fn(context_id, session_id, message) -> None
 ReinvokeFn = Callable[[str, str, str], Awaitable[None]]
 
@@ -35,11 +33,14 @@ ReinvokeFn = Callable[[str, str, str], Awaitable[None]]
 class BusEventListener:
     """Dispatch-task bookkeeping + interjection entry point.
 
+    The actual ``spawn_fn`` lives in ``MCPRoutes`` (registered by
+    ``launch()`` and looked up by the Send tool); this listener owns
+    only the per-session bookkeeping that doesn't need to be in the
+    spawn function itself — task registry + reinvoke lock for human
+    interjections.
+
     Args:
         bus_db_path:       Path to the SQLite bus database.
-        spawn_fn:          Async function that spawns the recipient agent.
-                           Signature: ``(member, composite, context_id) ->
-                           (session_id, worktree_path, refusal_reason)``.
         reinvoke_fn:       Async function called when a human interjection
                            arrives for an active conversation — triggers
                            ``--resume`` so the agent sees the message on its
@@ -54,13 +55,11 @@ class BusEventListener:
         self,
         *,
         bus_db_path: str = '',
-        spawn_fn: SpawnFn | None = None,
         reinvoke_fn: ReinvokeFn | None = None,
         current_context_id: str = '',
         initiator_agent_id: str = '',
     ) -> None:
         self.bus_db_path = bus_db_path
-        self.spawn_fn = spawn_fn
         self.reinvoke_fn = reinvoke_fn
         self.current_context_id = current_context_id
         self.initiator_agent_id = initiator_agent_id

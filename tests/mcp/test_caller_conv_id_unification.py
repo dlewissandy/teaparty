@@ -187,7 +187,9 @@ class TestCfaSpawnReadsConvIdFromContextvar(unittest.TestCase):
                 _stream_conv_id = 'job:joke-book:orch-session-1'
                 _mcp_routes = None
                 _paused_check = None
+                _on_dispatch = None
                 _session_registry: dict = {}
+                _tasks_by_child: dict = {}
                 _dispatcher_session = create_session(
                     agent_name='joke-book-lead', scope='management',
                     teaparty_home=os.path.join(tmp, '.teaparty'),
@@ -197,7 +199,6 @@ class TestCfaSpawnReadsConvIdFromContextvar(unittest.TestCase):
                     bus_db_path=bus_path,
                     initiator_agent_id='joke-book-lead',
                     current_context_id='ctx-1',
-                    spawn_fn=None,
                 )
 
             from teaparty.cfa.engine import Orchestrator
@@ -220,10 +221,14 @@ class TestCfaSpawnReadsConvIdFromContextvar(unittest.TestCase):
 
             # Run the spawn.  We don't care about its return value —
             # the side effect we're testing is the bus row it writes.
+            from tests.test_helpers import call_spawn_fn
             async def _run():
                 try:
-                    await Orchestrator._bus_spawn_agent(
-                        stub, 'coding-lead', 'compose', 'req-1',
+                    await call_spawn_fn(
+                        stub,
+                        member='coding-lead',
+                        composite='compose',
+                        context_id='req-1',
                     )
                 except Exception:
                     # create_subchat_worktree will fail in this stub

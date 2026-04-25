@@ -22,10 +22,12 @@ import asyncio
 import logging
 import os
 import time
-from typing import Any
+from dataclasses import dataclass, field
+from typing import Any, Awaitable, Callable
 
 from teaparty.messaging.conversations import (
     ConversationState,
+    ConversationType,
     SqliteMessageBus,
 )
 
@@ -384,3 +386,393 @@ async def run_child_lifecycle(
     response_text = '\n'.join(response_parts)
     _mark_complete(child_session, response_text)
     return response_text
+
+
+# ── Unified spawn_fn prelude (Cut 24) ─────────────────────────────────────
+#
+# Both tiers (CfA engine + chat-tier AgentSession) used to implement a
+# ~250-line spawn_fn each that did the same nine prelude steps in the
+# same order: resolve dispatcher, detect thread continuation, slot
+# check, paused check, validate member, read parent_conv_id, branch on
+# existing_child (reuse vs. create+worktree), write DISPATCH row, send
+# parent's request to bus, schedule the lifecycle task.  Cut 17 already
+# extracted ``run_child_lifecycle`` (the loop that runs after spawn);
+# this is the matching extraction for the prelude.
+#
+# Tier-specific behavior is parameterized through ``ChildDispatchContext``
+# and a small set of optional callbacks; the unified prelude itself has
+# no tier-specific branches except where they're genuinely necessary
+# (cross-repo dispatch is chat-tier only; fan-in delivery uses
+# different mechanisms in CfA vs. chat).
+
+
+@dataclass
+class ChildDispatchContext:
+    """Per-session state both tiers share to spawn dispatched children.
+
+    Built once at session boot.  ``make_spawn_fn(ctx)`` returns the
+    ``spawn_fn(member, composite, context_id)`` callable suitable for
+    registration in the MCP registry via ``MCPRoutes.spawn_fn``.
+
+    The dataclass collects the dispatcher's identity, the per-session
+    registries the spawn function mutates, configuration that varies
+    per session, and a small number of tier-specific behavior knobs
+    (``fixed_scope``, ``cross_repo_supported``).  Tier-specific
+    post-lifecycle behavior (CfA's reply-injection vs. chat-tier's
+    re-invoke-the-lead) is plumbed through ``on_child_complete``.
+    """
+
+    # ── Dispatcher identity + bus ───────────────────────────────────────
+    dispatcher_session: Any
+    bus: SqliteMessageBus
+    bus_listener: Any
+
+    # ── Per-session registries (mutated by the spawn function) ─────────
+    session_registry: dict[str, Any]
+    tasks_by_child: dict[str, Any]
+    factory_registry: dict[str, Any] | None = None  # chat tier only
+
+    # ── Configuration ──────────────────────────────────────────────────
+    teaparty_home: str = ''
+    project_slug: str = ''
+    repo_root: str = ''
+    telemetry_scope: str = ''
+
+    # ── Tier-specific behavior knobs ───────────────────────────────────
+    # ``fixed_scope`` set → spawn_fn always uses that scope (CfA's
+    # 'management').  None → spawn_fn calls resolve_launch_placement to
+    # pick the recipient's natural scope (chat tier).
+    fixed_scope: str | None = None
+    # ``cross_repo_supported`` True → recipient can dispatch into a
+    # different repo than the dispatcher (chat tier).  False → all
+    # children fork from the dispatcher's worktree (CfA).
+    cross_repo_supported: bool = False
+    # Static label identifying the spawn_fn site for log messages.
+    log_tag: str = 'spawn_fn'
+
+    # ── Optional injected dependencies ─────────────────────────────────
+    paused_check: Callable[[], bool] | None = None
+    mcp_routes: Any = None
+    on_dispatch: Callable[[dict], Any] | None = None
+    background_tasks: set | None = None
+    llm_caller: Any = None
+
+    # ── Tier-specific hooks ────────────────────────────────────────────
+    # Called AFTER ``run_child_lifecycle`` returns (success or failure),
+    # inside the child task's ``finally``.  Tier supplies its own:
+    # CfA injects the reply into the lead's claude session and signals
+    # its fan_in_event; chat tier re-invokes the lead via ``invoke``.
+    # Signature: ``async (child_session, response_text) -> None``.
+    on_child_complete: Callable[..., Awaitable[None]] | None = None
+
+
+def make_spawn_fn(
+    ctx: ChildDispatchContext,
+) -> Callable[[str, str, str], Awaitable[tuple[str, str, str]]]:
+    """Build a tier-agnostic ``spawn_fn`` from a ``ChildDispatchContext``.
+
+    The returned callable has the signature ``Send`` expects:
+    ``async fn(member, composite, context_id) -> (session_id, worktree, refusal_reason)``.
+    Both tiers register the result via ``MCPRoutes.spawn_fn``.
+    """
+    async def spawn_fn(
+        member: str, composite: str, context_id: str,
+    ) -> tuple[str, str, str]:
+        return await schedule_child_dispatch(
+            member, composite, context_id, ctx=ctx,
+        )
+    return spawn_fn
+
+
+async def schedule_child_dispatch(
+    member: str,
+    composite: str,
+    context_id: str,
+    *,
+    ctx: ChildDispatchContext,
+) -> tuple[str, str, str]:
+    """Run the unified spawn_fn prelude for both tiers.
+
+    This is what every dispatched child goes through, regardless of
+    tier.  Returns ``(child_session_id, worktree_path, refusal_reason)``
+    matching the Send tool's contract: empty session_id signals refusal
+    with ``refusal_reason`` carrying the cause code.
+    """
+    from teaparty.runners.launcher import (
+        create_session as _create_session,
+        check_slot_available as _check_slot,
+        load_session as _load_session,
+        _save_session_metadata as _save_meta,
+        launch as _spawn_launch,
+    )
+    from teaparty.workspace.worktree import (
+        default_branch_of, current_branch_of, head_commit_of,
+        create_subchat_worktree,
+    )
+    from teaparty.config.roster import (
+        resolve_launch_placement, LaunchCwdNotResolved,
+    )
+    from teaparty.mcp.registry import (
+        current_session_id as _current_session_var,
+        current_conversation_id as _current_conv_var,
+    )
+
+    # ── 1. Resolve which session is dispatching ─────────────────────────
+    # Grandchildren attach under their own session, not the root's.  The
+    # MCP middleware sets current_session_id per-request from the URL.
+    caller_sid = _current_session_var.get('')
+    dispatcher_session = ctx.session_registry.get(
+        caller_sid, ctx.dispatcher_session,
+    )
+
+    # ── 2. Thread continuation ──────────────────────────────────────────
+    bus_db_path = ctx.bus_listener.bus_db_path if ctx.bus_listener else ''
+    existing_child = detect_thread_continuation(
+        context_id=context_id,
+        bus_db_path=bus_db_path,
+        member=member,
+        teaparty_home=ctx.teaparty_home,
+        scope=ctx.fixed_scope or 'management',
+    )
+
+    # ── 3. Paused-check refusal (skipped on resume) ─────────────────────
+    if existing_child is None and ctx.paused_check is not None and ctx.paused_check():
+        _log.warning(
+            '%s: project %s paused, dispatch to %s refused',
+            ctx.log_tag, ctx.project_slug, member,
+        )
+        return ('', '', 'paused')
+
+    # ── 4. Validate member via the registry ─────────────────────────────
+    try:
+        member_natural_repo, member_resolved_scope = resolve_launch_placement(
+            member, ctx.teaparty_home,
+        )
+    except LaunchCwdNotResolved as exc:
+        _log.warning(
+            '%s: refusing dispatch to %r — %s',
+            ctx.log_tag, member, exc,
+        )
+        return ('', '', f'unresolved_member:{member}')
+
+    member_scope = ctx.fixed_scope or member_resolved_scope
+    member_teaparty_home = (
+        ctx.teaparty_home if ctx.fixed_scope
+        else os.path.join(member_natural_repo, '.teaparty')
+    )
+
+    # ── 5. Read parent_conv_id from contextvar (no derivation fallback) ─
+    parent_conv_id = _current_conv_var.get('')
+    if not parent_conv_id:
+        raise RuntimeError(
+            f'{ctx.log_tag}: current_conversation_id is empty.  '
+            f'``launch()`` must pass ``caller_conversation_id=`` so the '
+            f'MCP middleware can set the contextvar; an empty value means '
+            f'the launch site forgot it.  Refusing rather than silently '
+            f'parenting under the wrong conv_id.',
+        )
+
+    # ── 6. Slot-limit check (skipped on resume) ─────────────────────────
+    if existing_child is None:
+        if not _check_slot(
+            dispatcher_session, bus=ctx.bus, conv_id=parent_conv_id,
+        ):
+            _log.warning(
+                '%s: at conversation limit (parent %s); dispatch to %s blocked',
+                ctx.log_tag, parent_conv_id, member,
+            )
+            return ('', '', 'slot_limit')
+
+    # ── 7. Branch on existing_child: reuse vs. create+worktree ──────────
+    if existing_child is not None:
+        child_session = existing_child
+        worktree_path = child_session.worktree_path
+        member_launch_cwd = child_session.launch_cwd or member_natural_repo
+    else:
+        # Source repo + merge target: derived from the dispatcher's
+        # current state.  Both tiers reduce to the same expression once
+        # ``dispatcher_session`` is unified — its ``worktree_path`` is
+        # set when the dispatcher is itself a dispatched child.
+        if dispatcher_session.worktree_path:
+            dispatcher_worktree = dispatcher_session.worktree_path
+            dispatcher_repo = (
+                dispatcher_session.merge_target_repo or ctx.repo_root
+            )
+        else:
+            dispatcher_worktree = (
+                dispatcher_session.launch_cwd or ctx.repo_root
+            )
+            dispatcher_repo = dispatcher_worktree
+
+        is_cross_repo = ctx.cross_repo_supported and (
+            os.path.realpath(member_natural_repo)
+            != os.path.realpath(dispatcher_repo)
+        )
+
+        if is_cross_repo:
+            source_repo = member_natural_repo
+            source_ref = await default_branch_of(source_repo)
+            merge_target_repo = source_repo
+            merge_target_branch = source_ref
+            merge_target_worktree = source_repo
+        else:
+            source_repo = dispatcher_worktree
+            try:
+                source_ref = await head_commit_of(dispatcher_worktree) or 'HEAD'
+            except Exception:
+                source_ref = 'HEAD'
+            merge_target_repo = dispatcher_repo
+            merge_target_worktree = dispatcher_worktree
+            try:
+                merge_target_branch = (
+                    await current_branch_of(dispatcher_worktree)
+                )
+            except Exception:
+                merge_target_branch = ''
+
+        child_session = _create_session(
+            agent_name=member, scope=member_scope,
+            teaparty_home=ctx.teaparty_home,
+        )
+
+        if is_cross_repo:
+            worktree_path = ''
+            member_launch_cwd = member_natural_repo
+        else:
+            worktree_path = os.path.join(child_session.path, 'worktree')
+            member_launch_cwd = worktree_path
+
+        # ── 8. Write DISPATCH row in bus FIRST (single source of truth) ─
+        # Recording intent before attempting the worktree creation
+        # means a failed worktree leaves an ACTIVE row recovery can
+        # see — better than silently dropping the dispatch record.
+        # Recovery later closes ACTIVE rows whose process is dead.
+        ctx.bus.create_conversation(
+            ConversationType.DISPATCH, child_session.id,
+            agent_name=member,
+            parent_conversation_id=parent_conv_id,
+            request_id=context_id,
+            project_slug=ctx.project_slug or '',
+            state=ConversationState.ACTIVE,
+            worktree_path=worktree_path,
+        )
+
+        if is_cross_repo:
+            # Cross-repo: child works directly at its repo root, no worktree.
+            child_session.launch_cwd = member_natural_repo
+            child_session.worktree_path = ''
+            child_session.worktree_branch = ''
+            child_session.merge_target_repo = ''
+            child_session.merge_target_branch = ''
+            child_session.merge_target_worktree = ''
+        else:
+            session_branch = f'session/{child_session.id}'
+            try:
+                await create_subchat_worktree(
+                    source_repo=source_repo,
+                    source_ref=source_ref,
+                    dest_path=worktree_path,
+                    branch_name=session_branch,
+                    parent_worktree=dispatcher_worktree,
+                )
+            except Exception:
+                _log.exception(
+                    '%s: create_subchat_worktree failed for %s',
+                    ctx.log_tag, member,
+                )
+                return ('', '', 'worktree_failed')
+            child_session.launch_cwd = worktree_path
+            child_session.worktree_path = worktree_path
+            child_session.worktree_branch = session_branch
+            child_session.merge_target_repo = merge_target_repo
+            child_session.merge_target_branch = merge_target_branch
+            child_session.merge_target_worktree = merge_target_worktree
+
+        child_session.parent_session_id = (
+            dispatcher_session.id if dispatcher_session else ''
+        )
+        child_session.project_slug = ctx.project_slug or ''
+        _save_meta(child_session)
+
+    child_session.initial_message = composite
+    _save_meta(child_session)
+
+    # Track the child so its own Send calls resolve to the right
+    # dispatcher_session via current_session_id.
+    ctx.session_registry[child_session.id] = child_session
+
+    child_conv_id = f'dispatch:{child_session.id}'
+
+    # Write the parent's request to the bus (visible in child chat).
+    ctx.bus.send(child_conv_id, dispatcher_session.agent_name or 'parent', composite)
+
+    # ── 9. Schedule the lifecycle task ──────────────────────────────────
+    initial_resume_sid = (
+        child_session.claude_session_id or ''
+        if existing_child is not None else ''
+    )
+
+    async def _run_child(
+        start_at_phase: str = 'launching',
+        initial_gc_task_ids: list[str] | None = None,
+        resume_claude_session: str = initial_resume_sid,
+    ) -> str:
+        """Wrap run_child_lifecycle with shared cleanup + tier hook."""
+        response_text = ''
+        try:
+            response_text = await run_child_lifecycle(
+                member=member,
+                child_session=child_session,
+                worktree_path=worktree_path,
+                composite=composite,
+                child_conv_id=child_conv_id,
+                bus=ctx.bus,
+                tasks_by_child=ctx.tasks_by_child,
+                launch_fn=_spawn_launch,
+                mcp_routes=ctx.mcp_routes,
+                llm_caller=ctx.llm_caller,
+                member_scope=member_scope,
+                member_teaparty_home=member_teaparty_home,
+                telemetry_scope=ctx.telemetry_scope,
+                start_at_phase=start_at_phase,
+                initial_gc_task_ids=initial_gc_task_ids,
+                resume_claude_session=resume_claude_session,
+            )
+        except Exception:
+            _log.exception(
+                '%s: child task failed for %s', ctx.log_tag, member,
+            )
+            response_text = ''
+        finally:
+            # Remove this child from the in-flight set — both tiers
+            # used to do this independently with slightly different
+            # bookkeeping; one place now.
+            ctx.tasks_by_child.pop(child_session.id, None)
+            if ctx.on_child_complete is not None:
+                try:
+                    await ctx.on_child_complete(child_session, response_text)
+                except Exception:
+                    _log.exception(
+                        '%s: on_child_complete hook raised for %s',
+                        ctx.log_tag, member,
+                    )
+        return response_text
+
+    # Chat tier records pause/resume factories; CfA passes None.
+    if ctx.factory_registry is not None:
+        ctx.factory_registry[child_session.id] = _run_child
+
+    ctx.bus_listener.schedule_child_task(
+        child_session_id=child_session.id,
+        launch_coro=_run_child(),
+        dispatcher_session=dispatcher_session,
+        context_id=context_id,
+        agent_name=member,
+        on_dispatch=ctx.on_dispatch,
+        background_tasks=ctx.background_tasks,
+    )
+
+    _log.info(
+        '%s: dispatched to %s (async)', ctx.log_tag, member,
+    )
+    return (child_session.id, member_launch_cwd, '')

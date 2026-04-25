@@ -39,6 +39,7 @@ from teaparty.runners.launcher import (
     create_session, load_session, _save_session_metadata as _save_meta,
 )
 from teaparty.workspace.close_conversation import build_close_fn
+from tests.test_helpers import call_spawn_fn
 
 
 def _git(cwd: str, *args: str) -> str:
@@ -172,7 +173,7 @@ class TestCfACloseE2E(unittest.IsolatedAsyncioTestCase):
         orig_resolve = roster_mod.resolve_launch_placement
         roster_mod.resolve_launch_placement = lambda m, th: (th, 'management')
         try:
-            session_id, wt_path, refusal = await o._bus_spawn_agent(
+            session_id, wt_path, refusal = await call_spawn_fn(o, 
                 member='worker', composite='do the thing',
                 context_id='req-1',
             )
@@ -347,7 +348,7 @@ class TestCfASpawnIsVisibleToBridgeWalker(unittest.IsolatedAsyncioTestCase):
         orig_resolve = roster_mod.resolve_launch_placement
         roster_mod.resolve_launch_placement = lambda m, th: (th, 'management')
         try:
-            session_id, wt_path, refusal = await o._bus_spawn_agent(
+            session_id, wt_path, refusal = await call_spawn_fn(o, 
                 member='coding-team', composite='do the thing',
                 context_id='req-1',
             )
@@ -457,7 +458,7 @@ class TestCfASpawnReturnsSessionRecordId(unittest.IsolatedAsyncioTestCase):
         orig_resolve = roster_mod.resolve_launch_placement
         roster_mod.resolve_launch_placement = lambda m, th: (th, 'management')
         try:
-            session_id, _, _ = await o._bus_spawn_agent(
+            session_id, _, _ = await call_spawn_fn(o, 
                 member='worker', composite='do',
                 context_id='req-1',
             )

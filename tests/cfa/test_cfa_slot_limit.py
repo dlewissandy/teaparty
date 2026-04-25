@@ -30,6 +30,7 @@ from teaparty.runners.launcher import (
     MAX_CONVERSATIONS_PER_AGENT,
     create_session,
 )
+from tests.test_helpers import call_spawn_fn
 
 
 def _git(cwd, *args):
@@ -147,7 +148,7 @@ class TestCfaSpawnEnforcesSlotLimit(unittest.IsolatedAsyncioTestCase):
             # Three dispatches to distinct members should all succeed —
             # the limit is per-caller-conv, not per-recipient.
             for i in range(MAX_CONVERSATIONS_PER_AGENT):
-                sid, _, refusal = await o._bus_spawn_agent(
+                sid, _, refusal = await call_spawn_fn(o, 
                     member=f'worker-{i}',
                     composite=f'task {i}',
                     context_id=f'req-{i}',
@@ -161,7 +162,7 @@ class TestCfaSpawnEnforcesSlotLimit(unittest.IsolatedAsyncioTestCase):
                 sids.append(sid)
 
             # The fourth dispatch is over the limit — MUST refuse.
-            fourth_sid, _, fourth_refusal = await o._bus_spawn_agent(
+            fourth_sid, _, fourth_refusal = await call_spawn_fn(o, 
                 member='worker-4',
                 composite='one too many',
                 context_id='req-4',
@@ -246,7 +247,7 @@ class TestCfaSpawnEnforcesSlotLimit(unittest.IsolatedAsyncioTestCase):
             # Open 3 distinct dispatches (fill the slots).
             opened: list[str] = []
             for i in range(MAX_CONVERSATIONS_PER_AGENT):
-                sid, _, refusal = await o._bus_spawn_agent(
+                sid, _, refusal = await call_spawn_fn(o, 
                     member=f'worker-{i}',
                     composite=f'task {i}',
                     context_id=f'req-{i}',
@@ -260,7 +261,7 @@ class TestCfaSpawnEnforcesSlotLimit(unittest.IsolatedAsyncioTestCase):
             # Resume the first one — same member, handle passed as
             # context_id.  Should NOT be refused (existing slot reused)
             # and should return the same sid.
-            resume_sid, _, resume_refusal = await o._bus_spawn_agent(
+            resume_sid, _, resume_refusal = await call_spawn_fn(o, 
                 member='worker-0',
                 composite='follow-up in thread',
                 context_id=f'dispatch:{opened[0]}',

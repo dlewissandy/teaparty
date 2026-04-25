@@ -34,6 +34,7 @@ from teaparty.messaging.conversations import (
 )
 from teaparty.messaging.listener import BusEventListener
 from teaparty.runners.launcher import create_session
+from tests.test_helpers import call_spawn_fn
 
 
 def _git(cwd, *args):
@@ -152,7 +153,7 @@ class TestDispatchHandleResume(unittest.IsolatedAsyncioTestCase):
 
         try:
             # First Send — no handle; spawns a new child.
-            first_sid, first_wt, first_refusal = await o._bus_spawn_agent(
+            first_sid, first_wt, first_refusal = await call_spawn_fn(o, 
                 member='coding-lead', composite='do the thing',
                 context_id='',
             )
@@ -167,7 +168,7 @@ class TestDispatchHandleResume(unittest.IsolatedAsyncioTestCase):
 
             # Second Send with the prior handle — must reuse.
             first_handle = f'dispatch:{first_sid}'
-            second_sid, second_wt, second_refusal = await o._bus_spawn_agent(
+            second_sid, second_wt, second_refusal = await call_spawn_fn(o, 
                 member='coding-lead', composite='also do this',
                 context_id=first_handle,
             )
@@ -246,7 +247,7 @@ class TestDispatchHandleResume(unittest.IsolatedAsyncioTestCase):
         current_conversation_id.set(f'dispatch:{dispatcher.id}')
 
         try:
-            first_sid, _, _ = await o._bus_spawn_agent(
+            first_sid, _, _ = await call_spawn_fn(o, 
                 member='coding-lead', composite='first',
                 context_id='',
             )
@@ -266,7 +267,7 @@ class TestDispatchHandleResume(unittest.IsolatedAsyncioTestCase):
 
             # Send with the closed handle — must spawn a NEW session
             # because the prior thread is closed.
-            second_sid, _, _ = await o._bus_spawn_agent(
+            second_sid, _, _ = await call_spawn_fn(o, 
                 member='coding-lead', composite='second',
                 context_id=f'dispatch:{first_sid}',
             )

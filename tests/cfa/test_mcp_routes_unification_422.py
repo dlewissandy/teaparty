@@ -97,23 +97,50 @@ class TestOrchestratorBuildsMCPRoutes(unittest.TestCase):
         )
 
     def test_cfa_spawn_threads_mcp_routes_to_child_lifecycle(self) -> None:
-        """CfA's ``_run_child`` closure in ``_bus_spawn_agent`` passes
-        ``mcp_routes=self._mcp_routes`` into ``run_child_lifecycle`` so
-        the dispatched child (and its grandchildren, via the same
-        bundle) install routes at launch time.
+        """The shared dispatch path threads ``mcp_routes`` through.
+
+        Cut 24 unified the spawn prelude into
+        ``messaging/child_dispatch.py``; the CfA engine no longer has
+        its own ``_run_child`` closure.  The invariant moved with the
+        code: ``schedule_child_dispatch`` must pass ``mcp_routes=``
+        into every ``run_child_lifecycle`` call so dispatched children
+        (and grandchildren) install routes at launch time.  Engine
+        populates the bundle on its ``ChildDispatchContext`` for the
+        shared function to consume.
         """
+        # Engine still owns building the routes and stamping them on
+        # the dispatch context.
         engine = _read(_ENGINE)
         self.assertIn(
-            'run_child_lifecycle(', engine,
-            'CfA engine must call the shared run_child_lifecycle helper',
+            'self._mcp_routes', engine,
+            'Orchestrator must build and store the MCPRoutes bundle',
         )
-        # The call must pass mcp_routes= through.
+        self.assertIn(
+            '_dispatch_ctx.mcp_routes = self._mcp_routes', engine,
+            'Engine must hand the bundle to the shared dispatch context '
+            'so the unified spawn_fn threads it through.',
+        )
+
+        # The shared dispatch module is now where run_child_lifecycle
+        # is called.  Verify it threads mcp_routes through.
+        child_dispatch_path = os.path.join(
+            _REPO_ROOT, 'teaparty', 'messaging', 'child_dispatch.py',
+        )
+        child_dispatch = _read(child_dispatch_path)
+        self.assertIn(
+            'run_child_lifecycle(', child_dispatch,
+            'shared dispatch must call run_child_lifecycle',
+        )
         pattern = re.compile(
-            r'run_child_lifecycle\(\s*(?P<body>.*?)\)\s*\n',
+            r'await run_child_lifecycle\(\s*(?P<body>.*?)\)\s*\n',
             re.DOTALL,
         )
-        calls = pattern.findall(engine)
-        self.assertGreater(len(calls), 0)
+        calls = pattern.findall(child_dispatch)
+        self.assertGreater(
+            len(calls), 0,
+            'expected at least one run_child_lifecycle invocation '
+            'in the shared dispatch module',
+        )
         for body in calls:
             self.assertIn(
                 'mcp_routes=', body,

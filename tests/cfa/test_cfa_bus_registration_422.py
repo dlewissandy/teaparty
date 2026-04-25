@@ -22,6 +22,7 @@ from teaparty.messaging.conversations import (
 )
 from teaparty.messaging.listener import BusEventListener
 from teaparty.runners.launcher import create_session
+from tests.test_helpers import call_spawn_fn
 
 
 def _git(cwd: str, *args: str) -> str:
@@ -128,7 +129,7 @@ class TestBusSpawnAgentRegistersDispatch(unittest.IsolatedAsyncioTestCase):
         orig_resolve = roster_mod.resolve_launch_placement
         roster_mod.resolve_launch_placement = lambda m, th: (th, 'management')
         try:
-            session_id, _wt, refusal = await o._bus_spawn_agent(
+            session_id, _wt, refusal = await call_spawn_fn(o, 
                 member='coding-team', composite='do',
                 context_id='req-xyz',
             )

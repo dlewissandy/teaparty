@@ -327,7 +327,6 @@ class Orchestrator:
                 bus_db_path=bus_db_path,
                 initiator_agent_id=lead_agent_id,
                 current_context_id=self._bus_lead_context_id,
-                spawn_fn=self._bus_spawn_agent,
             )
             self._bus_event_listener.tasks_by_child = self._tasks_by_child
             await self._bus_event_listener.start()
@@ -349,19 +348,77 @@ class Orchestrator:
             )
             from teaparty.messaging.child_dispatch import (
                 build_session_dispatcher,
+                ChildDispatchContext,
+                make_spawn_fn,
             )
             dispatcher, agent_id_map = build_session_dispatcher(
                 teaparty_home=self.teaparty_home,
                 project_dir=self.project_dir,
                 project_slug=self.project_slug,
             )
+
+            # Cut 24: unified spawn_fn prelude across tiers.  CfA's
+            # dispatcher session conceptually owns its session_worktree
+            # — populate worktree_path/merge_target_repo so the shared
+            # prelude derives source_repo correctly.  This mirrors a
+            # chat-tier nested dispatcher whose worktree_path is set
+            # from a prior subchat creation.
+            self._dispatcher_session.worktree_path = self.session_worktree
+            self._dispatcher_session.merge_target_repo = self.project_workdir
+            self._dispatcher_session.merge_target_worktree = (
+                self.session_worktree
+            )
+            self._dispatcher_session.agent_name = lead_agent_id
+
+            spawn_bus = _CloseBus(self._bus_event_listener.bus_db_path)
+            self._spawn_bus = spawn_bus  # keep alive; closed at run() finally
+
+            async def _on_child_complete(child_session, response_text):
+                """CfA fan-in: inject reply into lead's claude history,
+                signal fan_in_event when last child completes."""
+                lead_sid = self._phase_session_ids.get(
+                    phase_for_state(self.cfa.state), '',
+                )
+                if lead_sid and response_text:
+                    try:
+                        await self._bus_inject_reply(
+                            context_id='', session_id=lead_sid,
+                            message=response_text,
+                        )
+                    except Exception:
+                        _log.exception(
+                            '_on_child_complete: inject reply failed',
+                        )
+                if not self._tasks_by_child and self._fan_in_event:
+                    self._fan_in_event.set()
+
+            self._dispatch_ctx = ChildDispatchContext(
+                dispatcher_session=self._dispatcher_session,
+                bus=spawn_bus,
+                bus_listener=self._bus_event_listener,
+                session_registry=self._session_registry,
+                tasks_by_child=self._tasks_by_child,
+                factory_registry=None,
+                teaparty_home=self.teaparty_home,
+                project_slug=self.project_slug,
+                repo_root=self.project_workdir,
+                telemetry_scope=self.project_slug,
+                fixed_scope='management',
+                cross_repo_supported=False,
+                log_tag='cfa._bus_spawn_agent',
+                paused_check=self._paused_check,
+                on_dispatch=self._on_dispatch,
+                on_child_complete=_on_child_complete,
+            )
             self._mcp_routes = MCPRoutes(
-                spawn_fn=self._bus_spawn_agent,
+                spawn_fn=make_spawn_fn(self._dispatch_ctx),
                 close_fn=close_fn,
                 ask_question_runner=self._ask_question_runner,
                 dispatcher=dispatcher,
                 agent_id_map=agent_id_map,
             )
+            # mcp_routes must be on the dispatch ctx so children inherit it.
+            self._dispatch_ctx.mcp_routes = self._mcp_routes
             register_agent_mcp_routes(
                 self.config.project_lead or 'project-lead',
                 self._mcp_routes,
@@ -378,265 +435,6 @@ class Orchestrator:
                 await self._intervention_listener.stop()
             if self._bus_event_listener:
                 await self._bus_event_listener.stop()
-
-    async def _bus_spawn_agent(self, member: str, composite: str, context_id: str) -> tuple[str, str, str]:
-        """Spawn a recipient agent for bus-mediated dispatch.
-
-        Sets up the child's session record and worktree synchronously,
-        hands off to ``BusEventListener.schedule_child_task`` which
-        records the child in the dispatcher's conversation_map, emits
-        ``dispatch_started``, creates the asyncio.Task that runs the
-        subprocess, and registers the task in ``tasks_by_child``.  Send
-        returns immediately; the child runs concurrently with siblings
-        and is cancelled cleanly by the shared ``close_fn``.
-
-        Returns ``(child_session.id, worktree_path, refusal_reason)``.
-        """
-        from teaparty.runners.launcher import (
-            launch as _launch,
-            create_session as _create_session,
-            _save_session_metadata as _save_meta,
-        )
-        from teaparty.workspace.worktree import (
-            create_subchat_worktree, current_branch_of, head_commit_of,
-        )
-        from teaparty.config.roster import (
-            resolve_launch_placement, LaunchCwdNotResolved,
-        )
-
-        # Refuse new dispatches while the project is paused.
-        if self._paused_check is not None and self._paused_check():
-            _log.warning(
-                '_bus_spawn_agent: project %s paused, dispatch to %s refused',
-                self.project_slug, member,
-            )
-            return ('', '', 'paused')
-
-        # Validate member against the registry before creating any session state.
-        try:
-            resolve_launch_placement(member, self.teaparty_home)
-        except LaunchCwdNotResolved as exc:
-            _log.warning(
-                '_bus_spawn_agent: refusing dispatch to %r — %s',
-                member, exc,
-            )
-            return ('', '', f'unresolved_member:{member}')
-
-        # Determine which session is dispatching: a grandchild Send
-        # should attach under its own session, not the root
-        # orchestrator's.  The MCP middleware sets
-        # ``current_session_id`` per-request.
-        from teaparty.mcp.registry import (
-            current_session_id as _current_session_var,
-        )
-        caller_sid = _current_session_var.get('')
-        dispatcher_session = self._session_registry.get(
-            caller_sid, self._dispatcher_session,
-        )
-
-        # Thread continuation: if the caller passed an ACTIVE dispatch
-        # handle with the same lead, re-launch that existing child with
-        # --resume and the new composite as the next message.
-        from teaparty.messaging.child_dispatch import (
-            detect_thread_continuation,
-        )
-        from teaparty.messaging.conversations import (
-            ConversationState as _ConvState,
-            ConversationType as _ConvType,
-            SqliteMessageBus as _Bus,
-        )
-        bus_db_path = (
-            self._bus_event_listener.bus_db_path
-            if self._bus_event_listener is not None else ''
-        )
-        existing_child = detect_thread_continuation(
-            context_id=context_id,
-            bus_db_path=bus_db_path,
-            member=member,
-            teaparty_home=self.teaparty_home,
-            scope='management',
-        )
-
-        from teaparty.mcp.registry import (
-            current_conversation_id as _current_conv_var,
-        )
-        parent_conv_id = _current_conv_var.get('')
-        if not parent_conv_id:
-            raise RuntimeError(
-                '_bus_spawn_agent: current_conversation_id is empty. '
-                "The caller's conv_id must reach the spawn_fn via the "
-                'MCP URL ``?conv=`` (set by ``launch(caller_conversation_id=...)``) '
-                'and the middleware.  An empty contextvar means the '
-                'launch site forgot the argument or the middleware did '
-                'not parse it — either way we cannot stamp a correct '
-                'parent_conversation_id and must refuse rather than '
-                'silently produce the wrong tree.',
-            )
-
-        # Slot limit: the caller cannot hold more than
-        # MAX_CONVERSATIONS_PER_AGENT live dispatches at once.  Skip the
-        # check on the resume path — re-entering an existing dispatch
-        # reuses a slot.
-        if existing_child is None:
-            from teaparty.runners.launcher import check_slot_available
-            _slot_bus = _Bus(self._bus_event_listener.bus_db_path)
-            try:
-                _ok = check_slot_available(
-                    dispatcher_session,
-                    bus=_slot_bus,
-                    conv_id=parent_conv_id,
-                )
-            finally:
-                _slot_bus.close()
-            if not _ok:
-                _log.warning(
-                    '_bus_spawn_agent: at conversation limit '
-                    '(parent %s); dispatch to %s blocked',
-                    parent_conv_id, member,
-                )
-                return ('', '', 'slot_limit')
-
-        if existing_child is not None:
-            child_session = existing_child
-            worktree_path = child_session.worktree_path
-            session_branch = child_session.worktree_branch
-        else:
-            child_session = _create_session(
-                agent_name=member, scope='management',
-                teaparty_home=self.teaparty_home,
-            )
-            worktree_path = os.path.join(child_session.path, 'worktree')
-            session_branch = f'session/{child_session.id}'
-
-            if self._bus_event_listener is not None and self._bus_event_listener.bus_db_path:
-                _bus = _Bus(self._bus_event_listener.bus_db_path)
-                try:
-                    _bus.create_conversation(
-                        _ConvType.DISPATCH, child_session.id,
-                        agent_name=member,
-                        parent_conversation_id=parent_conv_id,
-                        request_id=context_id,
-                        project_slug=self.project_slug or '',
-                        state=_ConvState.ACTIVE,
-                        worktree_path=worktree_path,
-                    )
-                finally:
-                    _bus.close()
-
-            # Fork source + merge target = the lead's session worktree,
-            # falling back to the project repo root for bootstrap paths.
-            source_repo = self.session_worktree or self.project_workdir
-            merge_target_worktree = source_repo
-            merge_target_repo = self.project_workdir
-            try:
-                source_ref = await head_commit_of(source_repo) or 'HEAD'
-            except Exception:
-                source_ref = 'HEAD'
-            try:
-                merge_target_branch = await current_branch_of(source_repo)
-            except Exception:
-                merge_target_branch = ''
-
-            try:
-                await create_subchat_worktree(
-                    source_repo=source_repo,
-                    source_ref=source_ref,
-                    dest_path=worktree_path,
-                    branch_name=session_branch,
-                    parent_worktree=source_repo,
-                )
-            except Exception:
-                _log.exception(
-                    '_bus_spawn_agent: create_subchat_worktree failed for %s',
-                    member,
-                )
-                return ('', '', 'worktree_failed')
-
-            child_session.launch_cwd = worktree_path
-            child_session.worktree_path = worktree_path
-            child_session.worktree_branch = session_branch
-            child_session.merge_target_repo = merge_target_repo
-            child_session.merge_target_branch = merge_target_branch
-            child_session.merge_target_worktree = merge_target_worktree
-            child_session.parent_session_id = (
-                dispatcher_session.id if dispatcher_session else ''
-            )
-        child_session.initial_message = composite
-        _save_meta(child_session)
-
-        # Track the child so its own Send calls resolve to the right
-        # dispatcher_session via ``current_session_id``.
-        self._session_registry[child_session.id] = child_session
-
-        child_conv_id = f'dispatch:{child_session.id}'
-        child_bus = _Bus(self._bus_event_listener.bus_db_path)
-        # Capture launch at spawn time so tests that monkeypatch
-        # ``launcher.launch`` see the stub even if the background
-        # task runs after the test's teardown restores the original.
-        from teaparty.runners.launcher import launch as _spawn_launch
-
-        async def _run_child() -> str:
-            from teaparty.messaging.child_dispatch import run_child_lifecycle
-            response_text = ''
-            try:
-                response_text = await run_child_lifecycle(
-                    member=member,
-                    child_session=child_session,
-                    worktree_path=worktree_path,
-                    composite=composite,
-                    child_conv_id=child_conv_id,
-                    bus=child_bus,
-                    tasks_by_child=self._tasks_by_child,
-                    launch_fn=_spawn_launch,
-                    mcp_routes=self._mcp_routes,
-                    llm_caller=None,
-                    member_scope='management',
-                    member_teaparty_home=self.teaparty_home,
-                    telemetry_scope=self.project_slug,
-                    resume_claude_session=child_session.claude_session_id or '',
-                )
-            except Exception:
-                _log.exception(
-                    '_bus_spawn_agent task failed for %s', member,
-                )
-                response_text = ''
-            finally:
-                # Fan-in bookkeeping: remove this child from the in-flight
-                # set and wake the lead's fan-in waiter when the set drains.
-                self._tasks_by_child.pop(child_session.id, None)
-                lead_sid = self._phase_session_ids.get(
-                    phase_for_state(self.cfa.state), ''
-                )
-                if lead_sid and response_text:
-                    try:
-                        await self._bus_inject_reply(
-                            context_id='',
-                            session_id=lead_sid,
-                            message=response_text,
-                        )
-                    except Exception:
-                        _log.exception(
-                            '_run_child: inject reply failed for %s',
-                            member,
-                        )
-                if not self._tasks_by_child and self._fan_in_event:
-                    self._fan_in_event.set()
-                try:
-                    child_bus.close()
-                except Exception:
-                    pass
-            return response_text
-
-        self._bus_event_listener.schedule_child_task(
-            child_session_id=child_session.id,
-            launch_coro=_run_child(),
-            dispatcher_session=dispatcher_session,
-            context_id=context_id,
-            agent_name=member,
-            on_dispatch=self._on_dispatch,
-        )
-
-        return (child_session.id, worktree_path, '')
 
     async def _bus_inject_reply(
         self, context_id: str, session_id: str, message: str,
