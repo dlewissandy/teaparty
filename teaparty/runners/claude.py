@@ -77,7 +77,6 @@ class ClaudeRunner:
         lead: str | None = None,
         settings: dict[str, Any] | None = None,
         permission_mode: str = 'default',
-        add_dirs: list[str] | None = None,
         resume_session: str | None = None,
         env_vars: dict[str, str] | None = None,
         event_bus: EventBus | None = None,
@@ -111,7 +110,6 @@ class ClaudeRunner:
         self.lead = lead
         self.settings = settings or {}
         self.permission_mode = permission_mode
-        self.add_dirs = add_dirs or []
         self.resume_session = resume_session
         self.env_vars = env_vars or {}
         self.event_bus = event_bus
@@ -265,9 +263,6 @@ class ClaudeRunner:
             args.extend(['--agent', self.lead])
         if settings_path:
             args.extend(['--settings', settings_path])
-        for d in self.add_dirs:
-            if d and os.path.isdir(d):
-                args.extend(['--add-dir', d])
         if self.resume_session:
             args.extend(['--resume', self.resume_session])
         # --setting-sources user prevents Claude Code from reading

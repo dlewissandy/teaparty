@@ -1073,7 +1073,6 @@ async def launch(
     # Optional overrides — callers that derive config from other sources
     # (e.g. CfA PhaseConfig) can bypass the standard .teaparty/ derivation.
     settings_override: dict[str, Any] | None = None,
-    add_dirs: list[str] | None = None,
     agents_json: str | None = None,
     agents_file: str | None = None,
     stream_file: str = '',
@@ -1284,7 +1283,6 @@ async def launch(
         strict_mcp_config=strict_mcp,
         permission_mode=permission_mode,
         tools=tools,
-        add_dirs=add_dirs or [],
         resume_session=resume_session or None,
         on_stream_event=on_stream_event,
         on_pid=on_pid_callback,

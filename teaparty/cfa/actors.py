@@ -80,7 +80,6 @@ class ActorContext:
     project_slug: str = ''
     resume_session: str | None = None
     env_vars: dict[str, str] = field(default_factory=dict)
-    add_dirs: list[str] = field(default_factory=list)
     backtrack_context: str = ''
     phase_start_time: float = 0.0  # monotonic timestamp when phase started
     # MCPRoutes bundle (spawn_fn, close_fn, escalation) the engine
@@ -293,7 +292,6 @@ async def run_phase(
         children_file=ctx.children_file,
         stall_timeout=stall_timeout,
         settings_override=settings,
-        add_dirs=ctx.add_dirs,
         agents_json=agents_json or None,
         agents_file=agents_path or None,
         stream_file=os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file),
