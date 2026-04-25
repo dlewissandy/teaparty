@@ -2,7 +2,7 @@
   "mcpServers": {
     "teaparty-config": {
       "type": "http",
-      "url": "http://localhost:9000/mcp/management/configuration-lead/999da9d87942"
+      "url": "http://localhost:9000/mcp/management/configuration-lead/2eb5b618215c?conv=dispatch%3A2eb5b618215c"
     }
   }
 }
