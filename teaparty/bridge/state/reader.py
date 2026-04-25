@@ -69,15 +69,19 @@ def _is_heartbeat_alive(infra_dir: str) -> bool:
     return False
 
 
-def _read_cost_sidecar(infra_dir: str) -> float:
-    """Read the running cost total from the engine's .cost sidecar file."""
-    if not infra_dir:
+def _session_cost(session_id: str) -> float:
+    """Sum ``cost_usd`` across every ``turn_complete`` event for a session.
+
+    Cut 25: the canonical store is the telemetry DB (``turn_complete``
+    events recorded by ``launch()`` for every turn).  The engine's
+    ``.cost`` sidecar file is gone.
+    """
+    if not session_id:
         return 0.0
-    cost_path = os.path.join(infra_dir, '.cost')
     try:
-        with open(cost_path) as f:
-            return float(f.read().strip())
-    except (FileNotFoundError, ValueError, OSError):
+        from teaparty.telemetry.query import total_cost
+        return total_cost(session=session_id)
+    except Exception:
         return 0.0
 
 
@@ -458,7 +462,7 @@ class StateReader:
             duration_seconds=duration,
             infra_dir=infra_dir,
             heartbeat_status=heartbeat_status,
-            total_cost_usd=_read_cost_sidecar(infra_dir),
+            total_cost_usd=_session_cost(session_id),
             backtrack_count=backtrack_count,
         )
 

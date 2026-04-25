@@ -466,14 +466,15 @@ async def dispatch(
     except OSError:
         pass
 
-    # Fallback: if events.jsonl had no turn_cost records, read the .cost sidecar.
+    # Fallback: if events.jsonl had no turn_cost records, sum the
+    # session's turn_complete events from the telemetry DB (Cut 25 —
+    # the canonical store for cost; replaces the .cost sidecar file).
     total_cost_usd = 0.0
     if not turn_costs:
-        cost_sidecar = os.path.join(dispatch_infra, '.cost')
         try:
-            with open(cost_sidecar) as f:
-                total_cost_usd = float(f.read().strip())
-        except (OSError, ValueError):
+            from teaparty.telemetry.query import total_cost
+            total_cost_usd = total_cost(session=dispatch_id)
+        except Exception:
             pass
 
     result_dict = {

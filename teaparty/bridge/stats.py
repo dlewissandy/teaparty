@@ -133,22 +133,29 @@ def _tasks_by_day(sessions: list, day_labels: list[str]) -> dict[str, int]:
 
 
 def _cost_by_day(sessions: list, day_labels: list[str]) -> dict[str, float]:
-    """Map day label → total USD cost for sessions whose .cost file was last
-    modified on that day."""
+    """Map day label → total USD cost across sessions on that day.
+
+    Cut 25: the canonical store is the telemetry DB.  ``turn_complete``
+    events carry both ``cost_usd`` and a timestamp; bucket by day and
+    sum.  Replaces the per-session ``.cost`` file-mtime heuristic that
+    only captured the *most recent* day a session was active.
+    """
+    from datetime import datetime
+    from teaparty.telemetry import query_events
+    from teaparty.telemetry.events import TURN_COMPLETE
+
     totals: dict[str, float] = {}
-    for session in sessions:
-        if not session.infra_dir:
-            continue
-        cost_path = os.path.join(session.infra_dir, '.cost')
-        day = _mtime_day_label(cost_path, day_labels)
-        if not day:
-            continue
+    events = query_events(event_type=TURN_COMPLETE)
+    for ev in events:
         try:
-            with open(cost_path) as f:
-                cost = float(f.read().strip())
-            totals[day] = totals.get(day, 0.0) + cost
-        except (OSError, ValueError):
-            pass
+            label = _day_label(datetime.fromtimestamp(ev.timestamp).date())
+        except (ValueError, AttributeError, OSError):
+            continue
+        if label not in day_labels:
+            continue
+        cost = float(ev.data.get('cost_usd', 0.0) or 0.0)
+        if cost:
+            totals[label] = totals.get(label, 0.0) + cost
     return totals
 
 

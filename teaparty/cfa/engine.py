@@ -160,11 +160,6 @@ class Orchestrator:
         # Without it, every Send would parent-attach to the root
         # orchestrator's session — wrong for grandchild spawns.
         self._session_registry: dict[str, Any] = {}
-        # Running cost total for this session (telemetry only — no limits).
-        # Written to infra_dir/.cost after each turn so the bridge dashboard
-        # and stats bar can surface per-session USD spend.
-        self._total_cost_usd: float = 0.0
-
         self._scratch_model = ScratchModel(job=task, phase='')
         self._scratch_writer = ScratchWriter(session_worktree)
 
@@ -839,8 +834,6 @@ class Orchestrator:
 
             turn_cost = actor_result.data.get('cost_usd', 0.0)
             if turn_cost:
-                self._total_cost_usd += turn_cost
-                self._write_cost_sidecar()
                 turn_stats: dict[str, Any] = {'total_cost_usd': turn_cost}
                 for key in ('input_tokens', 'output_tokens', 'duration_ms'):
                     val = actor_result.data.get(key)
@@ -901,21 +894,6 @@ class Orchestrator:
                 )
                 if compact_prompt:
                     self._pending_intervention = compact_prompt
-
-    def _write_cost_sidecar(self) -> None:
-        """Write the running cost total to ``{infra_dir}/.cost``.
-
-        Consumed by the bridge dashboard (``bridge/stats.py``,
-        ``bridge/state/reader.py``) and by ``cfa/dispatch.py`` as a
-        fallback when per-turn events are unavailable.
-        """
-        if not self.infra_dir:
-            return
-        try:
-            with open(os.path.join(self.infra_dir, '.cost'), 'w') as f:
-                f.write(f'{self._total_cost_usd:.6f}\n')
-        except OSError:
-            pass
 
     def _maybe_compact(self, budget: Any, phase_name: str) -> str:
         """Return a ``/compact`` prompt when context utilization crosses
