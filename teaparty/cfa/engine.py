@@ -361,10 +361,9 @@ class Orchestrator:
                 ChildDispatchContext,
                 make_spawn_fn,
             )
-            dispatcher, agent_id_map = build_session_dispatcher(
+            dispatcher = build_session_dispatcher(
                 teaparty_home=self.teaparty_home,
                 project_dir=self.project_dir,
-                project_slug=self.project_slug,
             )
 
             # Cut 24: unified spawn_fn prelude across tiers.  CfA's
@@ -425,7 +424,6 @@ class Orchestrator:
                 close_fn=close_fn,
                 ask_question_runner=self._ask_question_runner,
                 dispatcher=dispatcher,
-                agent_id_map=agent_id_map,
             )
             # mcp_routes must be on the dispatch ctx so children inherit it.
             self._dispatch_ctx.mcp_routes = self._mcp_routes

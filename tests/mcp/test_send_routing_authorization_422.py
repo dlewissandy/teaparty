@@ -1,30 +1,31 @@
 #!/usr/bin/env python3
 """Send authorizes through the session BusDispatcher before invoking spawn_fn.
 
-Cut 18 wires routing enforcement uniformly across both tiers (CfA engine
-+ chat-tier AgentSession): both build a ``BusDispatcher`` from the
-session's roster at boot, both attach it to ``MCPRoutes``, both register
-the same bundle for every agent they launch in their subtree.  The Send
-MCP handler consults the dispatcher before invoking ``spawn_fn`` —
-authorization is the single transport-level enforcement point that makes
-routing correctness independent of agent-definition trust.
+Both tiers (CfA engine + chat-tier AgentSession) build a
+``BusDispatcher`` from the session's roster at boot, attach it to
+``MCPRoutes``, register the same bundle for every agent they launch in
+their subtree.  The Send MCP handler consults the dispatcher before
+invoking ``spawn_fn`` — authorization is the single transport-level
+enforcement point that makes routing correctness independent of
+agent-definition trust.
 
-These tests pin down two invariants the new wiring must preserve:
+Cut 30: routing tables key directly on agent names — no
+``agent_id_map`` translation layer.  An agent's name is its identity,
+with 1:1 correspondence between the string and the entity it
+identifies.
+
+These tests pin down the invariants the wiring must preserve:
 
 1. **Refusal short-circuits the spawn.**  When the dispatcher refuses
-   ``(sender_id, recipient_id)``, Send returns ``status: failed`` with a
+   ``(sender, recipient)``, Send returns ``status: failed`` with a
    routing reason and never invokes ``spawn_fn``.  An agent with a
    broken or hostile prompt cannot reach a peer outside its permitted
    set, no matter what its prompt says.
 
-2. **The map mediates name → id translation.**  Send sees roster
-   *names* (``coding-lead``, ``om``); the routing table keys on scoped
-   *agent IDs* (``proj/coding/lead``, ``om``).  The handler resolves
-   both through ``agent_id_map`` registered on ``MCPRoutes`` before
-   authorizing.  This is what makes one routing table work for an
-   arbitrarily nested team — every tier's session populates its own
-   ``(dispatcher, agent_id_map)`` pair, every agent in that subtree
-   authorizes against it.
+2. **Names are the identifiers.**  Send passes the caller's
+   ``current_agent_name`` and the ``member`` argument straight to the
+   dispatcher; the routing table's keys are the same strings used
+   everywhere else.
 """
 from __future__ import annotations
 
@@ -45,8 +46,7 @@ def _run(coro):
     return asyncio.new_event_loop().run_until_complete(coro)
 
 
-def _build_routes(*, allows: list[tuple[str, str]],
-                  agent_id_map: dict[str, str]) -> mcp_registry.MCPRoutes:
+def _build_routes(*, allows: list[tuple[str, str]]) -> mcp_registry.MCPRoutes:
     """Build an MCPRoutes bundle with a dispatcher allowing only ``allows``."""
     table = RoutingTable()
     for sender, recipient in allows:
@@ -61,7 +61,6 @@ def _build_routes(*, allows: list[tuple[str, str]],
     routes = mcp_registry.MCPRoutes(
         spawn_fn=spawn,
         dispatcher=BusDispatcher(table),
-        agent_id_map=agent_id_map,
     )
     routes.invocations = invocations  # type: ignore[attr-defined]
     return routes
@@ -77,13 +76,9 @@ class TestSendRoutingAuthorization(unittest.TestCase):
 
     def test_refused_routing_short_circuits_spawn(self):
         """Dispatcher refuses → Send returns failed, spawn_fn never runs."""
-        # Allow project-lead → coding-lead but NOT specialist → coding-lead.
+        # Allow coding-lead → developer but NOT specialist → coding-lead.
         routes = _build_routes(
-            allows=[('proj/lead', 'proj/coding/lead')],
-            agent_id_map={
-                'specialist': 'proj/coding/specialist',
-                'coding-lead': 'proj/coding/lead',
-            },
+            allows=[('coding-lead', 'developer')],
         )
         mcp_registry.register_agent_mcp_routes('specialist', routes)
         mcp_registry.current_agent_name.set('specialist')
@@ -93,8 +88,8 @@ class TestSendRoutingAuthorization(unittest.TestCase):
 
         self.assertEqual(payload['status'], 'failed')
         self.assertIn('Routing refused', payload['reason'])
-        self.assertIn('proj/coding/specialist', payload['reason'])
-        self.assertIn('proj/coding/lead', payload['reason'])
+        self.assertIn('specialist', payload['reason'])
+        self.assertIn('coding-lead', payload['reason'])
         self.assertEqual(
             routes.invocations, [],
             'spawn_fn must NOT be called when routing is refused — '
@@ -103,16 +98,12 @@ class TestSendRoutingAuthorization(unittest.TestCase):
         )
 
     def test_authorized_routing_invokes_spawn(self):
-        """Dispatcher allows → spawn_fn runs; the agent_id_map mediates."""
+        """Dispatcher allows → spawn_fn runs; names are passed as-is."""
         routes = _build_routes(
-            allows=[('proj/coding/specialist', 'proj/coding/lead')],
-            agent_id_map={
-                'specialist': 'proj/coding/specialist',
-                'coding-lead': 'proj/coding/lead',
-            },
+            allows=[('developer', 'coding-lead')],
         )
-        mcp_registry.register_agent_mcp_routes('specialist', routes)
-        mcp_registry.current_agent_name.set('specialist')
+        mcp_registry.register_agent_mcp_routes('developer', routes)
+        mcp_registry.current_agent_name.set('developer')
 
         result = _run(_default_send_post('coding-lead', 'msg', ''))
         payload = json.loads(result)
@@ -135,32 +126,31 @@ class TestSendRoutingAuthorization(unittest.TestCase):
 
         self.assertEqual(payload['status'], 'message_sent')
 
-    def test_unmapped_names_fall_through_as_their_own_ids(self):
-        """An agent name absent from the id_map authorizes as itself.
-
-        This is the edge case where a session's roster does not include
-        the caller or recipient (e.g. an old session map, a
-        misconfigured workgroup).  The dispatcher is still consulted —
-        it just sees the raw name as the id.  No silent allow-through.
-        """
+    def test_om_can_send_to_project_lead(self):
+        """The bug Cut 30 fixes: OM with agent_name='office-manager'
+        sending to a project lead with agent_name='teaparty-lead' must
+        match the routing table's pairs — no alias, no translation."""
         routes = _build_routes(
-            allows=[],  # nothing allowed
-            agent_id_map={'coding-lead': 'proj/coding/lead'},
+            allows=[
+                ('office-manager', 'teaparty-lead'),
+                ('teaparty-lead', 'office-manager'),
+            ],
         )
-        mcp_registry.register_agent_mcp_routes('unknown-caller', routes)
-        mcp_registry.current_agent_name.set('unknown-caller')
+        mcp_registry.register_agent_mcp_routes('office-manager', routes)
+        mcp_registry.current_agent_name.set('office-manager')
 
-        result = _run(_default_send_post('also-unknown', 'msg', ''))
+        result = _run(_default_send_post('teaparty-lead', 'msg', ''))
         payload = json.loads(result)
-        self.assertEqual(payload['status'], 'failed')
-        self.assertIn('Routing refused', payload['reason'])
-        # Both ends fall through unmapped:
-        self.assertIn('unknown-caller', payload['reason'])
-        self.assertIn('also-unknown', payload['reason'])
+
+        self.assertEqual(
+            payload['status'], 'message_sent',
+            'OM must be able to dispatch to its project lead under its '
+            'real agent_name, not under a fictional `om` alias.',
+        )
 
 
 class TestMCPRoutesCarriesDispatcher(unittest.TestCase):
-    """Structural: register_agent_mcp_routes installs both fields."""
+    """Structural: register_agent_mcp_routes installs the dispatcher."""
 
     def setUp(self):
         mcp_registry.clear()
@@ -172,31 +162,24 @@ class TestMCPRoutesCarriesDispatcher(unittest.TestCase):
         table = RoutingTable()
         table.add_pair('a', 'b')
         dispatcher = BusDispatcher(table)
-        id_map = {'name': 'a'}
         routes = mcp_registry.MCPRoutes(
             spawn_fn=lambda *a, **kw: None,
             dispatcher=dispatcher,
-            agent_id_map=id_map,
         )
         mcp_registry.register_agent_mcp_routes('caller', routes)
 
         self.assertIs(mcp_registry.get_dispatcher('caller'), dispatcher)
-        self.assertEqual(
-            mcp_registry.get_agent_id_map('caller'), id_map,
-        )
 
-    def test_clear_removes_dispatcher_and_map(self):
+    def test_clear_removes_dispatcher(self):
         table = RoutingTable()
         table.add_pair('a', 'b')
         routes = mcp_registry.MCPRoutes(
             dispatcher=BusDispatcher(table),
-            agent_id_map={'x': 'y'},
         )
         mcp_registry.register_agent_mcp_routes('caller', routes)
         mcp_registry.clear()
 
         self.assertIsNone(mcp_registry.get_dispatcher('caller'))
-        self.assertEqual(mcp_registry.get_agent_id_map('caller'), {})
 
 
 if __name__ == '__main__':

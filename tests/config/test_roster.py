@@ -6,8 +6,7 @@ Covers:
  2. derive_project_roster — project lead roster from project.yaml members.workgroups
  3. derive_workgroup_roster — workgroup lead roster from workgroup YAML members.agents
  4. has_sub_roster — structural check for sub-roster presence
- 5. agent_id_map — agent name to scoped agent ID mapping
- 6. RoutingTable.from_management_roster — OM-level routing
+ 5. RoutingTable.from_management_roster — OM-level routing
 """
 import os
 import sys
@@ -23,7 +22,6 @@ from teaparty.config.roster import (
     derive_project_roster,
     derive_workgroup_roster,
     has_sub_roster,
-    agent_id_map,
 )
 from teaparty.messaging.dispatcher import RoutingTable
 
@@ -349,56 +347,42 @@ class TestHasSubRoster(unittest.TestCase):
         ))
 
 
-# ── 5. agent_id_map ────────────────────────────────────────────────────────
-
-class TestAgentIdMap(unittest.TestCase):
-    """Agent name to scoped agent ID mapping."""
-
-    def test_om_level_project_leads(self):
-        roster = {'alpha-lead': {}, 'auditor': {}}
-        mapping = agent_id_map(roster, 'om')
-        self.assertEqual(mapping['alpha-lead'], 'alpha/lead')
-        self.assertEqual(mapping['auditor'], 'om/auditor')
-
-    def test_project_level_workgroup_leads(self):
-        roster = {'coding-lead': {}, 'research-lead': {}}
-        mapping = agent_id_map(roster, 'project', project_name='alpha')
-        self.assertEqual(mapping['coding-lead'], 'alpha/coding/lead')
-        self.assertEqual(mapping['research-lead'], 'alpha/research/lead')
-
-    def test_workgroup_level_agents(self):
-        roster = {'developer': {}, 'reviewer': {}}
-        mapping = agent_id_map(
-            roster, 'workgroup',
-            project_name='alpha', workgroup_name='coding',
-        )
-        self.assertEqual(mapping['developer'], 'alpha/coding/developer')
-        self.assertEqual(mapping['reviewer'], 'alpha/coding/reviewer')
-
-
-# ── 6. RoutingTable.from_management_roster ──────────────────────────────────
+# ── 5. RoutingTable.from_management_roster ──────────────────────────────────
 
 class TestRoutingTableFromManagementRoster(unittest.TestCase):
-    """OM-level routing table from roster."""
+    """OM-level routing table from roster — keys directly on agent names."""
 
     def test_om_can_send_to_roster_members(self):
         roster = {'alpha-lead': {}, 'auditor': {}}
-        id_map = {'alpha-lead': 'alpha/lead', 'auditor': 'om/auditor'}
-        table = RoutingTable.from_management_roster(roster, id_map)
-        self.assertTrue(table.allows('om', 'alpha/lead'))
-        self.assertTrue(table.allows('om', 'om/auditor'))
+        table = RoutingTable.from_management_roster(
+            roster, om_agent_name='office-manager',
+        )
+        self.assertTrue(table.allows('office-manager', 'alpha-lead'))
+        self.assertTrue(table.allows('office-manager', 'auditor'))
 
     def test_roster_members_can_reply_to_om(self):
         roster = {'alpha-lead': {}}
-        id_map = {'alpha-lead': 'alpha/lead'}
-        table = RoutingTable.from_management_roster(roster, id_map)
-        self.assertTrue(table.allows('alpha/lead', 'om'))
+        table = RoutingTable.from_management_roster(
+            roster, om_agent_name='office-manager',
+        )
+        self.assertTrue(table.allows('alpha-lead', 'office-manager'))
 
     def test_roster_members_cannot_reach_each_other(self):
         roster = {'alpha-lead': {}, 'auditor': {}}
-        id_map = {'alpha-lead': 'alpha/lead', 'auditor': 'om/auditor'}
-        table = RoutingTable.from_management_roster(roster, id_map)
-        self.assertFalse(table.allows('alpha/lead', 'om/auditor'))
+        table = RoutingTable.from_management_roster(
+            roster, om_agent_name='office-manager',
+        )
+        self.assertFalse(table.allows('alpha-lead', 'auditor'))
+
+    def test_om_in_its_own_roster_raises(self):
+        """OM is the subject of the roster, not a member.  A duplicate
+        is a configuration error."""
+        from teaparty.messaging.dispatcher import DuplicateAgentName
+        roster = {'office-manager': {}, 'alpha-lead': {}}
+        with self.assertRaises(DuplicateAgentName):
+            RoutingTable.from_management_roster(
+                roster, om_agent_name='office-manager',
+            )
 
 
 if __name__ == '__main__':

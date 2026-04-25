@@ -10,11 +10,13 @@ across tiers.  This module holds the pieces both sides share.
 
 It also owns ``build_session_dispatcher``, the single place that turns
 session config (a project workgroup tree, or the OM's management
-roster) into the ``(BusDispatcher, agent_id_map)`` pair the Send tool
-authorizes against.  Routing enforcement at Send-time is the same
-mechanism for both tiers; the only thing that differs is which roster
-the table is derived from, so that distinction lives here in one
-function rather than repeated at each tier boot.
+roster) into the ``BusDispatcher`` the Send tool authorizes against.
+Routing tables key directly on agent names — same identifiers used
+everywhere else in the system; an agent's name is its identity.
+Routing enforcement at Send-time is the same mechanism for both tiers;
+the only thing that differs is which roster the table is derived from,
+so that distinction lives here in one function rather than repeated at
+each tier boot.
 """
 from __future__ import annotations
 
@@ -38,42 +40,48 @@ def build_session_dispatcher(
     *,
     teaparty_home: str,
     project_dir: str = '',
-    project_slug: str = '',
-) -> tuple[Any | None, dict[str, str]]:
-    """Build the ``(BusDispatcher, agent_id_map)`` pair for a session.
+) -> Any | None:
+    """Build the ``BusDispatcher`` for a session.
 
     The dispatcher is the single transport-level enforcement point Send
     consults before invoking ``spawn_fn``: an agent whose prompt is
     broken or hostile cannot reach a recipient outside its permitted
     set, because Send refuses the post before it touches the bus.
 
-    The matching ``agent_id_map`` translates the names agents use in
-    their roster (what Send sees as ``member``) into the scoped
-    ``{project}/{workgroup}/{role}``-style agent IDs the routing table
-    keys on.  The Send handler resolves both sender and recipient
-    through this map before authorizing.
+    Routing tables key directly on agent names — the same identifiers
+    used everywhere else in the system.  No ``agent_id_map`` translation
+    layer; an agent's name is its identity, with 1:1 correspondence to
+    the entity it identifies.  Uniqueness within a routing scope is a
+    correctness precondition, enforced at construction by
+    ``RoutingTable.from_workgroups`` /
+    ``RoutingTable.from_management_roster``.
 
-    ``project_dir`` empty → **OM session**.  Builds the routing table
-    from the OM's management roster (``OM ↔ each project-lead`` and
-    ``OM ↔ each management agent``) plus the matching name → id map at
-    the ``om`` level.
+    ``project_dir`` empty → **OM session**.  Builds from the OM's
+    management roster (OM ↔ each project-lead and OM ↔ each management
+    agent).
 
-    ``project_dir`` set → **project-lead session**.  Builds the routing
-    table from the project's resolved workgroups
-    (``OM ↔ project-lead``, ``project-lead ↔ each workgroup lead``,
-    full mesh within each workgroup) plus the matching name → id map at
-    the ``project`` level.
+    ``project_dir`` set → **project-lead session**.  Builds from the
+    project's resolved workgroups (OM ↔ project-lead, project-lead ↔
+    each workgroup lead, full mesh within each workgroup).
 
-    Returns ``(None, {})`` when the relevant config is missing or empty
-    — bootstrap state, scripted tests, projects without YAML.  Send
-    treats absent dispatcher as "no enforcement", which preserves the
-    pre-#422 default.
+    Returns ``None`` when the relevant config is missing or empty —
+    bootstrap state, scripted tests, projects without YAML.  Send
+    treats absent dispatcher as "no enforcement".
     """
     from teaparty.messaging.dispatcher import BusDispatcher, RoutingTable
-    from teaparty.config.roster import (
-        derive_om_roster,
-        agent_id_map as build_agent_id_map,
-    )
+    from teaparty.config.roster import derive_om_roster
+    from teaparty.config.config_reader import load_management_team
+
+    # The OM's agent name comes from management/teaparty.yaml's lead
+    # field — single source of truth for "who is the OM".
+    try:
+        mgmt_team = load_management_team(teaparty_home=teaparty_home)
+        om_agent_name = mgmt_team.lead
+    except (FileNotFoundError, OSError):
+        om_agent_name = ''
+
+    if not om_agent_name:
+        return None
 
     if project_dir:
         from teaparty.config.config_reader import (
@@ -83,7 +91,10 @@ def build_session_dispatcher(
         try:
             proj = load_project_team(project_dir)
         except (FileNotFoundError, OSError):
-            return (None, {})
+            return None
+
+        if not proj.lead:
+            return None
 
         try:
             workgroups = resolve_workgroups(
@@ -96,10 +107,10 @@ def build_session_dispatcher(
                 'resolve_workgroups failed for %s', project_dir,
                 exc_info=True,
             )
-            return (None, {})
+            return None
 
         if not workgroups:
-            return (None, {})
+            return None
 
         wg_dicts = [
             {
@@ -109,23 +120,12 @@ def build_session_dispatcher(
             }
             for wg in workgroups
         ]
-        proj_name = project_slug or os.path.basename(project_dir)
         table = RoutingTable.from_workgroups(
-            wg_dicts, project_name=proj_name,
+            wg_dicts,
+            project_lead_name=proj.lead,
+            om_agent_name=om_agent_name,
         )
-
-        # name → scoped id at the project level: workgroup lead names
-        # ('coding-lead' → '{proj}/coding/lead') and the OM name
-        # itself (so a project lead can Send back to OM).
-        roster_names: dict[str, dict[str, Any]] = {}
-        for wg in workgroups:
-            if wg.lead:
-                roster_names[wg.lead] = {}
-        id_map = build_agent_id_map(
-            roster_names, 'project', project_name=proj_name,
-        )
-        id_map['om'] = 'om'
-        return (BusDispatcher(table), id_map)
+        return BusDispatcher(table)
 
     # OM session: management roster.
     try:
@@ -135,14 +135,15 @@ def build_session_dispatcher(
             'derive_om_roster failed for %s', teaparty_home,
             exc_info=True,
         )
-        return (None, {})
+        return None
 
     if not roster:
-        return (None, {})
+        return None
 
-    id_map = build_agent_id_map(roster, 'om')
-    table = RoutingTable.from_management_roster(roster, id_map)
-    return (BusDispatcher(table), id_map)
+    table = RoutingTable.from_management_roster(
+        roster, om_agent_name=om_agent_name,
+    )
+    return BusDispatcher(table)
 
 
 def detect_thread_continuation(

@@ -110,7 +110,7 @@ async def _default_send_post(member: str, composite: str, context_id: str) -> st
     _send_log = _logging.getLogger('teaparty.mcp.tools.messaging.send')
 
     from teaparty.mcp.registry import (
-        get_spawn_fn, get_dispatcher, get_agent_id_map, current_agent_name,
+        get_spawn_fn, get_dispatcher, current_agent_name,
     )
     from teaparty.messaging.dispatcher import RoutingError
 
@@ -123,26 +123,23 @@ async def _default_send_post(member: str, composite: str, context_id: str) -> st
 
     # Routing authorization.  When the session registered a dispatcher
     # we enforce; otherwise (bootstrap / scripted tests) we let the post
-    # through.  The id_map translates the names Send sees (from the
-    # agent's roster) into the scoped IDs the routing table keys on.
+    # through.  Routing tables key directly on agent names — same
+    # identifiers used everywhere else.  No translation map.
     dispatcher = get_dispatcher()
     if dispatcher is not None:
-        id_map = get_agent_id_map()
-        sender_name = current_agent_name.get('')
-        sender_id = id_map.get(sender_name, sender_name)
-        recipient_id = id_map.get(member, member)
+        sender = current_agent_name.get('')
         try:
-            dispatcher.authorize(sender_id, recipient_id)
+            dispatcher.authorize(sender, member)
         except RoutingError as exc:
             _send_log.warning(
                 'send_registry: %r → %r refused by dispatcher: %s',
-                sender_id, recipient_id, exc,
+                sender, member, exc,
             )
             return json.dumps({
                 'status': 'failed',
                 'reason': (
-                    f'Routing refused: {sender_id!r} cannot post to '
-                    f'{recipient_id!r}.  Cross-workgroup posts must go '
+                    f'Routing refused: {sender!r} cannot post to '
+                    f'{member!r}.  Cross-workgroup posts must go '
                     f'through your project lead; cross-project posts '
                     f'must go through the OM.'
                 ),

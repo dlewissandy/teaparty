@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import contextvars
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
 _log = logging.getLogger('teaparty.mcp.registry')
@@ -62,7 +62,7 @@ _close_fns: dict[str, Callable] = {}
 _ask_question_runners: dict[str, Any] = {}
 
 # {agent_name: BusDispatcher}
-# The Send MCP tool calls ``dispatcher.authorize(sender_id, recipient_id)``
+# The Send MCP tool calls ``dispatcher.authorize(sender, recipient)``
 # before invoking ``spawn_fn``.  This is the single enforcement point that
 # makes routing correctness independent of agent-definition trust: an agent
 # whose prompt is broken or hostile cannot reach a recipient outside its
@@ -70,14 +70,11 @@ _ask_question_runners: dict[str, Any] = {}
 # Both tiers register the same dispatcher for every agent they launch —
 # the per-session routing table is shared across the whole subtree, so an
 # arbitrarily nested team structure all enforces against one bundle.
+#
+# Routing tables key directly on agent names; there is no parallel
+# scoped-id namespace and no translation map.  An agent's name is its
+# identity.
 _dispatchers: dict[str, Any] = {}
-
-# {agent_name: {agent_name → scoped_agent_id}}
-# The Send tool resolves caller and recipient from agent *names* (what the
-# tool sees) to scoped *agent IDs* (what the routing table keys on).  The
-# map is derived once at session setup from the workgroup roster and
-# threaded through MCPRoutes alongside the dispatcher.
-_agent_id_maps: dict[str, dict[str, str]] = {}
 
 # {proxy qualifier}
 # Escalation ownership — ``AskQuestionRunner.run`` drives its own
@@ -157,17 +154,6 @@ def get_dispatcher(agent_name: str = '') -> Any | None:
     return _dispatchers.get(name)
 
 
-def register_agent_id_map(agent_name: str, mapping: dict[str, str]) -> None:
-    """Register the name → scoped agent_id map for ``agent_name``'s session."""
-    _agent_id_maps[agent_name] = dict(mapping)
-
-
-def get_agent_id_map(agent_name: str = '') -> dict[str, str]:
-    """Return the agent_id_map for an agent, or an empty dict if none."""
-    name = agent_name or current_agent_name.get('')
-    return _agent_id_maps.get(name, {})
-
-
 def mark_escalation_active(qualifier: str) -> None:
     """Mark a proxy qualifier as owned by an in-flight escalation.
 
@@ -229,13 +215,13 @@ class MCPRoutes:
     routes an agent needs; ``launch()`` installs them before spawning
     the subprocess, giving the handler everything it needs in one place.
 
-    The ``dispatcher`` + ``agent_id_map`` pair is the routing-enforcement
-    point Send consults before spawning the recipient.  Both fields share
-    the same per-session lifetime — derived once at session setup from
+    The ``dispatcher`` is the routing-enforcement point Send consults
+    before spawning the recipient — derived once at session setup from
     the workgroup roster, then threaded through every ``launch()`` call
     in that session's subtree.  An arbitrarily nested team enforces
-    against one bundle: parent and grandchild authorize against the same
-    table.
+    against one dispatcher: parent and grandchild authorize against the
+    same routing table.  Routing tables key directly on agent names; an
+    agent's name is its identity.
 
     Fields are optional: a leaf worker that neither dispatches nor
     closes conversations just leaves ``spawn_fn`` / ``close_fn`` unset.
@@ -247,7 +233,6 @@ class MCPRoutes:
     close_fn: Callable | None = None
     ask_question_runner: Any | None = None
     dispatcher: Any | None = None
-    agent_id_map: dict[str, str] = field(default_factory=dict)
 
 
 def register_agent_mcp_routes(agent_name: str, routes: MCPRoutes | None) -> None:
@@ -267,8 +252,6 @@ def register_agent_mcp_routes(agent_name: str, routes: MCPRoutes | None) -> None
         register_ask_question_runner(agent_name, routes.ask_question_runner)
     if routes.dispatcher is not None:
         register_dispatcher(agent_name, routes.dispatcher)
-    if routes.agent_id_map:
-        register_agent_id_map(agent_name, routes.agent_id_map)
 
 
 def clear() -> None:
@@ -278,5 +261,4 @@ def clear() -> None:
     _close_fns.clear()
     _ask_question_runners.clear()
     _dispatchers.clear()
-    _agent_id_maps.clear()
     _active_escalations.clear()

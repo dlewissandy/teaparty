@@ -400,13 +400,14 @@ class AgentSession:
         # env vars don't reach the handler — the handler reads the registry
         # keyed by current_agent_name (set by ASGI middleware from the URL).
         #
-        # The dispatcher + agent_id_map enforce routing at Send time —
-        # the same mechanism the CfA engine uses, derived from the same
-        # shared helper.  An OM session derives the table from the
-        # management roster; a project-lead session derives it from
-        # project workgroups.  Grandchildren register the same bundle
-        # via launch(), so an arbitrarily nested team enforces against
-        # one routing table.
+        # The dispatcher enforces routing at Send time — the same
+        # mechanism the CfA engine uses, derived from the same shared
+        # helper.  An OM session derives the table from the management
+        # roster; a project-lead session derives it from project
+        # workgroups.  Grandchildren register the same bundle via
+        # launch(), so an arbitrarily nested team enforces against one
+        # routing table.  Routing tables key directly on agent names —
+        # an agent's name is its identity.
         from teaparty.mcp.registry import (
             MCPRoutes, register_agent_mcp_routes,
         )
@@ -422,10 +423,9 @@ class AgentSession:
             proj_dir = resolve_lead_project_path(
                 self.agent_name, self.teaparty_home,
             ) or ''
-        dispatcher, agent_id_map = build_session_dispatcher(
+        dispatcher = build_session_dispatcher(
             teaparty_home=self.teaparty_home,
             project_dir=proj_dir,
-            project_slug=self.project_slug,
         )
 
         # Cut 24: build the unified spawn_fn from a shared
@@ -493,7 +493,6 @@ class AgentSession:
             close_fn=close_fn,
             ask_question_runner=self._ask_question_runner,
             dispatcher=dispatcher,
-            agent_id_map=agent_id_map,
         )
         # mcp_routes must be on the dispatch ctx so children inherit it.
         self._dispatch_ctx.mcp_routes = self._mcp_routes
