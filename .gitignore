@@ -213,3 +213,9 @@ stream.jsonl
 stream.jsonl
 # Inter-agent scratch — copied at spawn, never committed
 .scratch/
+# Per-launch infrastructure — not agent work product
+.mcp.json
+.claude/
+stream.jsonl
+# Inter-agent scratch — copied at spawn, never committed
+.scratch/
