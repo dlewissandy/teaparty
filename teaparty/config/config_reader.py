@@ -711,7 +711,14 @@ def load_management_workgroups(
     team: ManagementTeam,
     teaparty_home: str | None = None,
 ) -> list[Workgroup]:
-    """Load all workgroup definitions from the management team.
+    """Load all workgroup definitions from the management team's catalog.
+
+    Returns every workgroup registered under ``workgroups:`` in
+    teaparty.yaml — the catalog of workgroups whose YAML lives under
+    ``management/workgroups/``.  This is NOT the same as the team's
+    *members*: a workgroup can appear in the catalog without being
+    declared a dispatchable member via ``members.workgroups``.  Use
+    ``member_workgroups`` for the membership view.
 
     Each WorkgroupEntry's config path is resolved relative to teaparty_home.
     """
@@ -721,6 +728,27 @@ def load_management_workgroups(
         config_path = os.path.join(management_dir(home), entry.config)
         result.append(load_workgroup(config_path))
     return result
+
+
+def member_workgroups(
+    team: ManagementTeam,
+    teaparty_home: str | None = None,
+) -> list[Workgroup]:
+    """Return the workgroups that are declared members of the team.
+
+    The catalog (``team.workgroups``) lists every workgroup *registered*
+    in teaparty.yaml.  The membership (``team.members_workgroups``)
+    lists those the team's lead is *authorized to dispatch to*.  These
+    are different — a workgroup can be registered without being a
+    member.  Routing enforcement and any "who is on this team?" view
+    must use membership; only catalog UIs (showing both active and
+    inactive entries) need the unfiltered list.
+    """
+    members_lower = {m.lower() for m in team.members_workgroups}
+    return [
+        wg for wg in load_management_workgroups(team, teaparty_home=teaparty_home)
+        if wg.name.lower() in members_lower
+    ]
 
 
 def resolve_workgroups(

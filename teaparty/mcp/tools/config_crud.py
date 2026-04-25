@@ -467,7 +467,6 @@ def list_team_members_handler(teaparty_home: str = '') -> str:
     """
     from teaparty.config.config_reader import (
         load_management_team,
-        load_management_workgroups,
         load_project_team,
         read_agent_frontmatter,
     )
@@ -517,10 +516,12 @@ def list_team_members_handler(teaparty_home: str = '') -> str:
                 'description': _read_desc(pt.lead) or pt.description or project_name,
             })
 
-    # Workgroup leads
+    # Workgroup leads — only those declared members of the team.
+    # ``member_workgroups`` filters the catalog to those listed under
+    # ``members.workgroups`` in teaparty.yaml.
     try:
-        workgroups = load_management_workgroups(team, teaparty_home=home)
-        for wg in workgroups:
+        from teaparty.config.config_reader import member_workgroups
+        for wg in member_workgroups(team, teaparty_home=home):
             if wg.lead:
                 members.append({
                     'name': wg.lead,
