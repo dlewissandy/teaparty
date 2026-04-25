@@ -949,7 +949,6 @@ class Orchestrator:
                 infra_dir=self.infra_dir,
                 session_worktree=self.session_worktree,
             ),
-            add_dirs=self._build_add_dirs(),
             project_slug=self.project_slug,
             phase_start_time=phase_start_time,
             mcp_routes=self._mcp_routes,
@@ -1588,9 +1587,4 @@ class Orchestrator:
         if action in ('backtrack', 'withdraw'):
             return action
         return 'retry'
-
-    def _build_add_dirs(self) -> list[str]:
-        # Agents must not receive --add-dir flags; the worktree (set as cwd)
-        # contains everything they need.
-        return []
 
