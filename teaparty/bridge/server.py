@@ -1896,27 +1896,30 @@ class TeaPartyBridge:
     ) -> web.Response:
         """Handle a human message posted to an agent-to-agent conversation.
 
-        Finds the AgentSession whose BusEventListener owns this
-        conversation and calls ``handle_interjection`` directly — the
-        bridge and the listener share a process, no IPC needed.
+        Cut 27: writes directly to the conversation's bus, same as
+        every other conversation type.  The agent picks the message
+        up from bus history on its next ``--resume``.
+
+        Previously this short-circuited through the listener's
+        ``handle_interjection`` which delegated to a ``reinvoke_fn``
+        that was a logging stub — meaning human messages to ``agent:``
+        conversations were *dropped on the floor*.  Now they persist
+        like every other human message.
         """
-        listener = self._find_interjection_listener(conv_id)
-        if listener is None:
+        bus = self._bus_for_agent_conversation(conv_id)
+        if bus is None:
             return web.json_response(
                 {'error': f'No active session found for conversation: {conv_id}'},
                 status=404,
             )
 
         try:
-            response = await listener.handle_interjection(conv_id, content)
+            bus.send(conv_id, 'human', content)
+        except ValueError as exc:
+            return web.json_response({'error': str(exc)}, status=409)
         except Exception as exc:
             return web.json_response(
-                {'error': f'Interjection failed: {exc}'}, status=502,
-            )
-
-        if response.get('status') == 'error':
-            return web.json_response(
-                {'error': response.get('reason', 'unknown error')}, status=409,
+                {'error': f'bus write failed: {exc}'}, status=502,
             )
 
         # Telemetry: interjection_received — human typed into an agent
@@ -1938,21 +1941,20 @@ class TeaPartyBridge:
 
         return web.json_response({'status': 'ok'})
 
-    def _find_interjection_listener(self, conv_id: str):
-        """Return the BusEventListener whose bus owns ``conv_id``.
+    def _bus_for_agent_conversation(self, conv_id: str):
+        """Return the bus that owns an ``agent:`` conversation.
 
         Walks active AgentSessions, checks each one's bus for an
         agent_context record matching ``conv_id``, and returns that
-        session's listener.  Returns None if no active session owns it.
+        bus.  Returns None if no active session owns it.
         """
         for agent_session in self._agent_sessions.values():
             bus = getattr(agent_session, '_bus', None)
-            listener = getattr(agent_session, '_bus_listener', None)
-            if bus is None or listener is None:
+            if bus is None:
                 continue
             try:
                 if bus.get_agent_context(conv_id) is not None:
-                    return listener
+                    return bus
             except Exception:
                 continue
         return None

@@ -326,17 +326,6 @@ class AgentSession:
         # instance, even for parallel instances of the same agent).
         session_registry: dict[str, object] = {}
 
-        async def reinvoke_fn(context_id, session_id, message):
-            """Human-interjection hook: the bridge calls
-            ``BusEventListener.handle_interjection`` when a human types
-            into an active agent's chat, which fires this through
-            ``_locked_reinvoke``.  The real resume with ``--resume`` is
-            driven by the child lifecycle loop — this callback just
-            logs so the path is observable.
-            """
-            _log.info('%s reinvoke_fn: interjection received for context %s',
-                      self.agent_name, context_id)
-
         if not self._bus_context_id:
             self._bus_context_id = f'agent:{self.agent_name}:lead:{uuid.uuid4()}'
             bus = SqliteMessageBus(bus_db_path)
@@ -353,7 +342,6 @@ class AgentSession:
             bus_db_path=bus_db_path,
             initiator_agent_id=self.agent_name,
             current_context_id=self._bus_context_id,
-            reinvoke_fn=reinvoke_fn,
         )
         # Alias the session's tasks_by_child onto the listener so the
         # shared close_fn (workspace/close_conversation.py::build_close_fn)

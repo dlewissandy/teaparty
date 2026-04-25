@@ -1,4 +1,4 @@
-"""Bus event listener: dispatch bookkeeping + human interjection entry point.
+"""Bus event listener: dispatch task bookkeeping.
 
 All IPC for dispatch is in-process — no Unix sockets.  The MCP ``Send``
 tool calls the registered ``spawn_fn`` directly (via the in-process
@@ -6,46 +6,39 @@ registry in ``teaparty.mcp.registry``).  Each tier's ``spawn_fn``
 manages the child subtree end-to-end and runs shared code through
 ``teaparty.messaging.child_dispatch``.
 
-This listener owns two things the tier-level ``spawn_fn`` does not:
+This listener owns one thing the tier-level ``spawn_fn`` does not:
+**``schedule_child_task``** — shared by both tiers.  Records the
+dispatch in ``tasks_by_child`` (so the shared ``close_fn`` can cancel
+a subtree), emits ``dispatch_started`` for the accordion, wraps the
+child-lifecycle coroutine in an asyncio task.
 
-1. **``schedule_child_task``** — shared by both tiers.  Records the
-   dispatch in ``tasks_by_child`` (so the shared ``close_fn`` can
-   cancel a subtree), emits ``dispatch_started`` for the accordion,
-   wraps the child-lifecycle coroutine in an asyncio task.
-
-2. **``handle_interjection``** — direct-call entry point the bridge
-   invokes when a human types a message into an active agent's chat.
-   Triggers ``reinvoke_fn`` under a per-context lock so the message
-   reaches the agent on its next ``--resume`` turn.
+Cut 27: the previous ``handle_interjection`` / ``reinvoke_fn`` /
+``_locked_reinvoke`` machinery was dead.  Chat-tier's ``reinvoke_fn``
+was a logging stub; the bridge's ``agent:`` conversation handler
+delegated to it and dropped human messages on the floor.  The bridge
+now writes ``agent:`` conversation human messages directly to the
+bus, same as every other conversation type — agents pick them up
+from bus history on their next ``--resume``.  No queue, no lock,
+no ping-pong.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Awaitable, Callable
 
 _log = logging.getLogger('teaparty.messaging.listener')
 
-# reinvoke_fn(context_id, session_id, message) -> None
-ReinvokeFn = Callable[[str, str, str], Awaitable[None]]
-
 
 class BusEventListener:
-    """Dispatch-task bookkeeping + interjection entry point.
+    """Dispatch-task bookkeeping.
 
     The actual ``spawn_fn`` lives in ``MCPRoutes`` (registered by
     ``launch()`` and looked up by the Send tool); this listener owns
     only the per-session bookkeeping that doesn't need to be in the
-    spawn function itself — task registry + reinvoke lock for human
-    interjections.
+    spawn function itself — the in-flight task registry.
 
     Args:
         bus_db_path:       Path to the SQLite bus database.
-        reinvoke_fn:       Async function called when a human interjection
-                           arrives for an active conversation — triggers
-                           ``--resume`` so the agent sees the message on its
-                           next turn.
-                           Signature: ``(context_id, session_id, message)``.
         current_context_id: Context ID this agent was spawned into.  May be
                            set after construction.
         initiator_agent_id: Agent ID of the caller (for logging).
@@ -55,18 +48,12 @@ class BusEventListener:
         self,
         *,
         bus_db_path: str = '',
-        reinvoke_fn: ReinvokeFn | None = None,
         current_context_id: str = '',
         initiator_agent_id: str = '',
     ) -> None:
         self.bus_db_path = bus_db_path
-        self.reinvoke_fn = reinvoke_fn
         self.current_context_id = current_context_id
         self.initiator_agent_id = initiator_agent_id
-
-        # Per-agent re-invocation locks: serializes concurrent --resume
-        # calls for the same agent.
-        self._reinvoke_locks: dict[str, asyncio.Lock] = {}
 
         # In-flight child tasks, keyed by child session_id.  Populated
         # by ``schedule_child_task`` below; the shared ``close_fn``
@@ -126,73 +113,3 @@ class BusEventListener:
     async def stop(self) -> None:
         """No-op — kept for lifecycle symmetry with callers."""
         return None
-
-    async def handle_interjection(self, context_id: str, message: str) -> dict:
-        """Entry point for bridge-originated human interjections.
-
-        The bridge and this listener share a process — no IPC needed.
-        Called when a human types into an active agent's chat: looks up
-        the conversation's session_id, schedules ``reinvoke_fn``
-        (``--resume``) so the agent picks up the human's message at
-        the next turn.
-        """
-        if not context_id:
-            return {'status': 'error', 'reason': 'context_id is required'}
-
-        session_id = ''
-        if self.bus_db_path:
-            conv_status = self._get_conversation_status(context_id)
-            if conv_status == 'closed':
-                return {
-                    'status': 'error',
-                    'reason': f'Conversation {context_id!r} is closed',
-                }
-            session_id = self._get_session_id(context_id)
-
-        if self.reinvoke_fn is not None:
-            asyncio.create_task(
-                self._locked_reinvoke(context_id, session_id, message),
-            )
-
-        return {'status': 'ok'}
-
-    async def _locked_reinvoke(
-        self, context_id: str, session_id: str, message: str,
-    ) -> None:
-        """Serialized wrapper for reinvoke_fn — ensures only one
-        ``--resume`` call for a given context_id is active at a time.
-        A second request for the same agent queues until the first
-        completes.
-        """
-        if context_id not in self._reinvoke_locks:
-            self._reinvoke_locks[context_id] = asyncio.Lock()
-        lock = self._reinvoke_locks[context_id]
-        async with lock:
-            if self.reinvoke_fn is not None:
-                await self.reinvoke_fn(context_id, session_id, message)
-
-    # ── DB helpers (called from async context) ────────────────────────────
-
-    def _get_conversation_status(self, context_id: str) -> str:
-        """Return conversation_status for context_id, or '' if not found."""
-        from teaparty.messaging.conversations import SqliteMessageBus
-        bus = SqliteMessageBus(self.bus_db_path)
-        try:
-            ctx = bus.get_agent_context(context_id)
-            if ctx is None:
-                return ''
-            return ctx.get('conversation_status', 'open')
-        finally:
-            bus.close()
-
-    def _get_session_id(self, context_id: str) -> str:
-        """Return session_id for context_id, or '' if not found."""
-        from teaparty.messaging.conversations import SqliteMessageBus
-        bus = SqliteMessageBus(self.bus_db_path)
-        try:
-            ctx = bus.get_agent_context(context_id)
-            if ctx is None:
-                return ''
-            return ctx.get('session_id', '')
-        finally:
-            bus.close()
