@@ -145,7 +145,6 @@ class BusDispatcher:
         """
         if not self._table.allows(sender, recipient):
             raise RoutingError(
-                f'No routing entry: {sender!r} → {recipient!r}.  '
-                f'Cross-project posts must go through the OM; '
-                f'cross-workgroup posts must go through the project lead.',
+                f'No routing entry: {sender!r} → {recipient!r}. '
+                f'Recipient is outside this conversation\'s team scope.',
             )

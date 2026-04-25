@@ -40,6 +40,7 @@ def build_session_dispatcher(
     *,
     teaparty_home: str,
     lead_name: str,
+    parent_lead: str = '',
 ) -> Any | None:
     """Build the ``BusDispatcher`` for a session led by ``lead_name``.
 
@@ -52,9 +53,14 @@ def build_session_dispatcher(
     for: OM, project lead, workgroup lead).  Leads are in 1:1
     correspondence with their team, so :func:`derive_team_roster`
     looks up that team's roster unambiguously, and
-    ``build_routing_table`` consumes it.  No per-team-type branching
-    at this layer — same code path for OM sessions, project-lead
-    sessions, and workgroup-lead sessions.
+    ``build_routing_table`` consumes it.
+
+    ``parent_lead`` is a property of the *conversation* — the
+    dispatcher that initiated this session.  For a top-level session
+    (e.g. OM chat) it's empty; for a dispatched child it's the
+    dispatcher's agent name.  This lets the same workgroup loaned to
+    different projects (matrix loan) carry a different gateway pair
+    in each conversation without changing the team itself.
 
     Returns ``None`` when the lead isn't a known lead or the relevant
     config is missing.  Send treats absent dispatcher as
@@ -67,7 +73,9 @@ def build_session_dispatcher(
         return None
 
     try:
-        roster = derive_team_roster(lead_name, teaparty_home)
+        roster = derive_team_roster(
+            lead_name, teaparty_home, parent_lead=parent_lead,
+        )
     except (FileNotFoundError, OSError):
         return None
     except Exception:
@@ -644,7 +652,44 @@ async def schedule_child_dispatch(
     # Write the parent's request to the bus (visible in child chat).
     ctx.bus.send(child_conv_id, dispatcher_session.agent_name or 'parent', composite)
 
-    # ── 9. Schedule the lifecycle task ──────────────────────────────────
+    # ── 9. Build the child's MCPRoutes ──────────────────────────────────
+    # Routing scope is a property of THIS dispatch — set here, where
+    # the dispatcher's identity and config tree are known, then carried
+    # into the child's launch.  The launcher just registers what it's
+    # given; it does not re-derive a roster from a config tree at the
+    # receiving end (that produced "which teaparty_home?" ambiguities
+    # for cross-repo dispatches and couldn't model matrix-loan
+    # parent_leads).
+    #
+    # ``parent_lead`` = the dispatcher itself: comics-lead loaning the
+    # Coding workgroup sets parent_lead=comics-lead; joke-book-lead
+    # loaning the same workgroup sets parent_lead=joke-book-lead.
+    # ``teaparty_home`` = the dispatcher's tp: that is the org tree
+    # where the recipient is registered (a project's local tp is for
+    # execution artifacts; routing is an org-level concern).
+    from teaparty.mcp.registry import MCPRoutes
+    parent_lead = dispatcher_session.agent_name or ''
+    child_dispatcher = build_session_dispatcher(
+        teaparty_home=ctx.teaparty_home,
+        lead_name=member,
+        parent_lead=parent_lead,
+    )
+    if child_dispatcher is None and ctx.mcp_routes is not None:
+        # Non-lead recipient (e.g. a workgroup-agent leaf): no team of
+        # their own.  Inherit the dispatcher's scope — that's the team
+        # this leaf is operating in, and the (leaf↔dispatcher) gateway
+        # pair already exists there.
+        child_dispatcher = ctx.mcp_routes.dispatcher
+    base_routes = ctx.mcp_routes
+    child_mcp_routes = MCPRoutes(
+        spawn_fn=base_routes.spawn_fn if base_routes else None,
+        close_fn=base_routes.close_fn if base_routes else None,
+        ask_question_runner=(
+            base_routes.ask_question_runner if base_routes else None
+        ),
+        dispatcher=child_dispatcher,
+    )
+
     initial_resume_sid = (
         child_session.claude_session_id or ''
         if existing_child is not None else ''
@@ -667,7 +712,7 @@ async def schedule_child_dispatch(
                 bus=ctx.bus,
                 tasks_by_child=ctx.tasks_by_child,
                 launch_fn=_spawn_launch,
-                mcp_routes=ctx.mcp_routes,
+                mcp_routes=child_mcp_routes,
                 llm_caller=ctx.llm_caller,
                 member_scope=member_scope,
                 member_teaparty_home=member_teaparty_home,

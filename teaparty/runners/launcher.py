@@ -1109,38 +1109,15 @@ async def launch(
     The *_override parameters allow callers to layer additional settings
     (e.g. CfA jail hooks) on top of the config-derived baseline.
     """
-    from teaparty.mcp.registry import (
-        register_agent_mcp_routes, MCPRoutes,
-    )
-    # Each agent's session must enforce against ITS OWN team's routing
-    # table — not the parent's.  When OM dispatches to configuration-lead,
-    # configuration-lead's subprocess hits an MCP URL with its own
-    # agent_name and looks up the dispatcher registered under that name;
-    # if we registered the parent's dispatcher there, configuration-lead
-    # would be authorized against OM's roster (which doesn't include
-    # configuration-lead's workgroup mesh) and every workgroup Send
-    # refuses.  Build a dispatcher specific to ``agent_name`` and slot
-    # it into the bundle, falling back to whatever the parent supplied
-    # for non-lead agents (workgroup members) — they inherit the
-    # parent's scope, which is the team they're operating in.
-    if mcp_routes is not None:
-        from teaparty.messaging.child_dispatch import (
-            build_session_dispatcher,
-        )
-        agent_dispatcher = build_session_dispatcher(
-            teaparty_home=teaparty_home,
-            lead_name=agent_name,
-        )
-        if agent_dispatcher is not None:
-            mcp_routes = MCPRoutes(
-                spawn_fn=mcp_routes.spawn_fn,
-                close_fn=mcp_routes.close_fn,
-                ask_question_runner=mcp_routes.ask_question_runner,
-                dispatcher=agent_dispatcher,
-            )
-        # else: agent_name is not a known lead (e.g. a workgroup member);
-        # keep the parent's dispatcher — that is the team this leaf is
-        # operating in, and authorizes the leaf↔lead reply path.
+    from teaparty.mcp.registry import register_agent_mcp_routes
+    # ``mcp_routes`` arrives fully composed: a top-level session built
+    # its own bundle in ``_ensure_bus_listener``; a dispatched child's
+    # bundle was rebuilt by ``schedule_child_dispatch`` with a
+    # child-specific dispatcher (parent_lead set from the conversation
+    # context).  The launcher just installs what it was given — no
+    # re-derivation here.  This keeps routing scope a property of the
+    # conversation that initiated the launch, not something rebuilt
+    # from a config tree at the receiving end.
     register_agent_mcp_routes(agent_name, mcp_routes)
     from teaparty.config.config_reader import read_agent_frontmatter
     from teaparty.runners.claude import ClaudeRunner

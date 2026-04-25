@@ -138,10 +138,9 @@ async def _default_send_post(member: str, composite: str, context_id: str) -> st
             return json.dumps({
                 'status': 'failed',
                 'reason': (
-                    f'Routing refused: {sender!r} cannot post to '
-                    f'{member!r}.  Cross-workgroup posts must go '
-                    f'through your project lead; cross-project posts '
-                    f'must go through the OM.'
+                    f'Routing refused: {sender!r} → {member!r} — '
+                    f'recipient is not on your team. Use '
+                    f'ListTeamMembers to see who you can reach.'
                 ),
             })
 

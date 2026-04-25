@@ -1,28 +1,38 @@
-"""Each agent's launch installs ITS OWN dispatcher in the registry.
+"""Routing scope is set by the dispatcher, carried into the dispatch.
 
-The bug this pins: when OM dispatched to configuration-lead, the
-parent's ``mcp_routes`` (containing OM's dispatcher) was passed
-through the launcher to configuration-lead's launch.  ``launch()``
-called ``register_agent_mcp_routes('configuration-lead', mcp_routes)``,
-which registered OM's dispatcher under configuration-lead's name.
-configuration-lead's subprocess then hit an MCP URL keyed on its own
-agent name, ``get_dispatcher()`` returned OM's dispatcher, and Send
-to a workgroup member was refused — because workgroup members aren't
-in the OM team's flat roster.
+The bug class this pins: when a parent dispatches a child, what
+routing table enforces the CHILD's Send calls?
 
-The fix: ``launch()`` builds a dispatcher derived from
-``derive_team_roster(agent_name)`` — the agent's OWN team — and slots
-it into the registered bundle, regardless of what the parent supplied.
-For non-lead agents (workgroup members), the parent's dispatcher is
-kept; that *is* the team they're operating in, and authorizes the
-leaf↔lead reply path.
+Pre-fix: launcher inherited the parent's ``mcp_routes`` and
+registered the parent's dispatcher under the child's name.  The
+child then authorized against the *parent's* roster — wrong scope,
+every cross-team Send refused.
+
+Half-fix: the launcher rebuilt a per-agent dispatcher from
+``derive_team_roster(agent_name, teaparty_home)``.  That worked for
+same-repo dispatch but broke for cross-repo dispatch (the agent's
+local tp had no management config and the lookup returned ``None``,
+falling back to the parent's dispatcher again).  An ``org_home or
+teaparty_home`` fallback was a smell — two sources of truth.
+
+Final fix: routing scope is a property of the *dispatch*.  The
+dispatcher knows its own identity (parent_lead) and its own
+config tree, computes the child's dispatcher once at the dispatch
+site, and slots it into the child's ``mcp_routes``.  The launcher
+just registers what was passed — no re-derivation, no
+``which-tp?`` ambiguity.
+
+This test pins the contract: ``build_session_dispatcher`` accepts
+``parent_lead`` (a property of the dispatch, not the team) and
+yields a routing table whose gateway pair reflects that conversation
+context.  Same workgroup loaned to two different parents must
+produce two different gateway pairs.
 """
 from __future__ import annotations
 
 import os
 import shutil
 import tempfile
-import textwrap
 import unittest
 
 import yaml
@@ -30,7 +40,7 @@ import yaml
 
 def _make_org_with_workgroup() -> str:
     """Create a minimal teaparty home with a Configuration workgroup."""
-    home = tempfile.mkdtemp(prefix='launch-disp-')
+    home = tempfile.mkdtemp(prefix='dispatch-scope-')
     tp = os.path.join(home, '.teaparty')
     mgmt = os.path.join(tp, 'management')
     os.makedirs(os.path.join(mgmt, 'workgroups'))
@@ -62,7 +72,6 @@ def _make_org_with_workgroup() -> str:
             'members': {'agents': ['project-specialist']},
         }, f)
 
-    # Bare agent.md files so the launcher's frontmatter read finds them.
     for agent in ('office-manager', 'configuration-lead', 'project-specialist'):
         with open(
             os.path.join(mgmt, 'agents', agent, 'agent.md'), 'w',
@@ -72,86 +81,47 @@ def _make_org_with_workgroup() -> str:
     return tp
 
 
-class TestLaunchInstallsAgentSpecificDispatcher(unittest.TestCase):
-    """``launch(agent_name=X)`` must install X's dispatcher under X."""
+class TestDispatcherBuildsAtDispatchSite(unittest.TestCase):
+    """The dispatcher's tp + identity determine the child's routing."""
 
     def setUp(self) -> None:
         self._tp = _make_org_with_workgroup()
         self.addCleanup(shutil.rmtree, os.path.dirname(self._tp), True)
-        # Reset registry between tests to avoid leakage.
         from teaparty.mcp import registry
         registry.clear()
         self.addCleanup(registry.clear)
 
-    def _parent_mcp_routes_with_om_dispatcher(self):
-        """Return MCPRoutes with OM's dispatcher (what a child inherits)."""
-        from teaparty.mcp.registry import MCPRoutes
-        from teaparty.messaging.child_dispatch import (
-            build_session_dispatcher,
-        )
-        om_dispatcher = build_session_dispatcher(
-            teaparty_home=self._tp, lead_name='office-manager',
-        )
-        return MCPRoutes(dispatcher=om_dispatcher)
-
-    def test_lead_child_gets_its_own_dispatcher_not_parents(self) -> None:
-        """When OM-style mcp_routes are passed to a launch for
-        configuration-lead, the registered dispatcher is configuration-lead's
-        — authorizing configuration-lead → project-specialist (workgroup
-        mesh), not OM's table (which would refuse it).
+    def test_workgroup_lead_dispatch_authorizes_workgroup_mesh(self) -> None:
+        """When OM dispatches configuration-lead, the child's dispatcher
+        authorizes configuration-lead → project-specialist (workgroup
+        mesh) and configuration-lead → office-manager (parent gateway).
+        OM's roster does NOT include the workgroup mesh; the dispatcher
+        built at the dispatch site does.
         """
-        # Reproduce launch()'s registration logic directly.  We can't
-        # call the full launch() here (it spawns a subprocess); the
-        # dispatcher selection is the part we care about and it's
-        # standalone code at the top of the function.
-        from teaparty.mcp.registry import (
-            MCPRoutes, get_dispatcher, register_agent_mcp_routes,
-        )
         from teaparty.messaging.child_dispatch import (
             build_session_dispatcher,
         )
         from teaparty.messaging.dispatcher import RoutingError
 
-        agent_name = 'configuration-lead'
-        # Parent's mcp_routes (OM's dispatcher).
-        parent_routes = self._parent_mcp_routes_with_om_dispatcher()
-
-        # Mirror launch()'s replacement logic.
-        agent_dispatcher = build_session_dispatcher(
-            teaparty_home=self._tp, lead_name=agent_name,
+        # Mirror schedule_child_dispatch: build child's dispatcher with
+        # parent_lead=dispatcher's identity.
+        child_d = build_session_dispatcher(
+            teaparty_home=self._tp,
+            lead_name='configuration-lead',
+            parent_lead='office-manager',
         )
-        self.assertIsNotNone(
-            agent_dispatcher,
-            'configuration-lead is a known lead — '
-            'derive_team_roster must resolve it',
-        )
-        replaced = MCPRoutes(
-            spawn_fn=parent_routes.spawn_fn,
-            close_fn=parent_routes.close_fn,
-            ask_question_runner=parent_routes.ask_question_runner,
-            dispatcher=agent_dispatcher,
-        )
-        register_agent_mcp_routes(agent_name, replaced)
-
-        # Now simulate the MCP middleware: current_agent_name set to
-        # configuration-lead → get_dispatcher() returns configuration-lead's.
-        from teaparty.mcp.registry import current_agent_name
-        token = current_agent_name.set(agent_name)
-        try:
-            d = get_dispatcher()
-            self.assertIsNotNone(d)
-            # Authorizes the workgroup-internal route.
-            d.authorize('configuration-lead', 'project-specialist')
-            # And the parent gateway up to OM.
-            d.authorize('configuration-lead', 'office-manager')
-        finally:
-            current_agent_name.reset(token)
+        self.assertIsNotNone(child_d)
+        child_d.authorize('configuration-lead', 'project-specialist')
+        child_d.authorize('configuration-lead', 'office-manager')
+        with self.assertRaises(RoutingError):
+            # Cross-team: configuration-lead does NOT directly route to
+            # the OM's other members.
+            child_d.authorize('configuration-lead', 'random-other-lead')
 
     def test_om_dispatcher_alone_would_have_refused(self) -> None:
-        """Sanity: the bug condition.  OM's dispatcher does NOT
-        authorize configuration-lead → project-specialist; that's
-        exactly why the parent's dispatcher must not be reused for the
-        child.  This test pins the asymmetry.
+        """Sanity: OM's own dispatcher does not include the workgroup
+        mesh — the dispatch-site rebuild is what makes the child
+        correctly authorized.
         """
         from teaparty.messaging.child_dispatch import (
             build_session_dispatcher,
@@ -163,6 +133,46 @@ class TestLaunchInstallsAgentSpecificDispatcher(unittest.TestCase):
         )
         with self.assertRaises(RoutingError):
             om_d.authorize('configuration-lead', 'project-specialist')
+
+    def test_parent_lead_is_a_dispatch_property_not_team_property(
+        self,
+    ) -> None:
+        """Same team, different parent_lead → different gateway pair.
+
+        Pins the matrix-loan invariant: a workgroup's parent_lead is
+        determined by the conversation that initiated the dispatch,
+        not by the workgroup itself.  The team is one team; the gateway
+        pair is conversation-scoped.
+        """
+        from teaparty.messaging.child_dispatch import (
+            build_session_dispatcher,
+        )
+        from teaparty.messaging.dispatcher import RoutingError
+
+        d_via_om = build_session_dispatcher(
+            teaparty_home=self._tp,
+            lead_name='configuration-lead',
+            parent_lead='office-manager',
+        )
+        d_via_other = build_session_dispatcher(
+            teaparty_home=self._tp,
+            lead_name='configuration-lead',
+            parent_lead='hypothetical-other-parent',
+        )
+
+        # Each dispatch context has the matching gateway pair, and only
+        # that one.
+        d_via_om.authorize('configuration-lead', 'office-manager')
+        with self.assertRaises(RoutingError):
+            d_via_om.authorize(
+                'configuration-lead', 'hypothetical-other-parent',
+            )
+
+        d_via_other.authorize(
+            'configuration-lead', 'hypothetical-other-parent',
+        )
+        with self.assertRaises(RoutingError):
+            d_via_other.authorize('configuration-lead', 'office-manager')
 
 
 if __name__ == '__main__':
