@@ -135,37 +135,20 @@ class TestRunOptionsProjection(unittest.TestCase):
         self.assertIs(orch._paused_check, paused_check)
 
 
-class TestInterventionQueueWiring(unittest.TestCase):
-    """The intervention_queue + role_enforcer pairing must still work."""
+class TestRoleEnforcerWiring(unittest.TestCase):
+    """role_enforcer projects from RunOptions onto the orchestrator.
 
-    def test_intervention_queue_role_enforcer_pair_is_wired(self):
-        """When both are set on RunOptions, the queue gets the enforcer."""
-        from teaparty.cfa.gates.intervention import InterventionQueue
+    Cut 29 deleted the InterventionQueue + the queue-paired
+    role_enforcer wiring; ``role_enforcer`` is now a plain field on
+    RunOptions consumed at intervention-delivery time.
+    """
+
+    def test_role_enforcer_projects_to_orchestrator(self):
         from teaparty.util.role_enforcer import RoleEnforcer
-        # Real-ish stubs — InterventionQueue accepts a role_enforcer attr
-        queue = InterventionQueue()
         enforcer = MagicMock(spec=RoleEnforcer)
-        opts = RunOptions(
-            intervention_queue=queue, role_enforcer=enforcer,
-        )
-        _make_orchestrator(options=opts)
-        # Engine assigned the enforcer to the queue at construction.
-        self.assertIs(queue.role_enforcer, enforcer)
-
-    def test_no_role_enforcer_does_not_overwrite_queue_enforcer(self):
-        """Just intervention_queue (no enforcer) leaves the queue alone."""
-        from teaparty.cfa.gates.intervention import InterventionQueue
-        queue = InterventionQueue()
-        # If queue had one already (it doesn't, but stub the attr):
-        sentinel = object()
-        queue.role_enforcer = sentinel  # type: ignore[assignment]
-        opts = RunOptions(intervention_queue=queue)
-        _make_orchestrator(options=opts)
-        self.assertIs(
-            queue.role_enforcer, sentinel,
-            'The engine must not overwrite an existing role_enforcer '
-            'when no new one is provided.',
-        )
+        opts = RunOptions(role_enforcer=enforcer)
+        orch = _make_orchestrator(options=opts)
+        self.assertIs(orch._role_enforcer, enforcer)
 
 
 if __name__ == '__main__':

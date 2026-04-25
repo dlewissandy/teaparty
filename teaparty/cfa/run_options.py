@@ -24,10 +24,10 @@ Everything else lives here:
   from disk; empty for a fresh session.
 * **Injected dependencies** — ``project_dir`` (often equal to
   ``project_workdir`` but allowed to differ for the dispatch CLI),
-  ``intervention_queue`` / ``role_enforcer`` / ``escalation_modes``,
-  ``llm_backend`` / ``llm_caller``, ``proxy_invoker_fn`` /
-  ``on_dispatch`` / ``paused_check``.  Wired by the driver — engine
-  owns nothing about how they're constructed.
+  ``role_enforcer`` / ``escalation_modes``, ``llm_backend`` /
+  ``llm_caller``, ``proxy_invoker_fn`` / ``on_dispatch`` /
+  ``paused_check``.  Wired by the driver — engine owns nothing about
+  how they're constructed.
 
 Defaults match the pre-#23 engine semantics: empty strings, ``False``,
 ``None`` as appropriate.  Callers that constructed engines without
@@ -38,7 +38,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 
-from teaparty.cfa.gates.intervention import InterventionQueue
 from teaparty.util.role_enforcer import RoleEnforcer
 
 
@@ -68,7 +67,6 @@ class RunOptions:
     # The driver (cfa/session.py / cfa/dispatch.py) constructs these and
     # hands the engine a ready-to-use instance.
     project_dir: str = ''
-    intervention_queue: InterventionQueue | None = None
     role_enforcer: RoleEnforcer | None = None
     escalation_modes: dict[str, str] | None = None
     llm_backend: str = 'claude'

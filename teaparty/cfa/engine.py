@@ -140,10 +140,7 @@ class Orchestrator:
 
         # ── Injected dependencies ───────────────────────────────────────────
         self.project_dir = opts.project_dir
-        self._intervention_queue = opts.intervention_queue
         self._role_enforcer = opts.role_enforcer
-        if opts.intervention_queue and opts.role_enforcer:
-            opts.intervention_queue.role_enforcer = opts.role_enforcer
         self._proxy_invoker_fn = opts.proxy_invoker_fn
         self._on_dispatch = opts.on_dispatch
         # Optional zero-arg callable returning True when the project is
@@ -165,11 +162,26 @@ class Orchestrator:
 
         self._stream_bus: Any = None
         self._stream_conv_id = ''
+        # Cut 29: watermark for bus-based intervention delivery.
+        # Messages with ``timestamp <= _last_intervention_ts`` have
+        # already been delivered to the agent (or were sent by an
+        # agent and don't need delivery).  Initialize to the timestamp
+        # of the latest non-human bus message — anything human after
+        # that is "trailing" and gets delivered on the first turn.
+        self._last_intervention_ts: float = 0.0
         bus_path = os.path.join(infra_dir, 'messages.db')
         if os.path.exists(bus_path) and project_slug and session_id:
             from teaparty.messaging.conversations import SqliteMessageBus as _StreamBus
             self._stream_bus = _StreamBus(bus_path)
             self._stream_conv_id = f'job:{project_slug}:{session_id}'
+            try:
+                _all = self._stream_bus.receive(self._stream_conv_id)
+                self._last_intervention_ts = max(
+                    (m.timestamp for m in _all if m.sender != 'human'),
+                    default=0.0,
+                )
+            except Exception:
+                pass
 
         _agent_sender = self.config.project_lead or 'agent'
         if self._stream_bus:
@@ -880,9 +892,10 @@ class Orchestrator:
             # Apply the CfA transition
             await self._transition(actor_result.action, actor_result)
 
-            if (self._intervention_queue
-                    and self._intervention_queue.has_pending()
-                    and not is_globally_terminal(self.cfa.state)):
+            # Cut 29: bus is the source of truth for human messages.
+            # ``_deliver_intervention`` reads bus since the last
+            # consumed timestamp and no-ops when nothing is pending.
+            if not is_globally_terminal(self.cfa.state):
                 await self._deliver_intervention()
 
             # Update scratch file BEFORE the compaction check so
@@ -988,21 +1001,56 @@ class Orchestrator:
         )
 
     async def _deliver_intervention(self) -> None:
-        """Drain the intervention queue, publish INTERVENE, store prompt for injection.
+        """Drain pending bus messages, publish INTERVENE, store prompt for injection.
 
-        Called at turn boundaries when the queue has pending messages.
-        Stores the intervention prompt in ``_pending_intervention`` so
-        ``_invoke_actor()`` injects it as backtrack context on the next
-        agent turn (delivered via ``--resume``).
+        Cut 29: the bus is the source of truth for human messages.  At
+        turn boundaries, read messages with ``timestamp >
+        _last_intervention_ts``, filter for human/advisory senders,
+        and queue them for injection on the next agent turn.  The
+        previous separate ``InterventionQueue`` was redundant — the
+        bridge already wrote messages to the bus before triggering
+        resume; the queue was just an in-memory copy of bus state.
+
+        Called at turn boundaries.  No-ops when there are no new
+        deliverable messages.
         """
-        if not self._intervention_queue:
+        if not self._stream_bus or not self._stream_conv_id:
             return
 
-        messages = self._intervention_queue.drain()
-        if not messages:
+        try:
+            all_msgs = self._stream_bus.receive(
+                self._stream_conv_id,
+                since_timestamp=self._last_intervention_ts,
+            )
+        except Exception:
             return
 
-        prompt = build_intervention_prompt(messages, role_enforcer=self._role_enforcer)
+        # Deliverable: human messages plus any role_enforcer-recognized
+        # advisory senders.  Informed senders (per role_enforcer) are
+        # filtered via ``check_send`` — same semantics InterventionQueue
+        # used to enforce on enqueue.
+        pending = []
+        for m in all_msgs:
+            if m.sender == 'human' or (
+                self._role_enforcer is not None
+                and self._role_enforcer.is_advisory(m.sender)
+            ):
+                if self._role_enforcer is not None:
+                    try:
+                        self._role_enforcer.check_send(m.sender)
+                    except Exception:
+                        continue
+                pending.append(m)
+
+        if not pending:
+            return
+
+        # Watermark: don't re-deliver these on the next call.
+        self._last_intervention_ts = max(m.timestamp for m in pending)
+
+        prompt = build_intervention_prompt(
+            pending, role_enforcer=self._role_enforcer,
+        )
         self._pending_intervention = prompt
         self._intervention_active = True
 
@@ -1014,7 +1062,7 @@ class Orchestrator:
         write_intervention_chunk(
             infra_dir=self.infra_dir,
             content=prompt,
-            senders=[m.sender for m in messages],
+            senders=[m.sender for m in pending],
             cfa_state=self.cfa.state,
             phase=current_phase,
         )
@@ -1023,8 +1071,8 @@ class Orchestrator:
             type=EventType.INTERVENE,
             data={
                 'content': prompt,
-                'message_count': len(messages),
-                'senders': [m.sender for m in messages],
+                'message_count': len(pending),
+                'senders': [m.sender for m in pending],
             },
             session_id=self.session_id,
         ))

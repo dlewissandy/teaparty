@@ -40,7 +40,6 @@ from teaparty.config.config_reader import (
     load_project_team, load_management_team, resolve_norms,
     resolve_workgroups,
 )
-from teaparty.cfa.gates.intervention import InterventionQueue
 from teaparty.cfa.phase_config import PhaseConfig
 from teaparty.util.role_enforcer import RoleEnforcer
 from teaparty.bridge.state.writer import StateWriter
@@ -365,13 +364,8 @@ class Session:
             # the bus provider handles all gate interactions.
             effective_input = self.input_provider or self._bus_input_provider
 
-            # Create intervention queue for human INTERVENE delivery (Issue #246).
-            self._intervention_queue = InterventionQueue(
-                message_bus=self._message_bus,
-                conversation_id=self._conversation_id,
-            )
-            if self._role_enforcer:
-                self._intervention_queue.role_enforcer = self._role_enforcer
+            # Cut 29: human INTERVENE delivery reads bus messages
+            # directly at turn boundary; no separate queue.
 
             from teaparty.cfa.run_options import RunOptions
             orchestrator = Orchestrator(
@@ -398,7 +392,6 @@ class Session:
                     project_dir=project_dir,
                     role_enforcer=self._role_enforcer,
                     escalation_modes=self.escalation_modes,
-                    intervention_queue=self._intervention_queue,
                     llm_backend=os.environ.get(
                         'TEAPARTY_LLM_BACKEND', 'claude',
                     ),
@@ -853,33 +846,11 @@ class Session:
             effective_input = bus_input_provider or input_provider
             proxy_model_path = os.path.join(proxy_home(os.path.join(poc_root, '.teaparty')), '.proxy-confidence.json')
 
-            # Create intervention queue for human INTERVENE delivery (Issue #246).
-            intervention_queue = InterventionQueue(
-                message_bus=message_bus,
-                conversation_id=conversation_id,
-            )
-            if role_enforcer:
-                intervention_queue.role_enforcer = role_enforcer
-
-            # Seed intervention queue with any human messages that arrived while
-            # the session was dead.  These are trailing human messages in the bus
-            # that no agent has responded to — the "kick" that triggered resume.
-            # ``persist=False`` because these messages are already on the bus;
-            # enqueueing them with persist=True would write duplicates back.
-            try:
-                all_msgs = message_bus.receive(conversation_id)
-                # Find trailing human messages (after the last non-human message).
-                last_agent_idx = -1
-                for i, m in enumerate(all_msgs):
-                    if m.sender != 'human':
-                        last_agent_idx = i
-                for m in all_msgs[last_agent_idx + 1:]:
-                    if m.sender == 'human':
-                        intervention_queue.enqueue(
-                            m.content, sender=m.sender, persist=False,
-                        )
-            except Exception:
-                pass
+            # Cut 29: human INTERVENE delivery reads bus messages
+            # directly at turn boundary; trailing human messages on
+            # resume are picked up by the orchestrator's
+            # _last_intervention_ts watermark (initialized from the
+            # bus on construction) without any seeding here.
 
             from teaparty.cfa.run_options import RunOptions
             orchestrator = Orchestrator(
@@ -902,7 +873,6 @@ class Session:
                     project_dir=project_dir,
                     role_enforcer=role_enforcer,
                     escalation_modes=escalation_modes,
-                    intervention_queue=intervention_queue,
                     proxy_invoker_fn=proxy_invoker_fn,
                     on_dispatch=on_dispatch,
                     paused_check=paused_check,
