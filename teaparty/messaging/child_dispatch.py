@@ -218,7 +218,7 @@ async def run_child_lifecycle(
 
     def on_event(ev: dict) -> None:
         for sender, content in _classify_event(ev, member, seen_tu, seen_tr):
-            if content and sender != 'tool_result':
+            if content:
                 bus.send(child_conv_id, sender, content)
             if sender == member and content:
                 response_parts.append(content)
