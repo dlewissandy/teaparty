@@ -27,9 +27,7 @@ class ExperimentConfig:
 
     # Session flags (passed directly to Session)
     flat: bool = False
-    skip_intent: bool = False
     skip_learnings: bool = False
-    execute_only: bool = False
 
     # Overrides
     backtracks_enabled: bool = True
@@ -100,7 +98,7 @@ class CorpusConfig:
             ),
             default_rate=overrides.get('default_rate', self.default_rate),
             **{k: v for k, v in overrides.items()
-               if k in ('flat', 'skip_intent', 'skip_learnings', 'execute_only',
+               if k in ('flat', 'skip_learnings',
                          'backtracks_enabled', 'proxy_enabled',
                          'project', 'results_base', 'scripted_decisions',
                          'proxy_model_path')},

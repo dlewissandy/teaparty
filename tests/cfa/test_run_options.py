@@ -60,10 +60,6 @@ class TestRunOptionsDefaults(unittest.TestCase):
         """RunOptions() with no args is a valid bundle."""
         orch = _make_orchestrator(options=RunOptions())
         # All run-mode flags fall to their pre-#23 defaults.
-        self.assertFalse(orch.skip_intent)
-        self.assertFalse(orch.intent_only)
-        self.assertFalse(orch.plan_only)
-        self.assertFalse(orch.execute_only)
         self.assertFalse(orch.flat)
         self.assertFalse(orch.suppress_backtracks)
         self.assertTrue(orch.proxy_enabled)   # default True
@@ -73,7 +69,6 @@ class TestRunOptionsDefaults(unittest.TestCase):
     def test_options_none_is_equivalent_to_default(self):
         """Passing options=None must be equivalent to passing RunOptions()."""
         orch = _make_orchestrator(options=None)
-        self.assertFalse(orch.skip_intent)
         self.assertTrue(orch.proxy_enabled)
         self.assertEqual(orch.team_override, '')
         self.assertEqual(orch._phase_session_ids, {})
@@ -85,10 +80,6 @@ class TestRunOptionsProjection(unittest.TestCase):
 
     def test_run_mode_flags_project(self):
         opts = RunOptions(
-            skip_intent=True,
-            intent_only=True,
-            plan_only=True,
-            execute_only=True,
             flat=True,
             suppress_backtracks=True,
             proxy_enabled=False,
@@ -96,10 +87,6 @@ class TestRunOptionsProjection(unittest.TestCase):
             team_override='custom-team',
         )
         orch = _make_orchestrator(options=opts)
-        self.assertTrue(orch.skip_intent)
-        self.assertTrue(orch.intent_only)
-        self.assertTrue(orch.plan_only)
-        self.assertTrue(orch.execute_only)
         self.assertTrue(orch.flat)
         self.assertTrue(orch.suppress_backtracks)
         self.assertFalse(orch.proxy_enabled)

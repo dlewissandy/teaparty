@@ -14,11 +14,10 @@ the engine cannot run without.
 
 Everything else lives here:
 
-* **Run-mode flags** — ``skip_intent`` / ``intent_only`` / ``plan_only``
-  / ``execute_only`` / ``flat`` / ``suppress_backtracks`` /
-  ``proxy_enabled`` / ``never_escalate`` / ``team_override``.  These are
-  CLI knobs the driver (``cfa/session.py``) resolves before calling
-  the engine.
+* **Run-mode flags** — ``flat`` / ``suppress_backtracks`` /
+  ``proxy_enabled`` / ``never_escalate`` / ``team_override``.  These
+  are CLI knobs the driver (``cfa/session.py``) resolves before
+  calling the engine.
 * **Resume context** — ``phase_session_ids`` / ``last_actor_data`` /
   ``parent_heartbeat``.  Populated when a session is being resumed
   from disk; empty for a fresh session.
@@ -47,10 +46,6 @@ class RunOptions:
 
     # ── Run-mode flags ──────────────────────────────────────────────────────
     # These are CLI knobs resolved by cfa/session.py before construction.
-    skip_intent: bool = False
-    intent_only: bool = False
-    plan_only: bool = False
-    execute_only: bool = False
     flat: bool = False
     suppress_backtracks: bool = False
     proxy_enabled: bool = True

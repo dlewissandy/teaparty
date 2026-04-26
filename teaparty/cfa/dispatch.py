@@ -32,6 +32,7 @@ from teaparty.cfa.statemachine.cfa_state import (
     make_initial_state,
     load_state,
     save_state,
+    set_state_direct,
 )
 
 
@@ -244,7 +245,11 @@ async def dispatch(
             task_id=liaison_task_id or None,
         )
 
+        # Workgroup dispatch starts at PLAN: the parent's PLAN.md
+        # describes the work, this dispatch picks it up.  No intent
+        # phase — the workgroup didn't formulate the idea.
         cfa = make_initial_state(task_id=f'dispatch-{team}-{dispatch_id}')
+        cfa = set_state_direct(cfa, 'PLAN')
         save_state(cfa, os.path.join(dispatch_infra, '.cfa-state.json'))
     else:
         # Worktree-isolated execution model: create a task under the job,
@@ -279,8 +284,10 @@ async def dispatch(
 
         # Initialize CfA state for the child.  Parent/child linkage is
         # tracked via the .children registry (registered above), not by
-        # CfaState fields.
+        # CfaState fields.  Dispatched children start at PLAN — the
+        # parent's PLAN.md describes the work, no intent phase needed.
         cfa = make_initial_state(task_id=f'dispatch-{team}-{dispatch_id}')
+        cfa = set_state_direct(cfa, 'PLAN')
         save_state(cfa, os.path.join(dispatch_infra, '.cfa-state.json'))
 
     # Run child orchestrator with event collection for experiment visibility.
@@ -333,7 +340,6 @@ async def dispatch(
         task=task,
         session_id=dispatch_id,
         options=RunOptions(
-            skip_intent=True,
             never_escalate=True,
             team_override=team,
             phase_session_ids=phase_session_ids if phase_session_ids else None,

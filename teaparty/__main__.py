@@ -3,20 +3,14 @@
 Usage:
     python -m teaparty "Your task description"
     python -m teaparty --project MyProject "Your task"
-    python -m teaparty --skip-intent "Your task"
     python -m teaparty --resume SESSION_ID_OR_PATH
-
-Phase control:
-    python -m teaparty --intent-only "Align on this idea"
-    python -m teaparty --plan-only "Plan this feature"
-    python -m teaparty --execute-only "Just build it"
 
 Context injection:
     python -m teaparty --intent-file INTENT.md "Build on this"
     python -m teaparty --plan-file PLAN.md "Execute this plan"
 
 Testing:
-    python -m teaparty --no-human --execute-only "Fully automated"
+    python -m teaparty --no-human "Fully automated"
     python -m teaparty --dry-run -p myproject "Show memory context"
     python -m teaparty --show-memory "Show memory then run"
     python -m teaparty --skip-learnings "Skip learning extraction"
@@ -186,17 +180,6 @@ async def main() -> int:
     parser.add_argument('--resume', metavar='SESSION',
                         help='Resume a crashed/orphaned session (session ID or infra_dir path)')
 
-    # ── Phase control ──
-    phase_group = parser.add_argument_group('phase control')
-    phase_group.add_argument('--skip-intent', action='store_true',
-                             help='Skip intent alignment phase')
-    phase_group.add_argument('--intent-only', action='store_true',
-                             help='Run intent phase only, then stop')
-    phase_group.add_argument('--plan-only', action='store_true',
-                             help='Run through planning, stop before execution')
-    phase_group.add_argument('--execute-only', action='store_true',
-                             help='Skip intent+planning, run execution only')
-
     # ── Context injection ──
     context_group = parser.add_argument_group('context injection')
     context_group.add_argument('--intent-file', metavar='PATH',
@@ -267,23 +250,13 @@ async def main() -> int:
     if not task:
         parser.error('task or --idea is required (or use --resume to resume a session)')
 
-    # Derive skip_intent from context injection and phase control flags
-    skip_intent = (args.skip_intent
-                   or bool(args.intent_file)
-                   or bool(args.plan_file)
-                   or args.execute_only)
-
     session = Session(
         task=task,
         poc_root=poc_root,
         projects_dir=args.projects_dir,
         project_override=args.project,
-        skip_intent=skip_intent,
         intent_file=args.intent_file,
         plan_file=args.plan_file,
-        intent_only=args.intent_only,
-        plan_only=args.plan_only,
-        execute_only=args.execute_only,
         show_memory=args.show_memory or args.dry_run,
         dry_run=args.dry_run,
         skip_learnings=args.skip_learnings,

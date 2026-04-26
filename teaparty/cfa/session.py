@@ -121,12 +121,8 @@ class Session:
         projects_dir: str | None = None,
         project_override: str | None = None,
         session_id: str | None = None,
-        skip_intent: bool = False,
         intent_file: str | None = None,
         plan_file: str | None = None,
-        intent_only: bool = False,
-        plan_only: bool = False,
-        execute_only: bool = False,
         show_memory: bool = False,
         dry_run: bool = False,
         skip_learnings: bool = False,
@@ -150,12 +146,8 @@ class Session:
         self.projects_dir = projects_dir or os.path.dirname(poc_root)
         self.project_override = project_override
         self._preset_session_id = session_id
-        self.skip_intent = skip_intent
         self.intent_file = intent_file
         self.plan_file = plan_file
-        self.intent_only = intent_only
-        self.plan_only = plan_only
-        self.execute_only = execute_only
         self.show_memory = show_memory
         self.dry_run = dry_run
         self.skip_learnings = skip_learnings
@@ -189,9 +181,10 @@ class Session:
         self.project_slug, task_mode = self._classify_task()
         self.session_id = self._preset_session_id or datetime.now().strftime('%Y%m%d-%H%M%S')
 
-        # Short-circuit for conversational tasks (no orchestration needed)
-        if task_mode == 'conversational':
-            self.skip_intent = True
+        # Conversational tasks skip intent alignment — there's no
+        # idea to align on, just a request to respond to.  Recorded
+        # here and consumed at cfa-state initialization below.
+        self._conversational = (task_mode == 'conversational')
 
         # 2. Ensure project directory exists
         project_dir = os.path.join(self.projects_dir, self.project_slug)
@@ -307,20 +300,20 @@ class Session:
             except Exception:
                 pass
 
-            # 7. Initialize CfA state at the correct starting point
+            # 7. Initialize CfA state at the correct starting point.
+            # Pre-supplied artifacts shift the start phase; otherwise
+            # we begin at INTENT.  No phase-control flags — context
+            # (file presence) IS the signal.
             from teaparty.cfa.statemachine.cfa_state import transition, set_state_direct
             cfa = make_initial_state(task_id=self.session_id)
 
-            if self.execute_only or self.plan_file:
-                # Skip intent + planning: jump directly to execution start
+            if self.plan_file:
+                # Pre-written PLAN.md: skip to execution.
                 cfa = set_state_direct(cfa, 'EXECUTE')
-            elif self.intent_file or self.skip_intent:
-                # Skip intent: set state to INTENT (the intent phase
-                # will run, but the caller has pre-supplied INTENT.md).
-                cfa = set_state_direct(cfa, 'INTENT')
-            # Normal path: stay at INTENT. The intent-alignment skill
-            # runs and terminates via .phase-outcome.json (approve or
-            # withdraw).
+            elif self.intent_file or self._conversational:
+                # Pre-written INTENT.md, or conversational task with
+                # nothing to align on: skip to planning.
+                cfa = set_state_direct(cfa, 'PLAN')
 
             save_state(cfa, os.path.join(infra_dir, '.cfa-state.json'))
 
@@ -382,10 +375,6 @@ class Session:
                 task=task_prompt,
                 session_id=self.session_id,
                 options=RunOptions(
-                    skip_intent=self.skip_intent,
-                    intent_only=self.intent_only,
-                    plan_only=self.plan_only,
-                    execute_only=self.execute_only,
                     flat=self.flat,
                     suppress_backtracks=self.suppress_backtracks,
                     proxy_enabled=self.proxy_enabled,
@@ -818,10 +807,6 @@ class Session:
             # the .running files so the bridge doesn't show them as active.
             _cleanup_stale_dispatch_sentinels(infra_dir)
 
-            # 9. Derive skip_intent — True if we're past the intent phase
-            current_phase = phase_for_state(cfa.state)
-            skip_intent = current_phase != 'intent'
-
             # 10. Reconstruct _last_actor_data
             config = PhaseConfig(poc_root, project_dir=project_dir)
             last_actor_data = _reconstruct_last_actor_data(
@@ -867,7 +852,6 @@ class Session:
                 task=task_prompt,
                 session_id=session_id,
                 options=RunOptions(
-                    skip_intent=skip_intent,
                     phase_session_ids=phase_session_ids,
                     last_actor_data=last_actor_data,
                     project_dir=project_dir,

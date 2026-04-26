@@ -234,13 +234,22 @@ class CronScheduler:
             task_description += f' {task.args}'
 
         poc_root = find_poc_root()
+        # Scheduled jobs are pre-defined work — no intent or planning
+        # phase, the task description IS the plan.  Materialize it as
+        # a synthetic PLAN.md the session loads via ``plan_file``;
+        # ``cfa/session.py`` sees plan_file and starts at EXECUTE.
+        import tempfile as _tempfile
+        with _tempfile.NamedTemporaryFile(
+            mode='w', suffix='-PLAN.md', delete=False,
+        ) as _plan_tmp:
+            _plan_tmp.write(task_description)
+            _plan_tmp_path = _plan_tmp.name
         try:
             session = session_factory(
                 task_description,
                 poc_root=poc_root,
                 project_override=self.project_slug,
-                skip_intent=True,
-                execute_only=True,
+                plan_file=_plan_tmp_path,
                 skip_learnings=True,
                 event_bus=EventBus(),
                 input_provider=None,
@@ -251,6 +260,11 @@ class CronScheduler:
         except Exception as exc:
             success = False
             reason = str(exc)
+        finally:
+            try:
+                os.unlink(_plan_tmp_path)
+            except OSError:
+                pass
 
         self.record_run(task.name, now, success=success, reason=reason)
         return RunRecord(

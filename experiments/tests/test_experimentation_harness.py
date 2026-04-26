@@ -806,7 +806,6 @@ class TestExperimentConfig(unittest.TestCase):
         cfg = self._make_config()
         self.assertEqual(cfg.project, 'POC')
         self.assertFalse(cfg.flat)
-        self.assertFalse(cfg.skip_intent)
         self.assertTrue(cfg.backtracks_enabled)
         self.assertEqual(cfg.input_mode, 'pattern')
         self.assertEqual(cfg.approval_seed, 42)
@@ -899,11 +898,9 @@ tasks:
         cfg = corpus.make_config(
             corpus.tasks[0],
             flat=True,
-            skip_intent=True,
             backtracks_enabled=False,
         )
         self.assertTrue(cfg.flat)
-        self.assertTrue(cfg.skip_intent)
         self.assertFalse(cfg.backtracks_enabled)
 
     def test_make_config_ignores_unknown_overrides(self):
@@ -1341,7 +1338,6 @@ class TestSuppressBacktracks(unittest.TestCase):
             return PhaseResult(terminal=True, terminal_state='COMPLETED_WORK')
 
         orch._run_phase = mock_run_phase
-        orch.skip_intent = False
 
         result = _run(orch.run())
 

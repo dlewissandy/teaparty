@@ -11,8 +11,8 @@ Backend selection (in priority order):
   2. Scripted — deterministic caller; writes the artifact directly.
 
 Coverage (five-state CfA model: INTENT, PLAN, EXECUTE, DONE, WITHDRAWN):
-  Happy path (execute_only)               → DONE
-  Happy path (skip_intent — planning + execution) → DONE
+  Happy path (plan_file → EXECUTE)               → DONE
+  Happy path (intent_file → PLAN + EXECUTE) → DONE
   EXECUTE → replan backtrack (re-runs planning + execution) → DONE
   EXECUTE → realign backtrack (re-runs intent + planning + execution) → DONE
   Dry-run exits before any LLM call
@@ -400,8 +400,9 @@ class _SessionTestBase(unittest.TestCase):
         """Assert that every listed state appears in the transitions.
 
         Checks both sides of each edge so states that are entered via
-        ``set_state_direct`` (e.g., EXECUTE in execute_only mode) count as
-        visited even when they appear only as the source of the first edge.
+        ``set_state_direct`` (e.g., EXECUTE when a plan_file is provided)
+        count as visited even when they appear only as the source of the
+        first edge.
         """
         visited = {s for edge in transcript.transitions for s in (edge[0], edge[2])}
         for state in states:
@@ -437,8 +438,8 @@ class _SessionTestBase(unittest.TestCase):
 
 class TestSessionHappyPath(_SessionTestBase):
 
-    def test_execute_only_reaches_completed_work(self):
-        """execute_only=True + pre-written PLAN.md → DONE."""
+    def test_plan_file_reaches_completed_work(self):
+        """plan_file=... starts at EXECUTE → DONE."""
         plan_path = os.path.join(self._tmp, 'PLAN.md')
         Path(plan_path).write_text('# Plan\nWrite a one-line summary.\n')
 
@@ -448,7 +449,6 @@ class TestSessionHappyPath(_SessionTestBase):
         session = self._make_session(
             t, gate,
             task='Write a one-line project summary',
-            execute_only=True,
             plan_file=plan_path,
             llm_caller=_make_caller(t),
         )
@@ -458,8 +458,8 @@ class TestSessionHappyPath(_SessionTestBase):
         self._assert_path_includes(t, 'EXECUTE', 'DONE')
         self._assert_artifacts_exist(t)
 
-    def test_skip_intent_reaches_completed_work(self):
-        """skip_intent=True + pre-written INTENT.md → planning + execution → DONE."""
+    def test_intent_file_reaches_completed_work(self):
+        """intent_file=... starts at PLAN → planning + execution → DONE."""
         intent_path = os.path.join(self._tmp, 'INTENT.md')
         Path(intent_path).write_text('# Intent\nBuild a summary tool.\n')
 
@@ -471,7 +471,6 @@ class TestSessionHappyPath(_SessionTestBase):
         session = self._make_session(
             t, gate,
             task='Build a simple summary tool',
-            skip_intent=True,
             intent_file=intent_path,
             llm_caller=_make_phase_aware_caller(t),
         )
@@ -531,7 +530,6 @@ class TestSessionBacktrackPaths(_SessionTestBase):
         session = self._make_session(
             t, gate,
             task='Build a summary tool',
-            execute_only=True,
             plan_file=self._plan_file(),
             llm_caller=_make_scripted_outcome_caller(
                 exec_outcomes=['REPLAN', 'APPROVED_WORK'], transcript=t,
@@ -560,7 +558,6 @@ class TestSessionBacktrackPaths(_SessionTestBase):
         session = self._make_session(
             t, gate,
             task='Build a summary tool',
-            execute_only=True,
             plan_file=self._plan_file(),
             llm_caller=_make_scripted_outcome_caller(
                 exec_outcomes=['REALIGN', 'APPROVED_WORK'], transcript=t,
@@ -619,7 +616,6 @@ class TestSessionEvents(_SessionTestBase):
         session = self._make_session(
             t, gate,
             task='event test',
-            execute_only=True,
             plan_file=self._plan_file(),
             llm_caller=_make_phase_aware_caller(t),
             event_bus=bus,
@@ -645,7 +641,6 @@ class TestSessionEvents(_SessionTestBase):
         session = self._make_session(
             t, gate,
             task='transition test',
-            execute_only=True,
             plan_file=self._plan_file(),
             llm_caller=_make_phase_aware_caller(t),
             event_bus=bus,
@@ -657,9 +652,9 @@ class TestSessionEvents(_SessionTestBase):
         final_states = [nxt for _, _, nxt in t.transitions]
         self.assertIn('DONE', final_states,
                       f'DONE never reached{t.render()}')
-        # EXECUTE is entered via set_state_direct in execute_only mode, so it
-        # appears as the source of the first transition rather than as a
-        # target.  Cover both sides of each edge.
+        # EXECUTE is entered via set_state_direct when a plan_file is
+        # provided, so it appears as the source of the first transition
+        # rather than as a target.  Cover both sides of each edge.
         visited = {s for edge in t.transitions for s in (edge[0], edge[2])}
         self.assertIn(
             'EXECUTE', visited,

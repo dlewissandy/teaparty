@@ -115,8 +115,9 @@ class TestDispatchChildStateShape(unittest.TestCase):
 
         return result, saved_cfa_path
 
-    def test_child_state_starts_at_intent(self):
-        """Child CfA state must start at INTENT — the entry point for every CfA.
+    def test_child_state_starts_at_plan(self):
+        """Child CfA state must start at PLAN — dispatch tasks are pre-defined
+        work from the parent, so the intent phase is skipped.
 
         Parent/child linkage is tracked via the ``.children`` registry, not
         by CfaState fields; CfaState itself carries no hierarchy info.
@@ -125,7 +126,7 @@ class TestDispatchChildStateShape(unittest.TestCase):
         _, saved_cfa_path = self._run_dispatch(parent_path)
 
         child = load_state(saved_cfa_path)
-        self.assertEqual(child.state, 'INTENT')
+        self.assertEqual(child.state, 'PLAN')
 
     def test_child_task_id_includes_team_and_dispatch_id(self):
         """Child task_id must include the team name and a dispatch ID for traceability."""

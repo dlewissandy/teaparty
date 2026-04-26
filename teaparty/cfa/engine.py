@@ -121,10 +121,6 @@ class Orchestrator:
         self.session_id = session_id
 
         # ── Run-mode flags ──────────────────────────────────────────────────
-        self.skip_intent = opts.skip_intent
-        self.intent_only = opts.intent_only
-        self.plan_only = opts.plan_only
-        self.execute_only = opts.execute_only
         self.flat = opts.flat
         self.suppress_backtracks = opts.suppress_backtracks
         self.proxy_enabled = opts.proxy_enabled
@@ -537,26 +533,11 @@ class Orchestrator:
         ``planning`` next iteration, runs planning.  WITHDRAW moves
         state to WITHDRAWN (terminal); the loop exits.
 
-        ``execute_only`` / ``intent_only`` / ``plan_only`` /
-        ``skip_intent`` are honored by setting an initial state and
-        a ``stop_after_phase`` truncation point — pure
-        beginning-of-job configuration, not a runtime scheduler.
+        Initial state is set by the caller (cfa/session.py) based on
+        context: pre-supplied INTENT.md → start at PLAN, pre-supplied
+        PLAN.md → start at EXECUTE, otherwise INTENT.  No phase-control
+        flags inside the engine.
         """
-        # ── beginning-of-job stuff ─────────────────────────────────────
-        if self.execute_only:
-            self.cfa = set_state_direct(self.cfa, 'EXECUTE')
-        elif self.skip_intent:
-            self.cfa = set_state_direct(self.cfa, 'PLAN')
-
-        # Truncation: phases after which we treat the run as DONE.
-        # ``intent_only`` finishes after intent (state → PLAN);
-        # ``plan_only`` finishes after planning (state → EXECUTE).
-        truncate_at: str | None = None
-        if self.intent_only:
-            truncate_at = 'intent'
-        elif self.plan_only:
-            truncate_at = 'planning'
-
         # ── the loop ───────────────────────────────────────────────────
         while not is_globally_terminal(self.cfa.state):
             next_phase = phase_for_state(self.cfa.state)
@@ -620,15 +601,6 @@ class Orchestrator:
                 try_write_premortem(
                     infra_dir=self.infra_dir, task=self.task,
                 )
-
-            # Truncation: stop after the configured phase.
-            if truncate_at == next_phase:
-                self.cfa = set_state_direct(self.cfa, 'DONE')
-                save_state(
-                    self.cfa,
-                    os.path.join(self.infra_dir, '.cfa-state.json'),
-                )
-                return self._make_result('DONE')
 
         # ── end-of-job stuff ───────────────────────────────────────────
         return self._make_result(self.cfa.state)

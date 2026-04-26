@@ -41,9 +41,7 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
     """Add flags shared across run subcommands."""
     parser.add_argument('--project', default='POC', help='Project slug (default: POC)')
     parser.add_argument('--flat', action='store_true', help='Disable hierarchical dispatch')
-    parser.add_argument('--skip-intent', action='store_true', help='Skip intent phase')
     parser.add_argument('--skip-learnings', action='store_true', help='Skip learning extraction')
-    parser.add_argument('--execute-only', action='store_true', help='Skip intent+planning')
     parser.add_argument('--verbose', '-v', action='store_true', help='Verbose event output')
     parser.add_argument('--results-base', default='', help='Override results directory base')
 
@@ -72,12 +70,8 @@ def _build_overrides(args: argparse.Namespace) -> dict:
     overrides = {}
     if args.flat:
         overrides['flat'] = True
-    if args.skip_intent:
-        overrides['skip_intent'] = True
     if args.skip_learnings:
         overrides['skip_learnings'] = True
-    if args.execute_only:
-        overrides['execute_only'] = True
     if args.project != 'POC':
         overrides['project'] = args.project
     if args.results_base:
@@ -101,9 +95,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         task_id=args.task_id,
         project=args.project,
         flat=overrides.get('flat', False),
-        skip_intent=overrides.get('skip_intent', False),
         skip_learnings=overrides.get('skip_learnings', False),
-        execute_only=overrides.get('execute_only', False),
         backtracks_enabled=not args.no_backtracks,
         input_mode=args.input_mode,
         approval_seed=args.approval_seed,
