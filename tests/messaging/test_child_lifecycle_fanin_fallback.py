@@ -30,7 +30,7 @@ class TestFanInFallback(unittest.TestCase):
     """
 
     def test_response_text_falls_back_to_last_gc_payload(self) -> None:
-        """The exit branch in run_subtree_loop must surface
+        """The exit branch in run_agent_loop must surface
         last_gc_payload when response_parts is empty AND must
         write it to the bus (otherwise a silent intermediate agent's
         relay never appears in the user's chat blade or the
@@ -38,17 +38,17 @@ class TestFanInFallback(unittest.TestCase):
         """
         import inspect
         from teaparty.messaging import child_dispatch
-        src = inspect.getsource(child_dispatch.run_subtree_loop)
+        src = inspect.getsource(child_dispatch.run_agent_loop)
         self.assertIn(
             'response_text = last_gc_payload',
             src,
-            'run_subtree_loop must surface last_gc_payload as '
+            'run_agent_loop must surface last_gc_payload as '
             'response_text when the agent stays silent.',
         )
         self.assertIn(
             'bus.send(conv_id, agent_name, response_text)',
             src,
-            'run_subtree_loop must also write the fallback payload to '
+            'run_agent_loop must also write the fallback payload to '
             'the bus — otherwise the relay propagates as a return '
             'value but never appears in the bus, so the user sees '
             'nothing in the chat blade.',
@@ -60,7 +60,7 @@ class TestFanInFallback(unittest.TestCase):
         """
         import inspect
         from teaparty.messaging import child_dispatch
-        src = inspect.getsource(child_dispatch.run_subtree_loop)
+        src = inspect.getsource(child_dispatch.run_agent_loop)
         self.assertGreaterEqual(
             src.count('last_gc_payload ='), 1,
             'last_gc_payload must be assigned wherever gc_replies '

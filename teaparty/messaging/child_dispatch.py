@@ -143,7 +143,26 @@ def detect_thread_continuation(
     )
 
 
-async def run_subtree_loop(
+@dataclass
+class AgentLoopResult:
+    """Outcome of ``run_agent_loop``.
+
+    ``response_text`` and ``events`` are the agent's contribution and
+    the full ``(sender, content)`` stream — useful for poisoned-session
+    detection at the call site.
+
+    ``terminal`` is whatever ``on_terminate`` returned (or ``None`` if
+    the loop exited the default way: agent went silent + no new
+    grandchildren).  Tier-specific exit signals ride on this field —
+    e.g. the CfA layer returns the ``Action`` it read from
+    ``.phase-outcome.json``.
+    """
+    response_text: str
+    events: list[tuple[str, str]]
+    terminal: Any = None
+
+
+async def run_agent_loop(
     *,
     agent_name: str,
     initial_message: str,
@@ -156,46 +175,48 @@ async def run_subtree_loop(
     launch_kwargs_base: dict,
     resume_claude_session: str = '',
     on_phase: Any = None,
-) -> tuple[str, list[tuple[str, str]]]:
-    """ONE lifecycle, both tiers.
+    on_pre_turn: Callable[[str], Awaitable[str]] | None = None,
+    on_post_turn: Callable[[Any], Awaitable[None]] | None = None,
+    on_failure: Callable[[Any], Awaitable[str]] | None = None,
+    on_terminate: Callable[[], Awaitable[Any]] | None = None,
+) -> AgentLoopResult:
+    """ONE lifecycle, all tiers, all concerns.
 
-    Drive an agent through claude turns, gather grandchild dispatches
-    between turns, re-launch with their replies, fan-in fallback when
-    the agent stays silent.  Used by every agent execution path:
-
-      * top-level chat: ``AgentSession.invoke`` calls this with the
-        user's chat conversation as ``conv_id``.
-      * dispatched children: ``run_child_lifecycle`` calls this with
-        the dispatch conversation as ``conv_id``.
+    Drives an agent through claude turns, gathers grandchild dispatches
+    between turns, re-launches with their replies, falls back to the
+    last grandchild payload when the agent stays silent.  Used by every
+    agent execution path — top-level chat, dispatched children, CfA
+    state runs.
 
     The unified shape kills the asymmetry that produced silent relay
     failures — there is no "top-level path" vs. "dispatched path"
-    with their own re-launch mechanisms anymore.
+    vs. "CfA path" with their own re-launch mechanisms anymore.
 
-    Returns ``(response_text, events)``:
-      * ``response_text`` is the agent's text from the final turn,
-        falling back to the most recent grandchild payload when the
-        agent contributed nothing on a relay turn.
-      * ``events`` is the full ``(sender, content)`` stream — useful
-        for poisoned-session detection at the call site.
+    Tier-specific concerns ride on the optional callbacks:
 
-    ``launch_kwargs_base`` is the static set of kwargs to pass to
-    ``launch_fn`` every iteration.  ``message``, ``on_stream_event``,
-    and ``resume_session`` are populated by the loop.
+      * ``on_pre_turn(message)`` — async, returns the message to
+        actually send.  Lets the caller prepend turn-boundary
+        intervention text (CfA: bus poll for human messages,
+        ``_pending_intervention`` from a failure dialog).
+      * ``on_post_turn(claude_result)`` — async, called after a
+        successful turn.  Lets the caller persist scratch state, queue
+        ``/compact``, etc.  Default: no-op.
+      * ``on_failure(claude_result)`` — async, called when the launch
+        returns a stall-killed or non-zero exit.  Returns ``'retry'``
+        (re-run the same message), ``'abort'`` (break), or any other
+        string (treated as the next message).  Default: ``'abort'``,
+        preserving the current behavior of "let the natural-exit logic
+        handle it".
+      * ``on_terminate()`` — async, called between turns to ask the
+        caller whether the loop should exit early.  A non-``None``
+        return value ends the loop and lands in
+        ``AgentLoopResult.terminal``.  CfA reads
+        ``./.phase-outcome.json`` here and returns the parsed
+        ``Action``.
 
-    ``on_phase`` (optional) is called with:
-
-      * ``('launching', message)`` — before each launch, with the
-        message about to be sent to claude.
-      * ``('launched', session)``  — after each successful launch,
-        with ``session.claude_session_id`` updated; dispatched
-        children persist this to disk so a cross-restart resume can
-        pick up the claude session id.
-      * ``('awaiting', list_of_gc_ids)`` — before the gather of
-        newly-dispatched grandchildren.
-      * ``('complete', response_text)`` — at loop exit.
-
-    Top-level chat passes ``None``.
+    The legacy ``on_phase(name, payload)`` callback is preserved for
+    callers that just want to observe lifecycle markers (chat-tier
+    UI, dispatched-child phase persistence).
     """
     from teaparty.teams.stream import _classify_event
 
@@ -207,6 +228,7 @@ async def run_subtree_loop(
     last_gc_payload: str = ''
     current_message = initial_message
     current_claude_session = resume_claude_session or ''
+    terminal_value: Any = None
 
     def on_event(ev: dict) -> None:
         for sender, content in _classify_event(
@@ -218,6 +240,13 @@ async def run_subtree_loop(
                 response_parts.append(content)
 
     while True:
+        # ── PRE-TURN: tier-specific message construction ───────────────
+        if on_pre_turn is not None:
+            try:
+                current_message = await on_pre_turn(current_message)
+            except Exception:
+                _log.exception('on_pre_turn raised; using unmodified message')
+
         before_ids = {
             c.id[len('dispatch:'):]
             for c in bus.children_of(conv_id)
@@ -241,19 +270,64 @@ async def run_subtree_loop(
 
         try:
             result = await launch_fn(**launch_kwargs)
-            if result.session_id:
-                session.claude_session_id = result.session_id
-                current_claude_session = result.session_id
-                if on_phase is not None:
-                    try:
-                        on_phase('launched', session)
-                    except Exception:
-                        _log.debug(
-                            'on_phase(launched) raised', exc_info=True,
-                        )
         except Exception:
-            _log.exception('%s subtree loop launch failed', agent_name)
+            _log.exception('%s agent loop launch failed', agent_name)
             break
+
+        # ── FAILURE HANDLING: tier-specific retry/dialog ───────────────
+        launch_failed = (
+            getattr(result, 'stall_killed', False)
+            or getattr(result, 'exit_code', 0) != 0
+        )
+        if launch_failed:
+            if on_failure is None:
+                break
+            try:
+                decision = await on_failure(result)
+            except Exception:
+                _log.exception(
+                    '%s on_failure raised; aborting loop', agent_name,
+                )
+                break
+            if decision == 'retry':
+                continue
+            if decision == 'abort':
+                break
+            # Anything else is the next message.
+            current_message = decision
+            continue
+
+        if result.session_id:
+            session.claude_session_id = result.session_id
+            current_claude_session = result.session_id
+            if on_phase is not None:
+                try:
+                    on_phase('launched', session)
+                except Exception:
+                    _log.debug(
+                        'on_phase(launched) raised', exc_info=True,
+                    )
+
+        # ── POST-TURN: tier-specific bookkeeping (scratch, compaction) ─
+        if on_post_turn is not None:
+            try:
+                await on_post_turn(result)
+            except Exception:
+                _log.exception(
+                    '%s on_post_turn raised; continuing', agent_name,
+                )
+
+        # ── TERMINATION: tier-specific exit signal ─────────────────────
+        if on_terminate is not None:
+            try:
+                terminal_value = await on_terminate()
+            except Exception:
+                _log.exception(
+                    '%s on_terminate raised; treating as no-exit', agent_name,
+                )
+                terminal_value = None
+            if terminal_value is not None:
+                break
 
         after_ids = {
             c.id[len('dispatch:'):]
@@ -311,7 +385,7 @@ async def run_subtree_loop(
         current_message = last_gc_payload
 
     _log.info(
-        '%s subtree completed in %.2fs', agent_name, time.monotonic() - t0,
+        '%s agent loop completed in %.2fs', agent_name, time.monotonic() - t0,
     )
 
     # Fan-in fallback: an agent that contributed no text on a resume
@@ -334,7 +408,11 @@ async def run_subtree_loop(
             on_phase('complete', response_text)
         except Exception:
             _log.debug('on_phase(complete) raised', exc_info=True)
-    return response_text, events
+    return AgentLoopResult(
+        response_text=response_text,
+        events=events,
+        terminal=terminal_value,
+    )
 
 
 async def run_child_lifecycle(
@@ -359,14 +437,14 @@ async def run_child_lifecycle(
 ) -> str:
     """Drive a dispatched child through its subtree.
 
-    Thin wrapper over :func:`run_subtree_loop` that adds the
+    Thin wrapper over :func:`run_agent_loop` that adds the
     dispatched-child specifics: phase markers (so the pause walker
     can reconstruct from disk), session-metadata persistence, and
     the cross-restart resume path (``start_at_phase='awaiting'``)
     that skips an already-completed initial launch.
 
     The actual loop — launch / gather / re-launch / fan-in — lives
-    in :func:`run_subtree_loop` and is shared with the top-level
+    in :func:`run_agent_loop` and is shared with the top-level
     chat path.
 
     ``launch_fn`` is the ``launcher.launch`` coroutine captured by
@@ -465,7 +543,7 @@ async def run_child_lifecycle(
         elif phase == 'complete':
             _mark_complete(child_session, payload)
 
-    response_text, _events = await run_subtree_loop(
+    loop_result = await run_agent_loop(
         agent_name=member,
         initial_message=initial_message,
         bus=bus,
@@ -478,7 +556,7 @@ async def run_child_lifecycle(
         resume_claude_session=resume_claude_session,
         on_phase=_on_phase,
     )
-    return response_text
+    return loop_result.response_text
 
 
 # ── Unified spawn_fn prelude (Cut 24) ─────────────────────────────────────

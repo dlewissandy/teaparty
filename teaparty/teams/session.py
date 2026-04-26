@@ -459,7 +459,7 @@ class AgentSession:
         # ``factory_registry`` for the pause/resume walker.
         #
         # Chat tier no longer needs an ``on_child_complete`` re-invoke
-        # hook: the unified ``run_subtree_loop`` (used by both
+        # hook: the unified ``run_agent_loop`` (used by both
         # ``AgentSession.invoke`` and ``run_child_lifecycle``) gathers
         # children and re-launches with their replies in-band.  The
         # async-callback fan-in mechanism that used to bridge between
@@ -1124,7 +1124,7 @@ class AgentSession:
 
         mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
 
-        # Build the launch_kwargs_base for run_subtree_loop.  The loop
+        # Build the launch_kwargs_base for run_agent_loop.  The loop
         # will populate ``message``, ``on_stream_event``, and
         # ``resume_session`` per iteration.  ONE lifecycle: this is
         # the same loop run_child_lifecycle uses for dispatched
@@ -1152,8 +1152,8 @@ class AgentSession:
         if self._llm_caller is not None:
             launch_kwargs_base['llm_caller'] = self._llm_caller
 
-        from teaparty.messaging.child_dispatch import run_subtree_loop
-        response_text, events = await run_subtree_loop(
+        from teaparty.messaging.child_dispatch import run_agent_loop
+        loop_result = await run_agent_loop(
             agent_name=self.agent_role,
             initial_message=prompt,
             bus=self._bus,
@@ -1165,6 +1165,8 @@ class AgentSession:
             launch_kwargs_base=launch_kwargs_base,
             resume_claude_session=self.claude_session_id or '',
         )
+        response_text = loop_result.response_text
+        events = loop_result.events
 
         # Poisoned session detection (all agents, not just OM)
         system_events = []
