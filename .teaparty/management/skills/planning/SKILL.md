@@ -14,7 +14,35 @@ Run the planning workflow to completion in a single invocation. Traverse the ste
 Read `./INTENT.md`. You cannot skip this because the intent may have changed since the last time you read it.
 
 - If `./PLAN.md` exists, go to ALIGN.
-- If no plan exists at `./PLAN.md`, go to DRAFT.
+- If no plan exists at `./PLAN.md`, go to SELECT.
+
+## SELECT
+
+Decide whether an existing skill already describes how to do this kind of work. The frontmatter (name + description) for every available skill is already in your context — you do not need to search the filesystem. Match by description, not by name.
+
+Never select `intent-alignment`, `planning`, or `execute` — those are CfA phase orchestrators (one of them is what you are running right now), not task skills.
+
+- If a skill's description plausibly covers the intent, go to APPLY.
+- If no skill matches (or you're unsure), go to DRAFT.
+
+## APPLY
+
+You have selected an existing skill to apply.
+
+1. Read the skill's `SKILL.md` from disk to get its full body.
+2. Copy the body to `./PLAN.md` as the working draft. Adapt only the parts that are intent-specific (names, paths, scope) — keep the structure intact.
+3. Write `./.active-skill.json` so the orchestrator knows which skill backed this plan:
+
+   ```json
+   {
+     "name": "<skill name from frontmatter>",
+     "path": "<absolute path to the SKILL.md you read>",
+     "scope": "<project|team>",
+     "template": "<verbatim contents of the SKILL.md body you just copied — used to detect divergence at RECONCILE>"
+   }
+   ```
+
+Then go to ASSERT. The skill body is the proposal; the human reviews `PLAN.md`, not the skill itself.
 
 ## DRAFT
 
@@ -59,10 +87,33 @@ Conduct a dialog with the human regarding the current draft of the plan using `m
 Dialog purpose: you expect that `PLAN.md` is complete, and you are confirming with the human. Dialog is necessary because your expectations may not be aligned with the human's — the plan may not actually be complete, and the only way to ensure alignment is to dialogue.
 
 - If the response begins with the line `[WITHDRAW]`, go to WITHDRAW. The text after `[WITHDRAW]` is the reason — carry it into `.phase-outcome.json`.
-- If the human approves the plan, go to APPROVE.
+- If the human approves the plan, go to RECONCILE.
 - If the dialog surfaces needed revisions, go to REVISE.
 - If the conversation confirms that the intent does not capture the human's idea, go to REALIGN.
 - If the conversation confirms that the human no longer wants to continue this job, go to WITHDRAW.
+
+## RECONCILE
+
+The plan has been approved. If you applied an existing skill at SELECT, decide what to do with any divergence the human introduced.
+
+- If `./.active-skill.json` does not exist, you drafted from scratch — go to APPROVE.
+- Otherwise read it. Compare the current `./PLAN.md` against the `template` field. If they are equivalent (modulo the intent-specific adaptations you made at APPLY), go to APPROVE.
+
+If `PLAN.md` diverges from the template in ways that are not just intent-specific adaptation, escalate to the human via `mcp__teaparty-config__AskQuestion`:
+
+> The approved plan diverges from skill `<name>` (at `<path>`). The differences are: `<one-paragraph summary of the substantive changes, not the local naming/scoping edits>`.
+>
+> How should we capture this for future use?
+>
+> - **generalize** — fold these changes back into the existing skill so the next task that matches it benefits from this revision.
+> - **fork** — leave the original skill alone and create a new variant (a sibling skill with a more specific description) that captures this particular shape.
+> - **one-off** — this revision is task-specific; don't change the skill library.
+
+Apply the chosen action, then go to APPROVE:
+
+- **generalize** — `Edit` the skill's `SKILL.md` body in place to absorb the substantive changes. Preserve the frontmatter unchanged.
+- **fork** — `Write` a new `SKILL.md` at `<sibling-path>/SKILL.md` (pick a descriptive directory name under the same scope as the original). Reuse the original frontmatter as a starting point but rewrite the `description` so it discriminates against the original — the description is what every future planner matches against.
+- **one-off** — do nothing.
 
 ## APPROVE
 

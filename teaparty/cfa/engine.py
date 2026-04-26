@@ -29,7 +29,6 @@ from teaparty.cfa.statemachine.cfa_state import (
 _log = logging.getLogger('teaparty')
 from teaparty.learning.episodic.detect_stage import detect_stage_from_content
 from teaparty.learning.episodic.retire_stage import retire_stage_entries
-from teaparty.util.skill_lookup import lookup_skill
 from teaparty.cfa.actors import (
     ActorContext,
     ActorResult,
@@ -207,8 +206,6 @@ class Orchestrator:
         self._bus_event_listener: Any | None = None
         self._fan_in_event: asyncio.Event | None = None
         self._bus_lead_context_id: str = ''
-
-        self._active_skill: dict[str, str] | None = None
 
         self._tasks_by_child: dict[str, asyncio.Task] = {}
         self._results_by_child: dict[str, str] = {}
@@ -535,9 +532,6 @@ class Orchestrator:
         next_state = self.cfa.state
 
         while True:
-            if next_state == State.PLAN:
-                await self._try_skill_lookup()
-
             result = await self._run_state(next_state)
             action = result.action
 
@@ -555,139 +549,18 @@ class Orchestrator:
                     '',
                 )
 
+            # Premortem at the PLAN→EXECUTE boundary feeds the
+            # prospective-extraction pipeline.  Skill selection /
+            # reconciliation is owned by the planning skill itself.
             if next_state == State.PLAN:
-                from teaparty.learning.phase_hooks import (
-                    archive_skill_correction, try_write_premortem,
-                )
-                if archive_skill_correction(
-                    active_skill=self._active_skill,
-                    session_worktree=self.session_worktree,
-                    infra_dir=self.infra_dir,
-                    project_workdir=self.project_workdir,
-                    task=self.task,
-                    session_id=self.session_id,
-                ):
-                    self._active_skill = None
-                try_write_premortem(
-                    infra_dir=self.infra_dir, task=self.task,
-                )
+                from teaparty.learning.phase_hooks import try_write_premortem
+                try_write_premortem(infra_dir=self.infra_dir, task=self.task)
 
             next_state = ACTION_TO_STATE[action]
             if is_globally_terminal(next_state):
                 break
 
         return self._make_result(self.cfa.state)
-
-    async def _try_skill_lookup(self) -> bool:
-        """System 1 fast path: check the skill library for a matching skill.
-
-        If a match is found, pre-seeds PLAN.md with the skill template so
-        the planning skill runs ALIGN rather than DRAFT on its first turn
-        and proposes the skill-as-plan via its own ASSERT dialog with the
-        human (routed through the proxy). Returns True on match.
-
-        If no match or any error: returns False (the planning skill cold-
-        starts in DRAFT).
-
-        If the human corrects the skill-as-plan during the skill's
-        ASSERT/REVISE dialog, ``learning.phase_hooks.archive_skill_correction``
-        archives the correction as a candidate after planning completes.
-        """
-        # Build scope-ordered skill directories: narrowest first.
-        # Team scope (if team context exists) → project scope.
-        skills_dirs: list[tuple[str, str]] = []
-        if self.team_override:
-            team_skills = os.path.join(
-                self.project_workdir, 'teams', self.team_override, 'skills',
-            )
-            skills_dirs.append(('team', team_skills))
-        project_skills = os.path.join(self.project_workdir, 'skills')
-        skills_dirs.append(('project', project_skills))
-
-        # Fast exit: if no scope directory exists on disk, skip lookup.
-        if not any(os.path.isdir(d) for _, d in skills_dirs):
-            return False
-
-        # Read the approved intent from the session worktree
-        intent = ''
-        intent_path = os.path.join(self.session_worktree, 'INTENT.md')
-        try:
-            with open(intent_path) as f:
-                intent = f.read()
-        except OSError:
-            pass
-
-        embed_fn = None
-        try:
-            from teaparty.learning.episodic.indexer import try_embed, detect_provider
-            provider, model = detect_provider()
-            if provider != 'none':
-                embed_fn = lambda text: try_embed(text, provider=provider, model=model)
-        except Exception:
-            _log.debug('Embedding provider unavailable for skill lookup')
-
-        try:
-            match = lookup_skill(
-                task=self.task,
-                intent=intent,
-                skills_dirs=skills_dirs,
-                embed_fn=embed_fn,
-            )
-        except Exception:
-            _log.debug('Skill lookup failed, falling through to cold start')
-            return False
-
-        if not match:
-            return False
-
-        # Write the skill template as PLAN.md to the session worktree
-        plan_path = os.path.join(self.session_worktree, 'PLAN.md')
-        with open(plan_path, 'w') as f:
-            f.write(match.template)
-
-        # Track which skill was used, storing the original template so
-        # we can detect corrections later when PLAN.md diverges from it.
-        self._active_skill = {
-            'name': match.name,
-            'path': match.path,
-            'score': str(match.score),
-            'scope': match.scope,
-            'template': match.template,
-        }
-
-        # Persist active skill to disk so extract_learnings can find it post-session.
-        import json as _json
-        sidecar_path = os.path.join(self.infra_dir, '.active-skill.json')
-        try:
-            with open(sidecar_path, 'w') as f:
-                _json.dump({
-                    'name': match.name,
-                    'path': match.path,
-                    'score': str(match.score),
-                    'scope': match.scope,
-                    'session_id': self.session_id,
-                }, f)
-        except OSError:
-            _log.warning('Failed to write .active-skill.json sidecar')
-
-        # Pre-seed PLAN.md with the matched skill template; the planning
-        # skill will pick it up in ALIGN on the next turn and propose it
-        # for approval via its own ASSERT dialog, rather than bypassing
-        # the planning phase entirely.
-        await self.event_bus.publish(Event(
-            type=EventType.LOG,
-            data={
-                'category': 'skill_lookup',
-                'result': 'matched',
-                'skill_name': match.name,
-                'skill_score': match.score,
-                'skill_scope': match.scope,
-                'skill_path': match.path,
-            },
-            session_id=self.session_id,
-        ))
-
-        return True
 
     def _make_result(self, terminal_state: str) -> OrchestratorResult:
         """Build the final OrchestratorResult."""
