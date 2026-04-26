@@ -38,21 +38,31 @@ class State(StrEnum):
     INTENT    = 'INTENT'
     PLAN      = 'PLAN'
     EXECUTE   = 'EXECUTE'
-    DONE      = 'DONE'
-    WITHDRAWN = 'WITHDRAWN'
+    DONE      = 'DONE'        # terminal: work approved
+    WITHDRAWN = 'WITHDRAWN'   # terminal: human aborted
+    FAILURE   = 'FAILURE'     # terminal: unrecoverable infra failure
 
 
 class Action(StrEnum):
+    # Skill-emitted outcomes — the only ones in ACTION_TO_STATE.
     APPROVED_INTENT = 'APPROVED_INTENT'
     APPROVED_PLAN   = 'APPROVED_PLAN'
     APPROVED_WORK   = 'APPROVED_WORK'
     REALIGN         = 'REALIGN'
     REPLAN          = 'REPLAN'
     WITHDRAW        = 'WITHDRAW'
+    # Non-skill signals carried on ``ActorResult.action``.
+    # PENDING — turn ended without writing .phase-outcome.json (fan-in
+    #           wait, or broken skill).
+    # FAILURE — infrastructure failure (stall, exit, overload).  Reason
+    #           rides on ``failure_reason``.
+    PENDING         = 'PENDING'
     FAILURE         = 'FAILURE'
 
 
-TERMINAL_STATES: frozenset[State] = frozenset({State.DONE, State.WITHDRAWN})
+TERMINAL_STATES: frozenset[State] = frozenset({
+    State.DONE, State.WITHDRAWN, State.FAILURE,
+})
 
 # Working-state ordering — used by ``apply_response`` to detect
 # backtracks.  Terminal states aren't ordered (you can't backtrack out
@@ -76,6 +86,7 @@ ACTION_TO_STATE: dict[Action, State] = {
     Action.REALIGN:         State.INTENT,
     Action.REPLAN:          State.PLAN,
     Action.WITHDRAW:        State.WITHDRAWN,
+    Action.FAILURE:         State.FAILURE,
 }
 
 

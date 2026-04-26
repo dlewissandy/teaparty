@@ -99,16 +99,21 @@ class TestApplyResponse(unittest.TestCase):
 
 
 class TestActionToState(unittest.TestCase):
-    """Every non-FAILURE action must map to a real state."""
+    """Every action except PENDING maps to a state.
+    PENDING is the no-outcome sentinel and intentionally has no
+    target state."""
 
-    def test_every_action_maps_except_failure(self):
+    def test_every_action_maps_except_pending(self):
         for action in Action:
-            if action == Action.FAILURE:
+            if action == Action.PENDING:
                 continue
             self.assertIn(action, ACTION_TO_STATE)
 
-    def test_failure_does_not_map(self):
-        self.assertNotIn(Action.FAILURE, ACTION_TO_STATE)
+    def test_pending_does_not_map(self):
+        self.assertNotIn(Action.PENDING, ACTION_TO_STATE)
+
+    def test_failure_maps_to_failure_state(self):
+        self.assertEqual(ACTION_TO_STATE[Action.FAILURE], State.FAILURE)
 
 
 class TestIsGloballyTerminal(unittest.TestCase):
@@ -119,12 +124,18 @@ class TestIsGloballyTerminal(unittest.TestCase):
     def test_withdrawn_is_terminal(self):
         self.assertTrue(is_globally_terminal(State.WITHDRAWN))
 
+    def test_failure_is_terminal(self):
+        self.assertTrue(is_globally_terminal(State.FAILURE))
+
     def test_working_states_are_not_terminal(self):
         for s in (State.INTENT, State.PLAN, State.EXECUTE):
             self.assertFalse(is_globally_terminal(s))
 
     def test_terminal_states_set(self):
-        self.assertEqual(TERMINAL_STATES, frozenset({State.DONE, State.WITHDRAWN}))
+        self.assertEqual(
+            TERMINAL_STATES,
+            frozenset({State.DONE, State.WITHDRAWN, State.FAILURE}),
+        )
 
 
 class TestPersistence(unittest.TestCase):

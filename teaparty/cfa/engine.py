@@ -541,21 +541,12 @@ class Orchestrator:
             result = await self._run_state(next_state)
             action = result.action
 
-            # FAILURE here is unrecoverable — ``_run_state`` already
-            # exhausted recoverable retries (overload cooldowns).  Job
-            # level only handles the human escalation branch.
+            # ``_run_state`` handles all recoverable failures internally
+            # (overload retries, human-guided resume).  FAILURE here
+            # only bubbles up when ``never_escalate`` is set: there is
+            # no human to ask, so we exit with whatever state we're in.
             if action == Action.FAILURE:
-                if self.never_escalate:
-                    return self._make_result(self.cfa.state)
-                decision = await self._failure_dialog(result.failure_reason)
-                if decision == 'withdraw':
-                    self.cfa = set_state_direct(self.cfa, State.WITHDRAWN)
-                    save_state(
-                        self.cfa,
-                        os.path.join(self.infra_dir, '.cfa-state.json'),
-                    )
-                    return self._make_result(State.WITHDRAWN)
-                continue  # retry — same state
+                return self._make_result(self.cfa.state)
 
             if action in (Action.REALIGN, Action.REPLAN):
                 self._record_dead_end(
@@ -727,19 +718,50 @@ class Orchestrator:
         while True:
             actor_result = await self._invoke_actor(spec, state, phase_start_time)
 
-            if actor_result.action == 'failed':
+            if actor_result.action == Action.FAILURE:
                 reason = actor_result.data.get('reason', 'unknown')
                 # Recoverable: API overload — sleep & retry up to N times.
                 if reason == 'api_overloaded':
                     if await self._handle_overloaded(state) == 'retry':
                         continue
-                # Unrecoverable: bubble up to the job loop for human escalation.
-                await self.event_bus.publish(Event(
-                    type=EventType.PHASE_COMPLETED,
-                    data={'state': self.cfa.state},
-                    session_id=self.session_id,
-                ))
-                return PhaseResult(action=Action.FAILURE, failure_reason=reason)
+                # Unrecoverable for autonomous mode: land in
+                # State.FAILURE and bubble up.
+                if self.never_escalate:
+                    self.cfa = set_state_direct(self.cfa, State.FAILURE)
+                    save_state(
+                        self.cfa,
+                        os.path.join(self.infra_dir, '.cfa-state.json'),
+                    )
+                    await self.event_bus.publish(Event(
+                        type=EventType.PHASE_COMPLETED,
+                        data={'state': self.cfa.state},
+                        session_id=self.session_id,
+                    ))
+                    return PhaseResult(
+                        action=Action.FAILURE, failure_reason=reason,
+                    )
+                # Ask the human.  ``withdraw`` ends the state with a
+                # WITHDRAW outcome.  ``retry`` resumes the same agent
+                # session with the human's response injected as a
+                # turn-boundary intervention — no rerun from scratch.
+                decision, response = await self._failure_dialog(reason)
+                if decision == 'withdraw':
+                    self.cfa = set_state_direct(self.cfa, State.WITHDRAWN)
+                    save_state(
+                        self.cfa,
+                        os.path.join(self.infra_dir, '.cfa-state.json'),
+                    )
+                    await self.event_bus.publish(Event(
+                        type=EventType.PHASE_COMPLETED,
+                        data={'state': self.cfa.state},
+                        session_id=self.session_id,
+                    ))
+                    return PhaseResult(action=Action.WITHDRAW)
+                self._pending_intervention = (
+                    f'[infrastructure failure: {reason}]\n'
+                    f'[human guidance]\n{response}'
+                )
+                continue
 
             turn_cost = actor_result.data.get('cost_usd', 0.0)
             if turn_cost:
@@ -754,10 +776,10 @@ class Orchestrator:
                     session_id=self.session_id,
                 ))
 
-            # action='' is the "skill turn ended without declaring an outcome"
-            # sentinel.  If workers are open, wait for fan-in and re-invoke.
+            # PENDING means the skill turn ended without declaring an
+            # outcome.  If workers are open, wait for fan-in and re-invoke.
             # If no workers remain, raise — never silently approve.
-            while actor_result.action == '':
+            while actor_result.action == Action.PENDING:
                 if self._tasks_by_child:
                     actor_result = await self._await_fan_in_and_reinvoke(
                         spec, state, phase_start_time,
@@ -774,8 +796,7 @@ class Orchestrator:
             # Fan-in wait: if the lead dispatched workers via Send, hold the
             # CfA transition until all workers have replied.  The lead is then
             # re-invoked (--resume) so it can synthesize before the gate sees it.
-            if (actor_result.action != 'failed'
-                    and not is_globally_terminal(self.cfa.state)
+            if (not is_globally_terminal(self.cfa.state)
                     and self._tasks_by_child):
                 actor_result = await self._await_fan_in_and_reinvoke(
                     spec, state, phase_start_time,
@@ -785,7 +806,7 @@ class Orchestrator:
 
             # Intra-state hooks (intervention, scratch, compaction) only
             # fire when this turn did NOT end the state.  Any action with
-            # a known mapping ends it.
+            # a known state mapping ends it.
             state_ending = actor_result.action in ACTION_TO_STATE
             if not state_ending:
                 await self._deliver_intervention()
@@ -1078,14 +1099,14 @@ class Orchestrator:
             outcome='continue',
         )
 
-    async def _transition(self, action: str, actor_result: ActorResult) -> None:
+    async def _transition(self, action: Action, actor_result: ActorResult) -> None:
         """Apply a skill action and persist state.
 
-        ``action`` is the skill's outcome string (or ``WITHDRAW``).
-        ``ACTION_TO_STATE`` names the target CfaState.  No
-        ``(state, action)`` edge validation: the outcome is
-        unambiguous because only that skill emits it.
-        ``apply_response`` handles backtrack-count bookkeeping.
+        ``action`` is the skill's outcome (an ``Action`` enum member
+        present in ``ACTION_TO_STATE``).  No ``(state, action)`` edge
+        validation: the outcome is unambiguous because only that
+        skill emits it.  ``apply_response`` handles backtrack-count
+        bookkeeping.
         """
         target_state = ACTION_TO_STATE[action]
         old_state = self.cfa.state
@@ -1442,16 +1463,18 @@ class Orchestrator:
         await asyncio.sleep(self._OVERLOAD_COOLDOWN_SECONDS)
         return 'retry'
 
-    async def _failure_dialog(self, reason: str) -> str:
+    async def _failure_dialog(self, reason: str) -> tuple[str, str]:
         """Ask human what to do after infrastructure failure.
 
-        Returns 'retry' | 'backtrack' | 'withdraw'.
+        Returns ``(decision, response_text)`` where decision is
+        ``'retry'`` or ``'withdraw'``.  The raw response text is
+        returned so the caller can inject it as a turn-boundary
+        intervention when the agent is resumed.
         """
         bridge_text = (
             f'Infrastructure failure: {reason}\n\n'
             'Options:\n'
-            '  retry — try the execution phase again\n'
-            '  backtrack — return to planning with feedback\n'
+            '  retry — resume the agent with your guidance\n'
             '  withdraw — mark this session as withdrawn\n'
         )
         response = await self.input_provider(InputRequest(
@@ -1463,10 +1486,10 @@ class Orchestrator:
         try:
             from teaparty.scripts.classify_review import classify
             raw = classify('FAILURE', response)
-            action = raw.split('\t', 1)[0]
+            decision = raw.split('\t', 1)[0]
         except Exception:
-            action = '__fallback__'
-        if action in ('backtrack', 'withdraw'):
-            return action
-        return 'retry'
+            decision = '__fallback__'
+        if decision == 'withdraw':
+            return 'withdraw', response
+        return 'retry', response
 

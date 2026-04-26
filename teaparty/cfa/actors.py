@@ -26,6 +26,7 @@ from teaparty.runners.claude import ClaudeResult
 from teaparty.messaging.bus import (
     Event, EventBus, EventType, InputRequest,
 )
+from teaparty.cfa.statemachine.cfa_state import Action
 
 if TYPE_CHECKING:
     from teaparty.cfa.phase_config import PhaseConfig, PhaseSpec
@@ -42,10 +43,16 @@ class InputProvider(Protocol):
 
 @dataclass
 class ActorResult:
-    """What the actor decided — maps to a CfA transition action."""
-    action: str           # CfA action name (approve, correct, withdraw, etc.)
-    feedback: str = ''    # Human feedback text (for correct/clarify)
-    dialog_history: str = ''  # Review dialog transcript
+    """What the actor decided.
+
+    ``action`` is always an :class:`Action` enum member.  Skill-emitted
+    outcomes drive the state machine; ``Action.PENDING`` and
+    ``Action.FAILURE`` are non-skill signals (no outcome yet, or
+    infrastructure failure).
+    """
+    action: Action
+    feedback: str = ''
+    dialog_history: str = ''
     data: dict[str, Any] = field(default_factory=dict)
 
 
@@ -302,7 +309,7 @@ async def run_phase(
     )
 
     if result.stall_killed:
-        return ActorResult(action='failed', data={
+        return ActorResult(action=Action.FAILURE, data={
             'reason': 'stall_timeout',
             'exit_code': result.exit_code,
             'stderr_lines': result.stderr_lines,
@@ -310,7 +317,7 @@ async def run_phase(
 
     if result.exit_code != 0:
         reason = 'api_overloaded' if result.api_overloaded else 'nonzero_exit'
-        return ActorResult(action='failed', data={
+        return ActorResult(action=Action.FAILURE, data={
             'reason': reason,
             'exit_code': result.exit_code,
             'stderr_lines': result.stderr_lines,
@@ -396,30 +403,27 @@ def _interpret_output(ctx: ActorContext, result: ClaudeResult) -> ActorResult:
     # the lead so it can synthesize the workers' replies and run its
     # ASSERT gate before declaring APPROVE.
     #
-    # Return ``action=''`` as the "no outcome" sentinel.  The outer
-    # ``_run_state`` loop decides what to do:
+    # Return ``Action.PENDING`` so the outer ``_run_state`` loop can
+    # decide:
     #   - workers in flight → fan-in wait, re-invoke, try again
     #   - no workers + no outcome → the skill is genuinely broken
     #     and the engine raises (no silent approvals).
-    return ActorResult(action='', data=data)
+    return ActorResult(action=Action.PENDING, data=data)
 
 def _read_phase_outcome(
     ctx: ActorContext,
-) -> tuple[str, str] | None:
+) -> tuple[Action, str] | None:
     """Return (action, reason) when the skill wrote .phase-outcome.json.
 
-    ``action`` is the skill's outcome string itself
-    (``APPROVED_INTENT`` / ``APPROVED_PLAN`` / ``APPROVED_WORK`` /
-    ``REALIGN`` / ``REPLAN`` / ``WITHDRAW``).  The orchestrator routes
-    on the action alone — each outcome is unambiguous about what was
-    done, because only that skill emits it.  ``ACTION_TO_STATE`` (in
-    ``cfa_state``) names the next CfaState; this function does not
-    consult ``ctx.state``.
+    ``action`` is the skill's outcome (``Action.APPROVED_INTENT`` /
+    ``Action.APPROVED_PLAN`` / ``Action.APPROVED_WORK`` /
+    ``Action.REALIGN`` / ``Action.REPLAN`` / ``Action.WITHDRAW``).
+    The orchestrator routes on the action alone — each outcome is
+    unambiguous because only that skill emits it.
 
     The file is consumed (deleted) on read so a subsequent run cannot
     pick up a stale outcome.  Unknown outcomes are treated as absent.
     """
-    from teaparty.cfa.statemachine.cfa_state import Action
     path = os.path.join(ctx.session_worktree, '.phase-outcome.json')
     if not os.path.isfile(path):
         return None

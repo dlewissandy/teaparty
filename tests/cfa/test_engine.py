@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from teaparty.cfa.actors import ActorContext, ActorResult
 from teaparty.cfa.engine import Orchestrator
+from teaparty.cfa.statemachine.cfa_state import Action, State
 from teaparty.messaging.bus import EventBus
 from teaparty.cfa.phase_config import PhaseConfig, PhaseSpec
 from teaparty.cfa.statemachine.cfa_state import CfaState
@@ -70,7 +71,6 @@ def _make_cfa_state(state: str = 'INTENT') -> CfaState:
     """Build a minimal CfaState at the given state."""
     return CfaState(
         state=state,
-        phase='intent',
         history=[],
         backtrack_count=0,
     )
@@ -118,14 +118,14 @@ class TestInvokeActorStderrInjection(unittest.TestCase):
 
         async def capture_ctx(ctx: ActorContext, **kwargs) -> ActorResult:
             captured_ctx.append(ctx)
-            return ActorResult(action='auto-approve')
+            return ActorResult(action=Action.PENDING)
 
         _ar_p = patch('teaparty.cfa.engine.run_phase', side_effect=capture_ctx)
         _ar_p.start()
         self.addCleanup(_ar_p.stop)
 
         spec = _make_phase_spec()
-        _run(orch._invoke_actor(spec, 'intent'))
+        _run(orch._invoke_actor(spec, State.INTENT))
 
         self.assertEqual(len(captured_ctx), 1)
         ctx = captured_ctx[0]
@@ -148,14 +148,14 @@ class TestInvokeActorStderrInjection(unittest.TestCase):
 
         async def capture_ctx(ctx: ActorContext, **kwargs) -> ActorResult:
             captured_ctx.append(ctx)
-            return ActorResult(action='auto-approve')
+            return ActorResult(action=Action.PENDING)
 
         _ar_p = patch('teaparty.cfa.engine.run_phase', side_effect=capture_ctx)
         _ar_p.start()
         self.addCleanup(_ar_p.stop)
 
         spec = _make_phase_spec()
-        _run(orch._invoke_actor(spec, 'intent'))
+        _run(orch._invoke_actor(spec, State.INTENT))
 
         ctx = captured_ctx[0]
         self.assertIn('fatal: API key invalid', ctx.backtrack_context)
@@ -172,14 +172,14 @@ class TestInvokeActorStderrInjection(unittest.TestCase):
 
         async def capture_ctx(ctx: ActorContext, **kwargs) -> ActorResult:
             captured_ctx.append(ctx)
-            return ActorResult(action='auto-approve')
+            return ActorResult(action=Action.PENDING)
 
         _ar_p = patch('teaparty.cfa.engine.run_phase', side_effect=capture_ctx)
         _ar_p.start()
         self.addCleanup(_ar_p.stop)
 
         spec = _make_phase_spec()
-        _run(orch._invoke_actor(spec, 'intent'))
+        _run(orch._invoke_actor(spec, State.INTENT))
 
         ctx = captured_ctx[0]
         self.assertEqual(ctx.backtrack_context, '')
@@ -192,14 +192,14 @@ class TestInvokeActorStderrInjection(unittest.TestCase):
 
         async def capture_ctx(ctx: ActorContext, **kwargs) -> ActorResult:
             captured_ctx.append(ctx)
-            return ActorResult(action='auto-approve')
+            return ActorResult(action=Action.PENDING)
 
         _ar_p = patch('teaparty.cfa.engine.run_phase', side_effect=capture_ctx)
         _ar_p.start()
         self.addCleanup(_ar_p.stop)
 
         spec = _make_phase_spec()
-        _run(orch._invoke_actor(spec, 'intent'))
+        _run(orch._invoke_actor(spec, State.INTENT))
 
         ctx = captured_ctx[0]
         self.assertEqual(ctx.backtrack_context, '')
@@ -222,14 +222,14 @@ class TestInvokeActorStderrInjection(unittest.TestCase):
         async def capture_ctx(ctx: ActorContext, **kwargs) -> ActorResult:
             # Manually simulate what the engine does when backtrack_context was pre-set
             captured_ctx.append(ctx)
-            return ActorResult(action='auto-approve')
+            return ActorResult(action=Action.PENDING)
 
         _ar_p = patch('teaparty.cfa.engine.run_phase', side_effect=capture_ctx)
         _ar_p.start()
         self.addCleanup(_ar_p.stop)
 
         spec = _make_phase_spec()
-        _run(orch._invoke_actor(spec, 'intent'))
+        _run(orch._invoke_actor(spec, State.INTENT))
 
         ctx = captured_ctx[0]
         # The block must follow the header with a newline
@@ -259,14 +259,14 @@ class TestInvokeActorEscalationFeedbackInjection(unittest.TestCase):
 
         async def capture_ctx(ctx: ActorContext, **kwargs) -> ActorResult:
             captured_ctx.append(ctx)
-            return ActorResult(action='assert')
+            return ActorResult(action=Action.PENDING)
 
         _ar_p = patch('teaparty.cfa.engine.run_phase', side_effect=capture_ctx)
         _ar_p.start()
         self.addCleanup(_ar_p.stop)
 
         spec = _make_phase_spec()
-        _run(orch._invoke_actor(spec, 'intent'))
+        _run(orch._invoke_actor(spec, State.INTENT))
 
         self.assertEqual(len(captured_ctx), 1)
         ctx = captured_ctx[0]
@@ -284,14 +284,14 @@ class TestInvokeActorEscalationFeedbackInjection(unittest.TestCase):
 
         async def capture_ctx(ctx: ActorContext, **kwargs) -> ActorResult:
             captured_ctx.append(ctx)
-            return ActorResult(action='assert')
+            return ActorResult(action=Action.PENDING)
 
         _ar_p = patch('teaparty.cfa.engine.run_phase', side_effect=capture_ctx)
         _ar_p.start()
         self.addCleanup(_ar_p.stop)
 
         spec = _make_phase_spec()
-        _run(orch._invoke_actor(spec, 'intent'))
+        _run(orch._invoke_actor(spec, State.INTENT))
 
         ctx = captured_ctx[0]
         self.assertIn('[escalation dialog]', ctx.backtrack_context)
@@ -313,14 +313,14 @@ class TestInvokeActorEscalationFeedbackInjection(unittest.TestCase):
 
         async def capture_ctx(ctx: ActorContext, **kwargs) -> ActorResult:
             captured_ctx.append(ctx)
-            return ActorResult(action='assert')
+            return ActorResult(action=Action.PENDING)
 
         _ar_p = patch('teaparty.cfa.engine.run_phase', side_effect=capture_ctx)
         _ar_p.start()
         self.addCleanup(_ar_p.stop)
 
         spec = _make_phase_spec()
-        _run(orch._invoke_actor(spec, 'intent'))
+        _run(orch._invoke_actor(spec, State.INTENT))
 
         ctx = captured_ctx[0]
         self.assertIn('[escalation dialog]', ctx.backtrack_context)
@@ -343,14 +343,14 @@ class TestInvokeActorEscalationFeedbackInjection(unittest.TestCase):
 
         async def capture_ctx(ctx: ActorContext, **kwargs) -> ActorResult:
             captured_ctx.append(ctx)
-            return ActorResult(action='assert')
+            return ActorResult(action=Action.PENDING)
 
         _ar_p = patch('teaparty.cfa.engine.run_phase', side_effect=capture_ctx)
         _ar_p.start()
         self.addCleanup(_ar_p.stop)
 
         spec = _make_phase_spec()
-        _run(orch._invoke_actor(spec, 'intent'))
+        _run(orch._invoke_actor(spec, State.INTENT))
 
         ctx = captured_ctx[0]
         dialog_pos = ctx.backtrack_context.index('[escalation dialog]')
@@ -367,14 +367,14 @@ class TestInvokeActorEscalationFeedbackInjection(unittest.TestCase):
 
         async def capture_ctx(ctx: ActorContext, **kwargs) -> ActorResult:
             captured_ctx.append(ctx)
-            return ActorResult(action='assert')
+            return ActorResult(action=Action.PENDING)
 
         _ar_p = patch('teaparty.cfa.engine.run_phase', side_effect=capture_ctx)
         _ar_p.start()
         self.addCleanup(_ar_p.stop)
 
         spec = _make_phase_spec()
-        _run(orch._invoke_actor(spec, 'intent'))
+        _run(orch._invoke_actor(spec, State.INTENT))
 
         ctx = captured_ctx[0]
         self.assertNotIn('[human feedback]', ctx.backtrack_context)
@@ -388,14 +388,14 @@ class TestInvokeActorEscalationFeedbackInjection(unittest.TestCase):
 
         async def capture_ctx(ctx: ActorContext, **kwargs) -> ActorResult:
             captured_ctx.append(ctx)
-            return ActorResult(action='assert')
+            return ActorResult(action=Action.PENDING)
 
         _ar_p = patch('teaparty.cfa.engine.run_phase', side_effect=capture_ctx)
         _ar_p.start()
         self.addCleanup(_ar_p.stop)
 
         spec = _make_phase_spec()
-        _run(orch._invoke_actor(spec, 'intent'))
+        _run(orch._invoke_actor(spec, State.INTENT))
 
         ctx = captured_ctx[0]
         self.assertEqual(ctx.backtrack_context, '')
@@ -413,14 +413,14 @@ class TestInvokeActorEscalationFeedbackInjection(unittest.TestCase):
 
         async def capture_ctx(ctx: ActorContext, **kwargs) -> ActorResult:
             captured_ctx.append(ctx)
-            return ActorResult(action='assert')
+            return ActorResult(action=Action.PENDING)
 
         _ar_p = patch('teaparty.cfa.engine.run_phase', side_effect=capture_ctx)
         _ar_p.start()
         self.addCleanup(_ar_p.stop)
 
         spec = _make_phase_spec()
-        _run(orch._invoke_actor(spec, 'intent'))
+        _run(orch._invoke_actor(spec, State.INTENT))
 
         ctx = captured_ctx[0]
         self.assertIn('[human feedback]', ctx.backtrack_context)
@@ -455,7 +455,7 @@ class TestTransitionStoresFeedbackInLastActorData(unittest.TestCase):
              patch.object(orch, '_commit_artifacts', new=AsyncMock()), \
              patch.object(orch, '_detect_and_retire_stage'):
             result = ActorResult(
-                action='approve',
+                action=Action.APPROVED_INTENT,
                 feedback="Please focus on auth only.",
                 data={'artifact_path': '/tmp/INTENT.md'},
             )
@@ -482,7 +482,7 @@ class TestTransitionStoresFeedbackInLastActorData(unittest.TestCase):
              patch.object(orch, '_commit_artifacts', new=AsyncMock()), \
              patch.object(orch, '_detect_and_retire_stage'):
             result = ActorResult(
-                action='approve',
+                action=Action.APPROVED_INTENT,
                 dialog_history='Human: Narrow scope.\nProxy: Auth only?',
                 data={},
             )
@@ -506,7 +506,7 @@ class TestTransitionStoresFeedbackInLastActorData(unittest.TestCase):
              patch.object(orch, '_commit_artifacts', new=AsyncMock()), \
              patch.object(orch, '_detect_and_retire_stage'):
             result = ActorResult(
-                action='approve',
+                action=Action.APPROVED_INTENT,
                 feedback='cleared',  # cleared
                 data={'artifact_path': '/tmp/INTENT.md', 'version': 2},
             )
@@ -527,7 +527,7 @@ class TestTransitionStoresFeedbackInLastActorData(unittest.TestCase):
              patch.object(orch, '_commit_artifacts', new=AsyncMock()), \
              patch.object(orch, '_detect_and_retire_stage'):
             result = ActorResult(
-                action='approve',
+                action=Action.APPROVED_INTENT,
                 data={'artifact_path': '/tmp/INTENT.md'},
             )
             _run(orch._transition('APPROVED_INTENT', result))

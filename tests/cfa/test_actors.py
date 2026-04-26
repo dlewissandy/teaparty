@@ -26,6 +26,7 @@ from teaparty.cfa.actors import (
     ActorResult,
     _relocate_plan_file,
 )
+from teaparty.cfa.statemachine.cfa_state import Action
 from teaparty.runners.claude import ClaudeResult
 from teaparty.messaging.bus import EventBus
 from teaparty.cfa.phase_config import PhaseSpec
@@ -104,14 +105,15 @@ class TestInterpretOutputNoOutcomeSentinel(unittest.TestCase):
         import shutil
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
-    def test_no_phase_outcome_returns_empty_action(self):
+    def test_no_phase_outcome_returns_pending(self):
+        from teaparty.cfa.statemachine.cfa_state import Action
         spec = _make_phase_spec(artifact=None)
         ctx = _make_ctx(session_worktree=self.tmpdir, phase_spec=spec)
 
         result = _interpret_output(ctx, _make_claude_result())
         self.assertEqual(
-            result.action, '',
-            'Interpreter must return the empty-action sentinel when '
+            result.action, Action.PENDING,
+            'Interpreter must return Action.PENDING when '
             "it can't determine an outcome — never auto-approve",
         )
 
@@ -331,7 +333,7 @@ class TestStderrInActorResult(unittest.TestCase):
             with patch.object(ClaudeRunner, 'run', new=AsyncMock(return_value=fake_claude_result)):
                 actor_result = _run(run_phase(ctx))
 
-        self.assertEqual(actor_result.action, 'failed')
+        self.assertEqual(actor_result.action, Action.FAILURE)
         self.assertEqual(
             actor_result.data['stderr_lines'],
             ['fatal: API key invalid', 'Permission denied'],
@@ -356,7 +358,7 @@ class TestStderrInActorResult(unittest.TestCase):
             with patch.object(ClaudeRunner, 'run', new=AsyncMock(return_value=fake_claude_result)):
                 actor_result = _run(run_phase(ctx))
 
-        self.assertEqual(actor_result.action, 'failed')
+        self.assertEqual(actor_result.action, Action.FAILURE)
         self.assertEqual(
             actor_result.data['stderr_lines'],
             ['subprocess timed out after 1800s'],
