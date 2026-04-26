@@ -1971,7 +1971,6 @@ class TeaPartyBridge:
         org_home: str = '',
         scope: str = 'management',
         agent_role: str = '',
-        dispatches: bool = False,
         post_invoke_hook=None,
         build_prompt_hook=None,
         project_slug: str = '',
@@ -2020,7 +2019,6 @@ class TeaPartyBridge:
                     conversation_type=conversation_type,
                     agent_role=agent_role or agent_name,
                     llm_backend=self._llm_backend,
-                    dispatches=dispatches,
                     post_invoke_hook=post_invoke_hook,
                     build_prompt_hook=build_prompt_hook,
                     on_dispatch=self._broadcast_dispatch,
@@ -2076,7 +2074,6 @@ class TeaPartyBridge:
             agent_name='office-manager',
             qualifier='',
             conversation_type=ConversationType.OFFICE_MANAGER,
-            dispatches=True,
             cwd=self._repo_root,
         )
 
@@ -2179,7 +2176,6 @@ class TeaPartyBridge:
             conversation_type=ConversationType.CONFIG_LEAD,
             teaparty_home=config_tp,
             scope=config_scope,
-            dispatches=True,
             cwd=cwd,
         )
 

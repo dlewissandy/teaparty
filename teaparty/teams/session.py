@@ -33,7 +33,6 @@ from teaparty.proxy.hooks import proxy_bus_path
 from teaparty.teams.stream import (
     NON_CONVERSATIONAL_SENDERS,
     _extract_slug,
-    _make_live_stream_relay,
 )
 
 _log = logging.getLogger('teaparty.teams.session')
@@ -52,9 +51,16 @@ class AgentSession:
     - scope: 'management' or 'project'
     - conversation_type: how the conversation_id is keyed
     - agent_role: the sender label on bus messages
-    - dispatches: whether to start a BusEventListener for Send/Reply
     - post_invoke_hook: called after launch with the response text
     - build_prompt_hook: called to build the prompt (overrides default)
+
+    Every session sets up a BusEventListener and MCPRoutes
+    unconditionally.  An agent's *capability* to dispatch is
+    determined by whether ``mcp__teaparty-config__Send`` is in their
+    ``permissions.allow`` (settings.yaml) — that is the single source
+    of truth.  A separate ``dispatches`` flag was redundant
+    configuration that had to be kept in sync with the tool list and
+    bit us when callers forgot to set it.
     """
 
     def __init__(
@@ -67,7 +73,6 @@ class AgentSession:
         conversation_type: ConversationType,
         agent_role: str = '',
         llm_backend: str = 'claude',
-        dispatches: bool = False,
         post_invoke_hook: PostInvokeHook | None = None,
         build_prompt_hook: BuildPromptHook | None = None,
         on_dispatch: Callable[[dict], Any] | None = None,
@@ -83,7 +88,6 @@ class AgentSession:
         self.qualifier = qualifier
         self.agent_role = agent_role or agent_name
         self._llm_backend = llm_backend
-        self._dispatches = dispatches
         self._post_invoke_hook = post_invoke_hook
         self._build_prompt_hook = build_prompt_hook
         self._on_dispatch = on_dispatch
@@ -448,26 +452,13 @@ class AgentSession:
         # lifecycle scheduling); chat tier passes ``cross_repo_supported=True``
         # (an OM dispatch can land at a project's natural repo) and a
         # ``factory_registry`` for the pause/resume walker.
-        async def _on_child_complete(child_session, response_text):
-            """Chat-tier fan-in: re-invoke the lead with the child's
-            reply when the dispatcher was the top-level session.
-            Nested dispatches return their text up through the
-            tasks_by_child fan-in instead."""
-            if not response_text:
-                return
-            if child_session.parent_session_id == self._dispatch_session.id:
-                child_conv_id = f'dispatch:{child_session.id}'
-                reply = (
-                    f'[{child_conv_id}] {child_session.agent_name}: '
-                    f'{response_text}'
-                )
-                try:
-                    await self.invoke(cwd=cwd, resume_message=reply)
-                except Exception:
-                    _log.exception(
-                        '%s: failed to resume after %s reply',
-                        self.agent_name, child_session.agent_name,
-                    )
+        #
+        # Chat tier no longer needs an ``on_child_complete`` re-invoke
+        # hook: the unified ``run_subtree_loop`` (used by both
+        # ``AgentSession.invoke`` and ``run_child_lifecycle``) gathers
+        # children and re-launches with their replies in-band.  The
+        # async-callback fan-in mechanism that used to bridge between
+        # the two separate lifecycles is dead.
 
         # The dispatcher session's launch_cwd is the chat tier's cwd —
         # set it explicitly so the shared prelude can derive source_repo
@@ -502,7 +493,6 @@ class AgentSession:
             on_dispatch=self._on_dispatch,
             background_tasks=self._background_tasks,
             llm_caller=self._llm_caller,
-            on_child_complete=_on_child_complete,
         )
         spawn_fn = make_spawn_fn(self._dispatch_ctx)
 
@@ -1127,18 +1117,11 @@ class AgentSession:
             self.teaparty_home, self.scope, self.agent_name, self.qualifier,
         )
 
-        # Start bus listener for agents that dispatch.  The listener
-        # also registers the agent's escalation route in the in-process
-        # MCP registry — the AskQuestion tool (which runs inside the
-        # bridge process, not the agent's subprocess) reads the route
-        # by looking up the caller's agent name via contextvars.
-        if self._dispatches:
-            await self._ensure_bus_listener(cwd)
-
-        # Stream events to bus in real-time
-        stream_callback, events = _make_live_stream_relay(
-            self._bus, self.conversation_id, self.agent_role,
-        )
+        # Always set up the BusEventListener + MCPRoutes.  The
+        # agent's actual ability to dispatch is governed by their
+        # ``permissions.allow`` (settings.yaml) — if Send isn't
+        # there, claude can't call it.  No flag to forget.
+        await self._ensure_bus_listener(cwd)
 
         # The launcher writes stream events to {session_dir}/stream.jsonl.
         # We read the slug from that same file after launch completes.
@@ -1146,9 +1129,14 @@ class AgentSession:
 
         mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
 
-        launch_kwargs = dict(
+        # Build the launch_kwargs_base for run_subtree_loop.  The loop
+        # will populate ``message``, ``on_stream_event``, and
+        # ``resume_session`` per iteration.  ONE lifecycle: this is
+        # the same loop run_child_lifecycle uses for dispatched
+        # children — top-level chat and dispatched children no longer
+        # have separate execution paths.
+        launch_kwargs_base = dict(
             agent_name=self.agent_name,
-            message=prompt,
             scope=self.scope,
             telemetry_scope=self._telemetry_scope,
             teaparty_home=self.teaparty_home,
@@ -1157,24 +1145,29 @@ class AgentSession:
             launch_cwd=launch_cwd,
             config_dir=config_dir,
             stream_file=stream_path,
-            resume_session=self.claude_session_id or '',
             mcp_port=mcp_port,
             session_id=session.id,
-            on_stream_event=stream_callback,
+            mcp_routes=self._mcp_routes,
+            # This AgentSession's own conv_id — every dispatch it
+            # makes has this as parent.  Handles OM, PM, project
+            # lead, proxy, config-lead without per-role special-
+            # casing: each AgentSession knows its own conversation_id.
+            caller_conversation_id=self.conversation_id,
         )
         if self._llm_caller is not None:
-            launch_kwargs['llm_caller'] = self._llm_caller
-        launch_kwargs['mcp_routes'] = self._mcp_routes
-        # This AgentSession's own conv_id — every dispatch it makes
-        # has this as parent.  Handles OM (``om:{q}``), PM, project
-        # lead (``lead:{name}:{q}``), proxy, config-lead without
-        # per-role special-casing: each AgentSession knows its own
-        # ``conversation_id``.
-        launch_kwargs['caller_conversation_id'] = self.conversation_id
-        result = await launch(**launch_kwargs)
+            launch_kwargs_base['llm_caller'] = self._llm_caller
 
-        response_text = '\n'.join(
-            c for s, c in events if s == self.agent_role
+        from teaparty.messaging.child_dispatch import run_subtree_loop
+        response_text, events = await run_subtree_loop(
+            agent_name=self.agent_role,
+            initial_message=prompt,
+            bus=self._bus,
+            conv_id=self.conversation_id,
+            session=session,
+            tasks_by_child=self._tasks_by_child,
+            launch_fn=launch,
+            launch_kwargs_base=launch_kwargs_base,
+            resume_claude_session=self.claude_session_id or '',
         )
 
         # Poisoned session detection (all agents, not just OM)
@@ -1193,24 +1186,29 @@ class AgentSession:
             self.save_state()
 
         if not response_text:
+            # Loop returned empty without any fan-in payload — a
+            # genuinely empty turn (no children dispatched, claude
+            # produced nothing).  Treat as session-expired.
             self.claude_session_id = None
             self.save_state()
             self._bus.send(
                 self.conversation_id,
                 self.agent_role,
-                'I was unable to produce a response (the session may have '
-                'expired). Please send your message again to start a fresh '
-                'session.',
+                'I was unable to produce a response (the session may '
+                'have expired). Please send your message again to '
+                'start a fresh session.',
             )
 
         # Post-invoke hook (e.g. proxy ACT-R correction processing)
         if response_text and self._post_invoke_hook:
             self._post_invoke_hook(response_text, self)
 
-        if response_text and result.session_id:
-            self.claude_session_id = result.session_id
+        if response_text and session.claude_session_id:
+            self.claude_session_id = session.claude_session_id
             if is_fresh_session and not self.conversation_title:
-                slug = _extract_slug(stream_path, result.session_id, cwd)
+                slug = _extract_slug(
+                    stream_path, session.claude_session_id, cwd,
+                )
                 if slug:
                     self.conversation_title = slug
             self.save_state()

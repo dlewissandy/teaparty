@@ -29,7 +29,6 @@ def _make_session(tmpdir):
         agent_name='office-manager',
         qualifier='test-user',
         conversation_type=ConversationType.OFFICE_MANAGER,
-        dispatches=True,
     )
     return session
 

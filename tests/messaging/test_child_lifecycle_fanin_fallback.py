@@ -30,37 +30,34 @@ class TestFanInFallback(unittest.TestCase):
     """
 
     def test_response_text_falls_back_to_last_gc_payload(self) -> None:
-        """The exit expression at the bottom of run_child_lifecycle
-        is ``response_text = '\\n'.join(response_parts) or last_gc_payload``.
+        """The exit expression in the unified subtree loop is
+        ``response_text = '\\n'.join(response_parts) or last_gc_payload``.
         If anyone refactors that to drop the fallback, this test fires.
         """
         import inspect
         from teaparty.messaging import child_dispatch
-        src = inspect.getsource(child_dispatch.run_child_lifecycle)
+        src = inspect.getsource(child_dispatch.run_subtree_loop)
         self.assertIn(
             "or last_gc_payload",
             src,
-            'run_child_lifecycle must fall back to last_gc_payload '
+            'run_subtree_loop must fall back to last_gc_payload '
             'when response_parts is empty.  Without this, an '
             'intermediate agent that stays silent on a resume turn '
             'breaks the relay chain.',
         )
 
-    def test_last_gc_payload_is_assigned_in_both_gather_paths(self) -> None:
-        """Both gather paths (cross-restart resume at start_at_phase=
-        'awaiting' and the in-loop gather) must update last_gc_payload,
-        otherwise the cross-restart path could miss the fallback.
+    def test_last_gc_payload_is_assigned_in_loop(self) -> None:
+        """The in-loop gather updates last_gc_payload before
+        re-launching with the children's payload as the next message.
         """
         import inspect
         from teaparty.messaging import child_dispatch
-        src = inspect.getsource(child_dispatch.run_child_lifecycle)
-        # Two assignments expected: one in the awaiting branch, one
-        # inside the loop.
+        src = inspect.getsource(child_dispatch.run_subtree_loop)
         self.assertGreaterEqual(
-            src.count('last_gc_payload ='), 2,
-            'last_gc_payload must be updated wherever gc_replies are '
-            'computed; otherwise the cross-restart path drops the '
-            'fallback signal',
+            src.count('last_gc_payload ='), 1,
+            'last_gc_payload must be assigned wherever gc_replies '
+            'are computed; otherwise the fallback has no value to '
+            'fall back to.',
         )
 
 

@@ -561,7 +561,6 @@ class TestInvokeInnerUsesResolvedCwd(unittest.TestCase):
             scope='management',
             qualifier='verify-invoke',
             conversation_type=ConversationType.OFFICE_MANAGER,
-            dispatches=False,
             llm_caller=capturing_caller,
         )
         # Seed a human message so invoke produces a prompt.
@@ -632,7 +631,6 @@ class TestSpawnFnDispatchesAtProjectRepo(unittest.TestCase):
             scope='management',
             qualifier='dispatch-test',
             conversation_type=ConversationType.OFFICE_MANAGER,
-            dispatches=True,
             llm_caller=capturing_caller,
         )
 
