@@ -203,6 +203,12 @@ async def run_child_lifecycle(
     seen_tu: set[str] = set()
     seen_tr: set[str] = set()
     response_parts: list[str] = []
+    # Most recent gathered grandchild replies — used as a fan-in
+    # fallback when the agent's own resume turn produces no agent
+    # output.  Without this, an intermediate lead that "has nothing
+    # to add" silently swallows its children's contribution and the
+    # whole reply chain breaks one level early.
+    last_gc_payload: str = ''
 
     def on_event(ev: dict) -> None:
         for sender, content in _classify_event(ev, member, seen_tu, seen_tr):
@@ -231,7 +237,8 @@ async def run_child_lifecycle(
                 if isinstance(r, str) and r:
                     gc_replies.append(f'[dispatch:{gid}] {r}')
             if gc_replies:
-                current_message = '\n'.join(gc_replies)
+                last_gc_payload = '\n'.join(gc_replies)
+                current_message = last_gc_payload
 
     while True:
         # Fan-in tracking: bus is the single source of truth for
@@ -323,13 +330,19 @@ async def run_child_lifecycle(
                 _log.warning('Grandchild %s raised: %s', gid, r)
         if not gc_replies:
             break
-        current_message = '\n'.join(gc_replies)
+        last_gc_payload = '\n'.join(gc_replies)
+        current_message = last_gc_payload
 
     _log.info(
         '%s subtree completed in %.2fs', member, time.monotonic() - t0,
     )
 
-    response_text = '\n'.join(response_parts)
+    # Fan-in fallback: if the agent's resume turn produced no agent
+    # output, propagate the most recent grandchild payload up rather
+    # than dropping it.  An intermediate lead with nothing to add is
+    # autonomous behavior, but the chain must not lose the children's
+    # contribution one level early because of it.
+    response_text = '\n'.join(response_parts) or last_gc_payload
     _mark_complete(child_session, response_text)
     return response_text
 
