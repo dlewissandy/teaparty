@@ -1,6 +1,6 @@
 ---
 name: execute
-description: Run the CfA execution phase to completion and emit a terminal outcome (APPROVE, REALIGN, REPLAN, or WITHDRAW).
+description: Run the CfA execution phase to completion and emit a terminal outcome (APPROVED_WORK, REALIGN, REPLAN, or WITHDRAW).
 user-invocable: false
 allowed-tools: Read, Write, Edit, Glob, Grep, mcp__teaparty-config__AskQuestion, mcp__teaparty-config__Send, mcp__teaparty-config__CloseConversation
 ---
@@ -61,7 +61,7 @@ Terminal. Write `./.phase-outcome.json` and halt:
 
 ```json
 {
-  "outcome": "APPROVE",
+  "outcome": "APPROVED_WORK",
   "reason": "<short summary of what the human approved, preserving any conditions or caveats they attached during the ASSERT dialog>"
 }
 ```

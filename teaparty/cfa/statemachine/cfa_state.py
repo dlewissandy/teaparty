@@ -204,6 +204,33 @@ def set_state_direct(cfa: CfaState, target_state: str) -> CfaState:
     )
 
 
+def apply_response(cfa: CfaState, target_state: str) -> CfaState:
+    """Apply a skill's response by setting state to its named target.
+
+    The skill's outcome string (``APPROVED_INTENT`` / ``APPROVED_PLAN``
+    / ``APPROVED_WORK`` / ``REALIGN`` / ``REPLAN`` / ``WITHDRAW``)
+    is unambiguous about what was done because only that skill emits
+    it.  The orchestrator routes by ``response → target_state`` —
+    no ``(state, action)`` validation, the state itself is just a
+    record of where we are.
+
+    Increments ``backtrack_count`` when the move is to an earlier
+    working phase (e.g. EXECUTE → INTENT via REALIGN); otherwise
+    behaves like :func:`set_state_direct`.
+    """
+    new_phase = phase_for_state(target_state)
+    old_phase = phase_for_state(cfa.state)
+    is_working_backtrack = (
+        new_phase != 'terminal'
+        and old_phase != 'terminal'
+        and _PHASE_ORDER[new_phase] < _PHASE_ORDER[old_phase]
+    )
+    out = set_state_direct(cfa, target_state)
+    if is_working_backtrack:
+        out.backtrack_count += 1
+    return out
+
+
 # ── Persistence ────────────────────────────────────────────────────────────
 
 def save_state(cfa: CfaState, path: str) -> None:

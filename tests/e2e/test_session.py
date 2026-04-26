@@ -133,11 +133,20 @@ def _make_phase_aware_caller(transcript: _Transcript | None = None) -> Any:
 
         sf = stream_file or ''
         if '.intent-stream' in sf:
-            artifact, content = 'INTENT.md', '# Intent\nBuild a summary tool.\n'
+            artifact, content, outcome = (
+                'INTENT.md', '# Intent\nBuild a summary tool.\n',
+                'APPROVED_INTENT',
+            )
         elif '.plan-stream' in sf:
-            artifact, content = 'PLAN.md', '# Plan\nStep 1: write summary.\n'
+            artifact, content, outcome = (
+                'PLAN.md', '# Plan\nStep 1: write summary.\n',
+                'APPROVED_PLAN',
+            )
         else:
-            artifact, content = 'WORK_SUMMARY.md', '# Work Summary\nDone.\n'
+            artifact, content, outcome = (
+                'WORK_SUMMARY.md', '# Work Summary\nDone.\n',
+                'APPROVED_WORK',
+            )
 
         if cwd:
             Path(cwd, artifact).write_text(content)
@@ -150,7 +159,7 @@ def _make_phase_aware_caller(transcript: _Transcript | None = None) -> Any:
             # execution — to mirror what a real skill does.
             import json as _json
             Path(cwd, '.phase-outcome.json').write_text(
-                _json.dumps({'outcome': 'APPROVE',
+                _json.dumps({'outcome': outcome,
                              'reason': 'scripted e2e approval'})
             )
 
@@ -177,11 +186,20 @@ def _make_ollama_caller(transcript: _Transcript | None = None) -> Any:
 
         sf = stream_file or ''
         if '.intent-stream' in sf:
-            artifact, content = 'INTENT.md', '# Intent\nBuild a summary tool.\n'
+            artifact, content, outcome = (
+                'INTENT.md', '# Intent\nBuild a summary tool.\n',
+                'APPROVED_INTENT',
+            )
         elif '.plan-stream' in sf:
-            artifact, content = 'PLAN.md', '# Plan\nStep 1: write summary.\n'
+            artifact, content, outcome = (
+                'PLAN.md', '# Plan\nStep 1: write summary.\n',
+                'APPROVED_PLAN',
+            )
         else:
-            artifact, content = 'WORK_SUMMARY.md', '# Work Summary\nDone.\n'
+            artifact, content, outcome = (
+                'WORK_SUMMARY.md', '# Work Summary\nDone.\n',
+                'APPROVED_WORK',
+            )
 
         ollama_kwargs = {k: v for k, v in kwargs.items()
                         if k in ('cwd', 'stream_file')}
@@ -200,7 +218,7 @@ def _make_ollama_caller(transcript: _Transcript | None = None) -> Any:
             # auto-approves when it's missing (no silent approvals).
             import json as _json
             Path(cwd, '.phase-outcome.json').write_text(
-                _json.dumps({'outcome': 'APPROVE', 'reason': 'e2e ollama'})
+                _json.dumps({'outcome': outcome, 'reason': 'e2e ollama'})
             )
 
         return ClaudeResult(
@@ -222,11 +240,12 @@ def _make_scripted_outcome_caller(
     """Phase-aware scripted caller whose execution-phase outcomes are scripted.
 
     ``exec_outcomes`` is consumed in order for each execution-phase turn.
-    Typical use: ['REPLAN', 'APPROVE'] to force a backtrack-to-PLAN on the
-    first execute turn and approval on the re-run.
+    Typical use: ['REPLAN', 'APPROVED_WORK'] to force a backtrack-to-PLAN on
+    the first execute turn and approval on the re-run.
 
-    Intent and planning turns always emit APPROVE so those phases advance
-    cleanly — backtracks from those phases aren't exercised by these tests.
+    Intent and planning turns always emit their phase-specific approval
+    (APPROVED_INTENT / APPROVED_PLAN) so those phases advance cleanly —
+    backtracks from those phases aren't exercised by these tests.
     """
     remaining = list(exec_outcomes)
 
@@ -239,15 +258,17 @@ def _make_scripted_outcome_caller(
         sf = stream_file or ''
         if '.intent-stream' in sf:
             artifact, content, outcome = (
-                'INTENT.md', '# Intent\nBuild a summary tool.\n', 'APPROVE',
+                'INTENT.md', '# Intent\nBuild a summary tool.\n',
+                'APPROVED_INTENT',
             )
         elif '.plan-stream' in sf:
             artifact, content, outcome = (
-                'PLAN.md', '# Plan\nStep 1: write summary.\n', 'APPROVE',
+                'PLAN.md', '# Plan\nStep 1: write summary.\n',
+                'APPROVED_PLAN',
             )
         else:
             artifact, content = 'WORK_SUMMARY.md', '# Work Summary\nDone.\n'
-            outcome = remaining.pop(0) if remaining else 'APPROVE'
+            outcome = remaining.pop(0) if remaining else 'APPROVED_WORK'
 
         if cwd:
             Path(cwd, artifact).write_text(content)
@@ -513,7 +534,7 @@ class TestSessionBacktrackPaths(_SessionTestBase):
             execute_only=True,
             plan_file=self._plan_file(),
             llm_caller=_make_scripted_outcome_caller(
-                exec_outcomes=['REPLAN', 'APPROVE'], transcript=t,
+                exec_outcomes=['REPLAN', 'APPROVED_WORK'], transcript=t,
             ),
         )
         result = self._run_session(session, t)
@@ -542,7 +563,7 @@ class TestSessionBacktrackPaths(_SessionTestBase):
             execute_only=True,
             plan_file=self._plan_file(),
             llm_caller=_make_scripted_outcome_caller(
-                exec_outcomes=['REALIGN', 'APPROVE'], transcript=t,
+                exec_outcomes=['REALIGN', 'APPROVED_WORK'], transcript=t,
             ),
         )
         result = self._run_session(session, t)

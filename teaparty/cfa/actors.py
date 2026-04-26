@@ -460,39 +460,27 @@ def _read_phase_outcome(
     outcome = str(payload.get('outcome', '')).upper()
     reason = str(payload.get('reason', ''))
 
-    # Each skill outcome names the *target state* the skill wants to
-    # advance or backtrack to.  Resolve to the actual state-machine
-    # action by finding the edge from the current state that leads
-    # there.  Returns None if the target isn't reachable from
-    # ctx.state — strict rejection, not silent misrouting.
-    edges = TRANSITIONS.get(ctx.state, [])
-    action: str | None = None
-    if outcome == 'APPROVE':
-        # Forward advance — 'approve' (intent/planning/WORK_ASSERT)
-        # or 'auto-approve' (WORK_IN_PROGRESS).
-        for a, _ in edges:
-            if a in ('approve', 'auto-approve'):
-                action = a
-                break
-    elif outcome == 'REALIGN':
-        for a, to in edges:
-            if to == 'INTENT':
-                action = a
-                break
-    elif outcome == 'REPLAN':
-        for a, to in edges:
-            if to == 'PLAN':
-                action = a
-                break
-    elif outcome == 'WITHDRAW':
-        for a, to in edges:
-            if to == 'WITHDRAWN':
-                action = a
-                break
-
-    if action is None:
+    # (response → target) lookup.  Each skill outcome unambiguously
+    # names the next state, because only that skill emits that
+    # string.  No state-keyed validation: ``ctx.state`` is not
+    # consulted at all.  If the wrong skill runs (drift), it still
+    # emits an honest outcome and the orchestrator routes by the
+    # outcome alone — the trajectory self-corrects on the next
+    # phase dispatch.  The TRANSITIONS table becomes purely
+    # descriptive (which paths are valid) rather than prescriptive
+    # (which one to take).
+    _RESPONSE_TARGETS = {
+        'APPROVED_INTENT': 'PLAN',       # intent skill done → next is planning
+        'APPROVED_PLAN':   'EXECUTE',    # planning skill done → next is execute
+        'APPROVED_WORK':   'DONE',       # execute skill done → terminal
+        'REALIGN':         'INTENT',
+        'REPLAN':          'PLAN',
+        'WITHDRAW':        'WITHDRAWN',
+    }
+    target_state = _RESPONSE_TARGETS.get(outcome)
+    if target_state is None:
         return None
-    return action, reason
+    return target_state, reason
 
 def _no_artifact_action_for_state(state: str) -> str:
     """Return the action to take when the expected artifact was not produced.

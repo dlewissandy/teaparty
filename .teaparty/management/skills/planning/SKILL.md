@@ -1,6 +1,6 @@
 ---
 name: planning
-description: Run the CfA planning phase to completion — produce or align PLAN.md, dialog with the human, and emit a terminal outcome (APPROVE, REALIGN, or WITHDRAW).
+description: Run the CfA planning phase to completion — produce or align PLAN.md, dialog with the human, and emit a terminal outcome (APPROVED_PLAN, REALIGN, or WITHDRAW).
 user-invocable: false
 allowed-tools: Read, Write, Edit, Glob, Grep, mcp__teaparty-config__AskQuestion
 ---
@@ -70,7 +70,7 @@ Terminal. Write `./.phase-outcome.json` and halt:
 
 ```json
 {
-  "outcome": "APPROVE",
+  "outcome": "APPROVED_PLAN",
   "reason": "<short summary of what the human approved, preserving any conditions or caveats they attached during the ASSERT dialog>"
 }
 ```

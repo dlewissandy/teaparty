@@ -437,12 +437,20 @@ class TestTransitionStoresFeedbackInLastActorData(unittest.TestCase):
     inject it — even though the injection logic is correct.
     """
 
-    def test_transition_stores_feedback(self):
-        """After _transition with an ActorResult carrying feedback, _last_actor_data has it."""
+    def test_cross_phase_transition_clears_feedback(self):
+        """A phase-changing transition CLEARS feedback/dialog_history.
+
+        ``_last_actor_data['feedback']`` is forwarded into the next
+        actor invocation's ``backtrack_context``, which becomes a
+        ``[CfA BACKTRACK: Re-entering from a downstream phase.]``
+        prompt header.  When the next invocation is a *different
+        phase*, that header is wrong — the new phase's claude reads
+        it and re-runs the prior phase's skill.  Cross-phase
+        clearing is the fix.
+        """
         orch = _make_orchestrator(
             cfa_state=_make_cfa_state(state='INTENT'),
         )
-        # Patch save_state and commit so _transition does not touch the filesystem
         with patch('teaparty.cfa.engine.save_state'), \
              patch.object(orch, '_commit_artifacts', new=AsyncMock()), \
              patch.object(orch, '_detect_and_retire_stage'):
@@ -451,33 +459,46 @@ class TestTransitionStoresFeedbackInLastActorData(unittest.TestCase):
                 feedback="Please focus on auth only.",
                 data={'artifact_path': '/tmp/INTENT.md'},
             )
-            _run(orch._transition('approve', result))
+            # INTENT → PLAN crosses phases: feedback must be cleared
+            # so the planning phase doesn't see a stale BACKTRACK
+            # header.
+            _run(orch._transition('PLAN', result))
 
-        self.assertEqual(
-            orch._last_actor_data.get('feedback'),
-            "Please focus on auth only.",
+        self.assertNotIn(
+            'feedback', orch._last_actor_data,
+            'cross-phase transition must clear feedback',
         )
 
-    def test_transition_stores_dialog_history(self):
-        """After _transition with dialog_history in ActorResult, _last_actor_data has it."""
+    def test_cross_phase_transition_clears_dialog_history(self):
+        """Cross-phase transitions clear dialog_history for the same
+        reason as feedback — it would otherwise inject a stale
+        ``[escalation dialog]`` block into the next phase's first
+        turn and trigger the BACKTRACK prompt header.
+        """
         orch = _make_orchestrator(
             cfa_state=_make_cfa_state(state='INTENT'),
         )
-        dialog = "Human: Narrow scope.\nProxy: Auth only?\nHuman: Yes."
         with patch('teaparty.cfa.engine.save_state'), \
              patch.object(orch, '_commit_artifacts', new=AsyncMock()), \
              patch.object(orch, '_detect_and_retire_stage'):
             result = ActorResult(
                 action='approve',
-                dialog_history=dialog,
+                dialog_history='Human: Narrow scope.\nProxy: Auth only?',
                 data={},
             )
-            _run(orch._transition('approve', result))
+            _run(orch._transition('PLAN', result))
 
-        self.assertEqual(orch._last_actor_data.get('dialog_history'), dialog)
+        self.assertNotIn(
+            'dialog_history', orch._last_actor_data,
+            'cross-phase transition must clear dialog_history',
+        )
 
-    def test_transition_preserves_data_alongside_feedback(self):
-        """_transition stores both actor_result.data fields and feedback together."""
+    def test_cross_phase_transition_preserves_other_data(self):
+        """The clearing is scoped to feedback/dialog_history.  Other
+        ``actor_result.data`` fields (artifact paths, version markers,
+        etc.) survive the transition — they are descriptive of what
+        was produced, not phase-specific dialog state.
+        """
         orch = _make_orchestrator(
             cfa_state=_make_cfa_state(state='INTENT'),
         )
@@ -486,13 +507,15 @@ class TestTransitionStoresFeedbackInLastActorData(unittest.TestCase):
              patch.object(orch, '_detect_and_retire_stage'):
             result = ActorResult(
                 action='approve',
-                feedback='Auth only.',
+                feedback='cleared',  # cleared
                 data={'artifact_path': '/tmp/INTENT.md', 'version': 2},
             )
-            _run(orch._transition('approve', result))
+            _run(orch._transition('PLAN', result))
 
-        self.assertEqual(orch._last_actor_data.get('feedback'), 'Auth only.')
-        self.assertEqual(orch._last_actor_data.get('artifact_path'), '/tmp/INTENT.md')
+        self.assertNotIn('feedback', orch._last_actor_data)
+        self.assertEqual(
+            orch._last_actor_data.get('artifact_path'), '/tmp/INTENT.md',
+        )
         self.assertEqual(orch._last_actor_data.get('version'), 2)
 
     def test_transition_no_feedback_does_not_set_key(self):
@@ -507,7 +530,7 @@ class TestTransitionStoresFeedbackInLastActorData(unittest.TestCase):
                 action='approve',
                 data={'artifact_path': '/tmp/INTENT.md'},
             )
-            _run(orch._transition('approve', result))
+            _run(orch._transition('PLAN', result))
 
         self.assertNotIn('feedback', orch._last_actor_data)
         self.assertNotIn('dialog_history', orch._last_actor_data)
