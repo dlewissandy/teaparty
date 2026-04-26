@@ -89,9 +89,21 @@ class AgentSession:
         self._on_dispatch = on_dispatch
         self._llm_caller = llm_caller  # None → use launcher default
         self.project_slug = project_slug
-        # org_home: org-level .teaparty/ used as agent-definition fallback when
-        # teaparty_home is a project-specific directory (e.g. external projects).
-        self._org_home = os.path.expanduser(org_home) if org_home else None
+        # Two distinct tps, two distinct concerns:
+        #   * ``teaparty_home`` — execution/storage: where this
+        #     agent's session data and message bus live.  For an
+        #     external project lead (e.g. joke-book), this is the
+        #     project's own ``.teaparty/``.
+        #   * ``_org_home``     — registry/shard: the bridge's tp
+        #     where the team this agent leads (or belongs to) is
+        #     registered.  Routing/placement lookups walk this tree.
+        # The bridge passes both at page-instantiation time (it knows
+        # the shard).  Scripted callers (tests, CLI) often have just
+        # one tp; ``org_home`` defaults to ``teaparty_home`` so those
+        # callers don't need to set both.
+        self._org_home = (
+            os.path.expanduser(org_home) if org_home else self.teaparty_home
+        )
         self._telemetry_scope = project_slug or scope
         self._paused_check = paused_check
         # Bridge-supplied callable invoked per escalation turn to run the
@@ -417,13 +429,15 @@ class AgentSession:
             make_spawn_fn,
         )
 
-        # Single roster-derivation entry point: derive_team_roster
-        # looks up the team headed by this session's lead in the org
-        # tree.  No project_dir lookup needed at the call site — the
-        # tree walk handles OM, project-lead, and workgroup-lead
-        # sessions uniformly because each is its team's lead.
+        # Routing scope is derived from the registry tp (where this
+        # agent is registered as a lead/member of teams), NOT the
+        # execution tp (where their persona files live).  For an
+        # external project lead like joke-book-lead, the project's
+        # local ``.teaparty/`` has no management config; the org
+        # registers them.  ``_org_home`` defaults to ``teaparty_home``
+        # for in-repo agents, so this works uniformly.
         dispatcher = build_session_dispatcher(
-            teaparty_home=self.teaparty_home,
+            teaparty_home=self._org_home,
             lead_name=self.agent_name,
         )
 
@@ -472,7 +486,12 @@ class AgentSession:
             session_registry=session_registry,
             tasks_by_child=self._tasks_by_child,
             factory_registry=self._run_child_factories,
-            teaparty_home=self.teaparty_home,
+            # Registry tp: cross-team lookups (resolve_launch_placement,
+            # build_session_dispatcher for children) walk the org tree.
+            # Same value as ``teaparty_home`` for in-repo agents; for
+            # external project leads it's the bridge's own tp where
+            # the project is registered.
+            teaparty_home=self._org_home,
             project_slug=self.project_slug or '',
             repo_root=repo_root,
             telemetry_scope=self._telemetry_scope,

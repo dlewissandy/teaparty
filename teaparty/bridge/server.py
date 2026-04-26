@@ -1982,11 +1982,29 @@ class TeaPartyBridge:
         Creates or reuses an AgentSession, acquires a per-qualifier lock
         to serialize concurrent invocations, and delegates to invoke().
 
-        teaparty_home: sessions live where the work lives. Management agents
-        use the teaparty repo's .teaparty/. Project agents use the project
-        repo's .teaparty/.
+        Two distinct teaparty_homes for two distinct concerns:
+
+          * ``teaparty_home`` — **execution/storage** tp.  Where the
+            agent's session data, message bus, and (for in-repo
+            agents) persona files live.  Defaults to the bridge's
+            tp when callers don't specify a project-specific path.
+          * ``org_home``      — **registry/shard** tp.  The shard
+            this conversation is in — where the team this agent leads
+            (or belongs to) is registered.  This is ALWAYS the
+            bridge's own tp (the shard the page was instantiated in)
+            regardless of where storage lives.
+
+        We know the shard at page instantiation; we pass it
+        explicitly rather than letting AgentSession guess from the
+        execution tp (which fails for external projects whose local
+        ``.teaparty/`` has no management config).
         """
         effective_home = teaparty_home or self.teaparty_home
+        # The bridge instantiated the page; the bridge's tp IS the
+        # shard.  Always pass it.  Callers may pass org_home explicitly
+        # but it should always equal self.teaparty_home; we override
+        # any empty value rather than letting AgentSession fall back.
+        registry_home = org_home or self.teaparty_home
 
         if session_key not in self._agent_locks:
             self._agent_locks[session_key] = asyncio.Lock()
@@ -2011,7 +2029,7 @@ class TeaPartyBridge:
                         (lambda s=project_slug: s in self._paused_projects)
                         if project_slug else None
                     ),
-                    org_home=org_home or None,
+                    org_home=registry_home,
                     # Issue #420: supply the bridge's proxy invocation hook
                     # so AskQuestion routes through the proxy + /escalation
                     # skill.  The proxy agent itself is excluded — its own
