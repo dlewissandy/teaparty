@@ -33,7 +33,6 @@ from teaparty.cfa.actors import InputProvider
 from teaparty.cfa.gates.escalation import AskQuestionRunner
 from teaparty.cfa.gates.intervention_listener import InterventionListener
 from teaparty.workspace.worktree import commit_artifact
-from teaparty.runners.dispatch_env import cfa_dispatch_env_vars
 from teaparty.cfa.run_options import RunOptions
 from teaparty.messaging.bus import Event, EventBus, EventType, InputRequest
 from teaparty.cfa.gates.intervention import build_intervention_prompt
@@ -220,20 +219,95 @@ class Orchestrator:
             self._stream_conv_id and os.path.exists(bus_db_path)
         ):
             async def _redispatch(*, conversation, worktree_path):
-                from teaparty.cfa.dispatch import dispatch
-                # Job-store layout: child_infra is the worktree's parent.
+                """Resume an orphaned dispatched child by re-running its
+                CfA from where it left off, then squash-merging back."""
+                from teaparty.bridge.state.heartbeat import (
+                    create_heartbeat, finalize_heartbeat,
+                )
+                from teaparty.cfa.statemachine.cfa_state import (
+                    load_state as _load_cfa,
+                )
+                from teaparty.workspace.merge import squash_merge
+
                 child_infra = (
                     os.path.dirname(worktree_path) if worktree_path else ''
                 )
-                await dispatch(
-                    team=conversation.agent_name,
-                    task=self.task,
-                    session_worktree=self.session_worktree,
-                    infra_dir=self.infra_dir,
-                    project_slug=self.project_slug,
-                    resume_worktree=worktree_path,
-                    resume_infra=child_infra,
+                child_state_path = os.path.join(
+                    child_infra, '.cfa-state.json',
                 )
+                if not child_infra or not os.path.isfile(child_state_path):
+                    _log.warning(
+                        'Recovery: cannot resume %s — missing infra / cfa-state',
+                        conversation.agent_name,
+                    )
+                    return
+
+                hb_path = os.path.join(child_infra, '.heartbeat')
+                create_heartbeat(hb_path, role=conversation.agent_name)
+
+                child_cfa = _load_cfa(child_state_path)
+                child_session_id = os.path.basename(child_infra)
+
+                async def _unreachable_input(request):
+                    raise RuntimeError(
+                        'never_escalate=True but input_provider was called',
+                    )
+
+                child_orch = Orchestrator(
+                    cfa_state=child_cfa,
+                    phase_config=self.config,
+                    event_bus=EventBus(),
+                    input_provider=_unreachable_input,
+                    infra_dir=child_infra,
+                    project_workdir=worktree_path,
+                    session_worktree=worktree_path,
+                    proxy_model_path=self.proxy_model_path,
+                    project_slug=self.project_slug,
+                    poc_root=self.poc_root,
+                    task=self.task,
+                    session_id=child_session_id,
+                    options=RunOptions(
+                        never_escalate=True,
+                        team_override=conversation.agent_name,
+                        parent_heartbeat=os.path.join(
+                            self.infra_dir, '.heartbeat',
+                        ),
+                        llm_backend=self._llm_backend,
+                    ),
+                )
+
+                result = None
+                try:
+                    result = await child_orch.run()
+                except Exception as exc:
+                    _log.warning(
+                        'Recovery: resume of %s raised: %s',
+                        conversation.agent_name, exc,
+                    )
+
+                if result and result.terminal_state == 'DONE':
+                    try:
+                        await squash_merge(
+                            source=worktree_path,
+                            target=self.session_worktree,
+                            message=(
+                                f'Recovery: resumed {conversation.agent_name} dispatch'
+                            ),
+                        )
+                    except Exception as exc:
+                        _log.warning(
+                            'Recovery: merge after resume failed: %s', exc,
+                        )
+
+                try:
+                    finalize_heartbeat(
+                        hb_path,
+                        'completed' if (
+                            result and result.terminal_state == 'DONE'
+                        ) else 'withdrawn',
+                    )
+                except FileNotFoundError:
+                    pass
 
             recovery_bus = SqliteMessageBus(bus_db_path)
             try:
@@ -816,12 +890,6 @@ class Orchestrator:
             agents_json=agents_json or None,
             agents_file=agents_path or None,
             stream_file=os.path.join(self.infra_dir, spec.stream_file),
-            env_vars=cfa_dispatch_env_vars(
-                project_slug=self.project_slug,
-                project_workdir=self.project_workdir,
-                infra_dir=self.infra_dir,
-                session_worktree=self.session_worktree,
-            ),
             permission_mode_override=spec.permission_mode,
             mcp_routes=self._mcp_routes,
             caller_conversation_id=(

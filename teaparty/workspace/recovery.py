@@ -113,11 +113,11 @@ async def recover_orphaned_children(
             ``recovery_redispatch`` LOG events.  ``None`` → silent.
         redispatch_fn: Optional callable invoked once per dead child:
             ``await redispatch_fn(conversation=..., worktree_path=...)``.
-            ``None`` means "log + leave the worktree alone."  CfA wires
-            its ``cfa.dispatch.dispatch`` resume helper here; chat tier
-            currently passes nothing because it has no equivalent
-            (the child's bus row already records everything needed for
-            the user to resume manually).
+            ``None`` means "log + leave the worktree alone."  The CfA
+            engine wires an inline resume helper (load child CfA →
+            run a fresh ``Orchestrator`` → squash-merge); chat tier
+            passes ``None`` because the child's bus row already
+            records everything needed for the user to resume manually.
     """
     from teaparty.messaging.conversations import (
         ConversationState, ConversationType,
