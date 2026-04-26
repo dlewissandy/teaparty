@@ -317,7 +317,63 @@ async def run_agent_loop(
                     '%s on_post_turn raised; continuing', agent_name,
                 )
 
-        # ── TERMINATION: tier-specific exit signal ─────────────────────
+        # ── GATHER GRANDCHILDREN ───────────────────────────────────────
+        # Resolve any new grandchild into either a still-running task
+        # (await it) or an already-known result (pluck from
+        # results_by_child).  A subtree can run to completion while the
+        # parent's launch is still streaming claude events; the completed
+        # task pops itself from tasks_by_child but stores its response
+        # in results_by_child, so we never lose it.
+        after_ids = {
+            c.id[len('dispatch:'):]
+            for c in bus.children_of(conv_id)
+            if c.id.startswith('dispatch:')
+        }
+        new_gc_ids = after_ids - before_ids
+
+        gc_replies: list[str] = []
+        if new_gc_ids:
+            new_gc_list = sorted(new_gc_ids)
+            pending_tasks: list[asyncio.Task] = []
+            pending_ids: list[str] = []
+            for g in new_gc_list:
+                if g in tasks_by_child:
+                    pending_tasks.append(tasks_by_child[g])
+                    pending_ids.append(g)
+                elif g in results_by_child:
+                    r = results_by_child[g]
+                    if r:
+                        gc_replies.append(f'[dispatch:{g}] {r}')
+
+            if pending_tasks or gc_replies:
+                if on_phase is not None:
+                    try:
+                        on_phase('awaiting', list(new_gc_ids))
+                    except Exception:
+                        _log.debug(
+                            'on_phase(awaiting) raised', exc_info=True,
+                        )
+
+                if pending_tasks:
+                    gc_results = await asyncio.gather(
+                        *pending_tasks, return_exceptions=True,
+                    )
+                    for gid, r in zip(pending_ids, gc_results):
+                        if isinstance(r, str) and r:
+                            gc_replies.append(f'[dispatch:{gid}] {r}')
+                        elif isinstance(r, Exception) and not isinstance(
+                                r, asyncio.CancelledError):
+                            _log.warning('Grandchild %s raised: %s', gid, r)
+
+        if gc_replies:
+            last_gc_payload = '\n'.join(gc_replies)
+            current_message = last_gc_payload
+            continue
+
+        # ── NATURAL EXIT ───────────────────────────────────────────────
+        # No new grandchildren needing replies.  Let the caller declare
+        # a tier-specific terminal value (e.g. CfA reads ``.phase-
+        # outcome.json``) before we exit; otherwise the loop just ends.
         if on_terminate is not None:
             try:
                 terminal_value = await on_terminate()
@@ -326,63 +382,7 @@ async def run_agent_loop(
                     '%s on_terminate raised; treating as no-exit', agent_name,
                 )
                 terminal_value = None
-            if terminal_value is not None:
-                break
-
-        after_ids = {
-            c.id[len('dispatch:'):]
-            for c in bus.children_of(conv_id)
-            if c.id.startswith('dispatch:')
-        }
-        new_gc_ids = after_ids - before_ids
-        if not new_gc_ids:
-            break
-
-        # Resolve each new grandchild into either a still-running
-        # task (await it) or an already-known result (pluck from
-        # results_by_child).  A subtree can run to completion while
-        # the parent's launch is still streaming claude events; the
-        # completed task pops itself from tasks_by_child but stores
-        # its response in results_by_child, so we never lose it.
-        new_gc_list = sorted(new_gc_ids)
-        pending_tasks: list[asyncio.Task] = []
-        pending_ids: list[str] = []
-        gc_replies: list[str] = []
-        for g in new_gc_list:
-            if g in tasks_by_child:
-                pending_tasks.append(tasks_by_child[g])
-                pending_ids.append(g)
-            elif g in results_by_child:
-                r = results_by_child[g]
-                if r:
-                    gc_replies.append(f'[dispatch:{g}] {r}')
-
-        if not pending_tasks and not gc_replies:
-            break
-
-        if on_phase is not None:
-            try:
-                on_phase('awaiting', list(new_gc_ids))
-            except Exception:
-                _log.debug(
-                    'on_phase(awaiting) raised', exc_info=True,
-                )
-
-        if pending_tasks:
-            gc_results = await asyncio.gather(
-                *pending_tasks, return_exceptions=True,
-            )
-            for gid, r in zip(pending_ids, gc_results):
-                if isinstance(r, str) and r:
-                    gc_replies.append(f'[dispatch:{gid}] {r}')
-                elif isinstance(r, Exception) and not isinstance(
-                        r, asyncio.CancelledError):
-                    _log.warning('Grandchild %s raised: %s', gid, r)
-
-        if not gc_replies:
-            break
-        last_gc_payload = '\n'.join(gc_replies)
-        current_message = last_gc_payload
+        break
 
     _log.info(
         '%s agent loop completed in %.2fs', agent_name, time.monotonic() - t0,

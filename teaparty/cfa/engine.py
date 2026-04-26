@@ -29,12 +29,7 @@ from teaparty.cfa.statemachine.cfa_state import (
 _log = logging.getLogger('teaparty')
 from teaparty.learning.episodic.detect_stage import detect_stage_from_content
 from teaparty.learning.episodic.retire_stage import retire_stage_entries
-from teaparty.cfa.actors import (
-    ActorContext,
-    ActorResult,
-    InputProvider,
-    run_phase,
-)
+from teaparty.cfa.actors import InputProvider
 from teaparty.cfa.gates.escalation import AskQuestionRunner
 from teaparty.cfa.gates.intervention_listener import InterventionListener
 from teaparty.workspace.worktree import commit_artifact
@@ -190,12 +185,11 @@ class Orchestrator:
         else:
             self._on_stream_event = None
 
-        # Cut 28: AgentRunner class collapsed into module-level
-        # functions in cfa/actors.py.  Per-call config (llm_caller,
-        # stall_timeout, llm_backend, on_stream_event) is passed to
-        # ``run_phase`` as kwargs at the single call site in
-        # ``_invoke_actor`` — there's nothing instance-state-shaped
-        # about a single function call.
+        # Per-state launch config: ``_llm_caller`` lets tests override
+        # the subprocess; ``_stall_timeout`` rides into ``launch()``
+        # via ``_build_launch_kwargs_base``.  ``_llm_backend`` is unused
+        # in the unified loop path (the chat-tier launcher resolves
+        # backends internally).
         self._llm_caller = opts.llm_caller
         self._llm_backend = opts.llm_backend
         self._stall_timeout = phase_config.stall_timeout
@@ -204,7 +198,6 @@ class Orchestrator:
         self._intervention_listener: InterventionListener | None = None
         self._intervention_resolver: dict[str, str] = {}
         self._bus_event_listener: Any | None = None
-        self._fan_in_event: asyncio.Event | None = None
         self._bus_lead_context_id: str = ''
 
         self._tasks_by_child: dict[str, asyncio.Task] = {}
@@ -393,8 +386,6 @@ class Orchestrator:
                         _log.exception(
                             '_on_child_complete: inject reply failed',
                         )
-                if not self._tasks_by_child and self._fan_in_event:
-                    self._fan_in_event.set()
 
             self._dispatch_ctx = ChildDispatchContext(
                 dispatcher_session=self._dispatcher_session,
@@ -448,7 +439,7 @@ class Orchestrator:
         Called by BusEventListener for EVERY Reply, including those from
         workers that complete before the final one (fan-out N > 1).  This
         ensures all worker replies are in the lead's JSONL history before
-        _await_fan_in_and_reinvoke triggers the --resume invocation.
+        run_agent_loop's gather step triggers the --resume invocation.
 
         session_id is the PARENT context's session_id (the lead's latest
         claude session ID), kept current by _update_lead_bus_session.
@@ -481,42 +472,6 @@ class Orchestrator:
             bus.set_agent_context_session_id(self._bus_lead_context_id, session_id)
         finally:
             bus.close()
-
-    async def _await_fan_in_and_reinvoke(
-        self,
-        spec: 'PhaseSpec',
-        state: State,
-        phase_start_time: float,
-    ) -> 'ActorResult':
-        """Block the lead until all dispatched workers reply, then resume it.
-
-        Fan-in is a framework-level turn-boundary concern, not a state-machine
-        transition.  When the lead's turn completes with open worker contexts
-        on the bus, this coroutine waits for BusEventListener.trigger_reply
-        to signal _fan_in_event (fired when every open child context has
-        replied), then re-invokes the lead via --resume so it can synthesize
-        the workers' replies before advancing the CfA.
-        """
-        if not self._tasks_by_child:
-            _log.info(
-                'Fan-in wait: no workers in flight; re-invoking lead '
-                'immediately',
-            )
-            return await self._invoke_actor(spec, state, phase_start_time)
-        # Arm the event before re-checking _tasks_by_child to avoid a
-        # race where a child completion fires between check and arm.
-        self._fan_in_event = asyncio.Event()
-        try:
-            if self._tasks_by_child:
-                _log.info(
-                    'Fan-in wait: blocking until all dispatched workers '
-                    'reply',
-                )
-                await self._fan_in_event.wait()
-        finally:
-            self._fan_in_event = None
-        _log.info('Fan-in complete: resuming lead via --resume for synthesis')
-        return await self._invoke_actor(spec, state, phase_start_time)
 
     async def _run_job(self) -> OrchestratorResult:
         """Drive the CfA to a terminal state.
@@ -572,11 +527,17 @@ class Orchestrator:
     async def _run_state(self, state: State) -> PhaseResult:
         """Run a single CfA state until the skill emits an action.
 
-        Returns ``PhaseResult(action=...)`` with the outcome the skill
-        declared.  The caller (``_run_job``) routes on that action.
+        Layered on top of the unified ``run_agent_loop`` — same primitive
+        the chat tier uses, with CfA-specific concerns plugged in via
+        callbacks (intervention pump, infra-failure dialog, outcome
+        reading).  Returns ``PhaseResult(action=...)`` with the action
+        the loop terminated on.
         """
+        from teaparty.messaging.child_dispatch import run_agent_loop
+        from teaparty.runners.launcher import launch
+        from types import SimpleNamespace
+
         spec = self._phase_spec(state)
-        phase_start_time = time.monotonic()
 
         await self.event_bus.publish(Event(
             type=EventType.PHASE_STARTED,
@@ -588,193 +549,375 @@ class Orchestrator:
         if not os.path.exists(stream_path):
             open(stream_path, 'w').close()
 
-        while True:
-            actor_result = await self._invoke_actor(spec, state, phase_start_time)
+        # ── Static launch kwargs (built once per state) ────────────────
+        launch_kwargs_base = self._build_launch_kwargs_base(state, spec)
 
-            if actor_result.action == Action.FAILURE:
-                reason = actor_result.data.get('reason', 'unknown')
-                # Recoverable: API overload — sleep & retry up to N times.
-                if reason == 'api_overloaded':
-                    if await self._handle_overloaded(state) == 'retry':
-                        continue
-                # Unrecoverable for autonomous mode: land in
-                # State.FAILURE and bubble up.
-                if self.never_escalate:
-                    self.cfa = set_state_direct(self.cfa, State.FAILURE)
-                    save_state(
-                        self.cfa,
-                        os.path.join(self.infra_dir, '.cfa-state.json'),
-                    )
-                    await self.event_bus.publish(Event(
-                        type=EventType.PHASE_COMPLETED,
-                        data={'state': self.cfa.state},
-                        session_id=self.session_id,
-                    ))
-                    return PhaseResult(
-                        action=Action.FAILURE, failure_reason=reason,
-                    )
-                # Ask the human.  ``withdraw`` ends the state with a
-                # WITHDRAW outcome.  ``retry`` resumes the same agent
-                # session with the human's response injected as a
-                # turn-boundary intervention — no rerun from scratch.
-                decision, response = await self._failure_dialog(reason)
-                if decision == 'withdraw':
-                    self.cfa = set_state_direct(self.cfa, State.WITHDRAWN)
-                    save_state(
-                        self.cfa,
-                        os.path.join(self.infra_dir, '.cfa-state.json'),
-                    )
-                    await self.event_bus.publish(Event(
-                        type=EventType.PHASE_COMPLETED,
-                        data={'state': self.cfa.state},
-                        session_id=self.session_id,
-                    ))
-                    return PhaseResult(action=Action.WITHDRAW)
-                self._pending_intervention = (
-                    f'[infrastructure failure: {reason}]\n'
-                    f'[human guidance]\n{response}'
+        # ── First-turn prompt: task body + optional resume / backtrack
+        #    headers.  Subsequent turns receive grandchild replies as
+        #    their message; the engine only contributes intervention
+        #    text via ``on_pre_turn``.
+        initial_message = self._build_initial_message(state)
+
+        # ── Per-state state held by the closures below ─────────────────
+        terminal_outcome: dict[str, Any] = {}  # written by on_failure when it forces an exit
+
+        # ── Hooks ──────────────────────────────────────────────────────
+        async def on_pre_turn(msg: str) -> str:
+            """Prepend any pending intervention (failure-guidance,
+            compaction trigger, bus-relayed human message) onto the
+            outgoing turn message."""
+            await self._deliver_intervention()
+            if self._pending_intervention:
+                msg = f'{self._pending_intervention}\n\n{msg}'
+                self._pending_intervention = ''
+            return msg
+
+        async def on_post_turn(result: Any) -> None:
+            """Telemetry, artifact relocation, scratch update,
+            compaction prep — runs after every successful turn."""
+            await self._post_turn_bookkeeping(state, spec, result)
+
+        async def on_failure(result: Any) -> str:
+            """Recoverable failures retry inline; unrecoverable ones
+            either land in ``State.FAILURE`` (autonomous) or surface
+            a withdraw / resume-with-guidance dialog."""
+            reason = (
+                'stall_timeout' if getattr(result, 'stall_killed', False)
+                else 'api_overloaded' if getattr(result, 'api_overloaded', False)
+                else 'nonzero_exit'
+            )
+            if reason == 'api_overloaded':
+                if await self._handle_overloaded(state) == 'retry':
+                    return 'retry'
+            if self.never_escalate:
+                self.cfa = set_state_direct(self.cfa, State.FAILURE)
+                save_state(
+                    self.cfa,
+                    os.path.join(self.infra_dir, '.cfa-state.json'),
                 )
-                continue
-
-            turn_cost = actor_result.data.get('cost_usd', 0.0)
-            if turn_cost:
-                turn_stats: dict[str, Any] = {'total_cost_usd': turn_cost}
-                for key in ('input_tokens', 'output_tokens', 'duration_ms'):
-                    val = actor_result.data.get(key)
-                    if val:
-                        turn_stats[key] = val
-                await self.event_bus.publish(Event(
-                    type=EventType.TURN_COST,
-                    data=turn_stats,
-                    session_id=self.session_id,
-                ))
-
-            # PENDING means the skill turn ended without declaring an
-            # outcome.  If workers are open, wait for fan-in and re-invoke.
-            # If no workers remain, raise — never silently approve.
-            while actor_result.action == Action.PENDING:
-                if self._tasks_by_child:
-                    actor_result = await self._await_fan_in_and_reinvoke(
-                        spec, state, phase_start_time,
-                    )
-                    continue
-                raise RuntimeError(
-                    f'CfA state {self.cfa.state!r}: skill turn ended '
-                    'without writing ``.phase-outcome.json`` and no '
-                    'workers are in flight.  Nothing to wait for; the '
-                    'skill is incomplete.  Engine refuses to silently '
-                    'approve.',
+                terminal_outcome['action'] = Action.FAILURE
+                terminal_outcome['failure_reason'] = reason
+                return 'abort'
+            decision, response = await self._failure_dialog(reason)
+            if decision == 'withdraw':
+                self.cfa = set_state_direct(self.cfa, State.WITHDRAWN)
+                save_state(
+                    self.cfa,
+                    os.path.join(self.infra_dir, '.cfa-state.json'),
                 )
+                terminal_outcome['action'] = Action.WITHDRAW
+                return 'abort'
+            # Retry: queue the human's response as the next turn's
+            # intervention text.  ``--resume`` keeps the same Claude
+            # session so the agent picks up where it left off.
+            self._pending_intervention = (
+                f'[infrastructure failure: {reason}]\n'
+                f'[human guidance]\n{response}'
+            )
+            return 'retry'
 
-            # Fan-in wait: if the lead dispatched workers via Send, hold the
-            # CfA transition until all workers have replied.  The lead is then
-            # re-invoked (--resume) so it can synthesize before the gate sees it.
-            if (not is_globally_terminal(self.cfa.state)
-                    and self._tasks_by_child):
-                actor_result = await self._await_fan_in_and_reinvoke(
-                    spec, state, phase_start_time,
+        async def on_terminate() -> Any:
+            """Read ``./.phase-outcome.json``.  Present and parseable
+            → return the ``Action``.  Absent → ``None`` (loop falls
+            through to its natural exit, engine raises if there's
+            nothing to wait for either)."""
+            return self._read_phase_outcome_action()
+
+        # ── Run the unified loop ───────────────────────────────────────
+        loop_session = SimpleNamespace(
+            claude_session_id=self._phase_session_ids.get(state, ''),
+        )
+
+        if self._stream_bus is None or not self._stream_conv_id:
+            raise RuntimeError(
+                'CfA engine requires a stream bus and conv_id to drive '
+                'run_agent_loop; this Orchestrator was constructed '
+                'without project_slug + session_id wiring.',
+            )
+
+        loop_result = await run_agent_loop(
+            agent_name=spec.lead,
+            initial_message=initial_message,
+            bus=self._stream_bus,
+            conv_id=self._stream_conv_id,
+            session=loop_session,
+            tasks_by_child=self._tasks_by_child,
+            results_by_child=self._results_by_child,
+            launch_fn=launch,
+            launch_kwargs_base=launch_kwargs_base,
+            resume_claude_session=self._phase_session_ids.get(state, ''),
+            on_pre_turn=on_pre_turn,
+            on_post_turn=on_post_turn,
+            on_failure=on_failure,
+            on_terminate=on_terminate,
+        )
+
+        await self.event_bus.publish(Event(
+            type=EventType.PHASE_COMPLETED,
+            data={'state': self.cfa.state},
+            session_id=self.session_id,
+        ))
+
+        # ── Resolve final action ───────────────────────────────────────
+        if 'action' in terminal_outcome:
+            # on_failure forced an exit (FAILURE or WITHDRAW).  CfaState
+            # was already moved by the failure handler; nothing left to
+            # transition.
+            action = terminal_outcome['action']
+            if action == Action.FAILURE:
+                return PhaseResult(
+                    action=Action.FAILURE,
+                    failure_reason=terminal_outcome.get('failure_reason', ''),
                 )
+            return PhaseResult(action=action)
 
-            await self._transition(actor_result.action, actor_result)
+        action = loop_result.terminal
+        if action is None:
+            raise RuntimeError(
+                f'CfA state {self.cfa.state!r}: skill turn ended '
+                'without writing ``.phase-outcome.json`` and no '
+                'workers are in flight.  Nothing to wait for; the '
+                'skill is incomplete.  Engine refuses to silently '
+                'approve.',
+            )
 
-            # Intra-state hooks (intervention, scratch, compaction) only
-            # fire when this turn did NOT end the state.  Any action with
-            # a known state mapping ends it.
-            state_ending = actor_result.action in ACTION_TO_STATE
-            if not state_ending:
-                await self._deliver_intervention()
-                self._update_scratch(state)
-                budget = actor_result.data.get('context_budget')
-                if (isinstance(budget, ContextBudget)
-                        and budget.should_compact):
-                    self._pending_intervention = build_compact_prompt(
-                        cfa_state='',
-                        task=self._task_for_phase(state),
-                        scratch_path='.context/scratch.md',
-                    )
-                    budget.clear_compact()
-                continue
+        # ── Apply transition with the claude_session_id the loop tracked ─
+        await self._transition(
+            action,
+            claude_session_id=loop_session.claude_session_id,
+        )
 
-            await self.event_bus.publish(Event(
-                type=EventType.PHASE_COMPLETED,
-                data={'state': self.cfa.state},
-                session_id=self.session_id,
-            ))
-            return PhaseResult(action=actor_result.action)
+        return PhaseResult(action=action)
 
-    async def _invoke_actor(self, spec: 'PhaseSpec', state: State,
-                             phase_start_time: float = 0.0) -> ActorResult:
-        """Dispatch to the actor for the current state.
+    def _build_initial_message(self, state: State) -> str:
+        """Construct the first-turn prompt for *state*.
 
-        In the flat 5-state model there is one actor — the project lead
-        running the state's skill.
+        Adds the ``[CfA RESPONSE / BACKTRACK]`` header when the engine
+        is resuming with feedback / dialog from a downstream phase, and
+        the ``[SESSION RESUMED]`` header when ``--resume`` will reattach
+        to a Claude session whose task handles are now stale.
         """
-        ctx = ActorContext(
-            state=state,
-            task=self._task_for_phase(state),
-            infra_dir=self.infra_dir,
-            project_workdir=self.project_workdir,
-            session_worktree=self.session_worktree,
-            phase_spec=spec,
-            poc_root=self.poc_root,
+        task = self._task_for_phase(state)
+
+        prev_feedback = self._last_actor_data.get('feedback', '')
+        prev_dialog = self._last_actor_data.get('dialog_history', '')
+        prev_stderr = self._last_actor_data.get('stderr_lines', [])
+
+        backtrack_parts: list[str] = []
+        if prev_dialog:
+            backtrack_parts.append(f'[escalation dialog]\n{prev_dialog}')
+        if prev_feedback:
+            backtrack_parts.append(f'[human feedback]\n{prev_feedback}')
+        if prev_stderr:
+            backtrack_parts.append(
+                '[stderr from previous turn]\n' + '\n'.join(prev_stderr),
+            )
+
+        prompt = task
+        if backtrack_parts:
+            has_human = any(
+                p.startswith('[human feedback]') for p in backtrack_parts
+            )
+            header = (
+                '[CfA RESPONSE: The human has responded to your escalation.]'
+                if has_human else
+                '[CfA BACKTRACK: Re-entering from a downstream phase.]'
+            )
+            prompt = (
+                f'{header}\n\n'
+                f'Feedback:\n' + '\n\n'.join(backtrack_parts) + '\n\n'
+                f'Original task: {task}'
+            )
+
+        if self._phase_session_ids.get(state):
+            prompt = (
+                '[SESSION RESUMED — STALE TASK HANDLES]\n'
+                'This conversation is being resumed after a restart. '
+                'All background task and agent handles from the previous '
+                'run are dead — calling TaskOutput or checking on prior '
+                'task IDs will fail with "No task found". Do not poll '
+                'them. Instead, assess progress from what is on disk '
+                '(files already written) and re-dispatch any incomplete '
+                'work.\n\n'
+                + prompt
+            )
+        return prompt
+
+    def _build_launch_kwargs_base(self, state: State, spec: 'PhaseSpec') -> dict:
+        """Build the static launch kwargs for ``run_agent_loop``.
+
+        Settings construction (jail hook, agent file resolution,
+        permission mode) used to live in ``actors.run_phase`` and ran
+        per turn.  The values are state-scoped, not turn-scoped, so
+        the loop builds them once and threads them through every
+        iteration via ``launch_kwargs_base``.
+        """
+        from teaparty.cfa.phase_config import PhaseConfig
+        from teaparty.cfa.actors import _stage_jail_hook, _check_jail_hook
+        from teaparty.runners.launcher import _merge_settings as _lm
+
+        teaparty_home_for_agent = os.path.join(
+            self.project_workdir, '.teaparty',
+        )
+
+        # Resolve agent definitions (workgroup YAML preferred over the
+        # legacy single-file path).
+        agents_json = ''
+        agents_path = ''
+        wg_name = spec.agent_file
+        wg_yaml = os.path.join(
+            teaparty_home_for_agent, 'project',
+            'workgroups', f'{wg_name}.yaml',
+        )
+        if os.path.isfile(wg_yaml):
+            cfg = PhaseConfig(self.poc_root)
+            agents_json = cfg.resolve_agents_json(wg_name)
+        if not agents_json:
+            agents_path = os.path.join(self.poc_root, spec.agent_file)
+
+        # Build settings + install the worktree jail hook (Issue #150).
+        try:
+            settings = _lm(spec.lead, 'project', teaparty_home_for_agent)
+        except Exception:
+            settings = {}
+        _JAIL = '.claude/hooks/worktree_hook.py'
+        _stage_jail_hook(self.session_worktree, _JAIL)
+        _check_jail_hook(self.session_worktree, _JAIL)
+        jail_hook = {
+            'type': 'command',
+            'command': f'python3 {_JAIL}',
+        }
+        hooks_section = settings.setdefault('hooks', {})
+        if not isinstance(hooks_section, dict):
+            hooks_section = {}
+            settings['hooks'] = hooks_section
+        pre = hooks_section.setdefault('PreToolUse', [])
+        pre.append({
+            'matcher': 'Read|Edit|Write|Glob|Grep',
+            'hooks': [jail_hook],
+        })
+
+        mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
+        base = dict(
+            agent_name=spec.lead,
+            scope='project',
+            telemetry_scope=self.project_slug or 'project',
+            mcp_port=mcp_port,
+            teaparty_home=teaparty_home_for_agent,
+            org_home=self.teaparty_home,
+            worktree=self.session_worktree,
             event_bus=self.event_bus,
             session_id=self.session_id,
-            resume_session=self._phase_session_ids.get(state),
+            heartbeat_file=os.path.join(self.infra_dir, '.heartbeat'),
+            parent_heartbeat=self._parent_heartbeat,
+            children_file=os.path.join(self.infra_dir, '.children'),
+            stall_timeout=self._stall_timeout,
+            settings_override=settings,
+            agents_json=agents_json or None,
+            agents_file=agents_path or None,
+            stream_file=os.path.join(self.infra_dir, spec.stream_file),
             env_vars=cfa_dispatch_env_vars(
                 project_slug=self.project_slug,
                 project_workdir=self.project_workdir,
                 infra_dir=self.infra_dir,
                 session_worktree=self.session_worktree,
             ),
-            project_slug=self.project_slug,
-            phase_start_time=phase_start_time,
+            permission_mode_override=spec.permission_mode,
             mcp_routes=self._mcp_routes,
-            heartbeat_file=os.path.join(self.infra_dir, '.heartbeat'),
-            parent_heartbeat=self._parent_heartbeat,
-            children_file=os.path.join(self.infra_dir, '.children'),
+            caller_conversation_id=(
+                f'job:{self.project_slug}:{self.session_id}'
+                if self.project_slug and self.session_id else ''
+            ),
+        )
+        if self._llm_caller is not None:
+            base['llm_caller'] = self._llm_caller
+        return base
+
+    def _read_phase_outcome_action(self) -> Action | None:
+        """Return the ``Action`` written by the skill, or ``None``.
+
+        The ``.phase-outcome.json`` file is consumed (deleted) on read
+        so the next turn can't pick up a stale outcome.  Unknown
+        outcomes are treated as absent.
+        """
+        path = os.path.join(self.session_worktree, '.phase-outcome.json')
+        if not os.path.isfile(path):
+            return None
+        try:
+            with open(path) as f:
+                payload = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            return None
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+        outcome = str(payload.get('outcome', '')).upper()
+        try:
+            return Action(outcome)
+        except ValueError:
+            return None
+
+    async def _post_turn_bookkeeping(
+        self,
+        state: State,
+        spec: 'PhaseSpec',
+        result: Any,
+    ) -> None:
+        """Run the per-turn bookkeeping the engine cares about.
+
+        Publishes turn-cost telemetry, relocates artifacts the agent
+        wrote outside the worktree, updates the scratch model, and
+        queues a ``/compact`` intervention when the context budget
+        crosses the threshold.
+        """
+        from teaparty.cfa.actors import (
+            _relocate_plan_file, _relocate_misplaced_artifact,
         )
 
-        # Inject human feedback from escalation/correction so the agent
-        # can see what the human said (feedback + optional dialog transcript).
-        prev_feedback = self._last_actor_data.get('feedback', '')
-        prev_dialog = self._last_actor_data.get('dialog_history', '')
-        if prev_feedback or prev_dialog:
-            parts = []
-            if prev_dialog:
-                parts.append(f'[escalation dialog]\n{prev_dialog}')
-            if prev_feedback:
-                parts.append(f'[human feedback]\n{prev_feedback}')
-            feedback_block = '\n\n'.join(parts)
-            ctx.backtrack_context = (
-                (ctx.backtrack_context + '\n\n' if ctx.backtrack_context else '')
-                + feedback_block
+        cost = getattr(result, 'cost_usd', 0.0)
+        if cost:
+            stats: dict[str, Any] = {'total_cost_usd': cost}
+            for key in ('input_tokens', 'output_tokens', 'duration_ms'):
+                val = getattr(result, key, None)
+                if val:
+                    stats[key] = val
+            await self.event_bus.publish(Event(
+                type=EventType.TURN_COST,
+                data=stats,
+                session_id=self.session_id,
+            ))
+
+        # Plan-file relocation: claude stores plans in ~/.claude/plans/
+        # when running with --permission-mode plan; copy the newest one
+        # into the worktree if the artifact isn't already there.
+        if (spec.artifact
+                and getattr(spec, 'permission_mode', None) == 'plan'):
+            artifact_path = os.path.join(self.session_worktree, spec.artifact)
+            if not os.path.exists(artifact_path):
+                _relocate_plan_file(
+                    artifact_path, getattr(result, 'start_time', 0.0),
+                )
+
+        # Misplaced-artifact relocation: agents sometimes write to an
+        # absolute path outside the worktree.  Parse the stream JSONL
+        # to find the actual write target and move the file in.
+        stream_path = os.path.join(self.infra_dir, spec.stream_file)
+        if spec.artifact:
+            _relocate_misplaced_artifact(
+                self.session_worktree, stream_path, spec.artifact,
             )
 
-        # Inject stderr from previous turn so the agent can see CLI errors
-        prev_stderr = self._last_actor_data.get('stderr_lines', [])
-        if prev_stderr:
-            stderr_block = '\n'.join(prev_stderr)
-            ctx.backtrack_context = (
-                (ctx.backtrack_context + '\n\n' if ctx.backtrack_context else '')
-                + f'[stderr from previous turn]\n{stderr_block}'
-            )
+        self._update_scratch(state)
 
-        # The intervention prompt replaces backtrack_context so the agent
-        # receives it as the next --resume prompt at the turn boundary.
-        if self._pending_intervention:
-            ctx.backtrack_context = (
-                (ctx.backtrack_context + '\n\n' if ctx.backtrack_context else '')
-                + self._pending_intervention
+        budget = getattr(result, 'context_budget', None)
+        if isinstance(budget, ContextBudget) and budget.should_compact:
+            self._pending_intervention = build_compact_prompt(
+                cfa_state='',
+                task=self._task_for_phase(state),
+                scratch_path='.context/scratch.md',
             )
-            self._pending_intervention = ''
-
-        return await run_phase(
-            ctx,
-            llm_caller=self._llm_caller,
-            stall_timeout=self._stall_timeout,
-            llm_backend=self._llm_backend,
-            on_stream_event=self._on_stream_event,
-        )
+            budget.clear_compact()
 
     async def _deliver_intervention(self) -> None:
         """Drain pending bus messages, publish INTERVENE, store prompt for injection.
@@ -972,7 +1115,9 @@ class Orchestrator:
             outcome='continue',
         )
 
-    async def _transition(self, action: Action, actor_result: ActorResult) -> None:
+    async def _transition(
+        self, action: Action, *, claude_session_id: str = '',
+    ) -> None:
         """Apply a skill action and persist state.
 
         ``action`` is the skill's outcome (an ``Action`` enum member
@@ -980,6 +1125,11 @@ class Orchestrator:
         validation: the outcome is unambiguous because only that
         skill emits it.  ``apply_response`` handles backtrack-count
         bookkeeping.
+
+        ``claude_session_id`` is the agent's Claude session id from
+        the loop's last turn — keyed under the state that just ran so
+        re-entries (e.g. EXECUTE → PLAN via REPLAN, then PLAN →
+        EXECUTE again) can ``--resume`` the right session per state.
         """
         target_state = ACTION_TO_STATE[action]
         old_state = self.cfa.state
@@ -989,32 +1139,21 @@ class Orchestrator:
         if self._ask_question_runner:
             self._ask_question_runner.cfa_state = self.cfa.state
 
-        self._last_actor_data = actor_result.data
-        if actor_result.feedback:
-            self._last_actor_data['feedback'] = actor_result.feedback
-        if actor_result.dialog_history:
-            self._last_actor_data['dialog_history'] = actor_result.dialog_history
-
-        # ``feedback`` and ``dialog_history`` are INTRA-state concerns
-        # — an escalation within state X is relevant on state X's
-        # next turn.  When the state changes, they become stale and
-        # MUST NOT carry over: ``_invoke_actor`` injects them into
-        # the next call's ``backtrack_context``, which the actor
-        # turns into a ``[CfA BACKTRACK: Re-entering from a
-        # downstream state.]`` header.  That header makes the new
-        # state's claude re-run the prior state's skill.
+        # ``feedback`` / ``dialog_history`` are intra-state concerns: a
+        # downstream escalation seeded them so the next turn within the
+        # SAME state could see the human's response.  When the state
+        # changes, they're stale and must not propagate.
         if self.cfa.state != old_state:
             self._last_actor_data.pop('dialog_history', None)
             self._last_actor_data.pop('feedback', None)
 
-        claude_sid = actor_result.data.get('claude_session_id', '')
-        if claude_sid:
+        if claude_session_id:
             # Key the session id by the state that JUST RAN, not the
             # state we transitioned INTO.  Otherwise the next state
             # ``--resume``s the prior state's claude session and the
             # agent re-runs the prior skill.
-            self._phase_session_ids[old_state] = claude_sid
-            self._update_lead_bus_session(claude_sid)
+            self._phase_session_ids[old_state] = claude_session_id
+            self._update_lead_bus_session(claude_session_id)
 
         state_path = os.path.join(self.infra_dir, '.cfa-state.json')
         save_state(self.cfa, state_path)
