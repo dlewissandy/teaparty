@@ -1,6 +1,6 @@
 """Resolved-configuration bundle for ``Orchestrator``.
 
-Cut 23: ``Orchestrator.__init__`` used to take 33 positional/keyword
+``Orchestrator.__init__`` used to take 33 positional/keyword
 arguments — required dependencies, optional dependencies, and CLI
 knobs all jumbled together.  This dataclass collects the optional
 knobs and injected dependencies into one bundle so the constructor
@@ -14,8 +14,8 @@ the engine cannot run without.
 
 Everything else lives here:
 
-* **Run-mode flags** — ``flat`` / ``suppress_backtracks`` /
-  ``proxy_enabled`` / ``never_escalate`` / ``team_override``.  These
+* **Run-mode flags** — ``flat`` / ``proxy_enabled`` /
+  ``never_escalate`` / ``team_override``.  These
   are CLI knobs the driver (``cfa/session.py``) resolves before
   calling the engine.
 * **Resume context** — ``phase_session_ids`` / ``last_actor_data`` /
@@ -47,7 +47,6 @@ class RunOptions:
     # ── Run-mode flags ──────────────────────────────────────────────────────
     # These are CLI knobs resolved by cfa/session.py before construction.
     flat: bool = False
-    suppress_backtracks: bool = False
     proxy_enabled: bool = True
     never_escalate: bool = False
     team_override: str = ''

@@ -806,7 +806,6 @@ class TestExperimentConfig(unittest.TestCase):
         cfg = self._make_config()
         self.assertEqual(cfg.project, 'POC')
         self.assertFalse(cfg.flat)
-        self.assertTrue(cfg.backtracks_enabled)
         self.assertEqual(cfg.input_mode, 'pattern')
         self.assertEqual(cfg.approval_seed, 42)
 
@@ -895,13 +894,8 @@ tasks:
             experiment='test-exp',
             tasks=[TaskDefinition(id='t-001', text='Do it')],
         )
-        cfg = corpus.make_config(
-            corpus.tasks[0],
-            flat=True,
-            backtracks_enabled=False,
-        )
+        cfg = corpus.make_config(corpus.tasks[0], flat=True)
         self.assertTrue(cfg.flat)
-        self.assertFalse(cfg.backtracks_enabled)
 
     def test_make_config_ignores_unknown_overrides(self):
         """Unknown override keys are silently dropped."""
@@ -909,11 +903,8 @@ tasks:
             experiment='test-exp',
             tasks=[TaskDefinition(id='t-001', text='Do it')],
         )
-        # 'suppress_backtracks' is not in the allowlist — should not raise
-        cfg = corpus.make_config(corpus.tasks[0], suppress_backtracks=True)
-        # The config should not have a 'suppress_backtracks' attribute
-        self.assertFalse(hasattr(cfg, 'suppress_backtracks')
-                         and getattr(cfg, 'suppress_backtracks', False))
+        cfg = corpus.make_config(corpus.tasks[0], not_a_real_field=True)
+        self.assertFalse(hasattr(cfg, 'not_a_real_field'))
 
     def test_real_corpus_file_loads(self):
         """The actual proxy-convergence.yaml corpus loads correctly."""
@@ -1237,115 +1228,6 @@ class TestFormatStats(unittest.TestCase):
     def test_no_data(self):
         result = format_stats({'n': 0}, 'backtracks')
         self.assertIn('no data', result)
-
-
-# ── suppress_backtracks (engine.py) ───────────────────────────────────────────
-
-class TestSuppressBacktracks(unittest.TestCase):
-    """Orchestrator.suppress_backtracks prevents cross-phase backtrack loops.
-
-    When suppress_backtracks=True and a phase returns backtrack_to='planning'
-    or backtrack_to='intent', the orchestrator should NOT loop back —
-    it should fall through to completion.
-    """
-
-    def _make_orchestrator(self, suppress_backtracks=False, **kwargs):
-        from teaparty.cfa.engine import Orchestrator
-        from teaparty.cfa.phase_config import PhaseSpec
-        from teaparty.cfa.statemachine.cfa_state import CfaState
-
-        cfa = CfaState(
-            state='PROPOSAL',
-            phase='intent',
-            history=[],
-            backtrack_count=0,
-        )
-
-        phase_config = MagicMock()
-        phase_config.stall_timeout = 1800
-        phase_config.phase.return_value = PhaseSpec(
-            name='intent',
-            agent_file='agents/intent-team.json',
-            lead='intent-lead',
-            permission_mode='acceptEdits',
-            stream_file='.intent-stream.jsonl',
-            artifact=None,
-            approval_state='INTENT_ASSERT',
-            escalation_state='INTENT_ESCALATE',
-            escalation_file='.intent-escalation.md',
-        )
-
-        event_bus = MagicMock(spec=EventBus)
-        event_bus.publish = AsyncMock()
-
-        return Orchestrator(
-            cfa_state=cfa,
-            phase_config=phase_config,
-            event_bus=event_bus,
-            input_provider=AsyncMock(return_value='approve'),
-            infra_dir='/tmp/infra',
-            project_workdir='/tmp/project',
-            session_worktree='/tmp/worktree',
-            proxy_model_path='/tmp/proxy.json',
-            project_slug='test-project',
-            poc_root='/tmp/poc',
-            task='Do the thing',
-            session_id='test-session',
-            suppress_backtracks=suppress_backtracks,
-            **kwargs,
-        )
-
-    def test_suppress_backtracks_flag_stored(self):
-        orch = self._make_orchestrator(suppress_backtracks=True)
-        self.assertTrue(orch.suppress_backtracks)
-
-    def test_suppress_backtracks_default_false(self):
-        orch = self._make_orchestrator()
-        self.assertFalse(orch.suppress_backtracks)
-
-    def test_backtrack_suppressed_does_not_loop(self):
-        """When suppress_backtracks=True and execution returns backtrack_to='planning',
-        the orchestrator should NOT re-enter the planning phase.
-
-        We mock _run_phase to:
-          1. Return PhaseResult() for intent (phase completes normally)
-          2. Return PhaseResult() for planning (phase completes normally)
-          3. Return PhaseResult(backtrack_to='planning') for first execution call
-          4. Return PhaseResult(terminal=True, terminal_state='COMPLETED_WORK')
-             for the second execution call
-
-        With suppress_backtracks=True, after step 3 the engine should NOT loop
-        back to planning. Instead it should fall through.
-        """
-        from teaparty.cfa.engine import Orchestrator, PhaseResult
-
-        orch = self._make_orchestrator(suppress_backtracks=True)
-
-        call_count = {'intent': 0, 'planning': 0, 'execution': 0}
-
-        async def mock_run_phase(phase_name):
-            call_count[phase_name] = call_count.get(phase_name, 0) + 1
-
-            if phase_name == 'intent':
-                return PhaseResult()  # completes normally
-            elif phase_name == 'planning':
-                return PhaseResult()  # completes normally
-            elif phase_name == 'execution':
-                if call_count['execution'] == 1:
-                    return PhaseResult(backtrack_to='planning')
-                else:
-                    return PhaseResult(terminal=True, terminal_state='COMPLETED_WORK')
-            return PhaseResult(terminal=True, terminal_state='COMPLETED_WORK')
-
-        orch._run_phase = mock_run_phase
-
-        result = _run(orch.run())
-
-        # With suppress_backtracks=True, planning should only be called once
-        # (not re-entered after the execution backtrack)
-        self.assertEqual(call_count['planning'], 1,
-                         f'Planning was called {call_count["planning"]} times; '
-                         'should be 1 when backtracks are suppressed')
 
 
 # ── ProxyEnabled ─────────────────────────────────────────────────────────────

@@ -30,7 +30,6 @@ class ExperimentConfig:
     skip_learnings: bool = False
 
     # Overrides
-    backtracks_enabled: bool = True
     proxy_enabled: bool = True
 
     # Input provider config
@@ -98,8 +97,7 @@ class CorpusConfig:
             ),
             default_rate=overrides.get('default_rate', self.default_rate),
             **{k: v for k, v in overrides.items()
-               if k in ('flat', 'skip_learnings',
-                         'backtracks_enabled', 'proxy_enabled',
+               if k in ('flat', 'skip_learnings', 'proxy_enabled',
                          'project', 'results_base', 'scripted_decisions',
                          'proxy_model_path')},
         )

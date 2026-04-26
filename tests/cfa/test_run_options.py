@@ -61,7 +61,6 @@ class TestRunOptionsDefaults(unittest.TestCase):
         orch = _make_orchestrator(options=RunOptions())
         # All run-mode flags fall to their pre-#23 defaults.
         self.assertFalse(orch.flat)
-        self.assertFalse(orch.suppress_backtracks)
         self.assertTrue(orch.proxy_enabled)   # default True
         self.assertFalse(orch.never_escalate)
         self.assertEqual(orch.team_override, '')
@@ -81,14 +80,12 @@ class TestRunOptionsProjection(unittest.TestCase):
     def test_run_mode_flags_project(self):
         opts = RunOptions(
             flat=True,
-            suppress_backtracks=True,
             proxy_enabled=False,
             never_escalate=True,
             team_override='custom-team',
         )
         orch = _make_orchestrator(options=opts)
         self.assertTrue(orch.flat)
-        self.assertTrue(orch.suppress_backtracks)
         self.assertFalse(orch.proxy_enabled)
         self.assertTrue(orch.never_escalate)
         self.assertEqual(orch.team_override, 'custom-team')

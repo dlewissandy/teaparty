@@ -126,7 +126,6 @@ class Orchestrator:
 
         # ── Run-mode flags ──────────────────────────────────────────────────
         self.flat = opts.flat
-        self.suppress_backtracks = opts.suppress_backtracks
         self.proxy_enabled = opts.proxy_enabled
         self.never_escalate = opts.never_escalate
         self.team_override = opts.team_override
@@ -542,12 +541,12 @@ class Orchestrator:
             result = await self._run_state(next_state)
             action = result.action
 
+            # FAILURE here is unrecoverable — ``_run_state`` already
+            # exhausted recoverable retries (overload cooldowns).  Job
+            # level only handles the human escalation branch.
             if action == Action.FAILURE:
-                if result.failure_reason == 'api_overloaded':
-                    if await self._handle_overloaded(next_state) == 'retry':
-                        continue
-                    if self.never_escalate:
-                        return self._make_result(self.cfa.state)
+                if self.never_escalate:
+                    return self._make_result(self.cfa.state)
                 decision = await self._failure_dialog(result.failure_reason)
                 if decision == 'withdraw':
                     self.cfa = set_state_direct(self.cfa, State.WITHDRAWN)
@@ -564,23 +563,8 @@ class Orchestrator:
                     f'{next_state} backtracked via {action}',
                     '',
                 )
-                if self.suppress_backtracks:
-                    forward = {
-                        State.INTENT:  State.PLAN,
-                        State.PLAN:    State.EXECUTE,
-                        State.EXECUTE: State.DONE,
-                    }[next_state]
-                    self.cfa = set_state_direct(self.cfa, forward)
-                    save_state(
-                        self.cfa,
-                        os.path.join(self.infra_dir, '.cfa-state.json'),
-                    )
-                    next_state = self.cfa.state
-                    if is_globally_terminal(next_state):
-                        break
-                    continue
 
-            if next_state == State.PLAN and action in (Action.APPROVED_PLAN, Action.REALIGN):
+            if next_state == State.PLAN:
                 from teaparty.learning.phase_hooks import (
                     archive_skill_correction, try_write_premortem,
                 )
@@ -745,13 +729,17 @@ class Orchestrator:
 
             if actor_result.action == 'failed':
                 reason = actor_result.data.get('reason', 'unknown')
-                if reason in ('stall_timeout', 'nonzero_exit', 'api_overloaded'):
-                    await self.event_bus.publish(Event(
-                        type=EventType.PHASE_COMPLETED,
-                        data={'state': self.cfa.state},
-                        session_id=self.session_id,
-                    ))
-                    return PhaseResult(action=Action.FAILURE, failure_reason=reason)
+                # Recoverable: API overload — sleep & retry up to N times.
+                if reason == 'api_overloaded':
+                    if await self._handle_overloaded(state) == 'retry':
+                        continue
+                # Unrecoverable: bubble up to the job loop for human escalation.
+                await self.event_bus.publish(Event(
+                    type=EventType.PHASE_COMPLETED,
+                    data={'state': self.cfa.state},
+                    session_id=self.session_id,
+                ))
+                return PhaseResult(action=Action.FAILURE, failure_reason=reason)
 
             turn_cost = actor_result.data.get('cost_usd', 0.0)
             if turn_cost:
