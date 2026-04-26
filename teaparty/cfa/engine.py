@@ -16,21 +16,13 @@ from typing import Any, Awaitable, Callable
 import logging
 
 from teaparty.cfa.statemachine.cfa_state import (
-    ACTION_TO_PHASE,
     ACTION_TO_STATE,
-    APPROVED_PLAN,
-    APPROVED_WORK,
+    Action,
     CfaState,
-    FAILURE,
-    InvalidTransition,
-    REALIGN,
-    REPLAN,
-    WITHDRAW,
+    State,
     apply_response,
     is_globally_terminal,
-    phase_for_state,
     save_state,
-    transition,
     set_state_direct,
 )
 
@@ -72,7 +64,7 @@ class PhaseResult:
     ``cfa_state`` (``APPROVED_INTENT`` / ``APPROVED_PLAN`` /
     ``APPROVED_WORK`` / ``REALIGN`` / ``REPLAN`` / ``WITHDRAW``) or
     the engine's own ``FAILURE`` for infra failures.  The loop uses
-    ``ACTION_TO_PHASE`` to pick the next phase to run.
+    ``ACTION_TO_STATE`` to pick the next state to run.
     """
     action: str
     failure_reason: str = ''
@@ -394,9 +386,7 @@ class Orchestrator:
             async def _on_child_complete(child_session, response_text):
                 """CfA fan-in: inject reply into lead's claude history,
                 signal fan_in_event when last child completes."""
-                lead_sid = self._phase_session_ids.get(
-                    phase_for_state(self.cfa.state), '',
-                )
+                lead_sid = self._phase_session_ids.get(self.cfa.state, '')
                 if lead_sid and response_text:
                     try:
                         await self._bus_inject_reply(
@@ -445,7 +435,7 @@ class Orchestrator:
         self.event_bus.subscribe(self._on_scratch_event)
 
         try:
-            return await self._run_loop()
+            return await self._run_job()
         finally:
             self.event_bus.unsubscribe(self._on_scratch_event)
             self._scratch_writer.cleanup()
@@ -499,7 +489,7 @@ class Orchestrator:
     async def _await_fan_in_and_reinvoke(
         self,
         spec: 'PhaseSpec',
-        phase_name: str,
+        state: State,
         phase_start_time: float,
     ) -> 'ActorResult':
         """Block the lead until all dispatched workers reply, then resume it.
@@ -516,9 +506,7 @@ class Orchestrator:
                 'Fan-in wait: no workers in flight; re-invoking lead '
                 'immediately',
             )
-            return await self._invoke_actor(
-                spec, phase_name, phase_start_time,
-            )
+            return await self._invoke_actor(spec, state, phase_start_time)
         # Arm the event before re-checking _tasks_by_child to avoid a
         # race where a child completion fires between check and arm.
         self._fan_in_event = asyncio.Event()
@@ -532,70 +520,67 @@ class Orchestrator:
         finally:
             self._fan_in_event = None
         _log.info('Fan-in complete: resuming lead via --resume for synthesis')
-        return await self._invoke_actor(spec, phase_name, phase_start_time)
+        return await self._invoke_actor(spec, state, phase_start_time)
 
-    async def _run_loop(self) -> OrchestratorResult:
+    async def _run_job(self) -> OrchestratorResult:
         """Drive the CfA to a terminal state.
 
-        Each iteration runs the phase named by ``next_phase`` and
-        receives back the ``action`` that ended it.  ``ACTION_TO_PHASE``
-        names the next phase; ``done`` / ``withdrawn`` / ``failure`` are
-        loop exits.
+        Each iteration runs the skill for ``next_state`` and receives
+        back the ``action`` that ended it.  ``ACTION_TO_STATE`` names
+        the next state; reaching ``DONE`` / ``WITHDRAWN`` exits the loop.
 
-        Initial phase comes from the caller's CfaState
+        Initial state comes from the caller's CfaState
         (``cfa/session.py`` sets it based on which artifacts are
-        already present).  No phase-control flags inside the engine.
+        already present).
         """
-        next_phase = phase_for_state(self.cfa.state)
-        if next_phase == 'terminal':
-            return self._make_result(self.cfa.state)
+        next_state = self.cfa.state
 
         while True:
-            if next_phase == 'planning':
+            if next_state == State.PLAN:
                 await self._try_skill_lookup()
 
-            result = await self._run_phase(next_phase)
+            result = await self._run_state(next_state)
             action = result.action
 
-            if action == FAILURE:
+            if action == Action.FAILURE:
                 if result.failure_reason == 'api_overloaded':
-                    if await self._handle_overloaded(next_phase) == 'retry':
+                    if await self._handle_overloaded(next_state) == 'retry':
                         continue
                     if self.never_escalate:
                         return self._make_result(self.cfa.state)
                 decision = await self._failure_dialog(result.failure_reason)
                 if decision == 'withdraw':
-                    self.cfa = set_state_direct(self.cfa, 'WITHDRAWN')
+                    self.cfa = set_state_direct(self.cfa, State.WITHDRAWN)
                     save_state(
                         self.cfa,
                         os.path.join(self.infra_dir, '.cfa-state.json'),
                     )
-                    return self._make_result('WITHDRAWN')
-                continue  # retry — same phase
+                    return self._make_result(State.WITHDRAWN)
+                continue  # retry — same state
 
-            if action in (REALIGN, REPLAN):
+            if action in (Action.REALIGN, Action.REPLAN):
                 self._record_dead_end(
-                    next_phase,
-                    f'{next_phase} backtracked via {action}',
+                    next_state,
+                    f'{next_state} backtracked via {action}',
                     '',
                 )
                 if self.suppress_backtracks:
-                    forward_state = {
-                        'intent': 'PLAN',
-                        'planning': 'EXECUTE',
-                        'execution': 'DONE',
-                    }[next_phase]
-                    self.cfa = set_state_direct(self.cfa, forward_state)
+                    forward = {
+                        State.INTENT:  State.PLAN,
+                        State.PLAN:    State.EXECUTE,
+                        State.EXECUTE: State.DONE,
+                    }[next_state]
+                    self.cfa = set_state_direct(self.cfa, forward)
                     save_state(
                         self.cfa,
                         os.path.join(self.infra_dir, '.cfa-state.json'),
                     )
-                    next_phase = phase_for_state(self.cfa.state)
-                    if next_phase == 'terminal':
+                    next_state = self.cfa.state
+                    if is_globally_terminal(next_state):
                         break
                     continue
 
-            if next_phase == 'planning' and action in (APPROVED_PLAN, REALIGN):
+            if next_state == State.PLAN and action in (Action.APPROVED_PLAN, Action.REALIGN):
                 from teaparty.learning.phase_hooks import (
                     archive_skill_correction, try_write_premortem,
                 )
@@ -612,8 +597,8 @@ class Orchestrator:
                     infra_dir=self.infra_dir, task=self.task,
                 )
 
-            next_phase = ACTION_TO_PHASE[action]
-            if next_phase in ('done', 'withdrawn'):
+            next_state = ACTION_TO_STATE[action]
+            if is_globally_terminal(next_state):
                 break
 
         return self._make_result(self.cfa.state)
@@ -736,18 +721,18 @@ class Orchestrator:
             backtrack_count=self.cfa.backtrack_count,
         )
 
-    async def _run_phase(self, phase_name: str) -> PhaseResult:
-        """Run a single CfA phase until the skill emits an action.
+    async def _run_state(self, state: State) -> PhaseResult:
+        """Run a single CfA state until the skill emits an action.
 
         Returns ``PhaseResult(action=...)`` with the outcome the skill
-        declared.  The caller (``_run_loop``) routes on that action.
+        declared.  The caller (``_run_job``) routes on that action.
         """
-        spec = self._phase_spec(phase_name)
+        spec = self._phase_spec(state)
         phase_start_time = time.monotonic()
 
         await self.event_bus.publish(Event(
             type=EventType.PHASE_STARTED,
-            data={'phase': phase_name, 'stream_file': spec.stream_file},
+            data={'state': state, 'stream_file': spec.stream_file},
             session_id=self.session_id,
         ))
 
@@ -756,17 +741,17 @@ class Orchestrator:
             open(stream_path, 'w').close()
 
         while True:
-            actor_result = await self._invoke_actor(spec, phase_name, phase_start_time)
+            actor_result = await self._invoke_actor(spec, state, phase_start_time)
 
             if actor_result.action == 'failed':
                 reason = actor_result.data.get('reason', 'unknown')
                 if reason in ('stall_timeout', 'nonzero_exit', 'api_overloaded'):
                     await self.event_bus.publish(Event(
                         type=EventType.PHASE_COMPLETED,
-                        data={'phase': phase_name, 'state': self.cfa.state},
+                        data={'state': self.cfa.state},
                         session_id=self.session_id,
                     ))
-                    return PhaseResult(action=FAILURE, failure_reason=reason)
+                    return PhaseResult(action=Action.FAILURE, failure_reason=reason)
 
             turn_cost = actor_result.data.get('cost_usd', 0.0)
             if turn_cost:
@@ -787,11 +772,11 @@ class Orchestrator:
             while actor_result.action == '':
                 if self._tasks_by_child:
                     actor_result = await self._await_fan_in_and_reinvoke(
-                        spec, phase_name, phase_start_time,
+                        spec, state, phase_start_time,
                     )
                     continue
                 raise RuntimeError(
-                    f'CfA phase {self.cfa.state!r}: skill turn ended '
+                    f'CfA state {self.cfa.state!r}: skill turn ended '
                     'without writing ``.phase-outcome.json`` and no '
                     'workers are in flight.  Nothing to wait for; the '
                     'skill is incomplete.  Engine refuses to silently '
@@ -805,24 +790,24 @@ class Orchestrator:
                     and not is_globally_terminal(self.cfa.state)
                     and self._tasks_by_child):
                 actor_result = await self._await_fan_in_and_reinvoke(
-                    spec, phase_name, phase_start_time,
+                    spec, state, phase_start_time,
                 )
 
             await self._transition(actor_result.action, actor_result)
 
-            # Intra-phase hooks (intervention, scratch, compaction) only
-            # fire when this turn did NOT end the phase.  An action with
-            # a known mapping in ACTION_TO_PHASE always ends it.
-            phase_ending = actor_result.action in ACTION_TO_PHASE
-            if not phase_ending:
+            # Intra-state hooks (intervention, scratch, compaction) only
+            # fire when this turn did NOT end the state.  Any action with
+            # a known mapping ends it.
+            state_ending = actor_result.action in ACTION_TO_STATE
+            if not state_ending:
                 await self._deliver_intervention()
-                self._update_scratch(phase_name)
+                self._update_scratch(state)
                 budget = actor_result.data.get('context_budget')
                 if (isinstance(budget, ContextBudget)
                         and budget.should_compact):
                     self._pending_intervention = build_compact_prompt(
                         cfa_state='',
-                        task=self._task_for_phase(phase_name),
+                        task=self._task_for_phase(state),
                         scratch_path='.context/scratch.md',
                     )
                     budget.clear_compact()
@@ -830,24 +815,21 @@ class Orchestrator:
 
             await self.event_bus.publish(Event(
                 type=EventType.PHASE_COMPLETED,
-                data={'phase': phase_name, 'state': self.cfa.state},
+                data={'state': self.cfa.state},
                 session_id=self.session_id,
             ))
             return PhaseResult(action=actor_result.action)
 
-    async def _invoke_actor(self, spec: 'PhaseSpec', phase_name: str,
+    async def _invoke_actor(self, spec: 'PhaseSpec', state: State,
                              phase_start_time: float = 0.0) -> ActorResult:
-        """Dispatch to the actor for the current phase.
+        """Dispatch to the actor for the current state.
 
-        In the 5-state model there is one actor — the project lead
-        running the phase's skill.
+        In the flat 5-state model there is one actor — the project lead
+        running the state's skill.
         """
-        state = self.cfa.state
-
         ctx = ActorContext(
             state=state,
-            phase=phase_name,
-            task=self._task_for_phase(phase_name),
+            task=self._task_for_phase(state),
             infra_dir=self.infra_dir,
             project_workdir=self.project_workdir,
             session_worktree=self.session_worktree,
@@ -855,7 +837,7 @@ class Orchestrator:
             poc_root=self.poc_root,
             event_bus=self.event_bus,
             session_id=self.session_id,
-            resume_session=self._phase_session_ids.get(phase_name),
+            resume_session=self._phase_session_ids.get(state),
             env_vars=cfa_dispatch_env_vars(
                 project_slug=self.project_slug,
                 project_workdir=self.project_workdir,
@@ -966,17 +948,12 @@ class Orchestrator:
         self._pending_intervention = prompt
         self._intervention_active = True
 
-        try:
-            current_phase = phase_for_state(self.cfa.state)
-        except ValueError:
-            current_phase = 'unknown'
-
         write_intervention_chunk(
             infra_dir=self.infra_dir,
             content=prompt,
             senders=[m.sender for m in pending],
             cfa_state=self.cfa.state,
-            phase=current_phase,
+            phase=self.cfa.state,
         )
 
         await self.event_bus.publish(Event(
@@ -997,7 +974,7 @@ class Orchestrator:
         written by withdraw_session().
         """
         _log.info('External withdrawal received for session %s', session_id)
-        self.cfa = set_state_direct(self.cfa, 'WITHDRAWN')
+        self.cfa = set_state_direct(self.cfa, State.WITHDRAWN)
 
 
     async def _on_scratch_event(self, event: Event) -> None:
@@ -1030,9 +1007,9 @@ class Orchestrator:
                 new_state=data.get('state', ''),
             )
 
-    def _update_scratch(self, phase_name: str) -> None:
+    def _update_scratch(self, state: State) -> None:
         """Serialize the scratch model to disk at a turn boundary."""
-        self._scratch_model.phase = phase_name
+        self._scratch_model.phase = state
         self._scratch_writer.write_scratch(self._scratch_model)
 
     def _record_dead_end(self, phase: str, reason: str, feedback: str = '') -> None:
@@ -1060,7 +1037,7 @@ class Orchestrator:
         new_state = self.cfa.state
 
         # Withdrawal: cascade immediately
-        if new_state == 'WITHDRAWN':
+        if new_state == State.WITHDRAWN:
             withdrawn = cascade_withdraw_children(self.infra_dir)
             self._intervention_active = False
             write_intervention_outcome(
@@ -1082,25 +1059,14 @@ class Orchestrator:
                 ))
             return
 
-        # Backtrack: cascade-withdraw if phase moved earlier
-        try:
-            old_phase = phase_for_state(old_state)
-            new_phase = phase_for_state(new_state)
-        except ValueError:
-            self._intervention_active = False
-            write_intervention_outcome(
-                infra_dir=self.infra_dir,
-                outcome='continue',
-            )
-            return
-
-        if is_backtrack(old_phase, new_phase):
+        # Backtrack: cascade-withdraw if state moved earlier
+        if is_backtrack(old_state, new_state):
             withdrawn = cascade_withdraw_children(self.infra_dir)
             self._intervention_active = False
             write_intervention_outcome(
                 infra_dir=self.infra_dir,
                 outcome='backtrack',
-                backtrack_phase=new_phase,
+                backtrack_phase=new_state,
             )
             if withdrawn:
                 await self.event_bus.publish(Event(
@@ -1109,9 +1075,7 @@ class Orchestrator:
                         'category': 'interrupt_propagation',
                         'trigger': 'backtrack',
                         'old_state': old_state,
-                        'old_phase': old_phase,
                         'new_state': new_state,
-                        'new_phase': new_phase,
                         'children_withdrawn': len(withdrawn),
                         'teams': [w['team'] for w in withdrawn],
                     },
@@ -1119,7 +1083,7 @@ class Orchestrator:
                 ))
             return
 
-        # Continue/adjustment: same-phase or forward transition.
+        # Continue/adjustment: same-state or forward transition.
         self._intervention_active = False
         write_intervention_outcome(
             infra_dir=self.infra_dir,
@@ -1137,7 +1101,6 @@ class Orchestrator:
         """
         target_state = ACTION_TO_STATE[action]
         old_state = self.cfa.state
-        old_phase = phase_for_state(old_state)
 
         self.cfa = apply_response(self.cfa, target_state)
 
@@ -1150,26 +1113,25 @@ class Orchestrator:
         if actor_result.dialog_history:
             self._last_actor_data['dialog_history'] = actor_result.dialog_history
 
-        # ``feedback`` and ``dialog_history`` are INTRA-phase concerns
-        # — an escalation within phase X is relevant on phase X's
-        # next turn.  When the phase changes, they become stale and
+        # ``feedback`` and ``dialog_history`` are INTRA-state concerns
+        # — an escalation within state X is relevant on state X's
+        # next turn.  When the state changes, they become stale and
         # MUST NOT carry over: ``_invoke_actor`` injects them into
         # the next call's ``backtrack_context``, which the actor
         # turns into a ``[CfA BACKTRACK: Re-entering from a
-        # downstream phase.]`` header.  That header makes the new
-        # phase's claude re-run the prior phase's skill.
-        new_phase = phase_for_state(self.cfa.state)
-        if new_phase != old_phase:
+        # downstream state.]`` header.  That header makes the new
+        # state's claude re-run the prior state's skill.
+        if self.cfa.state != old_state:
             self._last_actor_data.pop('dialog_history', None)
             self._last_actor_data.pop('feedback', None)
 
         claude_sid = actor_result.data.get('claude_session_id', '')
         if claude_sid:
-            # Key the session id by the phase that JUST RAN, not the
-            # phase we transitioned INTO.  Otherwise the next phase
-            # ``--resume``s the prior phase's claude session and the
+            # Key the session id by the state that JUST RAN, not the
+            # state we transitioned INTO.  Otherwise the next state
+            # ``--resume``s the prior state's claude session and the
             # agent re-runs the prior skill.
-            self._phase_session_ids[old_phase] = claude_sid
+            self._phase_session_ids[old_state] = claude_sid
             self._update_lead_bus_session(claude_sid)
 
         state_path = os.path.join(self.infra_dir, '.cfa-state.json')
@@ -1179,7 +1141,6 @@ class Orchestrator:
             from teaparty.telemetry import record_event
             from teaparty.telemetry import events as _telem_events
             _scope = self.project_slug or 'management'
-            old_phase = phase_for_state(old_state)
             # Save the previous phase-entry timestamp before overwriting —
             # the backtrack cost query needs the window from prior phase entry until now.
             _prev_phase_entry = getattr(self, '_phase_entry_ts', 0.0)
@@ -1192,8 +1153,6 @@ class Orchestrator:
                 data={
                     'old_state':     old_state,
                     'new_state':     self.cfa.state,
-                    'old_phase':     old_phase,
-                    'new_phase':     self.cfa.phase,
                     'target_state':  target_state,
                     'state_machine': 'cfa',
                 },
@@ -1225,7 +1184,7 @@ class Orchestrator:
                     scope=_scope,
                     session_id=self.session_id,
                     data={
-                        'kind':            f'{old_phase}_to_{self.cfa.phase}',
+                        'kind':            f'{old_state}_to_{self.cfa.state}',
                         'triggering_gate': old_state,
                         'target_state':    target_state,
                         'backtrack_count': self.cfa.backtrack_count,
@@ -1239,7 +1198,6 @@ class Orchestrator:
         await self.event_bus.publish(Event(
             type=EventType.STATE_CHANGED,
             data={
-                'phase': self.cfa.phase,
                 'state': self.cfa.state,
                 'previous_state': old_state,
                 'target_state': target_state,
@@ -1327,17 +1285,17 @@ class Orchestrator:
                 except Exception as exc:
                     _log.warning('Stage retirement failed: %s', exc)
 
-    def _phase_spec(self, phase_name: str) -> 'PhaseSpec':
-        """Get the phase spec, accounting for team and flat overrides."""
+    def _phase_spec(self, state: State) -> 'PhaseSpec':
+        """Get the phase spec for *state*, with team / flat overrides."""
         from dataclasses import replace
         if self.team_override:
             team = self.config.team(self.team_override)
-            base = self.config.phase(phase_name)
+            base = self.config.phase(state)
             # Teams can specify their own planning permission mode
             # (e.g., subteams use 'plan' for tactical planning).
             perm = (
                 team.planning_permission_mode
-                if phase_name == 'planning' and team.planning_permission_mode
+                if state == State.PLAN and team.planning_permission_mode
                 else base.permission_mode
             )
             return replace(
@@ -1347,28 +1305,28 @@ class Orchestrator:
                 permission_mode=perm,
             )
 
-        base = self.config.resolve_phase(phase_name)
+        base = self.config.resolve_phase(state)
 
         # --flat: swap the project team for a flat team where the lead
         # recruits agents dynamically via the Agent tool.  Only affects
-        # phases that use uber-team.json (planning, execution).
+        # states that use uber-team.json (PLAN, EXECUTE).
         if self.flat and base.agent_file == 'uber':
             return replace(base, agent_file='flat')
 
         return base
 
-    def _task_for_phase(self, phase_name: str) -> str:
-        """Get the task description for a phase.
+    def _task_for_phase(self, state: State) -> str:
+        """Get the task description for *state*.
 
-        Intent phase: uses the original task description, with constraints
+        INTENT: uses the original task description, with constraints
             (resolved norms) and escalation guidance injected.
-        Planning phase: reads INTENT.md (the intent phase's output), with
+        PLAN: reads INTENT.md (the intent phase's output), with
             dynamically-resolved available teams injected.
-        Execution phase: reads PLAN.md as the workflow to follow,
+        EXECUTE: reads PLAN.md as the workflow to follow,
             with INTENT.md appended as reference context.
         """
         base_task = ''
-        if phase_name == 'execution':
+        if state == State.EXECUTE:
             plan_path = os.path.join(self.session_worktree, 'PLAN.md')
             intent_path = os.path.join(self.session_worktree, 'INTENT.md')
             parts = []
@@ -1387,7 +1345,7 @@ class Orchestrator:
                 pass
             if parts:
                 base_task = '\n\n'.join(parts)
-        elif phase_name == 'planning':
+        elif state == State.PLAN:
             intent_path = os.path.join(self.session_worktree, 'INTENT.md')
             try:
                 with open(intent_path) as f:
@@ -1398,8 +1356,8 @@ class Orchestrator:
         if not base_task:
             base_task = self.task or self.project_slug
 
-        # Prepend CfA phase framing.  agent.md is role-only; this layer
-        # supplies deliverable, boundary, and re-entry rule per phase.
+        # Prepend CfA framing.  agent.md is role-only; this layer
+        # supplies deliverable, boundary, and re-entry rule per state.
         scope = (
             '--- Working scope ---\n'
             'Your current directory is the worktree for this job. Every file '
@@ -1410,7 +1368,7 @@ class Orchestrator:
             '--- end ---\n\n'
         )
 
-        if phase_name == 'intent':
+        if state == State.INTENT:
             base_task = (
                 scope
                 + '--- CfA: Intent Alignment Phase ---\n'
@@ -1418,7 +1376,7 @@ class Orchestrator:
                 '--- end ---\n\n'
                 + base_task
             )
-        elif phase_name == 'planning':
+        elif state == State.PLAN:
             base_task = (
                 scope
                 + '--- CfA: Planning Phase ---\n'
@@ -1426,7 +1384,7 @@ class Orchestrator:
                 '--- end ---\n\n'
                 + base_task
             )
-        elif phase_name == 'execution':
+        elif state == State.EXECUTE:
             base_task = (
                 scope
                 + '--- CfA: Execution Phase ---\n'
@@ -1435,7 +1393,7 @@ class Orchestrator:
                 + base_task
             )
 
-        if phase_name == 'intent':
+        if state == State.INTENT:
             from teaparty.config.phase_context import intent_constraints_block
             constraints = intent_constraints_block(
                 project_dir=self.project_dir,
@@ -1443,7 +1401,7 @@ class Orchestrator:
             )
             if constraints:
                 base_task += constraints
-        elif phase_name == 'planning':
+        elif state == State.PLAN:
             from teaparty.config.phase_context import available_teams_block
             teams_block = available_teams_block(
                 project_teams=self.config.project_teams,
@@ -1459,16 +1417,16 @@ class Orchestrator:
     _MAX_OVERLOAD_RETRIES = 3
     _OVERLOAD_COOLDOWN_SECONDS = 120
 
-    async def _handle_overloaded(self, phase_name: str) -> str:
+    async def _handle_overloaded(self, state: State) -> str:
         """Handle an API overloaded (529) failure with auto-retry.
 
-        Tracks retry count per phase.  On each retry, emits an API_OVERLOADED
+        Tracks retry count per state.  On each retry, emits an API_OVERLOADED
         event and waits a flat cooldown.  After exhausting retries, returns
         'escalate' so the caller falls through to _failure_dialog.
 
         Returns 'retry' or 'escalate'.
         """
-        counter_key = f'_overload_retries_{phase_name}'
+        counter_key = f'_overload_retries_{state}'
         count = getattr(self, counter_key, 0) + 1
         setattr(self, counter_key, count)
 
@@ -1478,7 +1436,7 @@ class Orchestrator:
         await self.event_bus.publish(Event(
             type=EventType.API_OVERLOADED,
             data={
-                'phase': phase_name,
+                'state': state,
                 'retry_count': count,
                 'max_retries': self._MAX_OVERLOAD_RETRIES,
                 'cooldown_seconds': self._OVERLOAD_COOLDOWN_SECONDS,
@@ -1489,7 +1447,7 @@ class Orchestrator:
         _log.info(
             'API overloaded (529) — auto-retry %d/%d for %s, '
             'cooling down %ds',
-            count, self._MAX_OVERLOAD_RETRIES, phase_name,
+            count, self._MAX_OVERLOAD_RETRIES, state,
             self._OVERLOAD_COOLDOWN_SECONDS,
         )
 

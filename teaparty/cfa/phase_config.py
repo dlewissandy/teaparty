@@ -50,16 +50,18 @@ _PHASE_DEFAULTS = dict(
     lead='project-lead',
     permission_mode='acceptEdits',
 )
-_PHASES: dict[str, PhaseSpec] = {
-    name: PhaseSpec(
+from teaparty.cfa.statemachine.cfa_state import State as _State
+
+_PHASES: dict[_State, PhaseSpec] = {
+    state: PhaseSpec(
         **_PHASE_DEFAULTS,
         stream_file=stream,
         artifact=artifact,
     )
-    for name, stream, artifact in (
-        ('intent',    '.intent-stream.jsonl', 'INTENT.md'),
-        ('planning',  '.plan-stream.jsonl',   'PLAN.md'),
-        ('execution', '.exec-stream.jsonl',   None),
+    for state, stream, artifact in (
+        (_State.INTENT,  '.intent-stream.jsonl', 'INTENT.md'),
+        (_State.PLAN,    '.plan-stream.jsonl',   'PLAN.md'),
+        (_State.EXECUTE, '.exec-stream.jsonl',   None),
     )
 }
 
@@ -98,7 +100,7 @@ class PhaseConfig:
     def __init__(self, poc_root: str, project_dir: str | None = None):
         self.poc_root = poc_root
         self.project_dir = project_dir
-        self._phases: dict[str, PhaseSpec] = {}
+        self._phases: dict[_State, PhaseSpec] = {}
         self._teams: dict[str, TeamSpec] = {}
         self._org_agents: dict[str, dict[str, Any]] = {}
         self._project_claude_md: str = ''
@@ -106,15 +108,10 @@ class PhaseConfig:
         self.stall_timeout: int = 1800
         self.max_dispatch_retries: int = 5
 
-        # Derived from state machine — not hardcoded
-        self.valid_actions_by_state: dict[str, list[str]] = {}
-        self.phase_for_state: dict[str, str] = {}
-
         self._load()
 
     def _load(self) -> None:
         self._load_phase_config()
-        self._load_state_machine()
         self._load_project_lead()
         self._load_project_claude_md()
 
@@ -124,25 +121,6 @@ class PhaseConfig:
         self._teams = dict(_TEAMS)
         self.stall_timeout = _DEFAULT_STALL_TIMEOUT
         self.max_dispatch_retries = _DEFAULT_MAX_DISPATCH_RETRIES
-
-    def _load_state_machine(self) -> None:
-        """Copy computed properties out of the cfa_state constants.
-
-        Previously this read ``cfa-state-machine.json``; the JSON is
-        gone — the state machine is literal constants in
-        ``teaparty.cfa.statemachine.cfa_state``.  These two dicts
-        remain as ``PhaseConfig`` fields for the handful of callers
-        that reach them through ``config``; they're just projections
-        of ``TRANSITIONS`` / ``phase_for_state``.
-        """
-        from teaparty.cfa.statemachine.cfa_state import (
-            TRANSITIONS, phase_for_state,
-        )
-        for state in TRANSITIONS:
-            self.phase_for_state[state] = phase_for_state(state)
-            self.valid_actions_by_state[state] = [
-                action for action, _target in TRANSITIONS[state]
-            ]
 
     def _load_project_lead(self) -> None:
         """Read the project's configured lead from ``project.yaml``.
@@ -303,18 +281,18 @@ class PhaseConfig:
             return ''
         return json.dumps(agents)
 
-    def resolve_phase(self, phase_name: str) -> PhaseSpec:
+    def resolve_phase(self, state: _State) -> PhaseSpec:
         """Resolve a PhaseSpec, substituting the project's configured lead.
 
-        Intent, planning, and execution phases all use the generic
+        Intent, planning, and execution all use the generic
         ``'project-lead'`` sentinel in the phase table; when the
         project sets a specific lead in ``project.yaml`` (e.g.
         ``joke-book-lead``) we substitute it here (issue #408).  One
-        agent carries the job across all three phases; skills
-        differentiate the phase-specific behaviour.
+        agent carries the job across all three states; skills
+        differentiate the per-state behaviour.
         """
         from dataclasses import replace
-        base = self._phases[phase_name]
+        base = self._phases[state]
         if base.lead == 'project-lead' and self._project_lead:
             return replace(base, lead=self._project_lead)
         return base
@@ -328,14 +306,14 @@ class PhaseConfig:
         """Return the org agent definitions for *team_name*, or {}."""
         return self._load_org_agents(team_name)
 
-    def phase(self, name: str) -> PhaseSpec:
-        return self._phases[name]
+    def phase(self, state: _State) -> PhaseSpec:
+        return self._phases[state]
 
     def team(self, name: str) -> TeamSpec:
         return self._teams[name]
 
     @property
-    def phases(self) -> dict[str, PhaseSpec]:
+    def phases(self) -> dict[_State, PhaseSpec]:
         return dict(self._phases)
 
     @property

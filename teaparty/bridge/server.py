@@ -105,7 +105,6 @@ def _load_cfa_state(infra_dir: str) -> dict | None:
     try:
         cfa = _load_cfa_file(cfa_path)
         return {
-            'phase': cfa.phase,
             'state': cfa.state,
             'history': cfa.history,
             'backtrack_count': cfa.backtrack_count,

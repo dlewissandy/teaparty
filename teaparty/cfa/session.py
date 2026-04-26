@@ -20,7 +20,6 @@ from teaparty.cfa.statemachine.cfa_state import (
     load_state,
     is_globally_terminal,
     make_initial_state,
-    phase_for_state,
     save_state,
 )
 from teaparty.cfa.actors import InputProvider
@@ -304,16 +303,16 @@ class Session:
             # Pre-supplied artifacts shift the start phase; otherwise
             # we begin at INTENT.  No phase-control flags — context
             # (file presence) IS the signal.
-            from teaparty.cfa.statemachine.cfa_state import transition, set_state_direct
+            from teaparty.cfa.statemachine.cfa_state import State, set_state_direct
             cfa = make_initial_state(task_id=self.session_id)
 
             if self.plan_file:
                 # Pre-written PLAN.md: skip to execution.
-                cfa = set_state_direct(cfa, 'EXECUTE')
+                cfa = set_state_direct(cfa, State.EXECUTE)
             elif self.intent_file or self._conversational:
                 # Pre-written INTENT.md, or conversational task with
                 # nothing to align on: skip to planning.
-                cfa = set_state_direct(cfa, 'PLAN')
+                cfa = set_state_direct(cfa, State.PLAN)
 
             save_state(cfa, os.path.join(infra_dir, '.cfa-state.json'))
 
@@ -1166,11 +1165,9 @@ def _reconstruct_last_actor_data(
     if not worktree_path:
         return data
 
-    # If the CfA state is at an approval gate (*_ASSERT), reconstruct the
-    # artifact path the gate would need.
-    current_phase = phase_for_state(cfa.state)
+    # Reconstruct the artifact path the current state's skill expects.
     try:
-        spec = config.phase(current_phase)
+        spec = config.phase(cfa.state)
     except KeyError:
         return data
 

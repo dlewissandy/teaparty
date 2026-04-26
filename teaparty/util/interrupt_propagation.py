@@ -18,14 +18,15 @@ from datetime import datetime, timezone
 
 _log = logging.getLogger('teaparty.util.interrupt')
 
-# Phase ordering for backtrack detection.
-PHASE_ORDER = {'intent': 0, 'planning': 1, 'execution': 2}
+# Working-state ordering for backtrack detection.  Terminal states
+# (DONE, WITHDRAWN) aren't ordered.
+_STATE_ORDER = {'INTENT': 0, 'PLAN': 1, 'EXECUTE': 2}
 
 
-def is_backtrack(old_phase: str, new_phase: str) -> bool:
-    """Return True if the transition moved to an earlier phase."""
-    old_ord = PHASE_ORDER.get(old_phase, -1)
-    new_ord = PHASE_ORDER.get(new_phase, -1)
+def is_backtrack(old_state: str, new_state: str) -> bool:
+    """Return True if the transition moved to an earlier working state."""
+    old_ord = _STATE_ORDER.get(old_state, -1)
+    new_ord = _STATE_ORDER.get(new_state, -1)
     return old_ord >= 0 and new_ord >= 0 and new_ord < old_ord
 
 

@@ -30,6 +30,7 @@ import yaml
 from teaparty.teams.stream import _make_live_stream_relay
 from teaparty.cfa.phase_config import PhaseConfig
 from teaparty.cfa.session import _resolve_project_lead_sender
+from teaparty.cfa.statemachine.cfa_state import State
 from teaparty.runners.launcher import resolve_agent_definition
 from teaparty.messaging.bus import InputRequest
 from teaparty.messaging.conversations import (
@@ -94,12 +95,12 @@ class TestPhaseConfigLeadResolution(unittest.TestCase):
     """PhaseConfig.resolve_phase() must substitute the project lead from project.yaml."""
 
     def test_planning_phase_uses_project_lead_from_project_yaml(self):
-        """resolve_phase('planning') returns the project's configured lead, not 'project-lead'."""
+        """resolve_phase(State.PLAN) returns the project's configured lead, not 'project-lead'."""
         tmp = _make_tmp(self)
         _make_project_yaml(tmp, lead='comics-lead')
         cfg = _make_phase_config(project_dir=tmp)
 
-        spec = cfg.resolve_phase('planning')
+        spec = cfg.resolve_phase(State.PLAN)
 
         self.assertEqual(
             spec.lead, 'comics-lead',
@@ -108,12 +109,12 @@ class TestPhaseConfigLeadResolution(unittest.TestCase):
         )
 
     def test_execution_phase_uses_project_lead_from_project_yaml(self):
-        """resolve_phase('execution') returns the project's configured lead, not 'project-lead'."""
+        """resolve_phase(State.EXECUTE) returns the project's configured lead, not 'project-lead'."""
         tmp = _make_tmp(self)
         _make_project_yaml(tmp, lead='comics-lead')
         cfg = _make_phase_config(project_dir=tmp)
 
-        spec = cfg.resolve_phase('execution')
+        spec = cfg.resolve_phase(State.EXECUTE)
 
         self.assertEqual(
             spec.lead, 'comics-lead',
@@ -129,7 +130,7 @@ class TestPhaseConfigLeadResolution(unittest.TestCase):
         _make_project_yaml(tmp, lead='comics-lead')
         cfg = _make_phase_config(project_dir=tmp)
 
-        spec = cfg.resolve_phase('intent')
+        spec = cfg.resolve_phase(State.INTENT)
 
         self.assertEqual(
             spec.lead, 'comics-lead',
@@ -138,12 +139,12 @@ class TestPhaseConfigLeadResolution(unittest.TestCase):
         )
 
     def test_planning_phase_falls_back_when_no_project_yaml(self):
-        """resolve_phase('planning') falls back to 'project-lead' when no project.yaml exists."""
+        """resolve_phase(State.PLAN) falls back to 'project-lead' when no project.yaml exists."""
         tmp = _make_tmp(self)
         # No project.yaml created — project_dir has no .teaparty/project/project.yaml
         cfg = _make_phase_config(project_dir=tmp)
 
-        spec = cfg.resolve_phase('planning')
+        spec = cfg.resolve_phase(State.PLAN)
 
         self.assertEqual(
             spec.lead, 'project-lead',
@@ -152,12 +153,12 @@ class TestPhaseConfigLeadResolution(unittest.TestCase):
         )
 
     def test_planning_phase_falls_back_when_lead_field_absent(self):
-        """resolve_phase('planning') falls back to 'project-lead' when project.yaml has no lead."""
+        """resolve_phase(State.PLAN) falls back to 'project-lead' when project.yaml has no lead."""
         tmp = _make_tmp(self)
         _make_project_yaml(tmp, lead='')  # writes project.yaml with no lead key
         cfg = _make_phase_config(project_dir=tmp)
 
-        spec = cfg.resolve_phase('planning')
+        spec = cfg.resolve_phase(State.PLAN)
 
         self.assertEqual(
             spec.lead, 'project-lead',
@@ -166,10 +167,10 @@ class TestPhaseConfigLeadResolution(unittest.TestCase):
         )
 
     def test_planning_phase_falls_back_when_no_project_dir(self):
-        """resolve_phase('planning') falls back to 'project-lead' when PhaseConfig has no project_dir."""
+        """resolve_phase(State.PLAN) falls back to 'project-lead' when PhaseConfig has no project_dir."""
         cfg = _make_phase_config(project_dir=None)
 
-        spec = cfg.resolve_phase('planning')
+        spec = cfg.resolve_phase(State.PLAN)
 
         self.assertEqual(
             spec.lead, 'project-lead',
@@ -205,9 +206,9 @@ class TestPhaseConfigLeadResolution(unittest.TestCase):
         tmp = _make_tmp(self)
         _make_project_yaml(tmp, lead='comics-lead')
         cfg = _make_phase_config(project_dir=tmp)
-        base = cfg.phase('execution')
+        base = cfg.phase(State.EXECUTE)
 
-        spec = cfg.resolve_phase('execution')
+        spec = cfg.resolve_phase(State.EXECUTE)
 
         self.assertEqual(spec.agent_file, base.agent_file,
                          'agent_file must not change when substituting lead')
@@ -228,8 +229,8 @@ class TestPhaseConfigLeadResolution(unittest.TestCase):
         cfg_a = _make_phase_config(project_dir=tmp_a)
         cfg_b = _make_phase_config(project_dir=tmp_b)
 
-        spec_a = cfg_a.resolve_phase('planning')
-        spec_b = cfg_b.resolve_phase('planning')
+        spec_a = cfg_a.resolve_phase(State.PLAN)
+        spec_b = cfg_b.resolve_phase(State.PLAN)
 
         self.assertEqual(spec_a.lead, 'comics-lead',
                          'project A must use comics-lead')
@@ -252,8 +253,7 @@ class TestFlatModePhaseSpec(unittest.TestCase):
         cfg = _make_phase_config(project_dir=project_dir)
         from teaparty.cfa.statemachine.cfa_state import CfaState
         cfa = CfaState(
-            state='PLANNING_WORK',
-            phase='planning',
+            state=State.PLAN,
             history=[],
             backtrack_count=0,
         )
@@ -279,30 +279,30 @@ class TestFlatModePhaseSpec(unittest.TestCase):
         return orch
 
     def test_flat_mode_planning_uses_project_lead_not_hardcoded(self):
-        """_phase_spec('planning') in flat mode must use the project lead, not 'project-lead'."""
+        """_phase_spec(State.PLAN) in flat mode must use the project lead, not 'project-lead'."""
         tmp = _make_tmp(self)
         _make_project_yaml(tmp, lead='comics-lead')
         orch = self._make_orchestrator(project_dir=tmp, flat=True)
 
-        spec = orch._phase_spec('planning')
+        spec = orch._phase_spec(State.PLAN)
 
         self.assertEqual(
             spec.lead, 'comics-lead',
-            "flat mode _phase_spec('planning') must use the project lead from project.yaml, "
+            "flat mode _phase_spec(State.PLAN) must use the project lead from project.yaml, "
             f"got '{spec.lead}' — 'project-lead' was hardcoded instead of using the resolved lead",
         )
 
     def test_flat_mode_execution_uses_project_lead_not_hardcoded(self):
-        """_phase_spec('execution') in flat mode must use the project lead, not 'project-lead'."""
+        """_phase_spec(State.EXECUTE) in flat mode must use the project lead, not 'project-lead'."""
         tmp = _make_tmp(self)
         _make_project_yaml(tmp, lead='comics-lead')
         orch = self._make_orchestrator(project_dir=tmp, flat=True)
 
-        spec = orch._phase_spec('execution')
+        spec = orch._phase_spec(State.EXECUTE)
 
         self.assertEqual(
             spec.lead, 'comics-lead',
-            "flat mode _phase_spec('execution') must use the project lead from project.yaml, "
+            "flat mode _phase_spec(State.EXECUTE) must use the project lead from project.yaml, "
             f"got '{spec.lead}' — 'project-lead' was hardcoded instead of using the resolved lead",
         )
 
@@ -312,11 +312,11 @@ class TestFlatModePhaseSpec(unittest.TestCase):
         _make_project_yaml(tmp, lead='comics-lead')
         orch = self._make_orchestrator(project_dir=tmp, flat=False)
 
-        spec = orch._phase_spec('planning')
+        spec = orch._phase_spec(State.PLAN)
 
         self.assertEqual(
             spec.lead, 'comics-lead',
-            "non-flat _phase_spec('planning') must use the project lead from project.yaml, "
+            "non-flat _phase_spec(State.PLAN) must use the project lead from project.yaml, "
             f"got '{spec.lead}'",
         )
 
@@ -874,7 +874,7 @@ class TestAgentRunnerLaunchArgs(unittest.TestCase):
         )
         return ActorContext(
             state='PLANNING_RUN',
-            phase='planning',
+            
             task='Write a plan.',
             infra_dir=project_workdir,
             project_workdir=project_workdir,

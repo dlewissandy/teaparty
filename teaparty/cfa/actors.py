@@ -26,7 +26,6 @@ from teaparty.runners.claude import ClaudeResult
 from teaparty.messaging.bus import (
     Event, EventBus, EventType, InputRequest,
 )
-from teaparty.cfa.statemachine.cfa_state import TRANSITIONS
 
 if TYPE_CHECKING:
     from teaparty.cfa.phase_config import PhaseConfig, PhaseSpec
@@ -54,7 +53,6 @@ class ActorResult:
 class ActorContext:
     """Everything an actor needs to do its work."""
     state: str
-    phase: str
     task: str
     infra_dir: str
     project_workdir: str
@@ -152,14 +150,6 @@ def _check_jail_hook(session_worktree: str, hook_script: str) -> None:
 #
 # Per-call config (stall_timeout, llm_caller, llm_backend, on_stream_event)
 # is passed as kwargs to ``run_phase`` rather than carried as instance state.
-
-# Actions that indicate failure or regression — never auto-selected as the
-# "forward-advancing" action when mapping generic success signals.
-_NEGATIVE_ACTIONS = frozenset({
-    'withdraw', 'escalate', 'backtrack', 'failed', 'reject',
-    'refine-intent', 'revise-plan',
-})
-
 
 async def run_phase(
     ctx: ActorContext,
@@ -390,10 +380,9 @@ def _interpret_output(ctx: ActorContext, result: ClaudeResult) -> ActorResult:
     if actor_message:
         data['actor_message'] = actor_message
 
-    # Skill-driven phases terminate by writing .phase-outcome.json with
-    # an explicit {outcome, reason} payload. When present, trust it as
-    # the authoritative signal — the skill has self-terminated, no
-    # artifact-presence inference needed.
+    # Skills self-terminate by writing .phase-outcome.json with
+    # an {outcome, reason} payload.  When present, trust it as
+    # the authoritative signal.
     outcome_action = _read_phase_outcome(ctx)
     if outcome_action is not None:
         action, reason = outcome_action
@@ -401,39 +390,17 @@ def _interpret_output(ctx: ActorContext, result: ClaudeResult) -> ActorResult:
             data['outcome_reason'] = reason
         return ActorResult(action=action, data=data)
 
-    # Check for expected artifact in the session worktree.
-    if ctx.phase_spec.artifact:
-        artifact_path = _find_artifact(
-            ctx.session_worktree, ctx.phase_spec.artifact,
-        )
-        if artifact_path:
-            data['artifact_path'] = artifact_path
-            action = _resolve_action(ctx.state, 'assert')
-            return ActorResult(action=action, data=data)
-
-        # Artifact not produced — pick the safest loop-back action.
-        # The ASSERT gate must never be entered without the artifact.
-        action = _no_artifact_action_for_state(ctx.state)
-        return ActorResult(action=action, data=data)
-
-    # No artifact configured AND no ``.phase-outcome.json`` — the
-    # skill ended its turn without declaring an outcome.  This is
-    # the normal mid-execute state: the lead dispatched via Send
-    # and its turn ended; fan-in must re-invoke the lead so it can
-    # synthesize the workers' replies and run its ASSERT gate
-    # before declaring APPROVE.
+    # No ``.phase-outcome.json`` — the skill ended its turn without
+    # declaring an outcome.  Normal mid-EXECUTE shape: the lead
+    # dispatched via Send and its turn ended.  Fan-in must re-invoke
+    # the lead so it can synthesize the workers' replies and run its
+    # ASSERT gate before declaring APPROVE.
     #
-    # Return ``action=''`` as the "no outcome" sentinel.  The
-    # outer ``_run_phase`` loop decides what to do:
+    # Return ``action=''`` as the "no outcome" sentinel.  The outer
+    # ``_run_state`` loop decides what to do:
     #   - workers in flight → fan-in wait, re-invoke, try again
     #   - no workers + no outcome → the skill is genuinely broken
-    #     and the engine must raise (no silent approvals).
-    #
-    # Previously this path returned ``action='auto-approve'`` —
-    # a silent approval that let EXECUTE → DONE whenever the
-    # lead's turn ended, even if it was just after a Send.  The
-    # skill's ASSERT gate never ran, the dispatched work never
-    # got reviewed.  That is the bug; this is the kill.
+    #     and the engine raises (no silent approvals).
     return ActorResult(action='', data=data)
 
 def _read_phase_outcome(
@@ -445,15 +412,14 @@ def _read_phase_outcome(
     (``APPROVED_INTENT`` / ``APPROVED_PLAN`` / ``APPROVED_WORK`` /
     ``REALIGN`` / ``REPLAN`` / ``WITHDRAW``).  The orchestrator routes
     on the action alone — each outcome is unambiguous about what was
-    done, because only that skill emits it.  ``ACTION_TO_STATE`` and
-    ``ACTION_TO_PHASE`` (in ``cfa_state``) name the next CfaState and
-    the next phase; this function does not consult ``ctx.state``.
+    done, because only that skill emits it.  ``ACTION_TO_STATE`` (in
+    ``cfa_state``) names the next CfaState; this function does not
+    consult ``ctx.state``.
 
-    The file is consumed (deleted) on read so a subsequent phase run
-    cannot pick up a stale outcome. Unknown outcomes are treated as
-    absent so the caller falls back to artifact inference.
+    The file is consumed (deleted) on read so a subsequent run cannot
+    pick up a stale outcome.  Unknown outcomes are treated as absent.
     """
-    from teaparty.cfa.statemachine.cfa_state import ACTION_TO_STATE
+    from teaparty.cfa.statemachine.cfa_state import Action
     path = os.path.join(ctx.session_worktree, '.phase-outcome.json')
     if not os.path.isfile(path):
         return None
@@ -468,48 +434,10 @@ def _read_phase_outcome(
         pass
     outcome = str(payload.get('outcome', '')).upper()
     reason = str(payload.get('reason', ''))
-    if outcome not in ACTION_TO_STATE:
+    try:
+        return Action(outcome), reason
+    except ValueError:
         return None
-    return outcome, reason
-
-def _no_artifact_action_for_state(state: str) -> str:
-    """Return the action to take when the expected artifact was not produced.
-
-    Skills terminate by writing .phase-outcome.json; this fallback is
-    only reached when a skill exited without both the outcome and the
-    expected artifact. Withdraw is the safe terminal — anything else
-    would advance the phase without evidence the work was done.
-    """
-    edges = TRANSITIONS.get(state, [])
-    valid = {a for a, _ in edges}
-    if 'withdraw' in valid:
-        return 'withdraw'
-    return edges[0][0] if edges else 'withdraw'
-
-def _resolve_action(state: str, tentative: str) -> str:
-    """Validate tentative action against CfA transitions; map to a valid action if needed.
-
-    When the agent returns a generic success signal (assert/auto-approve) but the
-    state expects a specific advancing action, pick the first non-negative
-    valid action from the transition table.
-    """
-    edges = TRANSITIONS.get(state, [])
-    valid = {a for a, _ in edges}
-
-    if tentative in valid:
-        return tentative
-
-    # Map generic success signals to the first forward-advancing action
-    if tentative in ('assert', 'auto-approve'):
-        for action, _ in edges:
-            if action not in _NEGATIVE_ACTIONS:
-                return action
-
-    # Fallback: first available action (shouldn't normally reach here)
-    if edges:
-        return edges[0][0]
-    return tentative
-
 
 # ── Plan relocation ──────────────────────────────────────────────────────────
 

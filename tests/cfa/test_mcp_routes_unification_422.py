@@ -10,7 +10,7 @@ Invariants:
   branch in ``_poll_dispatch_bus``, no dispatch-bus fallback for
   close in ``mcp/tools/messaging.py``.
 - The per-phase ``register_spawn_fn`` / ``register_ask_question_runner``
-  block in ``Orchestrator._run_phase`` is gone.
+  block in ``Orchestrator._run_state`` is gone.
 """
 from __future__ import annotations
 
@@ -159,16 +159,16 @@ class TestOrchestratorBuildsMCPRoutes(unittest.TestCase):
 
 
 class TestPerPhaseRegistrationRemoved(unittest.TestCase):
-    """_run_phase no longer contains scattered MCP route registrations."""
+    """_run_state no longer contains scattered MCP route registrations."""
 
-    def test_run_phase_has_no_register_calls(self) -> None:
+    def test_run_state_has_no_register_calls(self) -> None:
         engine = _read(_ENGINE)
         m = re.search(
-            r'async def _run_phase\b.*?(?=\n    (?:async )?def )',
+            r'async def _run_state\b.*?(?=\n    (?:async )?def )',
             engine, re.DOTALL,
         )
         self.assertIsNotNone(
-            m, 'could not locate _run_phase in cfa/engine.py',
+            m, 'could not locate _run_state in cfa/engine.py',
         )
         body = m.group(0)
         for symbol in (
@@ -178,7 +178,7 @@ class TestPerPhaseRegistrationRemoved(unittest.TestCase):
         ):
             self.assertNotIn(
                 symbol, body,
-                f'_run_phase must not call {symbol} — routes are now '
+                f'_run_state must not call {symbol} — routes are now '
                 'installed by launch() via the top-level MCPRoutes bundle '
                 '(#422).',
             )

@@ -69,7 +69,7 @@ def _make_ctx(
         phase_spec = _make_phase_spec()
     return ActorContext(
         state=state,
-        phase='intent',
+        
         task='Write a blog post about AI',
         infra_dir=infra_dir,
         project_workdir='/tmp/project',
@@ -92,79 +92,19 @@ def _run(coro):
 
 # ── AgentRunner._interpret_output ─────────────────────────────────────────────
 
-class TestInterpretOutputMissingArtifact(unittest.TestCase):
-    """When expected artifact is absent, _interpret_output must never use 'assert'.
-
-    The ASSERT gate invariant: it is only entered when the artifact exists.
-    Missing artifact → loop back through human input so the agent can retry.
-    """
+class TestInterpretOutputNoOutcomeSentinel(unittest.TestCase):
+    """When the skill exits without writing .phase-outcome.json,
+    _interpret_output must return the empty-action sentinel — never
+    auto-approve.  Outer ``_run_state`` decides retry vs raise."""
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
-        self.runner = None  # Cut 28: AgentRunner collapsed to module-level functions
 
     def tearDown(self):
         import shutil
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
-    def _make_ctx_in_tmpdir(self, state='PROPOSAL', artifact='INTENT.md'):
-        spec = _make_phase_spec(artifact=artifact)
-        return _make_ctx(state=state, session_worktree=self.tmpdir, infra_dir=self.tmpdir, phase_spec=spec)
-
-    def test_missing_artifact_never_asserts(self):
-        """Absent artifact must not route 'assert' — gate invariant requires artifact present."""
-        ctx = self._make_ctx_in_tmpdir()
-        result = _interpret_output(ctx, _make_claude_result())
-        self.assertNotEqual(result.action, 'assert',
-                            "Missing artifact must never route to the ASSERT gate")
-
-    def test_missing_artifact_routes_to_safe_terminal(self):
-        """From INTENT, missing artifact routes to 'withdraw' — the safe terminal.
-        Advancing without evidence of the work would lose integrity; withdraw loops
-        the work back through a new dispatch rather than asserting.
-        """
-        ctx = self._make_ctx_in_tmpdir(state='INTENT')
-        result = _interpret_output(ctx, _make_claude_result())
-        self.assertEqual(result.action, 'withdraw')
-        self.assertNotIn('artifact_missing', result.data)
-        self.assertNotIn('artifact_expected', result.data)
-
-    def test_missing_artifact_no_artifact_path_in_data(self):
-        """artifact_path must not be set when the file does not exist."""
-        ctx = self._make_ctx_in_tmpdir()
-        result = _interpret_output(ctx, _make_claude_result())
-        self.assertNotIn('artifact_path', result.data)
-
-    def test_present_artifact_uses_assert_with_path(self):
-        """When INTENT.md exists, action is 'assert' and artifact_path is set."""
-        ctx = self._make_ctx_in_tmpdir()
-        artifact_path = os.path.join(self.tmpdir, 'INTENT.md')
-        Path(artifact_path).write_text('# Intent\nDo something')
-
-        result = _interpret_output(ctx, _make_claude_result())
-
-        self.assertEqual(result.action, 'assert')
-        self.assertEqual(result.data.get('artifact_path'), artifact_path)
-        self.assertNotIn('artifact_missing', result.data)
-
-    def test_no_artifact_configured_and_no_phase_outcome_returns_empty_action(self):
-        """Phase with no artifact AND no ``.phase-outcome.json`` returns the
-        "no outcome" sentinel (``action=''``) — NOT ``auto-approve``.
-
-        Previously this path fell through to ``action='auto-approve'`` —
-        a silent approval.  When the execute phase (``artifact=None``)
-        ran, the LLM dispatched via Send and its turn ended; no
-        phase-outcome.json existed, so the engine auto-approved
-        EXECUTE → DONE without the skill's ASSERT gate or any human
-        sign-off.  The work the agent dispatched never got reviewed.
-
-        The interpreter now returns ``action=''`` as the "no outcome"
-        sentinel.  ``_run_phase`` decides what to do:
-          - workers are in flight → fan-in wait, re-invoke, retry
-          - no workers + no outcome → raise (no silent approvals)
-        So the kill-the-silent-approval invariant lives in
-        ``_run_phase``, not here.  This test pins the sentinel.
-        """
+    def test_no_phase_outcome_returns_empty_action(self):
         spec = _make_phase_spec(artifact=None)
         ctx = _make_ctx(session_worktree=self.tmpdir, phase_spec=spec)
 
@@ -174,98 +114,6 @@ class TestInterpretOutputMissingArtifact(unittest.TestCase):
             'Interpreter must return the empty-action sentinel when '
             "it can't determine an outcome — never auto-approve",
         )
-
-
-# ── Phase-config artifact fields ────────────────────────────────────────────
-
-class TestPhaseConfigArtifacts(unittest.TestCase):
-    """Artifact fields pin which file each phase must produce.
-
-    Previously read from ``phase-config.json``; that JSON is gone and
-    the table is literal Python constants in ``phase_config.py``.
-    """
-
-    def _phases(self) -> dict:
-        from teaparty.cfa.phase_config import _PHASES
-        return _PHASES
-
-    def test_planning_phase_has_plan_md_artifact(self):
-        """Planning phase must have artifact=PLAN.md so PLAN_ASSERT is not bypassed."""
-        artifact = self._phases()['planning'].artifact
-        self.assertEqual(
-            artifact, 'PLAN.md',
-            f"planning artifact must be 'PLAN.md', got {artifact!r} — "
-            'null here causes _interpret_output to auto-approve and bypass PLAN_ASSERT',
-        )
-
-    def test_intent_phase_has_intent_md_artifact(self):
-        """Intent phase artifact must remain INTENT.md (regression guard)."""
-        self.assertEqual(self._phases()['intent'].artifact, 'INTENT.md')
-
-    def test_planning_phase_artifact_is_not_null(self):
-        """Explicit null check — the root cause of the bypass bug."""
-        self.assertIsNotNone(
-            self._phases()['planning'].artifact,
-            'planning artifact must not be null',
-        )
-
-
-class TestInterpretOutputPlanningPhaseRouting(unittest.TestCase):
-    """Verify _interpret_output routes planning output through PLAN_ASSERT, not auto-approve."""
-
-    def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-        self.runner = None  # Cut 28: AgentRunner collapsed to module-level functions
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
-
-    def _make_planning_spec(self) -> PhaseSpec:
-        return PhaseSpec(
-            agent_file='agents/uber-team.json',
-            lead='project-lead',
-            permission_mode='plan',
-            stream_file='.plan-stream.jsonl',
-            artifact='PLAN.md',
-        )
-
-    def test_planning_present_artifact_goes_to_assert(self):
-        """When PLAN.md exists, action is 'assert' (routes to PLAN_ASSERT)."""
-        spec = self._make_planning_spec()
-        ctx = _make_ctx(state='DRAFT', session_worktree=self.tmpdir, infra_dir=self.tmpdir, phase_spec=spec)
-        Path(os.path.join(self.tmpdir, 'PLAN.md')).write_text('# Plan\nStep 1\nStep 2')
-
-        result = _interpret_output(ctx, _make_claude_result())
-
-        self.assertEqual(result.action, 'assert')
-        self.assertIn('artifact_path', result.data)
-        self.assertNotIn('artifact_missing', result.data)
-
-    def test_planning_missing_artifact_never_asserts(self):
-        """When PLAN.md is absent, must not assert (gate requires artifact) and not auto-approve."""
-        spec = self._make_planning_spec()
-        ctx = _make_ctx(state='DRAFT', session_worktree=self.tmpdir, infra_dir=self.tmpdir, phase_spec=spec)
-        # PLAN.md deliberately not written
-
-        result = _interpret_output(ctx, _make_claude_result())
-
-        self.assertNotEqual(result.action, 'auto-approve',
-                            "Missing PLAN.md must never auto-approve — that bypasses PLAN_ASSERT")
-        self.assertNotEqual(result.action, 'assert',
-                            "Missing PLAN.md must never assert — gate invariant requires artifact")
-        self.assertNotIn('artifact_missing', result.data)
-
-    def test_intent_phase_present_artifact_still_goes_to_assert(self):
-        """Intent phase is unaffected — present INTENT.md still routes to assert."""
-        spec = _make_phase_spec(artifact='INTENT.md')
-        ctx = _make_ctx(state='PROPOSAL', session_worktree=self.tmpdir, infra_dir=self.tmpdir, phase_spec=spec)
-        Path(os.path.join(self.tmpdir, 'INTENT.md')).write_text('# Intent')
-
-        result = _interpret_output(ctx, _make_claude_result())
-
-        self.assertEqual(result.action, 'assert')
-        self.assertIn('artifact_path', result.data)
 
 
 # ── Plan relocation from ~/.claude/plans/ ────────────────────────────────────
@@ -411,27 +259,6 @@ class TestEscalationGenerativeResponse(unittest.TestCase):
         import shutil
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
-    def test_relocation_called_when_artifact_missing(self):
-        """When PLAN.md isn't in session_worktree, _interpret_output
-        still finds the artifact if relocation writes it before the check."""
-        spec = PhaseSpec( agent_file='agents/uber-team.json',
-            lead='project-lead', permission_mode='plan',
-            stream_file='.plan-stream.jsonl', artifact='PLAN.md',
-        )
-        ctx = _make_ctx(state='DRAFT', session_worktree=self.tmpdir, infra_dir=self.tmpdir, phase_spec=spec)
-        runner = None  # Cut 28: AgentRunner -> module-level run_phase
-        mock_result = ClaudeResult(exit_code=0, session_id='s1', start_time=1000.0)
-
-        # Simulate relocation: write the artifact before _interpret_output runs,
-        # as the real run() method would do.
-        artifact_path = os.path.join(self.tmpdir, 'PLAN.md')
-        Path(artifact_path).write_text('# Plan from relocation')
-
-        result = _interpret_output(ctx, mock_result)
-        self.assertEqual(result.action, 'assert')
-        self.assertEqual(result.data.get('artifact_path'), artifact_path)
-        self.assertNotIn('artifact_missing', result.data)
-
     def test_no_relocation_when_artifact_already_exists(self):
         """If PLAN.md already exists in session_worktree, don't relocate."""
         spec = PhaseSpec( agent_file='agents/uber-team.json',
@@ -551,58 +378,6 @@ class TestClaudeResultHadErrors(unittest.TestCase):
     def test_had_errors_default(self):
         r = ClaudeResult(exit_code=0)
         self.assertFalse(r.had_errors)
-
-
-class TestInterpretOutputExecutionArtifact(unittest.TestCase):
-    """Execution phase with WORK_SUMMARY.md routes to assert, not auto-approve."""
-
-    def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-        self.runner = None  # Cut 28: AgentRunner collapsed to module-level functions
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
-
-    def _make_execution_spec(self):
-        return PhaseSpec(
-            agent_file='agents/uber-team.json',
-            lead='project-lead',
-            permission_mode='acceptEdits',
-            stream_file='.exec-stream.jsonl',
-            artifact='WORK_SUMMARY.md',
-        )
-
-    def test_work_summary_present_routes_to_assert(self):
-        spec = self._make_execution_spec()
-        ctx = _make_ctx(
-            state='WORK_IN_PROGRESS',
-            session_worktree=self.tmpdir,
-            infra_dir=self.tmpdir,
-            phase_spec=spec,
-        )
-        # Write the work summary to the worktree (agent writes it there)
-        Path(os.path.join(self.tmpdir, 'WORK_SUMMARY.md')).write_text('# Work Summary\n')
-
-        result = _interpret_output(ctx, _make_claude_result())
-
-        self.assertEqual(result.action, 'assert')
-        self.assertIn('WORK_SUMMARY.md', result.data.get('artifact_path', ''))
-
-    def test_work_summary_missing_never_asserts(self):
-        """If WORK_SUMMARY.md is expected but missing, must not assert — gate requires artifact."""
-        spec = self._make_execution_spec()
-        ctx = _make_ctx(
-            state='WORK_IN_PROGRESS',
-            session_worktree=self.tmpdir,
-            phase_spec=spec,
-        )
-
-        result = _interpret_output(ctx, _make_claude_result())
-
-        self.assertNotEqual(result.action, 'assert',
-                            "Missing artifact must never assert — gate invariant requires artifact")
-        self.assertNotIn('artifact_missing', result.data)
 
 
 class TestRelocateMisplacedArtifact(unittest.TestCase):
@@ -748,40 +523,6 @@ class TestRelocateMisplacedArtifact(unittest.TestCase):
         self.assertTrue(os.path.exists(os.path.join(self.worktree, 'PLAN.md')))
         import shutil
         shutil.rmtree(wrong_dir, ignore_errors=True)
-
-    def test_end_to_end_relocate_then_interpret(self):
-        """End-to-end: misplaced artifact is relocated, then _interpret_output finds it."""
-        from teaparty.cfa.actors import _relocate_misplaced_artifact
-
-        wrong_dir = tempfile.mkdtemp()
-        misplaced = os.path.join(wrong_dir, 'INTENT.md')
-        Path(misplaced).write_text('# Intent\nObjective: end-to-end test')
-        self._write_stream_with_write_call(misplaced)
-
-        _relocate_misplaced_artifact(
-            self.worktree, self.stream_file, 'INTENT.md',
-        )
-
-        runner = None  # Cut 28: AgentRunner -> module-level run_phase
-        spec = _make_phase_spec(artifact='INTENT.md')
-        ctx = _make_ctx(
-            state='PROPOSAL',
-            session_worktree=self.worktree,
-            infra_dir=self.worktree,
-            phase_spec=spec,
-        )
-
-        result = _interpret_output(ctx, _make_claude_result())
-
-        self.assertEqual(result.action, 'assert')
-        self.assertNotIn('artifact_missing', result.data)
-        self.assertEqual(
-            result.data.get('artifact_path'),
-            os.path.join(self.worktree, 'INTENT.md'),
-        )
-        import shutil
-        shutil.rmtree(wrong_dir, ignore_errors=True)
-
 
 def _run_sync(*args, cwd=None):
     """Run a command synchronously for test setup."""

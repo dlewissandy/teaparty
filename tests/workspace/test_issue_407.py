@@ -279,7 +279,8 @@ class TestPhaseConfigArtifactName(unittest.TestCase):
     def test_execution_artifact_is_null(self):
         """Execution phase artifact is None — approval is the done-signal."""
         from teaparty.cfa.phase_config import _PHASES
-        artifact = _PHASES['execution'].artifact
+        from teaparty.cfa.statemachine.cfa_state import State
+        artifact = _PHASES[State.EXECUTE].artifact
         self.assertIsNone(
             artifact,
             f'execution phase artifact must be None in the five-state '
@@ -356,7 +357,7 @@ class TestInterpretOutputFindsArtifactInWorktree(unittest.TestCase):
         )
         return ActorContext(
             state='WORK_IN_PROGRESS',
-            phase='execution',
+            
             task='Do the work',
             infra_dir=self.infra_dir,    # separate from worktree
             project_workdir='/tmp/proj',
@@ -364,34 +365,6 @@ class TestInterpretOutputFindsArtifactInWorktree(unittest.TestCase):
             phase_spec=spec,
             poc_root='/tmp/poc',
             event_bus=bus,
-        )
-
-    def test_work_summary_in_worktree_routes_to_assert(self):
-        """WORK_SUMMARY.md in session_worktree (not infra_dir) must trigger assert action."""
-        from teaparty.cfa.actors import _interpret_output
-        from teaparty.runners.claude import ClaudeResult
-
-        ctx = self._make_ctx('WORK_SUMMARY.md')
-        # Write to worktree only — infra_dir does NOT have the file
-        Path(os.path.join(self.worktree, 'WORK_SUMMARY.md')).write_text('# Work Summary\n')
-        # Confirm infra_dir does NOT have it (test is only meaningful if they differ)
-        self.assertFalse(os.path.isfile(os.path.join(self.infra_dir, 'WORK_SUMMARY.md')))
-
-        # Cut 28: AgentRunner -> module-level _interpret_output
-        result = _interpret_output(ctx, ClaudeResult(exit_code=0, session_id='s1'))
-
-        self.assertEqual(
-            result.action, 'assert',
-            f'WORK_SUMMARY.md in session_worktree must trigger assert (got {result.action!r}). '
-            'If this fails, _interpret_output is still looking in infra_dir.',
-        )
-        self.assertNotIn(
-            'artifact_missing', result.data,
-            'artifact_missing must not appear in result.data when artifact is found',
-        )
-        self.assertIn(
-            'WORK_SUMMARY.md', result.data.get('artifact_path', ''),
-            'artifact_path must reference WORK_SUMMARY.md in session_worktree',
         )
 
     def test_work_summary_in_infra_dir_only_not_found(self):
@@ -412,42 +385,6 @@ class TestInterpretOutputFindsArtifactInWorktree(unittest.TestCase):
             'action must NOT be assert when WORK_SUMMARY.md is in infra_dir (wrong location) '
             'but not in session_worktree. If this fails, _interpret_output is still checking infra_dir.',
         )
-
-    def test_intent_md_in_worktree_routes_to_assert(self):
-        """INTENT.md in session_worktree (not infra_dir) must trigger assert action."""
-        from teaparty.cfa.actors import _interpret_output, ActorContext
-        from teaparty.cfa.phase_config import PhaseSpec
-        from teaparty.messaging.bus import EventBus
-        from teaparty.runners.claude import ClaudeResult
-        from unittest.mock import AsyncMock, MagicMock
-
-        bus = MagicMock(spec=EventBus)
-        bus.publish = AsyncMock()
-        spec = PhaseSpec( agent_file='agents/intent.json',
-            lead='intent-lead', permission_mode='acceptEdits',
-            stream_file='.intent-stream.jsonl', artifact='INTENT.md',
-        )
-        ctx = ActorContext(
-            state='PROPOSAL', phase='intent', task='Build the feature',
-            infra_dir=self.infra_dir, project_workdir='/tmp/proj',
-            session_worktree=self.worktree,
-            phase_spec=spec, poc_root='/tmp/poc', event_bus=bus,
-        )
-        # Write to worktree only
-        Path(os.path.join(self.worktree, 'INTENT.md')).write_text('# INTENT: Test\n')
-        self.assertFalse(os.path.isfile(os.path.join(self.infra_dir, 'INTENT.md')))
-
-        # Cut 28: AgentRunner -> module-level _interpret_output
-        result = _interpret_output(ctx, ClaudeResult(exit_code=0, session_id='s1'))
-
-        self.assertEqual(
-            result.action, 'assert',
-            f'INTENT.md in session_worktree must trigger assert (got {result.action!r}). '
-            'If this fails, _interpret_output is still looking in infra_dir.',
-        )
-        self.assertFalse(result.data.get('artifact_missing'),
-                         'artifact_missing must be False when INTENT.md is in session_worktree')
-
 
 # ── SC8: _check_skill_correction reads PLAN.md from session_worktree ─────────
 

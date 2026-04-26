@@ -281,7 +281,7 @@ def _write_minimal_resume_state(infra_dir: str, project_dir: str) -> None:
     """
     # .cfa-state.json
     cfa_state = {
-        'state': 'PLANNING_WORK',
+        'state': 'PLAN',
         'phase': 'planning',
         'actor': 'agent',
         'history': [],
@@ -329,8 +329,8 @@ class TestResumeFromDiskBusLifecycle(unittest.TestCase):
 
         mock_state_writer = _make_mock_state_writer()
         fake_cfa = CfaState(
-            state='PLANNING_WORK',
-            phase='planning',
+            state='PLAN',
+            
             history=[],
             backtrack_count=0,
         )

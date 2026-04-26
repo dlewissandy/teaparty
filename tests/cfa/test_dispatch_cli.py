@@ -22,10 +22,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from teaparty.cfa.dispatch import dispatch
 from teaparty.cfa.statemachine.cfa_state import (
+    Action,
+    apply_response,
     make_initial_state,
     load_state,
     save_state,
-    transition,
 )
 
 
@@ -37,11 +38,10 @@ def _run(coro):
 
 
 def _make_parent_state_file(tmpdir: str, task_id: str = 'uber-001') -> str:
-    """Create a parent CfA state file at WORK_IN_PROGRESS (ready to dispatch) and return its path."""
+    """Create a parent CfA state file at EXECUTE (ready to dispatch)."""
     cfa = make_initial_state(task_id=task_id)
-    cfa = transition(cfa, 'approve')  # INTENT → PLAN
-    cfa = transition(cfa, 'approve')  # PLAN → EXECUTE
-    # cfa.state == 'EXECUTE' — parent is at dispatch point
+    cfa = apply_response(cfa, 'PLAN')     # INTENT → PLAN
+    cfa = apply_response(cfa, 'EXECUTE')  # PLAN → EXECUTE
     path = os.path.join(tmpdir, '.cfa-state.json')
     save_state(cfa, path)
     return path
