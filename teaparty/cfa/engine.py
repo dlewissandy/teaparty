@@ -1404,103 +1404,28 @@ class Orchestrator:
 
         return base
 
+    _SKILL_FOR_STATE: dict[State, str] = {
+        State.INTENT:  '/intent-alignment',
+        State.PLAN:    '/planning',
+        State.EXECUTE: '/execute',
+    }
+
     def _task_for_phase(self, state: State) -> str:
-        """Get the task description for *state*.
+        """Build the first-turn message for *state*.
 
-        INTENT: uses the original task description, with constraints
-            (resolved norms) and escalation guidance injected.
-        PLAN: reads INTENT.md (the intent phase's output), with
-            dynamically-resolved available teams injected.
-        EXECUTE: reads PLAN.md as the workflow to follow,
-            with INTENT.md appended as reference context.
+        The engine's only orchestration job here is naming which slash
+        command runs in this state.  Reading INTENT.md / PLAN.md is
+        the skill's job (its first step does ``Read ./INTENT.md`` etc.);
+        constraints / available-teams resolution is also the skill's
+        job (it has Read/Glob and the config-CRUD MCP tools).
+
+        INTENT additionally needs the user's original task text since
+        that's not on disk anywhere yet.
         """
-        base_task = ''
-        if state == State.EXECUTE:
-            plan_path = os.path.join(self.session_worktree, 'PLAN.md')
-            intent_path = os.path.join(self.session_worktree, 'INTENT.md')
-            parts = []
-            try:
-                with open(plan_path) as f:
-                    parts.append(f.read())
-            except OSError:
-                pass
-            try:
-                with open(intent_path) as f:
-                    parts.append(
-                        '---\nReference: INTENT.md (for success criteria and constraints)\n---\n'
-                        + f.read()
-                    )
-            except OSError:
-                pass
-            if parts:
-                base_task = '\n\n'.join(parts)
-        elif state == State.PLAN:
-            intent_path = os.path.join(self.session_worktree, 'INTENT.md')
-            try:
-                with open(intent_path) as f:
-                    base_task = f.read()
-            except OSError:
-                pass
-
-        if not base_task:
-            base_task = self.task or self.project_slug
-
-        # Prepend CfA framing.  agent.md is role-only; this layer
-        # supplies deliverable, boundary, and re-entry rule per state.
-        scope = (
-            '--- Working scope ---\n'
-            'Your current directory is the worktree for this job. Every file '
-            'this phase reads or writes lives here. Use relative paths (./file) '
-            'for all file operations. Do not reference paths outside your cwd — '
-            'they are outside your allowed scope and attempting to access them '
-            'will fail.\n'
-            '--- end ---\n\n'
-        )
-
+        skill = self._SKILL_FOR_STATE[state]
         if state == State.INTENT:
-            base_task = (
-                scope
-                + '--- CfA: Intent Alignment Phase ---\n'
-                'Run the /intent-alignment skill to completion. Do not do the work described in the idea — that belongs to later phases. The skill will traverse DRAFT/ALIGN/ASK/REVISE/ASSERT internally and terminate by writing ./.phase-outcome.json with APPROVED_INTENT or WITHDRAW.\n'
-                '--- end ---\n\n'
-                + base_task
-            )
-        elif state == State.PLAN:
-            base_task = (
-                scope
-                + '--- CfA: Planning Phase ---\n'
-                'Run the /planning skill to completion. Do not execute or dispatch — planning is a separate act from doing. The skill will traverse DRAFT/ALIGN/ASK/REVISE/ASSERT internally and terminate by writing ./.phase-outcome.json with APPROVED_PLAN, REALIGN, or WITHDRAW.\n'
-                '--- end ---\n\n'
-                + base_task
-            )
-        elif state == State.EXECUTE:
-            base_task = (
-                scope
-                + '--- CfA: Execution Phase ---\n'
-                'Run the /execute skill to completion. You are the manager — delegate to the teams named in ./PLAN.md via Send; inspect their output against ./PLAN.md and ./INTENT.md; CloseConversation only when satisfied. The skill will traverse START/EXECUTE/ASK/ASSERT internally and terminate by writing ./.phase-outcome.json with APPROVED_WORK, REALIGN, REPLAN, or WITHDRAW.\n'
-                '--- end ---\n\n'
-                + base_task
-            )
-
-        if state == State.INTENT:
-            from teaparty.config.phase_context import intent_constraints_block
-            constraints = intent_constraints_block(
-                project_dir=self.project_dir,
-                teaparty_home=self.teaparty_home,
-            )
-            if constraints:
-                base_task += constraints
-        elif state == State.PLAN:
-            from teaparty.config.phase_context import available_teams_block
-            teams_block = available_teams_block(
-                project_teams=self.config.project_teams,
-                project_workdir=self.project_workdir,
-                team_override=self.team_override,
-            )
-            if teams_block:
-                base_task += teams_block
-
-        return base_task
+            return f'{skill}\n\n{self.task or self.project_slug}'
+        return skill
 
     # Maximum auto-retries for API overloaded (529) before escalating to human.
     _MAX_OVERLOAD_RETRIES = 3

@@ -4,9 +4,8 @@ The CfA engine used to do its own embedding-based skill lookup before
 the planning phase ran (System 1 fast path).  Skill selection moved
 into the planning skill itself — it picks based on the frontmatter
 descriptions Claude Code injects into context — so the lookup pipeline
-is gone.  What remains is the frontmatter parser, still consumed by
-``teaparty.config.phase_context`` for surfacing skill descriptions in
-phase prompts.
+is gone.  What remains is the frontmatter parser as a small shared
+helper for any caller that needs to read a SKILL.md's metadata.
 """
 from __future__ import annotations
 
