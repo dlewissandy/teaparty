@@ -143,30 +143,24 @@ class TestStreamEventRelay(unittest.TestCase):
         self.assertEqual(len(msgs), 1)
         self.assertEqual(msgs[0].sender, 'system')
 
-    # ── result → fallback emit + cost ────────────────────────────────────
+    # ── result → cost only ───────────────────────────────────────────────
 
-    def test_result_event_with_no_streamed_text_emits_result_text(self):
-        """When no assistant text was streamed, a 'result' event falls back
-        to emitting result.result as (agent_role, result_text)."""
+    def test_result_event_does_not_emit_agent_text(self):
+        """The 'result' event's ``result_text`` is intentionally
+        dropped.  In stream-json mode (the only mode we use) the
+        assistant blocks already carry every word of agent output;
+        emitting the result-event text again would duplicate, and
+        the cross-event ``wrote_text`` state added to suppress that
+        duplicate leaked across loop iterations and silently dropped
+        relay payloads.  Killing the dead-code fallback removes the
+        whole class of bugs.
+        """
         callback = self._get_callback()
         callback({'type': 'result', 'result': 'Final output'})
-        msgs = self._messages()
-        self.assertEqual(len(msgs), 1)
-        self.assertEqual(msgs[0].sender, 'agent')
-        self.assertEqual(msgs[0].content, 'Final output')
-
-    def test_result_event_after_streamed_text_drops_result_text(self):
-        """If assistant text already streamed, 'result' text is suppressed
-        to avoid a duplicate display — the stream already covered it."""
-        callback = self._get_callback()
-        callback({'type': 'assistant', 'message': {
-            'content': [{'type': 'text', 'text': 'Streamed output'}],
-        }})
-        callback({'type': 'result', 'result': 'Streamed output'})
         agent_msgs = [m for m in self._messages() if m.sender == 'agent']
         self.assertEqual(
-            len(agent_msgs), 1,
-            'result text must NOT be re-emitted when assistant text was streamed',
+            len(agent_msgs), 0,
+            'result-event text must not be emitted as agent output',
         )
 
     def test_result_event_with_stats_emits_cost(self):
@@ -286,7 +280,6 @@ class TestIterStreamEvents(unittest.TestCase):
         results = []
         seen_tu: set[str] = set()
         seen_tr: set[str] = set()
-        state: dict = {}
         with open(self._stream_path) as f:
             for line in f:
                 line = line.strip()
@@ -297,11 +290,9 @@ class TestIterStreamEvents(unittest.TestCase):
                 except (ValueError, _json.JSONDecodeError):
                     continue
                 for sender, content in _classify_event(
-                    ev, agent_role, seen_tu, seen_tr, state,
+                    ev, agent_role, seen_tu, seen_tr,
                 ):
                     results.append((sender, content))
-                    if sender == agent_role:
-                        state['wrote_text'] = True
         return results
 
     # ── top-level tool_use ───────────────────────────────────────────────

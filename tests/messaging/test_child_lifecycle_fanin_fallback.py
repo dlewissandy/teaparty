@@ -30,20 +30,28 @@ class TestFanInFallback(unittest.TestCase):
     """
 
     def test_response_text_falls_back_to_last_gc_payload(self) -> None:
-        """The exit expression in the unified subtree loop is
-        ``response_text = '\\n'.join(response_parts) or last_gc_payload``.
-        If anyone refactors that to drop the fallback, this test fires.
+        """The exit branch in run_subtree_loop must surface
+        last_gc_payload when response_parts is empty AND must
+        write it to the bus (otherwise a silent intermediate agent's
+        relay never appears in the user's chat blade or the
+        accordion).
         """
         import inspect
         from teaparty.messaging import child_dispatch
         src = inspect.getsource(child_dispatch.run_subtree_loop)
         self.assertIn(
-            "or last_gc_payload",
+            'response_text = last_gc_payload',
             src,
-            'run_subtree_loop must fall back to last_gc_payload '
-            'when response_parts is empty.  Without this, an '
-            'intermediate agent that stays silent on a resume turn '
-            'breaks the relay chain.',
+            'run_subtree_loop must surface last_gc_payload as '
+            'response_text when the agent stays silent.',
+        )
+        self.assertIn(
+            'bus.send(conv_id, agent_name, response_text)',
+            src,
+            'run_subtree_loop must also write the fallback payload to '
+            'the bus — otherwise the relay propagates as a return '
+            'value but never appears in the bus, so the user sees '
+            'nothing in the chat blade.',
         )
 
     def test_last_gc_payload_is_assigned_in_loop(self) -> None:

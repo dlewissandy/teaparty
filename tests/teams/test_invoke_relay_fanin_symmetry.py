@@ -30,10 +30,10 @@ class TestUnifiedSubtreeLoop(unittest.TestCase):
         from teaparty.messaging import child_dispatch
         src = inspect.getsource(child_dispatch.run_subtree_loop)
         self.assertIn(
-            "or last_gc_payload",
+            'response_text = last_gc_payload',
             src,
-            'run_subtree_loop must fall back to last_gc_payload '
-            'when response_parts is empty.',
+            'run_subtree_loop must surface last_gc_payload as the '
+            'response when the agent stayed silent on a resume turn.',
         )
 
     def test_run_child_lifecycle_delegates_to_subtree_loop(self) -> None:

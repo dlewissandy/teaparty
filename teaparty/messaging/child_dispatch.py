@@ -151,6 +151,7 @@ async def run_subtree_loop(
     conv_id: str,
     session: Any,
     tasks_by_child: dict[str, asyncio.Task],
+    results_by_child: dict[str, str],
     launch_fn: Any,
     launch_kwargs_base: dict,
     resume_claude_session: str = '',
@@ -206,22 +207,15 @@ async def run_subtree_loop(
     last_gc_payload: str = ''
     current_message = initial_message
     current_claude_session = resume_claude_session or ''
-    # ``state`` is the cross-event memory ``_classify_event`` uses to
-    # suppress the ``result`` event's fallback agent-text emission
-    # when streamed text already covered it.  Without this dict the
-    # final ``result`` event re-emits everything claude said —
-    # duplicating every agent message in the bus.
-    classify_state: dict = {}
 
     def on_event(ev: dict) -> None:
         for sender, content in _classify_event(
-                ev, agent_name, seen_tu, seen_tr, classify_state):
+                ev, agent_name, seen_tu, seen_tr):
             if content:
                 bus.send(conv_id, sender, content)
                 events.append((sender, content))
             if sender == agent_name and content:
                 response_parts.append(content)
-                classify_state['wrote_text'] = True
 
     while True:
         before_ids = {
@@ -270,11 +264,26 @@ async def run_subtree_loop(
         if not new_gc_ids:
             break
 
-        gc_tasks = [
-            tasks_by_child[g] for g in new_gc_ids
-            if g in tasks_by_child
-        ]
-        if not gc_tasks:
+        # Resolve each new grandchild into either a still-running
+        # task (await it) or an already-known result (pluck from
+        # results_by_child).  A subtree can run to completion while
+        # the parent's launch is still streaming claude events; the
+        # completed task pops itself from tasks_by_child but stores
+        # its response in results_by_child, so we never lose it.
+        new_gc_list = sorted(new_gc_ids)
+        pending_tasks: list[asyncio.Task] = []
+        pending_ids: list[str] = []
+        gc_replies: list[str] = []
+        for g in new_gc_list:
+            if g in tasks_by_child:
+                pending_tasks.append(tasks_by_child[g])
+                pending_ids.append(g)
+            elif g in results_by_child:
+                r = results_by_child[g]
+                if r:
+                    gc_replies.append(f'[dispatch:{g}] {r}')
+
+        if not pending_tasks and not gc_replies:
             break
 
         if on_phase is not None:
@@ -285,14 +294,17 @@ async def run_subtree_loop(
                     'on_phase(awaiting) raised', exc_info=True,
                 )
 
-        gc_results = await asyncio.gather(*gc_tasks, return_exceptions=True)
-        gc_replies: list[str] = []
-        for gid, r in zip(new_gc_ids, gc_results):
-            if isinstance(r, str) and r:
-                gc_replies.append(f'[dispatch:{gid}] {r}')
-            elif isinstance(r, Exception) and not isinstance(
-                    r, asyncio.CancelledError):
-                _log.warning('Grandchild %s raised: %s', gid, r)
+        if pending_tasks:
+            gc_results = await asyncio.gather(
+                *pending_tasks, return_exceptions=True,
+            )
+            for gid, r in zip(pending_ids, gc_results):
+                if isinstance(r, str) and r:
+                    gc_replies.append(f'[dispatch:{gid}] {r}')
+                elif isinstance(r, Exception) and not isinstance(
+                        r, asyncio.CancelledError):
+                    _log.warning('Grandchild %s raised: %s', gid, r)
+
         if not gc_replies:
             break
         last_gc_payload = '\n'.join(gc_replies)
@@ -304,8 +316,19 @@ async def run_subtree_loop(
 
     # Fan-in fallback: an agent that contributed no text on a resume
     # turn is exercising autonomy ("nothing to add"); the chain must
-    # not lose the children's contribution because of it.
-    response_text = '\n'.join(response_parts) or last_gc_payload
+    # not lose the children's contribution because of it.  When
+    # ``response_parts`` is empty, surface ``last_gc_payload`` as
+    # the agent's response — and write it to the bus too, so a silent
+    # agent's relay appears in the user's chat blade rather than
+    # propagating only as a function return value.
+    if response_parts:
+        response_text = '\n'.join(response_parts)
+    elif last_gc_payload:
+        response_text = last_gc_payload
+        bus.send(conv_id, agent_name, response_text)
+        events.append((agent_name, response_text))
+    else:
+        response_text = ''
     if on_phase is not None:
         try:
             on_phase('complete', response_text)
@@ -323,6 +346,7 @@ async def run_child_lifecycle(
     child_conv_id: str,
     bus: Any,
     tasks_by_child: dict[str, asyncio.Task],
+    results_by_child: dict[str, str],
     launch_fn: Any,
     mcp_routes: Any = None,
     llm_caller: Any = None,
@@ -363,23 +387,32 @@ async def run_child_lifecycle(
     # grandchildren and exited (e.g. bridge restart).  Skip the
     # initial launch and enter at the gather; transform the
     # grandchildren's eventual replies into the loop's first
-    # ``initial_message``.
+    # ``initial_message``.  Same race as the in-loop gather: a
+    # grandchild may already be done and live in ``results_by_child``
+    # rather than ``tasks_by_child``.
     initial_message = composite
     if start_at_phase == 'awaiting':
-        gc_tasks = [
-            tasks_by_child[g]
-            for g in (initial_gc_task_ids or [])
-            if g in tasks_by_child
-        ]
-        if gc_tasks:
-            _mark_awaiting(child_session, list(initial_gc_task_ids or []))
-            gc_results = await asyncio.gather(
-                *gc_tasks, return_exceptions=True,
-            )
-            gc_replies: list[str] = []
-            for gid, r in zip(initial_gc_task_ids or [], gc_results):
-                if isinstance(r, str) and r:
-                    gc_replies.append(f'[dispatch:{gid}] {r}')
+        ids = list(initial_gc_task_ids or [])
+        pending_tasks: list[asyncio.Task] = []
+        pending_ids: list[str] = []
+        gc_replies: list[str] = []
+        for g in ids:
+            if g in tasks_by_child:
+                pending_tasks.append(tasks_by_child[g])
+                pending_ids.append(g)
+            elif g in results_by_child:
+                r = results_by_child[g]
+                if r:
+                    gc_replies.append(f'[dispatch:{g}] {r}')
+        if pending_tasks or gc_replies:
+            _mark_awaiting(child_session, ids)
+            if pending_tasks:
+                gc_results = await asyncio.gather(
+                    *pending_tasks, return_exceptions=True,
+                )
+                for gid, r in zip(pending_ids, gc_results):
+                    if isinstance(r, str) and r:
+                        gc_replies.append(f'[dispatch:{gid}] {r}')
             if gc_replies:
                 initial_message = '\n'.join(gc_replies)
 
@@ -439,6 +472,7 @@ async def run_child_lifecycle(
         conv_id=child_conv_id,
         session=child_session,
         tasks_by_child=tasks_by_child,
+        results_by_child=results_by_child,
         launch_fn=launch_fn,
         launch_kwargs_base=launch_kwargs_base,
         resume_claude_session=resume_claude_session,
@@ -489,6 +523,16 @@ class ChildDispatchContext:
     # ── Per-session registries (mutated by the spawn function) ─────────
     session_registry: dict[str, Any]
     tasks_by_child: dict[str, Any]
+    # ``results_by_child`` persists each child's response_text after
+    # the child task completes and pops itself from
+    # ``tasks_by_child``.  Without this persistence, a parent whose
+    # claude was still streaming when the child task ran to completion
+    # and popped would later read ``g in tasks_by_child`` → False and
+    # break its loop early — losing the child's contribution.  This
+    # was the cause of the intermittent "joke didn't come back"
+    # failures: deep, fast subchains can fully complete while the
+    # parent's launch is still awaiting claude's stream events.
+    results_by_child: dict[str, str] = field(default_factory=dict)
     factory_registry: dict[str, Any] | None = None  # chat tier only
 
     # ── Configuration ──────────────────────────────────────────────────
@@ -824,6 +868,7 @@ async def schedule_child_dispatch(
                 child_conv_id=child_conv_id,
                 bus=ctx.bus,
                 tasks_by_child=ctx.tasks_by_child,
+                results_by_child=ctx.results_by_child,
                 launch_fn=_spawn_launch,
                 mcp_routes=child_mcp_routes,
                 llm_caller=ctx.llm_caller,
@@ -840,6 +885,11 @@ async def schedule_child_dispatch(
             )
             response_text = ''
         finally:
+            # Persist the result BEFORE popping from tasks_by_child.
+            # The parent's gather may run after our pop; without
+            # ``results_by_child`` it would lose the child's
+            # contribution.
+            ctx.results_by_child[child_session.id] = response_text
             # Remove this child from the in-flight set — both tiers
             # used to do this independently with slightly different
             # bookkeeping; one place now.

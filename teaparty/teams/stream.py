@@ -88,8 +88,7 @@ def _flatten_tool_result_content(raw: Any) -> str:
 
 def _classify_event(ev: dict, agent_role: str,
                     seen_tool_use: set[str],
-                    seen_tool_result: set[str],
-                    state: dict | None = None):
+                    seen_tool_result: set[str]):
     """Yield (sender, content) pairs for a single stream-json event dict.
 
     Maps stream event types to bus sender labels:
@@ -98,19 +97,23 @@ def _classify_event(ev: dict, agent_role: str,
     - tool_use block    -> ('tool_use', JSON of name+input)
     - tool_result event -> ('tool_result', flattened text)
     - system event      -> ('system', JSON of event)
-    - result event      -> (agent_role, result_text) if no text streamed,
-                            then ('cost', stats JSON)
+    - result event      -> ('cost', stats JSON)
     - unknown block     -> ('unknown:<type>', JSON of block)
 
-    ``state`` (optional mutable dict) carries cross-event state:
-    - ``wrote_text`` — set to True by the caller when a yielded pair has
-      ``sender == agent_role``, used by the ``result`` branch to decide
-      whether to re-emit the final text as a fallback for non-streaming mode.
+    Deduplicates tool_use and tool_result by their IDs (claude's
+    stream emits each in two places — as a block inside an
+    ``assistant`` / ``user`` event AND as a standalone event with
+    the same id; the dedup sets prevent us from writing both).
 
-    Deduplicates tool_use and tool_result by their IDs.
+    The ``result`` event's ``result_text`` is intentionally NOT
+    surfaced.  In stream-json mode (the only mode we use, see
+    ``runners/claude.py``) the assistant blocks already carry every
+    word of agent output; the result-event text is a duplicate that
+    only existed as a fallback for non-streaming modes we don't run.
+    Re-emitting it required cross-event ``wrote_text`` state that
+    leaked across loop iterations and silently dropped relay
+    payloads — the dead-code fallback is gone, so is the state.
     """
-    if state is None:
-        state = {}
     ev_type = ev.get('type', '')
 
     if ev_type == 'assistant':
@@ -182,12 +185,10 @@ def _classify_event(ev: dict, agent_role: str,
         yield 'system', json.dumps(ev)
 
     elif ev_type == 'result':
-        # Fallback: in non-streaming mode the full output arrives only in
-        # the ``result`` event.  In streaming mode the assistant blocks
-        # already covered it — skip to avoid duplicate display.
-        result_text = ev.get('result', '')
-        if result_text and not state.get('wrote_text'):
-            yield agent_role, result_text
+        # Stream-json mode (always used here) covers all agent text via
+        # ``assistant`` blocks; the result event carries only stats
+        # worth surfacing.  The text it also carries is a duplicate of
+        # what already streamed.
         stats = {k: ev[k] for k in (
             'total_cost_usd', 'duration_ms', 'input_tokens', 'output_tokens'
         ) if k in ev}
@@ -208,16 +209,13 @@ def _make_live_stream_relay(bus, conv_id: str, agent_role: str):
     """
     seen_tool_use: set[str] = set()
     seen_tool_result: set[str] = set()
-    state: dict = {}
     events: list[tuple[str, str]] = []
 
     def callback(event: dict) -> None:
         for sender, content in _classify_event(
-            event, agent_role, seen_tool_use, seen_tool_result, state,
+            event, agent_role, seen_tool_use, seen_tool_result,
         ):
             bus.send(conv_id, sender, content)
             events.append((sender, content))
-            if sender == agent_role:
-                state['wrote_text'] = True
 
     return callback, events

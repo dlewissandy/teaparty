@@ -156,6 +156,11 @@ class AgentSession:
         # registry).  Kept accessible here for legacy callers and for
         # the non-dispatching path where no listener is built.
         self._tasks_by_child: dict[str, asyncio.Task] = {}
+        # child_session_id → response_text after the child task pops
+        # itself from _tasks_by_child.  Persists across the parent's
+        # gather so a fast subchain that completes before the parent
+        # reads doesn't disappear into the void.
+        self._results_by_child: dict[str, str] = {}
         # child_session_id → factory that re-creates the _run_child
         # coroutine for that child. Populated by spawn_fn; consulted by
         # the pause/resume walker (issue #403) to rebuild the task
@@ -476,6 +481,7 @@ class AgentSession:
             bus_listener=self._bus_listener,
             session_registry=session_registry,
             tasks_by_child=self._tasks_by_child,
+            results_by_child=self._results_by_child,
             factory_registry=self._run_child_factories,
             # Registry tp: cross-team lookups (resolve_launch_placement,
             # build_session_dispatcher for children) walk the org tree.
@@ -1034,10 +1040,7 @@ class AgentSession:
         launch_cwd_override: str = '',
     ) -> str:
         import time as _time
-        from teaparty.runners.launcher import (
-            launch, detect_poisoned_session,
-            create_session as _create_session, load_session as _load_session,
-        )
+        from teaparty.runners.launcher import launch, detect_poisoned_session
         from teaparty.config.roster import (
             resolve_launch_placement, LaunchCwdNotResolved,
         )
@@ -1071,17 +1074,15 @@ class AgentSession:
         if not prompt:
             return ''
 
-        # Session = worktree (1:1). Create session dir, worktree inside it.
-        session_key = self._session_key()
-        session = _load_session(
-            agent_name=self.agent_name, scope=self.scope,
-            teaparty_home=self.teaparty_home, session_id=session_key,
-        )
-        if session is None:
-            session = _create_session(
-                agent_name=self.agent_name, scope=self.scope,
-                teaparty_home=self.teaparty_home, session_id=session_key,
-            )
+        # Always set up the BusEventListener + MCPRoutes — and
+        # populate ``self._dispatch_session`` as a side effect.  The
+        # agent's actual ability to dispatch is governed by their
+        # ``permissions.allow`` (settings.yaml).  Run this FIRST so
+        # we can use the same session record for the launch below
+        # (one session per AgentSession; loading a second in-memory
+        # copy would silently drift from ``_dispatch_session``).
+        await self._ensure_bus_listener(cwd)
+        session = self._dispatch_session
 
         # Chat tier: launch at the real repo root (teaparty for
         # management agents, the project repo for project leads). No
@@ -1116,12 +1117,6 @@ class AgentSession:
         config_dir = _chat_cfg_dir(
             self.teaparty_home, self.scope, self.agent_name, self.qualifier,
         )
-
-        # Always set up the BusEventListener + MCPRoutes.  The
-        # agent's actual ability to dispatch is governed by their
-        # ``permissions.allow`` (settings.yaml) — if Send isn't
-        # there, claude can't call it.  No flag to forget.
-        await self._ensure_bus_listener(cwd)
 
         # The launcher writes stream events to {session_dir}/stream.jsonl.
         # We read the slug from that same file after launch completes.
@@ -1165,6 +1160,7 @@ class AgentSession:
             conv_id=self.conversation_id,
             session=session,
             tasks_by_child=self._tasks_by_child,
+            results_by_child=self._results_by_child,
             launch_fn=launch,
             launch_kwargs_base=launch_kwargs_base,
             resume_claude_session=self.claude_session_id or '',

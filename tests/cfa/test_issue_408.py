@@ -368,17 +368,24 @@ class TestStreamEventHandlerSender(unittest.TestCase):
             f"senders seen: {senders}",
         )
 
-    def test_result_event_fallback_uses_configured_agent_role(self):
-        """A 'result' event falling back to emit its text must use agent_role, not 'agent'."""
+    def test_result_event_does_not_emit_agent_text(self):
+        """The 'result' event's text is intentionally not surfaced.
+
+        In stream-json mode (the only mode we run) assistant blocks
+        carry every word of agent output; the result-event text is a
+        duplicate the cross-event ``wrote_text`` state used to
+        suppress, and that state leaked across loop iterations.
+        Killing the dead fallback removes the class of bugs.
+        """
         callback, sent = self._make_mock_bus_and_callback('comics-lead')
 
-        # No prior assistant text → result.result is re-emitted as fallback.
         callback({'type': 'result', 'result': 'Task complete'})
 
         agent_msgs = [(s, c) for s, c in sent if s == 'comics-lead']
-        self.assertEqual(len(agent_msgs), 1,
-                         f'expected 1 fallback agent message, got: {sent}')
-        self.assertEqual(agent_msgs[0][1], 'Task complete')
+        self.assertEqual(
+            len(agent_msgs), 0,
+            'result-event text must not surface as agent output',
+        )
 
     def test_thinking_events_still_use_thinking_sender(self):
         """Thinking blocks must still use 'thinking' sender regardless of agent_role."""

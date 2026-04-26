@@ -212,6 +212,7 @@ class Orchestrator:
         self._active_skill: dict[str, str] | None = None
 
         self._tasks_by_child: dict[str, asyncio.Task] = {}
+        self._results_by_child: dict[str, str] = {}
 
         self._mcp_routes = None
 
@@ -407,6 +408,7 @@ class Orchestrator:
                 bus_listener=self._bus_event_listener,
                 session_registry=self._session_registry,
                 tasks_by_child=self._tasks_by_child,
+                results_by_child=self._results_by_child,
                 factory_registry=None,
                 teaparty_home=self.teaparty_home,
                 project_slug=self.project_slug,
