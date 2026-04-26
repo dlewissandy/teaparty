@@ -64,6 +64,46 @@ ALL_STATES       = INTENT_STATES | PLANNING_STATES | EXECUTION_STATES | TERMINAL
 _PHASE_ORDER = {'intent': 0, 'planning': 1, 'execution': 2}
 
 
+# ── Skill outcome actions ──────────────────────────────────────────────────
+#
+# A phase ends with one of these signals.  ``APPROVED_*`` are forward
+# advances; ``REALIGN`` / ``REPLAN`` are backtracks; ``WITHDRAW`` is a
+# terminal abort; ``FAILURE`` is the engine's own infra-failure signal
+# (skills don't emit it).
+#
+# Two derived maps drive the loop and the state machine respectively:
+# ``ACTION_TO_PHASE`` says which phase the engine should run next;
+# ``ACTION_TO_STATE`` says which CfaState to land in when the action
+# is applied.
+
+APPROVED_INTENT = 'APPROVED_INTENT'
+APPROVED_PLAN   = 'APPROVED_PLAN'
+APPROVED_WORK   = 'APPROVED_WORK'
+REALIGN         = 'REALIGN'
+REPLAN          = 'REPLAN'
+WITHDRAW        = 'WITHDRAW'
+FAILURE         = 'FAILURE'
+
+ACTION_TO_PHASE: dict[str, str] = {
+    APPROVED_INTENT: 'planning',
+    APPROVED_PLAN:   'execution',
+    APPROVED_WORK:   'done',
+    WITHDRAW:        'withdrawn',
+    FAILURE:         'failure',
+    REALIGN:         'intent',
+    REPLAN:          'planning',
+}
+
+ACTION_TO_STATE: dict[str, str] = {
+    APPROVED_INTENT: 'PLAN',
+    APPROVED_PLAN:   'EXECUTE',
+    APPROVED_WORK:   'DONE',
+    REALIGN:         'INTENT',
+    REPLAN:          'PLAN',
+    WITHDRAW:        'WITHDRAWN',
+}
+
+
 # ── Exception ──────────────────────────────────────────────────────────────
 
 class InvalidTransition(Exception):

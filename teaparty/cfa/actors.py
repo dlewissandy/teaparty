@@ -441,10 +441,19 @@ def _read_phase_outcome(
 ) -> tuple[str, str] | None:
     """Return (action, reason) when the skill wrote .phase-outcome.json.
 
+    ``action`` is the skill's outcome string itself
+    (``APPROVED_INTENT`` / ``APPROVED_PLAN`` / ``APPROVED_WORK`` /
+    ``REALIGN`` / ``REPLAN`` / ``WITHDRAW``).  The orchestrator routes
+    on the action alone — each outcome is unambiguous about what was
+    done, because only that skill emits it.  ``ACTION_TO_STATE`` and
+    ``ACTION_TO_PHASE`` (in ``cfa_state``) name the next CfaState and
+    the next phase; this function does not consult ``ctx.state``.
+
     The file is consumed (deleted) on read so a subsequent phase run
     cannot pick up a stale outcome. Unknown outcomes are treated as
     absent so the caller falls back to artifact inference.
     """
+    from teaparty.cfa.statemachine.cfa_state import ACTION_TO_STATE
     path = os.path.join(ctx.session_worktree, '.phase-outcome.json')
     if not os.path.isfile(path):
         return None
@@ -459,28 +468,9 @@ def _read_phase_outcome(
         pass
     outcome = str(payload.get('outcome', '')).upper()
     reason = str(payload.get('reason', ''))
-
-    # (response → target) lookup.  Each skill outcome unambiguously
-    # names the next state, because only that skill emits that
-    # string.  No state-keyed validation: ``ctx.state`` is not
-    # consulted at all.  If the wrong skill runs (drift), it still
-    # emits an honest outcome and the orchestrator routes by the
-    # outcome alone — the trajectory self-corrects on the next
-    # phase dispatch.  The TRANSITIONS table becomes purely
-    # descriptive (which paths are valid) rather than prescriptive
-    # (which one to take).
-    _RESPONSE_TARGETS = {
-        'APPROVED_INTENT': 'PLAN',       # intent skill done → next is planning
-        'APPROVED_PLAN':   'EXECUTE',    # planning skill done → next is execute
-        'APPROVED_WORK':   'DONE',       # execute skill done → terminal
-        'REALIGN':         'INTENT',
-        'REPLAN':          'PLAN',
-        'WITHDRAW':        'WITHDRAWN',
-    }
-    target_state = _RESPONSE_TARGETS.get(outcome)
-    if target_state is None:
+    if outcome not in ACTION_TO_STATE:
         return None
-    return target_state, reason
+    return outcome, reason
 
 def _no_artifact_action_for_state(state: str) -> str:
     """Return the action to take when the expected artifact was not produced.

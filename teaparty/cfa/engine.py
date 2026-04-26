@@ -16,8 +16,17 @@ from typing import Any, Awaitable, Callable
 import logging
 
 from teaparty.cfa.statemachine.cfa_state import (
+    ACTION_TO_PHASE,
+    ACTION_TO_STATE,
+    APPROVED_PLAN,
+    APPROVED_WORK,
     CfaState,
+    FAILURE,
     InvalidTransition,
+    REALIGN,
+    REPLAN,
+    WITHDRAW,
+    apply_response,
     is_globally_terminal,
     phase_for_state,
     save_state,
@@ -57,12 +66,15 @@ from teaparty.learning.extract import (
 
 @dataclass
 class PhaseResult:
-    """Outcome of running a single CfA phase."""
-    terminal: bool = False          # Reached a globally terminal state
-    terminal_state: str = ''        # COMPLETED_WORK or WITHDRAWN
-    backtrack_to: str = ''          # 'intent' or 'planning' (empty = no backtrack)
-    backtrack_feedback: str = ''    # Human feedback for backtrack
-    infrastructure_failure: bool = False
+    """The action that ended the phase.
+
+    ``action`` is one of the skill-outcome constants in
+    ``cfa_state`` (``APPROVED_INTENT`` / ``APPROVED_PLAN`` /
+    ``APPROVED_WORK`` / ``REALIGN`` / ``REPLAN`` / ``WITHDRAW``) or
+    the engine's own ``FAILURE`` for infra failures.  The loop uses
+    ``ACTION_TO_PHASE`` to pick the next phase to run.
+    """
+    action: str
     failure_reason: str = ''
 
 
@@ -522,36 +534,30 @@ class Orchestrator:
         _log.info('Fan-in complete: resuming lead via --resume for synthesis')
         return await self._invoke_actor(spec, phase_name, phase_start_time)
 
-    # Sentinel values returned by _classify_phase_result to _run_loop.
     async def _run_loop(self) -> OrchestratorResult:
         """Drive the CfA to a terminal state.
 
-        ``next_phase`` is just ``phase_for_state(self.cfa.state)``.
-        Each phase runs to completion; the resulting state's phase is
-        the next phase to run.  No phase-sequence iteration, no
-        backtrack flags — REPLAN moves state to PLAN, the loop sees
-        ``planning`` next iteration, runs planning.  WITHDRAW moves
-        state to WITHDRAWN (terminal); the loop exits.
+        Each iteration runs the phase named by ``next_phase`` and
+        receives back the ``action`` that ended it.  ``ACTION_TO_PHASE``
+        names the next phase; ``done`` / ``withdrawn`` / ``failure`` are
+        loop exits.
 
-        Initial state is set by the caller (cfa/session.py) based on
-        context: pre-supplied INTENT.md → start at PLAN, pre-supplied
-        PLAN.md → start at EXECUTE, otherwise INTENT.  No phase-control
-        flags inside the engine.
+        Initial phase comes from the caller's CfaState
+        (``cfa/session.py`` sets it based on which artifacts are
+        already present).  No phase-control flags inside the engine.
         """
-        # ── the loop ───────────────────────────────────────────────────
-        while not is_globally_terminal(self.cfa.state):
-            next_phase = phase_for_state(self.cfa.state)
-            if next_phase == 'terminal':
-                break
+        next_phase = phase_for_state(self.cfa.state)
+        if next_phase == 'terminal':
+            return self._make_result(self.cfa.state)
 
-            # ── beginning-of-phase stuff ───────────────────────────────
+        while True:
             if next_phase == 'planning':
                 await self._try_skill_lookup()
 
             result = await self._run_phase(next_phase)
+            action = result.action
 
-            # ── end-of-phase stuff ─────────────────────────────────────
-            if result.infrastructure_failure:
+            if action == FAILURE:
                 if result.failure_reason == 'api_overloaded':
                     if await self._handle_overloaded(next_phase) == 'retry':
                         continue
@@ -565,27 +571,31 @@ class Orchestrator:
                         os.path.join(self.infra_dir, '.cfa-state.json'),
                     )
                     return self._make_result('WITHDRAWN')
-                # 'backtrack' / retry: just loop with whatever state we're in
-                continue
+                continue  # retry — same phase
 
-            if result.backtrack_to:
+            if action in (REALIGN, REPLAN):
                 self._record_dead_end(
                     next_phase,
-                    f'{next_phase} backtracked to {result.backtrack_to}',
-                    result.backtrack_feedback,
+                    f'{next_phase} backtracked via {action}',
+                    '',
                 )
                 if self.suppress_backtracks:
-                    # Don't actually go back — force forward to the
-                    # next phase the previous run had us on.
-                    forward = {
+                    forward_state = {
                         'intent': 'PLAN',
                         'planning': 'EXECUTE',
                         'execution': 'DONE',
-                    }.get(next_phase, 'DONE')
-                    self.cfa = set_state_direct(self.cfa, forward)
+                    }[next_phase]
+                    self.cfa = set_state_direct(self.cfa, forward_state)
+                    save_state(
+                        self.cfa,
+                        os.path.join(self.infra_dir, '.cfa-state.json'),
+                    )
+                    next_phase = phase_for_state(self.cfa.state)
+                    if next_phase == 'terminal':
+                        break
                     continue
 
-            if next_phase == 'planning' and not result.terminal:
+            if next_phase == 'planning' and action in (APPROVED_PLAN, REALIGN):
                 from teaparty.learning.phase_hooks import (
                     archive_skill_correction, try_write_premortem,
                 )
@@ -602,7 +612,10 @@ class Orchestrator:
                     infra_dir=self.infra_dir, task=self.task,
                 )
 
-        # ── end-of-job stuff ───────────────────────────────────────────
+            next_phase = ACTION_TO_PHASE[action]
+            if next_phase in ('done', 'withdrawn'):
+                break
+
         return self._make_result(self.cfa.state)
 
     async def _try_skill_lookup(self) -> bool:
@@ -724,7 +737,11 @@ class Orchestrator:
         )
 
     async def _run_phase(self, phase_name: str) -> PhaseResult:
-        """Run a single CfA phase to completion or backtrack."""
+        """Run a single CfA phase until the skill emits an action.
+
+        Returns ``PhaseResult(action=...)`` with the outcome the skill
+        declared.  The caller (``_run_loop``) routes on that action.
+        """
         spec = self._phase_spec(phase_name)
         phase_start_time = time.monotonic()
 
@@ -734,49 +751,22 @@ class Orchestrator:
             session_id=self.session_id,
         ))
 
-        # Initialize stream file
         stream_path = os.path.join(self.infra_dir, spec.stream_file)
         if not os.path.exists(stream_path):
             open(stream_path, 'w').close()
 
-        # CfA micro-loop: advance state within this phase until phase is
-        # done (terminal, backtrack, or phase-exit state reached).
         while True:
-            if is_globally_terminal(self.cfa.state):
-                await self.event_bus.publish(Event(
-                    type=EventType.PHASE_COMPLETED,
-                    data={'phase': phase_name, 'state': self.cfa.state},
-                    session_id=self.session_id,
-                ))
-                return PhaseResult(terminal=True, terminal_state=self.cfa.state)
-
-            # Check for phase exit (e.g., INTENT → PLAN, PLAN → EXECUTE)
-            current_phase = phase_for_state(self.cfa.state)
-            if current_phase != phase_name:
-                # We've transitioned out of this phase
-                await self.event_bus.publish(Event(
-                    type=EventType.PHASE_COMPLETED,
-                    data={'phase': phase_name, 'state': self.cfa.state},
-                    session_id=self.session_id,
-                ))
-                # Check for backtracks
-                if current_phase == 'intent' and phase_name != 'intent':
-                    return PhaseResult(backtrack_to='intent')
-                if current_phase == 'planning' and phase_name == 'execution':
-                    return PhaseResult(backtrack_to='planning')
-                return PhaseResult()
-
-            # Determine which actor should run
             actor_result = await self._invoke_actor(spec, phase_name, phase_start_time)
 
-            # Handle the actor result
             if actor_result.action == 'failed':
                 reason = actor_result.data.get('reason', 'unknown')
                 if reason in ('stall_timeout', 'nonzero_exit', 'api_overloaded'):
-                    return PhaseResult(
-                        infrastructure_failure=True,
-                        failure_reason=reason,
-                    )
+                    await self.event_bus.publish(Event(
+                        type=EventType.PHASE_COMPLETED,
+                        data={'phase': phase_name, 'state': self.cfa.state},
+                        session_id=self.session_id,
+                    ))
+                    return PhaseResult(action=FAILURE, failure_reason=reason)
 
             turn_cost = actor_result.data.get('cost_usd', 0.0)
             if turn_cost:
@@ -811,8 +801,6 @@ class Orchestrator:
             # Fan-in wait: if the lead dispatched workers via Send, hold the
             # CfA transition until all workers have replied.  The lead is then
             # re-invoked (--resume) so it can synthesize before the gate sees it.
-            # Checked BEFORE _transition so the CfA state does not advance until
-            # the synthesis turn returns.
             if (actor_result.action != 'failed'
                     and not is_globally_terminal(self.cfa.state)
                     and self._tasks_by_child):
@@ -820,28 +808,15 @@ class Orchestrator:
                     spec, phase_name, phase_start_time,
                 )
 
-            # Apply the CfA transition
             await self._transition(actor_result.action, actor_result)
 
-            # Cut 29: bus is the source of truth for human messages.
-            # ``_deliver_intervention`` reads bus since the last
-            # consumed timestamp and no-ops when nothing is pending.
-            if not is_globally_terminal(self.cfa.state):
+            # Intra-phase hooks (intervention, scratch, compaction) only
+            # fire when this turn did NOT end the phase.  An action with
+            # a known mapping in ACTION_TO_PHASE always ends it.
+            phase_ending = actor_result.action in ACTION_TO_PHASE
+            if not phase_ending:
                 await self._deliver_intervention()
-
-            # Update scratch file BEFORE the compaction check so
-            # .context/scratch.md exists when compaction fires.
-            if not is_globally_terminal(self.cfa.state):
                 self._update_scratch(phase_name)
-
-            # Compaction: when ContextBudget says we crossed the
-            # threshold, prepend ``/compact`` to the next turn via
-            # ``_pending_intervention`` so the agent stays inside
-            # Claude's 200k window.  ContextBudget + build_compact_prompt
-            # live in ``util/context_budget`` so any caller can wire the
-            # same mechanism — chat tier can pick it up when it grows
-            # an injection point.
-            if not is_globally_terminal(self.cfa.state):
                 budget = actor_result.data.get('context_budget')
                 if (isinstance(budget, ContextBudget)
                         and budget.should_compact):
@@ -851,6 +826,14 @@ class Orchestrator:
                         scratch_path='.context/scratch.md',
                     )
                     budget.clear_compact()
+                continue
+
+            await self.event_bus.publish(Event(
+                type=EventType.PHASE_COMPLETED,
+                data={'phase': phase_name, 'state': self.cfa.state},
+                session_id=self.session_id,
+            ))
+            return PhaseResult(action=actor_result.action)
 
     async def _invoke_actor(self, spec: 'PhaseSpec', phase_name: str,
                              phase_start_time: float = 0.0) -> ActorResult:
@@ -1143,17 +1126,16 @@ class Orchestrator:
             outcome='continue',
         )
 
-    async def _transition(self, target_state: str, actor_result: ActorResult) -> None:
-        """Apply a CfA transition and persist state.
+    async def _transition(self, action: str, actor_result: ActorResult) -> None:
+        """Apply a skill action and persist state.
 
-        ``target_state`` comes from the skill's response.  No
-        ``(state, action)`` edge validation: the outcome string is
-        unambiguous about what the skill did, because only that
-        skill emits it.  We trust the response, set state to its
-        target.  ``apply_response`` handles the backtrack-count
-        bookkeeping for backward moves.
+        ``action`` is the skill's outcome string (or ``WITHDRAW``).
+        ``ACTION_TO_STATE`` names the target CfaState.  No
+        ``(state, action)`` edge validation: the outcome is
+        unambiguous because only that skill emits it.
+        ``apply_response`` handles backtrack-count bookkeeping.
         """
-        from teaparty.cfa.statemachine.cfa_state import apply_response
+        target_state = ACTION_TO_STATE[action]
         old_state = self.cfa.state
         old_phase = phase_for_state(old_state)
 

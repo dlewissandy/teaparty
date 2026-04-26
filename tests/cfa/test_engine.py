@@ -462,7 +462,7 @@ class TestTransitionStoresFeedbackInLastActorData(unittest.TestCase):
             # INTENT → PLAN crosses phases: feedback must be cleared
             # so the planning phase doesn't see a stale BACKTRACK
             # header.
-            _run(orch._transition('PLAN', result))
+            _run(orch._transition('APPROVED_INTENT', result))
 
         self.assertNotIn(
             'feedback', orch._last_actor_data,
@@ -486,7 +486,7 @@ class TestTransitionStoresFeedbackInLastActorData(unittest.TestCase):
                 dialog_history='Human: Narrow scope.\nProxy: Auth only?',
                 data={},
             )
-            _run(orch._transition('PLAN', result))
+            _run(orch._transition('APPROVED_INTENT', result))
 
         self.assertNotIn(
             'dialog_history', orch._last_actor_data,
@@ -510,7 +510,7 @@ class TestTransitionStoresFeedbackInLastActorData(unittest.TestCase):
                 feedback='cleared',  # cleared
                 data={'artifact_path': '/tmp/INTENT.md', 'version': 2},
             )
-            _run(orch._transition('PLAN', result))
+            _run(orch._transition('APPROVED_INTENT', result))
 
         self.assertNotIn('feedback', orch._last_actor_data)
         self.assertEqual(
@@ -530,7 +530,7 @@ class TestTransitionStoresFeedbackInLastActorData(unittest.TestCase):
                 action='approve',
                 data={'artifact_path': '/tmp/INTENT.md'},
             )
-            _run(orch._transition('PLAN', result))
+            _run(orch._transition('APPROVED_INTENT', result))
 
         self.assertNotIn('feedback', orch._last_actor_data)
         self.assertNotIn('dialog_history', orch._last_actor_data)
