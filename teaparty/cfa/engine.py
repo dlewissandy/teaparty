@@ -1453,10 +1453,9 @@ class Orchestrator:
         """Build the first-turn message for *state*.
 
         The engine's only orchestration job here is naming which skill
-        runs in this state.  Reading INTENT.md / PLAN.md is the
-        skill's job (its first step does ``Read ./INTENT.md`` etc.);
-        constraints / available-teams resolution is also the skill's
-        job (it has Read/Glob and the config-CRUD MCP tools).
+        runs and pointing at its on-disk inputs.  Reading those inputs
+        is the skill's job; constraints / available-teams resolution
+        is also the skill's job.
 
         Wording matters: a bare ``/planning`` message is treated by
         Claude Code as a slash command, looked up against the
@@ -1466,14 +1465,28 @@ class Orchestrator:
         (``Run the /planning skill...``) routes the message to the
         model, which then invokes the skill via the ``Skill`` tool.
 
-        INTENT additionally needs the user's original task text since
-        that's not on disk anywhere yet.
+        Per state:
+          * INTENT: directive + the user's original task text (the
+            only input that isn't on disk yet).
+          * PLAN: directive + pointer to ``./INTENT.md``.
+          * EXECUTE: directive + pointer to ``./PLAN.md`` and
+            ``./INTENT.md``.
         """
         skill = self._SKILL_FOR_STATE[state]
         directive = f'Run the {skill} skill to completion.'
         if state == State.INTENT:
             return f'{directive}\n\n{self.task or self.project_slug}'
-        return directive
+        if state == State.PLAN:
+            return (
+                f'{directive}\n\n'
+                f'The approved intent is at ./INTENT.md.'
+            )
+        # EXECUTE
+        return (
+            f'{directive}\n\n'
+            f'The approved plan is at ./PLAN.md '
+            f'(with ./INTENT.md as reference).'
+        )
 
     # Maximum auto-retries for API overloaded (529) before escalating to human.
     _MAX_OVERLOAD_RETRIES = 3
