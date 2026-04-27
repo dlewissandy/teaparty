@@ -280,6 +280,26 @@ async def run_agent_loop(
             or getattr(result, 'exit_code', 0) != 0
         )
         if launch_failed:
+            # An open AskQuestion / escalation means the subprocess
+            # exited as part of awaiting the human's answer — that
+            # is not an infrastructure failure, it's a turn-boundary
+            # handoff to the proxy.  Wait for the escalation to
+            # resolve, then ``--resume`` and continue.  Without this
+            # guard the caller's ``on_failure`` would stack a second
+            # human-prompt on top of the one the skill just opened.
+            caller_sid = launch_kwargs_base.get('session_id', '')
+            if caller_sid:
+                from teaparty.mcp.registry import (
+                    session_has_active_escalation,
+                )
+                if session_has_active_escalation(caller_sid):
+                    _log.info(
+                        '%s: subprocess exit deferred to active escalation; '
+                        'waiting for resolution', agent_name,
+                    )
+                    while session_has_active_escalation(caller_sid):
+                        await asyncio.sleep(0.5)
+                    continue
             if on_failure is None:
                 break
             try:
