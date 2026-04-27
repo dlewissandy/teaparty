@@ -141,7 +141,23 @@ class Orchestrator:
         self._paused_check = opts.paused_check
 
         # ── Internal state ──────────────────────────────────────────────────
-        self._pending_intervention: str = ''
+        # Two intervention slots, distinguished by scope:
+        #
+        # ``_pending_state_prompt`` is ephemeral — set by per-claude-session
+        # concerns (``/compact`` triggers, infrastructure-failure retry
+        # guidance) that are meaningful only inside the current state's
+        # claude session.  Cleared on cross-state transition so the
+        # downstream state's fresh claude session doesn't get a leaked
+        # ``/compact`` prefix or a stale failure note.
+        #
+        # ``_pending_job_prompt`` is durable — set by ``_deliver_intervention``
+        # when a human (or advisory sender) drops a message on the bus.
+        # The human's directive applies to the job, not just the state
+        # that happened to be running, so this slot survives state
+        # transitions and gets prepended on the next turn regardless of
+        # which state's skill is running.
+        self._pending_state_prompt: str = ''
+        self._pending_job_prompt: str = ''
         self._intervention_active: bool = False
         # Map session_id → Session for nested dispatch: when a child
         # agent calls Send, its current_session_id (set by the MCP
@@ -637,13 +653,21 @@ class Orchestrator:
 
         # ── Hooks ──────────────────────────────────────────────────────
         async def on_pre_turn(msg: str) -> str:
-            """Prepend any pending intervention (failure-guidance,
-            compaction trigger, bus-relayed human message) onto the
-            outgoing turn message."""
+            """Prepend any pending intervention (job-scoped human input,
+            then state-scoped failure-guidance / compaction) onto the
+            outgoing turn message.  Job-scoped first so the human's
+            directive sits at the front of the conversation history
+            even when ``/compact`` follows behind it."""
             await self._deliver_intervention()
-            if self._pending_intervention:
-                msg = f'{self._pending_intervention}\n\n{msg}'
-                self._pending_intervention = ''
+            parts: list[str] = []
+            if self._pending_job_prompt:
+                parts.append(self._pending_job_prompt)
+                self._pending_job_prompt = ''
+            if self._pending_state_prompt:
+                parts.append(self._pending_state_prompt)
+                self._pending_state_prompt = ''
+            if parts:
+                msg = '\n\n'.join(parts) + '\n\n' + msg
             return msg
 
         async def on_post_turn(result: Any) -> None:
@@ -683,8 +707,10 @@ class Orchestrator:
                 return 'abort'
             # Retry: queue the human's response as the next turn's
             # intervention text.  ``--resume`` keeps the same Claude
-            # session so the agent picks up where it left off.
-            self._pending_intervention = (
+            # session so the agent picks up where it left off.  This
+            # is state-scoped: a ``retry`` decision re-launches the
+            # same state, never a different one.
+            self._pending_state_prompt = (
                 f'[infrastructure failure: {reason}]\n'
                 f'[human guidance]\n{response}'
             )
@@ -980,7 +1006,10 @@ class Orchestrator:
 
         budget = getattr(result, 'context_budget', None)
         if isinstance(budget, ContextBudget) and budget.should_compact:
-            self._pending_intervention = build_compact_prompt(
+            # ``/compact`` operates on the current claude session's
+            # history.  Cross-state means a fresh claude session with
+            # nothing to compact, so this is state-scoped.
+            self._pending_state_prompt = build_compact_prompt(
                 cfa_state='',
                 task=self._task_for_phase(state),
                 scratch_path='.context/scratch.md',
@@ -1038,7 +1067,10 @@ class Orchestrator:
         prompt = build_intervention_prompt(
             pending, role_enforcer=self._role_enforcer,
         )
-        self._pending_intervention = prompt
+        # Human-driven interventions are job-scoped — the human's
+        # directive applies regardless of which state happens to be
+        # running when it gets consumed.  Survives cross-state.
+        self._pending_job_prompt = prompt
         self._intervention_active = True
 
         write_intervention_chunk(
@@ -1211,9 +1243,16 @@ class Orchestrator:
         # downstream escalation seeded them so the next turn within the
         # SAME state could see the human's response.  When the state
         # changes, they're stale and must not propagate.
+        # Same logic for ``_pending_state_prompt``: ``/compact`` operates
+        # on the current claude session, and failure-retry guidance
+        # was scoped to the failure that just happened.  Both are
+        # meaningless to the new state's fresh claude session.
+        # ``_pending_job_prompt`` (human bus messages) is job-scoped
+        # and intentionally survives the transition.
         if self.cfa.state != old_state:
             self._last_actor_data.pop('dialog_history', None)
             self._last_actor_data.pop('feedback', None)
+            self._pending_state_prompt = ''
 
         if claude_session_id:
             # Key the session id by the state that JUST RAN, not the

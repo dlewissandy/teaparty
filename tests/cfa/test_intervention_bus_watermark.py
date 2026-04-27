@@ -12,7 +12,7 @@ bus read.  These tests pin the contract:
 * No-op when no new messages.
 * role_enforcer.check_send filters informed senders.
 
-The orchestrator's ``_pending_intervention`` slot is the post-condition
+The orchestrator's ``_pending_job_prompt`` slot is the post-condition
 the gate inspects — when it's non-empty after ``_deliver_intervention``,
 the engine prepends it to the next agent turn.
 """
@@ -87,10 +87,10 @@ class TestBusWatermark(unittest.TestCase):
         shutil.rmtree(self._tmp, ignore_errors=True)
 
     def test_no_messages_means_no_delivery(self):
-        """Empty bus → no _pending_intervention set."""
+        """Empty bus → no _pending_job_prompt set."""
         orch = _make_orchestrator(self._tmp)
         _run(orch._deliver_intervention())
-        self.assertEqual(orch._pending_intervention, '')
+        self.assertEqual(orch._pending_job_prompt, '')
 
     def test_trailing_human_message_delivered_on_first_call(self):
         """A human message after the last agent message is delivered."""
@@ -102,8 +102,8 @@ class TestBusWatermark(unittest.TestCase):
         orch = _make_orchestrator(self._tmp)
         _run(orch._deliver_intervention())
 
-        self.assertIn('change the task', orch._pending_intervention)
-        self.assertIn('CfA INTERVENE', orch._pending_intervention)
+        self.assertIn('change the task', orch._pending_job_prompt)
+        self.assertIn('CfA INTERVENE', orch._pending_job_prompt)
 
     def test_already_answered_human_message_not_redelivered(self):
         """A human message followed by an agent reply is past the watermark."""
@@ -116,7 +116,7 @@ class TestBusWatermark(unittest.TestCase):
         _run(orch._deliver_intervention())
 
         self.assertEqual(
-            orch._pending_intervention, '',
+            orch._pending_job_prompt, '',
             'human message that was already followed by an agent reply '
             'must not be re-delivered — the watermark starts past it.',
         )
@@ -132,15 +132,15 @@ class TestBusWatermark(unittest.TestCase):
 
         # First call: delivers.
         _run(orch._deliver_intervention())
-        self.assertIn('change something', orch._pending_intervention)
+        self.assertIn('change something', orch._pending_job_prompt)
 
         # Reset the slot to simulate the engine consuming it.
-        orch._pending_intervention = ''
+        orch._pending_job_prompt = ''
 
         # Second call (no new messages): no-op.
         _run(orch._deliver_intervention())
         self.assertEqual(
-            orch._pending_intervention, '',
+            orch._pending_job_prompt, '',
             'a delivered message must not be redelivered — the watermark '
             'must have advanced past it.',
         )
@@ -153,17 +153,17 @@ class TestBusWatermark(unittest.TestCase):
 
         orch = _make_orchestrator(self._tmp)
         _run(orch._deliver_intervention())
-        self.assertIn('first interjection', orch._pending_intervention)
-        orch._pending_intervention = ''
+        self.assertIn('first interjection', orch._pending_job_prompt)
+        orch._pending_job_prompt = ''
 
         # New human message after the first delivery.
         time.sleep(0.001)
         self._bus.send(self._conv_id, 'human', 'second interjection')
 
         _run(orch._deliver_intervention())
-        self.assertIn('second interjection', orch._pending_intervention)
+        self.assertIn('second interjection', orch._pending_job_prompt)
         self.assertNotIn(
-            'first interjection', orch._pending_intervention,
+            'first interjection', orch._pending_job_prompt,
             'a previously-delivered message must not be repeated when '
             'a new message arrives.',
         )
@@ -182,7 +182,7 @@ class TestBusWatermark(unittest.TestCase):
 
         _run(orch._deliver_intervention())
         self.assertEqual(
-            orch._pending_intervention, '',
+            orch._pending_job_prompt, '',
             'role_enforcer that refuses must filter out the human msg.',
         )
 
