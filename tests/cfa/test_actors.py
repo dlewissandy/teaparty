@@ -1,121 +1,22 @@
 #!/usr/bin/env python3
-"""Tests for actors.py — AgentRunner._interpret_output and helpers.
+"""Tests for the surviving surface in ``cfa/actors.py``.
 
-The sibling ``ApprovalGate`` class and its test coverage were removed
-when the 5-state + skill-based redesign eliminated the gate actor
-(human review now lives inside each skill's ASSERT step via
-AskQuestion→proxy).  Remaining tests cover AgentRunner's artifact
-detection, plan relocation, and output interpretation.
+After the engine unification onto ``run_agent_loop`` (#422), the
+actor wrappers and outcome interpreter that used to live here were
+deleted.  What remains are launch-prep helpers + post-launch
+artifact-relocation utilities the engine still imports directly.
 """
-import asyncio
 import os
 import sys
 import tempfile
 import unittest
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from teaparty.cfa.actors import _interpret_output, run_phase
-from teaparty.cfa.actors import (
-    ActorContext,
-    ActorResult,
-    _relocate_plan_file,
-)
-from teaparty.cfa.statemachine.cfa_state import Action
-from teaparty.runners.claude import ClaudeResult
-from teaparty.messaging.bus import EventBus
-from teaparty.cfa.phase_config import PhaseSpec
-from teaparty.proxy.agent import ProxyResult
-
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
-def _install_jail_hook(worktree: str) -> None:
-    """Create a stub worktree_hook.py so AgentRunner validation passes in tests."""
-    hook_dir = os.path.join(worktree, '.claude', 'hooks')
-    os.makedirs(hook_dir, exist_ok=True)
-    open(os.path.join(hook_dir, 'worktree_hook.py'), 'w').close()
-
-
-def _make_event_bus() -> EventBus:
-    bus = MagicMock(spec=EventBus)
-    bus.publish = AsyncMock()
-    return bus
-
-
-def _make_phase_spec(
-    artifact: str | None = 'INTENT.md',
-) -> PhaseSpec:
-    return PhaseSpec(
-        agent_file='agents/intent-team.json',
-        lead='intent-lead',
-        permission_mode='acceptEdits',
-        stream_file='.intent-stream.jsonl',
-        artifact=artifact,
-    )
-
-
-def _make_ctx(
-    state: str = 'PROPOSAL',
-    session_worktree: str = '/tmp/worktree',
-    phase_spec: PhaseSpec | None = None,
-    infra_dir: str = '/tmp/infra',
-) -> ActorContext:
-    if phase_spec is None:
-        phase_spec = _make_phase_spec()
-    return ActorContext(
-        state=state,
-        
-        task='Write a blog post about AI',
-        infra_dir=infra_dir,
-        project_workdir='/tmp/project',
-        session_worktree=session_worktree,
-        phase_spec=phase_spec,
-        poc_root='/tmp/poc',
-        event_bus=_make_event_bus(),
-        session_id='test-session',
-    )
-
-
-def _make_claude_result(exit_code: int = 0, session_id: str = 'claude-abc') -> ClaudeResult:
-    return ClaudeResult(exit_code=exit_code, session_id=session_id)
-
-
-def _run(coro):
-    """Run a coroutine synchronously for testing."""
-    return asyncio.run(coro)
-
-
-# ── AgentRunner._interpret_output ─────────────────────────────────────────────
-
-class TestInterpretOutputNoOutcomeSentinel(unittest.TestCase):
-    """When the skill exits without writing .phase-outcome.json,
-    _interpret_output must return the empty-action sentinel — never
-    auto-approve.  Outer ``_run_state`` decides retry vs raise."""
-
-    def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
-
-    def test_no_phase_outcome_returns_pending(self):
-        from teaparty.cfa.statemachine.cfa_state import Action
-        spec = _make_phase_spec(artifact=None)
-        ctx = _make_ctx(session_worktree=self.tmpdir, phase_spec=spec)
-
-        result = _interpret_output(ctx, _make_claude_result())
-        self.assertEqual(
-            result.action, Action.PENDING,
-            'Interpreter must return Action.PENDING when '
-            "it can't determine an outcome — never auto-approve",
-        )
+from teaparty.cfa.actors import _relocate_plan_file
 
 
 # ── Plan relocation from ~/.claude/plans/ ────────────────────────────────────
@@ -136,18 +37,9 @@ class TestRelocatePlanFile(unittest.TestCase):
         """Plan file created after start_time is copied to target."""
         import time
         start = time.time() - 1  # 1 second ago
-        plan_file = Path(self.fake_plans_dir) / 'my-plan.md'
-        plan_file.write_text('# Plan\nStep 1: do the thing')
 
         target = os.path.join(self.tmpdir, 'PLAN.md')
 
-        with patch('teaparty.cfa.actors.Path.home',
-                   return_value=Path(self.fake_plans_dir).parent):
-            # We need to mock Path.home() so ~/.claude/plans/ points to our fake dir
-            # Instead, let's call the function directly with a patched plans_dir
-            pass
-
-        # Directly test the function by patching the plans_dir lookup
         with patch('teaparty.cfa.actors.Path.home') as mock_home:
             mock_home.return_value = Path(self.tmpdir) / 'fakehome'
             plans_dir = Path(self.tmpdir) / 'fakehome' / '.claude' / 'plans'
@@ -171,7 +63,6 @@ class TestRelocatePlanFile(unittest.TestCase):
             plans_dir.mkdir(parents=True)
             old_plan = plans_dir / 'old-plan.md'
             old_plan.write_text('# Old Plan')
-            # Set mtime to well in the past
             os.utime(str(old_plan), (time.time() - 3600, time.time() - 3600))
 
             target = os.path.join(self.tmpdir, 'PLAN.md')
@@ -196,7 +87,6 @@ class TestRelocatePlanFile(unittest.TestCase):
 
             newer = plans_dir / 'newer-plan.md'
             newer.write_text('# Newer')
-            # newer has default mtime (now), which is more recent
 
             target = os.path.join(self.tmpdir, 'PLAN.md')
             result = _relocate_plan_file(target, start)
@@ -243,144 +133,7 @@ class TestRelocatePlanFile(unittest.TestCase):
         self.assertFalse(result)
 
 
-class TestAgentRunnerRelocatesPlan(unittest.TestCase):
-    """AgentRunner.run() calls _relocate_plan_file when artifact is missing."""
-
-    def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-# ── Approval-gate exports ────────────────────────────────────────────────────
-
-class TestEscalationGenerativeResponse(unittest.TestCase):
-    """Escalation states try generate_response() before falling through to human."""
-
-    def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-        self._input_calls = []
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
-
-    def test_no_relocation_when_artifact_already_exists(self):
-        """If PLAN.md already exists in session_worktree, don't relocate."""
-        spec = PhaseSpec( agent_file='agents/uber-team.json',
-            lead='project-lead', permission_mode='plan',
-            stream_file='.plan-stream.jsonl', artifact='PLAN.md',
-        )
-        ctx = _make_ctx(state='DRAFT', session_worktree=self.tmpdir, phase_spec=spec)
-
-        # Write PLAN.md directly (agent wrote it to CWD)
-        Path(os.path.join(self.tmpdir, 'PLAN.md')).write_text('# Direct Plan')
-
-        with patch('teaparty.cfa.actors._relocate_plan_file') as mock_relocate:
-            mock_result = ClaudeResult(exit_code=0, session_id='s1', start_time=1000.0)
-            # Simulate run()'s artifact check
-            artifact_path = os.path.join(self.tmpdir, spec.artifact)
-            if not os.path.exists(artifact_path):
-                _relocate_plan_file(artifact_path, mock_result.start_time)
-
-            mock_relocate.assert_not_called()
-
-
-# ── Regression tests for #120: approval gate classification failures ──────────
-
-class TestStderrInActorResult(unittest.TestCase):
-    """ClaudeResult.stderr_lines flows through to ActorResult.data."""
-
-    def test_interpret_output_includes_stderr(self):
-        """When ClaudeResult has stderr_lines, they appear in ActorResult.data."""
-        runner = None  # Cut 28: AgentRunner -> module-level run_phase
-        ctx = _make_ctx()
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            ctx.session_worktree = tmpdir
-            result = ClaudeResult(
-                exit_code=0,
-                session_id='s1',
-                stderr_lines=['Error: tool execution failed', 'Warning: rate limited'],
-            )
-            actor_result = _interpret_output(ctx, result)
-            self.assertEqual(
-                actor_result.data['stderr_lines'],
-                ['Error: tool execution failed', 'Warning: rate limited'],
-            )
-
-    def test_interpret_output_omits_stderr_when_empty(self):
-        """When ClaudeResult has no stderr, data should not contain stderr_lines."""
-        runner = None  # Cut 28: AgentRunner -> module-level run_phase
-        ctx = _make_ctx()
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            ctx.session_worktree = tmpdir
-            result = ClaudeResult(exit_code=0, session_id='s1', stderr_lines=[])
-            actor_result = _interpret_output(ctx, result)
-            self.assertNotIn('stderr_lines', actor_result.data)
-
-    def test_agent_runner_run_propagates_stderr_on_nonzero_exit(self):
-        """AgentRunner.run() includes stderr_lines in the failed ActorResult when exit_code != 0."""
-        from teaparty.runners.claude import ClaudeRunner
-        runner = None  # Cut 28: AgentRunner -> module-level run_phase
-        ctx = _make_ctx()
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            ctx.session_worktree = tmpdir
-            _install_jail_hook(tmpdir)
-            fake_claude_result = ClaudeResult(
-                exit_code=1,
-                session_id='s1',
-                stderr_lines=['fatal: API key invalid', 'Permission denied'],
-            )
-            with patch.object(ClaudeRunner, 'run', new=AsyncMock(return_value=fake_claude_result)):
-                actor_result = _run(run_phase(ctx))
-
-        self.assertEqual(actor_result.action, Action.FAILURE)
-        self.assertEqual(
-            actor_result.data['stderr_lines'],
-            ['fatal: API key invalid', 'Permission denied'],
-        )
-        self.assertEqual(actor_result.data['reason'], 'nonzero_exit')
-
-    def test_agent_runner_run_propagates_stderr_on_stall_killed(self):
-        """AgentRunner.run() includes stderr_lines in the failed ActorResult when stall_killed."""
-        from teaparty.runners.claude import ClaudeRunner
-        runner = None  # Cut 28: AgentRunner -> module-level run_phase
-        ctx = _make_ctx()
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            ctx.session_worktree = tmpdir
-            _install_jail_hook(tmpdir)
-            fake_claude_result = ClaudeResult(
-                exit_code=-1,
-                session_id='s1',
-                stall_killed=True,
-                stderr_lines=['subprocess timed out after 1800s'],
-            )
-            with patch.object(ClaudeRunner, 'run', new=AsyncMock(return_value=fake_claude_result)):
-                actor_result = _run(run_phase(ctx))
-
-        self.assertEqual(actor_result.action, Action.FAILURE)
-        self.assertEqual(
-            actor_result.data['stderr_lines'],
-            ['subprocess timed out after 1800s'],
-        )
-        self.assertEqual(actor_result.data['reason'], 'stall_timeout')
-
-
-class TestClaudeResultHadErrors(unittest.TestCase):
-    """ClaudeResult.had_errors convenience property."""
-
-    def test_had_errors_true(self):
-        r = ClaudeResult(exit_code=0, stderr_lines=['oops'])
-        self.assertTrue(r.had_errors)
-
-    def test_had_errors_false(self):
-        r = ClaudeResult(exit_code=0, stderr_lines=[])
-        self.assertFalse(r.had_errors)
-
-    def test_had_errors_default(self):
-        r = ClaudeResult(exit_code=0)
-        self.assertFalse(r.had_errors)
-
+# ── Misplaced-artifact relocation ────────────────────────────────────────────
 
 class TestRelocateMisplacedArtifact(unittest.TestCase):
     """Artifacts written anywhere must be moved to the worktree via stream parsing."""
@@ -395,30 +148,25 @@ class TestRelocateMisplacedArtifact(unittest.TestCase):
         shutil.rmtree(self.worktree, ignore_errors=True)
         shutil.rmtree(self.stream_dir, ignore_errors=True)
 
-    def _write_stream_with_write_call(self, file_path: str):
-        """Write a stream JSONL with a Write tool call to file_path."""
+    def _write_stream_with_write_call(self, file_path: str) -> None:
+        """Write a JSONL line representing a Write tool call to file_path."""
         import json as _json
-        event = {
-            'type': 'assistant',
+        line = {
             'message': {
-                'content': [{
-                    'type': 'tool_use',
-                    'name': 'Write',
-                    'input': {'file_path': file_path, 'content': '# test'},
-                }],
+                'content': [
+                    {'name': 'Write', 'input': {'file_path': file_path}},
+                ],
             },
         }
         with open(self.stream_file, 'w') as f:
-            f.write(_json.dumps(event) + '\n')
+            f.write(_json.dumps(line) + '\n')
 
     def test_relocates_artifact_found_via_stream(self):
-        """INTENT.md written to arbitrary path is moved to worktree root."""
         from teaparty.cfa.actors import _relocate_misplaced_artifact
 
-        # Agent wrote to some random absolute path
         wrong_dir = tempfile.mkdtemp()
         misplaced = os.path.join(wrong_dir, 'INTENT.md')
-        Path(misplaced).write_text('# Intent\nObjective: test')
+        Path(misplaced).write_text('# Intent\nObjective: build a thing')
         self._write_stream_with_write_call(misplaced)
 
         result = _relocate_misplaced_artifact(
@@ -427,18 +175,16 @@ class TestRelocateMisplacedArtifact(unittest.TestCase):
 
         self.assertTrue(result)
         self.assertTrue(os.path.exists(os.path.join(self.worktree, 'INTENT.md')))
-        # Source is removed (move, not copy — Issue #148)
         self.assertFalse(os.path.exists(misplaced))
         import shutil
         shutil.rmtree(wrong_dir, ignore_errors=True)
 
     def test_relocates_from_repo_root(self):
-        """INTENT.md written to repo root (real failure case) is relocated."""
         from teaparty.cfa.actors import _relocate_misplaced_artifact
 
-        repo_root = tempfile.mkdtemp()
-        misplaced = os.path.join(repo_root, 'INTENT.md')
-        Path(misplaced).write_text('# Intent\nRepo root write')
+        wrong_dir = tempfile.mkdtemp()
+        misplaced = os.path.join(wrong_dir, 'INTENT.md')
+        Path(misplaced).write_text('# Intent\nObjective: x')
         self._write_stream_with_write_call(misplaced)
 
         result = _relocate_misplaced_artifact(
@@ -447,18 +193,15 @@ class TestRelocateMisplacedArtifact(unittest.TestCase):
 
         self.assertTrue(result)
         self.assertTrue(os.path.exists(os.path.join(self.worktree, 'INTENT.md')))
-        # Source is removed (move, not copy — Issue #148)
-        self.assertFalse(os.path.exists(misplaced))
         import shutil
-        shutil.rmtree(repo_root, ignore_errors=True)
+        shutil.rmtree(wrong_dir, ignore_errors=True)
 
     def test_relocates_from_project_dir(self):
-        """INTENT.md written to project dir (other real failure case) is relocated."""
         from teaparty.cfa.actors import _relocate_misplaced_artifact
 
         project_dir = tempfile.mkdtemp()
         misplaced = os.path.join(project_dir, 'INTENT.md')
-        Path(misplaced).write_text('# Intent\nProject dir write')
+        Path(misplaced).write_text('# Intent\nFrom project')
         self._write_stream_with_write_call(misplaced)
 
         result = _relocate_misplaced_artifact(
@@ -471,26 +214,24 @@ class TestRelocateMisplacedArtifact(unittest.TestCase):
         shutil.rmtree(project_dir, ignore_errors=True)
 
     def test_no_op_when_artifact_already_in_worktree(self):
-        """If artifact is already in the worktree, nothing is moved."""
         from teaparty.cfa.actors import _relocate_misplaced_artifact
 
-        correct = os.path.join(self.worktree, 'INTENT.md')
-        Path(correct).write_text('# Intent\nCorrect location')
+        artifact_path = os.path.join(self.worktree, 'INTENT.md')
+        Path(artifact_path).write_text('# Already here')
+        self._write_stream_with_write_call(artifact_path)
 
         result = _relocate_misplaced_artifact(
             self.worktree, self.stream_file, 'INTENT.md',
         )
 
         self.assertFalse(result)
-        self.assertEqual(Path(correct).read_text(), '# Intent\nCorrect location')
+        self.assertTrue(os.path.exists(artifact_path))
 
     def test_no_op_when_no_write_in_stream(self):
-        """If stream has no Write calls for the artifact, returns False."""
         from teaparty.cfa.actors import _relocate_misplaced_artifact
 
-        # Empty stream
         with open(self.stream_file, 'w') as f:
-            f.write('')
+            f.write('{"message": {"content": []}}\n')
 
         result = _relocate_misplaced_artifact(
             self.worktree, self.stream_file, 'INTENT.md',
@@ -499,7 +240,6 @@ class TestRelocateMisplacedArtifact(unittest.TestCase):
         self.assertFalse(result)
 
     def test_no_op_when_stream_file_missing(self):
-        """If stream file doesn't exist, returns False."""
         from teaparty.cfa.actors import _relocate_misplaced_artifact
 
         result = _relocate_misplaced_artifact(
@@ -525,11 +265,6 @@ class TestRelocateMisplacedArtifact(unittest.TestCase):
         self.assertTrue(os.path.exists(os.path.join(self.worktree, 'PLAN.md')))
         import shutil
         shutil.rmtree(wrong_dir, ignore_errors=True)
-
-def _run_sync(*args, cwd=None):
-    """Run a command synchronously for test setup."""
-    import subprocess as sp
-    sp.run(args, cwd=cwd, capture_output=True, check=True)
 
 
 if __name__ == '__main__':

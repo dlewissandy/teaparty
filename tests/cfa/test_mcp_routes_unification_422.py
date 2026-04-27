@@ -147,17 +147,6 @@ class TestOrchestratorBuildsMCPRoutes(unittest.TestCase):
                 'every run_child_lifecycle call must pass mcp_routes=',
             )
 
-    def test_actors_launch_threads_mcp_routes_from_context(self) -> None:
-        actors_path = os.path.join(_REPO_ROOT, 'teaparty', 'cfa', 'actors.py')
-        content = _read(actors_path)
-        self.assertIn(
-            'mcp_routes=ctx.mcp_routes', content,
-            'cfa/actors.py launch() must thread ctx.mcp_routes through '
-            '— the phase lead needs the bundle registered by launch() '
-            'so Send, CloseConversation, AskQuestion all work (#422).',
-        )
-
-
 class TestPerPhaseRegistrationRemoved(unittest.TestCase):
     """_run_state no longer contains scattered MCP route registrations."""
 
