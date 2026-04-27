@@ -9,8 +9,9 @@ Learning) and docs/strategic-planning.md (Warm Start):
      identify recurring patterns, and generalize them into reusable
      skill templates in the project's skills/ directory.
 
-Skills produced by crystallization are consumed by skill_lookup.py
-during the planning phase (System 1 warm-start fast path).
+Skills produced by crystallization are consumed by the planning skill
+itself, which scans the available skill descriptions Claude Code
+injects into context and chooses one to apply.
 
 See: #101, #96
 """
@@ -215,9 +216,9 @@ def _cluster_candidates(
        similarity (Jaccard on tokens, single-linkage).
 
     Category is a first-class concept in the skill schema (produced by
-    crystallization, used by skill_lookup scoring).  Warm-start candidates
-    carry forward the seeding skill's category (Issue #239); cold-start
-    candidates lack category and use the similarity fallback.
+    crystallization).  Warm-start candidates carry forward the seeding
+    skill's category (Issue #239); cold-start candidates lack category
+    and use the similarity fallback.
 
     Returns a list of clusters, where each cluster is a list of candidate dicts.
     """
@@ -613,7 +614,7 @@ def _rebuild_skill_file(meta: dict[str, str], body: str) -> str:
 def _parse_candidate_frontmatter(content: str) -> tuple[dict[str, str], str]:
     """Parse YAML-style frontmatter from a candidate file.
 
-    Returns (metadata_dict, body_text). Same simple parsing as skill_lookup.py.
+    Returns (metadata_dict, body_text).
     """
     if not content.startswith('---'):
         return {}, content
