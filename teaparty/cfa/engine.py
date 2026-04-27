@@ -1452,19 +1452,28 @@ class Orchestrator:
     def _task_for_phase(self, state: State) -> str:
         """Build the first-turn message for *state*.
 
-        The engine's only orchestration job here is naming which slash
-        command runs in this state.  Reading INTENT.md / PLAN.md is
-        the skill's job (its first step does ``Read ./INTENT.md`` etc.);
+        The engine's only orchestration job here is naming which skill
+        runs in this state.  Reading INTENT.md / PLAN.md is the
+        skill's job (its first step does ``Read ./INTENT.md`` etc.);
         constraints / available-teams resolution is also the skill's
         job (it has Read/Glob and the config-CRUD MCP tools).
+
+        Wording matters: a bare ``/planning`` message is treated by
+        Claude Code as a slash command, looked up against the
+        registered list, and silently rejected when not found
+        (project skills are ``Skill``-tool-resolved, not registered
+        as slash commands).  Embedding the slash in prose
+        (``Run the /planning skill...``) routes the message to the
+        model, which then invokes the skill via the ``Skill`` tool.
 
         INTENT additionally needs the user's original task text since
         that's not on disk anywhere yet.
         """
         skill = self._SKILL_FOR_STATE[state]
+        directive = f'Run the {skill} skill to completion.'
         if state == State.INTENT:
-            return f'{skill}\n\n{self.task or self.project_slug}'
-        return skill
+            return f'{directive}\n\n{self.task or self.project_slug}'
+        return directive
 
     # Maximum auto-retries for API overloaded (529) before escalating to human.
     _MAX_OVERLOAD_RETRIES = 3
