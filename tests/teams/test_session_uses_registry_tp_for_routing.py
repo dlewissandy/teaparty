@@ -91,7 +91,7 @@ def _make_two_tp_layout() -> tuple[str, str]:
             'name': 'ext-proj',
             'description': 'External project',
             'lead': 'ext-lead',
-            'workgroups': [{'ref': 'Coding'}],
+            'workgroups': [{'ref': 'coding'}],
             'members': {'workgroups': ['Coding']},
         }, f)
     with open(os.path.join(
