@@ -130,6 +130,7 @@ BASELINE_ALLOW_RULES: tuple[str, ...] = (
     # Messaging primitives — minimum complement for any dispatch
     # participant.  See module-level comment above for rationale.
     'mcp__teaparty-config__Send',
+    'mcp__teaparty-config__Delegate',
     'mcp__teaparty-config__AskQuestion',
     'mcp__teaparty-config__ListTeamMembers',
     'mcp__teaparty-config__CloseConversation',

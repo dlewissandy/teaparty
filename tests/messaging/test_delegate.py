@@ -344,5 +344,59 @@ class DelegateInputValidationTest(unittest.TestCase):
             _run(delegate_handler(member='m', task=''))
 
 
+class DelegateBaselineAllowTest(unittest.TestCase):
+    """Delegate must be in the universal baseline allow list — without
+    this, the MCP tools/list filter strips Delegate from every agent's
+    catalog because no agent's settings.yaml lists it explicitly.
+    """
+
+    def test_delegate_is_in_baseline_allow_rules(self) -> None:
+        from teaparty.runners.launcher import BASELINE_ALLOW_RULES
+        self.assertIn(
+            'mcp__teaparty-config__Delegate', BASELINE_ALLOW_RULES,
+            'Delegate must be in BASELINE_ALLOW_RULES so it survives '
+            'the MCP tools/list filter on every agent. Without this, '
+            'the project-lead\'s execute skill prescribes a tool the '
+            'agent cannot see.',
+        )
+
+    def test_delegate_appears_in_composed_allow_list(self) -> None:
+        """End-to-end: a fresh compose has Delegate in the settings.json
+        allow list, regardless of what the agent's own settings.yaml
+        says — because the baseline merges it in."""
+        import json
+        import os as _os
+        import tempfile
+        from teaparty.runners.launcher import compose_launch_config
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tp_home = _os.path.join(tmp, '.teaparty')
+            agent_dir = _os.path.join(
+                tp_home, 'management', 'agents', 'minimal-agent',
+            )
+            _os.makedirs(agent_dir)
+            with open(_os.path.join(agent_dir, 'agent.md'), 'w') as f:
+                f.write('---\nname: minimal-agent\n---\nbody\n')
+            # Per-agent settings.yaml does NOT list Delegate.
+            with open(_os.path.join(agent_dir, 'settings.yaml'), 'w') as f:
+                f.write('permissions:\n  allow:\n  - Read\n')
+            config_dir = _os.path.join(tmp, 'cfg')
+            compose_launch_config(
+                config_dir=config_dir,
+                agent_name='minimal-agent',
+                scope='management',
+                teaparty_home=tp_home,
+            )
+            with open(_os.path.join(config_dir, 'settings.json')) as f:
+                composed = json.load(f)
+            allow = (composed.get('permissions') or {}).get('allow') or []
+            self.assertIn(
+                'mcp__teaparty-config__Delegate', allow,
+                f'Delegate must be merged into every agent\'s composed '
+                f'allow list via BASELINE_ALLOW_RULES, even when the '
+                f'agent\'s own settings.yaml omits it. Got: {allow}',
+            )
+
+
 if __name__ == '__main__':
     unittest.main()
