@@ -105,6 +105,20 @@ BASELINE_DENY_RULES: tuple[str, ...] = (
 # agent's settings at launch. These cover paths Claude Code may
 # implicitly prompt for even when a bare tool name is in allow (e.g.
 # reading its own .claude/ config when loading skills).
+#
+# The four messaging primitives are minimum-complement for any agent
+# that participates in the dispatch protocol: ``Send`` to delegate or
+# reply, ``AskQuestion`` to escalate to the proxy/human, and
+# ``ListTeamMembers`` / ``CloseConversation`` for leads that route
+# work and tear down threads.  Hand-replicating these in every
+# lead's per-agent settings.yaml — as the codebase did before — is
+# brittle: one accidental edit silently breaks a lead's ability to
+# send messages, find team members, ask questions, or close threads.
+# Putting them in the baseline turns the minimum complement into a
+# structural guarantee.  Specialist members get them too; that's
+# fine — the deny list still gates anything they shouldn't write to,
+# and a specialist needs ``Send`` to ``Reply`` to its dispatcher
+# regardless.
 BASELINE_ALLOW_RULES: tuple[str, ...] = (
     'Read(*/.claude/**)',
     'Read(*/.claude/skills/**)',
@@ -113,6 +127,12 @@ BASELINE_ALLOW_RULES: tuple[str, ...] = (
     # frontmatter but can't run them — the CLI prompts for permission
     # on every Skill call.
     'Skill',
+    # Messaging primitives — minimum complement for any dispatch
+    # participant.  See module-level comment above for rationale.
+    'mcp__teaparty-config__Send',
+    'mcp__teaparty-config__AskQuestion',
+    'mcp__teaparty-config__ListTeamMembers',
+    'mcp__teaparty-config__CloseConversation',
 )
 
 

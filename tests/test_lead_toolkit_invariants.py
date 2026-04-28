@@ -142,10 +142,16 @@ class TestSettingsYamlIsReadFreshOnEveryLaunch(unittest.TestCase):
 
     def test_settings_yaml_change_takes_effect_immediately(self) -> None:
         """compose_launch_config writes a settings.json that mirrors
-        the CURRENT settings.yaml — not a cached snapshot."""
+        the CURRENT settings.yaml — not a cached snapshot.
+
+        Uses ``WebSearch`` as the probe tool because it isn't in the
+        universal baseline allow list (the messaging primitives are);
+        a tool that the baseline injects unconditionally would fail
+        the precondition.
+        """
         from teaparty.runners.launcher import compose_launch_config
 
-        # Initial state: minimal toolkit.
+        # Initial state: minimal toolkit, no WebSearch.
         self._write_settings(['Read', 'mcp__teaparty-config__Send'])
         config_dir_a = os.path.join(self._tmp, 'launch-a')
         compose_launch_config(
@@ -156,14 +162,13 @@ class TestSettingsYamlIsReadFreshOnEveryLaunch(unittest.TestCase):
         )
         allow_a = self._read_composed_allow(config_dir_a)
         self.assertNotIn(
-            'mcp__teaparty-config__ListTeamMembers', allow_a,
+            'WebSearch', allow_a,
             'precondition: initial settings.yaml does not have it',
         )
 
-        # Simulate a UI PATCH that adds ListTeamMembers.
+        # Simulate a UI PATCH that adds WebSearch.
         self._write_settings([
-            'Read', 'mcp__teaparty-config__Send',
-            'mcp__teaparty-config__ListTeamMembers',
+            'Read', 'mcp__teaparty-config__Send', 'WebSearch',
         ])
 
         # Next launch composes from disk — must see the new tool.
@@ -176,7 +181,7 @@ class TestSettingsYamlIsReadFreshOnEveryLaunch(unittest.TestCase):
         )
         allow_b = self._read_composed_allow(config_dir_b)
         self.assertIn(
-            'mcp__teaparty-config__ListTeamMembers', allow_b,
+            'WebSearch', allow_b,
             'compose_launch_config must read settings.yaml fresh — '
             'a UI tool edit did not propagate to settings.json',
         )
