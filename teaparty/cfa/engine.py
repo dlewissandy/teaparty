@@ -1003,17 +1003,40 @@ class Orchestrator:
 
         self._update_scratch(state)
 
+        # Orchestrator-driven ``/compact`` is disabled — see issue #260.
+        #
+        # The earlier strategy queued ``_pending_state_prompt =
+        # '/compact <focus>'`` and ``on_pre_turn`` prepended it onto the
+        # next user message.  Two structural defects make this unsafe:
+        #
+        # 1. ``ContextBudget`` hardcodes a 200K context window
+        #    (``util/context_budget.py:15``).  The project-lead runs on
+        #    ``claude-opus-4-7[1m]`` (1M context).  ``should_compact``
+        #    fires at ~43% real utilization, an order of magnitude
+        #    earlier than the 78% threshold the design targets.
+        #
+        # 2. Claude CLI's slash-command dispatcher treats a user
+        #    message that begins with ``/compact`` as the slash command
+        #    plus its focus argument.  The actual content the engine
+        #    intended for the agent (e.g. a worker's Reply) is consumed
+        #    as part of the focus and never delivered as a turn the
+        #    agent answers.  ``result.result`` comes back empty,
+        #    ``run_agent_loop`` exits naturally with no terminal, and
+        #    ``_run_state`` raises ``RuntimeError("skill is
+        #    incomplete")``.
+        #
+        # Both defects are reproducible in the live joke-book exec
+        # streams (``compact_boundary trigger='manual'``).  The fix
+        # path discussed at the time #260 was opened — and explicitly
+        # reopened against Tier 4 — is **agent-controlled** compaction
+        # (the agent calls a ``compact_context`` tool when it judges
+        # context pressure to be high), not orchestrator-injected
+        # slash commands.  Until that lands, the gate is unconditional:
+        # observe tokens (the budget keeps tracking for telemetry), but
+        # never queue ``/compact``.
         budget = getattr(result, 'context_budget', None)
         if isinstance(budget, ContextBudget) and budget.should_compact:
-            # ``/compact`` operates on the current claude session's
-            # history.  Cross-state means a fresh claude session with
-            # nothing to compact, so this is state-scoped.
-            self._pending_state_prompt = build_compact_prompt(
-                cfa_state='',
-                task=self._task_for_phase(state),
-                scratch_path='.context/scratch.md',
-            )
-            budget.clear_compact()
+            budget.clear_compact()  # observe-only; no prompt queued
 
     async def _deliver_intervention(self) -> None:
         """Drain pending bus messages, publish INTERVENE, store prompt for injection.
