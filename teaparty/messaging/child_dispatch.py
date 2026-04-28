@@ -69,6 +69,128 @@ def _looks_like_permission_stall(text: str) -> bool:
             return True
     return False
 
+
+def _emit_stall_signals(
+    *,
+    bus: Any,
+    conv_id: str,
+    agent_name: str,
+    launch_kwargs_base: dict,
+    reply_head: str,
+) -> None:
+    """Make a permission stall visible to the operator.
+
+    Writes two artifacts:
+
+    1. ``stall_detected`` telemetry event on the agent's scope so the
+       dashboard's friction view counts it and the audit trail records
+       the fact that a worker's clean-exit reply was rejected as a
+       deliverable.
+    2. A ``system`` sender message on the agent's conversation so the
+       chat panel renders the diagnostic inline with the agent's
+       output.  The operator does not need to read logs to discover
+       that a worker stalled.
+
+    Both writes are best-effort — failure to surface must not break
+    the recovery path.  An empty ``scope`` or ``session_id`` skips the
+    telemetry write (the event store rejects rows without a scope);
+    bus failures are swallowed so a closed conversation does not
+    abort the loop.
+    """
+    scope = (
+        launch_kwargs_base.get('telemetry_scope')
+        or launch_kwargs_base.get('scope')
+        or ''
+    )
+    session_id = launch_kwargs_base.get('session_id') or ''
+    if scope:
+        try:
+            from teaparty.telemetry import record_event
+            from teaparty.telemetry import events as _telem_events
+            record_event(
+                _telem_events.STALL_DETECTED,
+                scope=scope,
+                agent_name=agent_name,
+                session_id=session_id,
+                data={
+                    'kind': 'permission_stall',
+                    'reply_head': reply_head,
+                },
+            )
+        except Exception:
+            _log.debug(
+                '%s: stall_detected telemetry emit failed', agent_name,
+                exc_info=True,
+            )
+    try:
+        bus.send(
+            conv_id, 'system',
+            'Permission stall detected — the agent exited a turn '
+            'with a reply indicating it was blocked on permission. '
+            'Routing through the recovery path; the reply was not '
+            'accepted as the deliverable. '
+            f'Reply head: {reply_head!r}',
+        )
+    except Exception:
+        _log.debug(
+            '%s: bus.send(system, stall_detected) failed', agent_name,
+            exc_info=True,
+        )
+
+
+def _emit_stall_recovery_signal(
+    *,
+    bus: Any,
+    conv_id: str,
+    agent_name: str,
+    launch_kwargs_base: dict,
+    decision: str,
+) -> None:
+    """Close the stall-detected/stall-recovered pair when recovery is taken.
+
+    Emitted when ``on_failure`` returns a non-abort decision after a
+    permission stall.  This is the friction-signal counterpart to
+    ``_emit_stall_signals`` — together they let the dashboard show
+    "stall opened, stall closed" rather than the operator inferring
+    from the absence of further activity.
+    """
+    scope = (
+        launch_kwargs_base.get('telemetry_scope')
+        or launch_kwargs_base.get('scope')
+        or ''
+    )
+    session_id = launch_kwargs_base.get('session_id') or ''
+    if scope:
+        try:
+            from teaparty.telemetry import record_event
+            from teaparty.telemetry import events as _telem_events
+            record_event(
+                _telem_events.STALL_RECOVERED,
+                scope=scope,
+                agent_name=agent_name,
+                session_id=session_id,
+                data={
+                    'kind': 'permission_stall',
+                    'decision': decision,
+                },
+            )
+        except Exception:
+            _log.debug(
+                '%s: stall_recovered telemetry emit failed', agent_name,
+                exc_info=True,
+            )
+    try:
+        bus.send(
+            conv_id, 'system',
+            f'Permission stall recovery: {decision}.',
+        )
+    except Exception:
+        _log.debug(
+            '%s: bus.send(system, stall_recovered) failed', agent_name,
+            exc_info=True,
+        )
+
+
 _log = logging.getLogger('teaparty.messaging.child_dispatch')
 
 
@@ -374,6 +496,15 @@ async def run_agent_loop(
         # delivers an error message instead of progress.  Route it
         # through ``on_failure`` so the tier-specific recovery (CfA's
         # retry policy, chat-tier's dialog) can decide what to do.
+        #
+        # Surfacing: a log line is not enough — the operator will not
+        # find it.  Emit a ``stall_detected`` telemetry event so the
+        # dashboard sees the friction signal, and post a ``system``
+        # message to the agent's conversation so the chat panel makes
+        # the stall visible without requiring log inspection.  The
+        # tier-specific ``on_failure`` decides recovery; an emitted
+        # ``stall_recovered`` event closes the pair when recovery is
+        # taken.
         result_text = getattr(result, 'result', '') or ''
         if _looks_like_permission_stall(result_text):
             _log.warning(
@@ -381,6 +512,13 @@ async def run_agent_loop(
                 'routing through on_failure rather than accepting as a '
                 "deliverable. reply head: %r",
                 agent_name, result_text[:200],
+            )
+            _emit_stall_signals(
+                bus=bus,
+                conv_id=conv_id,
+                agent_name=agent_name,
+                launch_kwargs_base=launch_kwargs_base,
+                reply_head=result_text[:200],
             )
             if on_failure is None:
                 break
@@ -392,6 +530,14 @@ async def run_agent_loop(
                     agent_name,
                 )
                 break
+            if decision != 'abort':
+                _emit_stall_recovery_signal(
+                    bus=bus,
+                    conv_id=conv_id,
+                    agent_name=agent_name,
+                    launch_kwargs_base=launch_kwargs_base,
+                    decision=('retry' if decision == 'retry' else 'message'),
+                )
             if decision == 'retry':
                 continue
             if decision == 'abort':
