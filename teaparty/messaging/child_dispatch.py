@@ -98,6 +98,7 @@ def detect_thread_continuation(
     member: str,
     teaparty_home: str,
     scope: str,
+    parent_dir: str = '',
 ) -> Any | None:
     """Return an existing child ``Session`` when ``context_id`` names an
     already-ACTIVE dispatch to *member*, or ``None`` to spawn a fresh one.
@@ -140,6 +141,7 @@ def detect_thread_continuation(
         scope=scope,
         teaparty_home=teaparty_home,
         session_id=child_sid,
+        parent_dir=parent_dir,
     )
 
 
@@ -638,6 +640,16 @@ class ChildDispatchContext:
     project_slug: str = ''
     repo_root: str = ''
     telemetry_scope: str = ''
+    # Directory under which dispatched task sessions are created.  When
+    # set, ``schedule_child_dispatch`` puts the worker's session at
+    # ``{tasks_dir}/<sid>/`` instead of the default
+    # ``{teaparty_home}/<scope>/sessions/<sid>/``.  The CfA engine sets
+    # this to ``{infra_dir}/tasks`` so a job's dispatched workers live
+    # under the job's own dir — keeping operational worktrees out of
+    # the catalog tree (whose ``management/sessions/`` ambiguity caused
+    # the deny-pattern collision and the locality/lifetime mismatches).
+    # Empty string keeps the legacy layout for chat-tier dispatchers.
+    tasks_dir: str = ''
 
     # ── Tier-specific behavior knobs ───────────────────────────────────
     # ``fixed_scope`` set → spawn_fn always uses that scope (CfA's
@@ -734,6 +746,7 @@ async def schedule_child_dispatch(
         member=member,
         teaparty_home=ctx.teaparty_home,
         scope=ctx.fixed_scope or 'management',
+        parent_dir=ctx.tasks_dir,
     )
 
     # ── 3. Paused-check refusal (skipped on resume) ─────────────────────
@@ -834,6 +847,7 @@ async def schedule_child_dispatch(
         child_session = _create_session(
             agent_name=member, scope=member_scope,
             teaparty_home=ctx.teaparty_home,
+            parent_dir=ctx.tasks_dir,
         )
 
         if is_cross_repo:

@@ -489,6 +489,11 @@ class Orchestrator:
                 project_slug=self.project_slug,
                 repo_root=self.project_workdir,
                 telemetry_scope=self.project_slug,
+                # Workers dispatched from this job land at
+                # ``{infra_dir}/tasks/<sid>/`` rather than under the
+                # catalog's ``management/sessions/`` — the worker's
+                # filesystem location matches its operational owner.
+                tasks_dir=os.path.join(self.infra_dir, 'tasks'),
                 fixed_scope='management',
                 cross_repo_supported=False,
                 log_tag='cfa._bus_spawn_agent',

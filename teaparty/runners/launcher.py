@@ -817,17 +817,29 @@ def create_session(
     scope: str,
     teaparty_home: str,
     session_id: str = '',
+    parent_dir: str = '',
 ) -> Session:
-    """Create a new session under {scope}/sessions/{session-id}/.
+    """Create a new session.
 
-    Writes metadata.json with the agent name and empty conversation map.
-    If session_id is provided, uses it (for stable session keying);
-    otherwise generates a random ID.
+    By default, the session lives under ``{teaparty_home}/{scope}/sessions/<sid>/``
+    — the catalog-keyed layout used for top-level chat sessions.
+    When ``parent_dir`` is supplied, the session lives at
+    ``{parent_dir}/<sid>/`` instead, used for dispatched task sessions
+    that should live under the dispatching job's directory rather than
+    under the catalog (so a job's workers are filesystem-children of
+    the job, with matching lifetime and discoverability).
+
+    Writes metadata.json with the agent name.  If session_id is
+    provided, uses it (for stable session keying); otherwise generates
+    a random ID.
     """
     if not session_id:
         session_id = uuid.uuid4().hex[:12]
-    sessions_dir = os.path.join(teaparty_home, scope, 'sessions')
-    session_path = os.path.join(sessions_dir, session_id)
+    if parent_dir:
+        session_path = os.path.join(parent_dir, session_id)
+    else:
+        sessions_dir = os.path.join(teaparty_home, scope, 'sessions')
+        session_path = os.path.join(sessions_dir, session_id)
     os.makedirs(session_path, exist_ok=True)
 
     session = Session(
@@ -846,13 +858,31 @@ def load_session(
     scope: str,
     teaparty_home: str,
     session_id: str,
+    parent_dir: str = '',
 ) -> Session | None:
-    """Load an existing session from {scope}/sessions/{session-id}/.
+    """Load an existing session.
 
-    Returns None if the session directory or metadata.json doesn't exist.
+    Mirrors :func:`create_session`: when ``parent_dir`` is supplied,
+    looks at ``{parent_dir}/<sid>/`` first; otherwise (or as a fallback
+    if the parent_dir path is missing) checks the legacy
+    ``{teaparty_home}/{scope}/sessions/<sid>/``.  The fallback covers
+    sessions created before the layout change.
+
+    Returns None if neither location holds a metadata.json.
     """
-    sessions_dir = os.path.join(teaparty_home, scope, 'sessions')
-    session_path = os.path.join(sessions_dir, session_id)
+    candidates: list[str] = []
+    if parent_dir:
+        candidates.append(os.path.join(parent_dir, session_id))
+    candidates.append(
+        os.path.join(teaparty_home, scope, 'sessions', session_id)
+    )
+    session_path = ''
+    for cand in candidates:
+        if os.path.isfile(os.path.join(cand, 'metadata.json')):
+            session_path = cand
+            break
+    if not session_path:
+        session_path = candidates[0]
     meta_path = os.path.join(session_path, 'metadata.json')
     if not os.path.isfile(meta_path):
         return None
