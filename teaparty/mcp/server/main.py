@@ -129,18 +129,29 @@ def create_server(agent_tools: set[str] | None = None) -> FastMCP:
         'Ask a question; routed to the appropriate responder.\n\n'
         "Self-contained: the responder hasn't seen your conversation. "
         'Name the situation, the decision, options ruled out, and what '
-        'their answer commits them to. "Should I proceed?" is a misuse.'
-        '\n\n' + _SCRATCH_DISCLOSURE + '\n\n'
+        'their answer commits them to. "Should I proceed?" is a misuse.\n\n'
         'Args:\n'
         '    question: Your question, self-contained per the above.\n'
-        '    context: Ignored when a scratch file is present.'
+        '    context: Optional inline supporting text. Prefer '
+        '``attachments`` for anything more than a few sentences.\n'
+        '    attachments: Optional list of filepaths (relative to '
+        "your worktree root), that contain additional details a "
+        'decider who has not been privy to the conversation will '
+        'need to understand your request. Use only when necessary. '
+        "Files are copied into the responder's workspace at the "
+        'same relative paths.'
     ))
-    async def AskQuestion(question: str, context: str = '') -> str:
+    async def AskQuestion(
+        question: str,
+        context: str = '',
+        attachments: list[str] | None = None,
+    ) -> str:
         """Ask a question; routed to the appropriate responder."""
         return await ask_question_handler(
             question=question,
             context=context,
             scratch_path=_scratch_path_from_env(),
+            attachments=list(attachments or []),
         )
 
     @server.tool()

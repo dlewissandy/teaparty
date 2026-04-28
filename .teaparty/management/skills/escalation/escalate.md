@@ -6,7 +6,9 @@ Your ACT-R memory introspection is in your prompt: activation levels, behavioral
 
 ## START
 
-Read `./QUESTION.md`.  It contains your teammate's question and any supporting context they attached.   this is the only briefing you get.
+Read `./QUESTION.md`.  It contains your teammate's question and any inline context.
+
+If `QUESTION.md` includes an `## Attachments` section, read every file it lists.  Those are the files your teammate explicitly chose to share, copied verbatim from their worktree at the same relative paths (so a listed `.scratch/research-brief.md` is at `./.scratch/research-brief.md`).  They are part of your briefing, not optional supplementary material — your teammate would not have attached them otherwise.
 
 Continue to ESCALATE.
 

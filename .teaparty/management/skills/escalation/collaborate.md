@@ -6,9 +6,11 @@ Your ACT-R memory introspection is in your prompt: activation levels, behavioral
 
 ## START
 
-Read `./QUESTION.md`.  It contains your teammate's question and any supporting context they attached.  Read it carefully; this is the only briefing you get.
+Read `./QUESTION.md`.  It contains your teammate's question and any inline context.
 
-Your teammate may extend `./QUESTION.md` during the dialog if they have more context to share.  If you suspect that has happened, re-read it.  Otherwise the contents are stable within this conversation — your session memory preserves what you've already read.
+If `QUESTION.md` includes an `## Attachments` section, read every file it lists.  Those are the files your teammate explicitly chose to share, copied verbatim from their worktree at the same relative paths (so a listed `.scratch/research-brief.md` is at `./.scratch/research-brief.md`).  They are part of your briefing, not optional supplementary material.
+
+Your teammate may extend `./QUESTION.md` or its attachments during the dialog if they have more context to share.  If you suspect that has happened, re-read.  Otherwise the contents are stable within this conversation — your session memory preserves what you've already read.
 
 Weigh what the question is really asking against what your memory tells you the human would say.
 

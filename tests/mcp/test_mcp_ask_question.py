@@ -80,8 +80,8 @@ class TestAskQuestionHandler(unittest.TestCase):
         captured = []
 
         class _StubRunner:
-            async def run(self, question, context=''):
-                captured.append((question, context))
+            async def run(self, question, context='', *, attachments=None):
+                captured.append((question, context, list(attachments or [])))
                 return 'Ages 5-8'
 
         register_ask_question_runner('test-agent', _StubRunner())
@@ -95,7 +95,7 @@ class TestAskQuestionHandler(unittest.TestCase):
             current_agent_name.reset(token)
 
         self.assertEqual(result, 'Ages 5-8')
-        self.assertEqual(captured, [('Who is the audience?', 'Joke book')])
+        self.assertEqual(captured, [('Who is the audience?', 'Joke book', [])])
 
 
 # ── Tests: AskQuestionRunner skill loop (issue #420) ───────────────────────
