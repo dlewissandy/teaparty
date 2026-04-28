@@ -43,16 +43,20 @@ def _check(tool_name: str, tool_input: dict) -> dict:
     abs_target = os.path.normpath(target)
     worktree_norm = os.path.normpath(worktree)
 
-    # Check if the absolute path is within the worktree
+    # Absolute path to own worktree — allow.  Earlier this branch
+    # denied with a "use relative path" suggestion, but Claude Code
+    # surfaces hook denials as user permission prompts rather than
+    # returning the reason to the agent for retry.  Result: the agent
+    # blocks on a prompt the user never sees, exits the turn with
+    # "I'm blocked on write permission for X," and the dispatch tree
+    # stalls.  The path is in-bounds (the check above proves it);
+    # whether the agent uses absolute or relative addressing is a
+    # stylistic preference, not a safety boundary.  Allowing the
+    # write removes the friction without changing the safety model.
     if abs_target == worktree_norm or abs_target.startswith(worktree_norm + os.sep):
-        # Absolute path to own worktree — suggest relative path
-        rel = os.path.relpath(abs_target, worktree_norm)
-        return {
-            'allowed': False,
-            'reason': f'Use relative path "{rel}" instead',
-        }
+        return {'allowed': True}
 
-    # Outside worktree entirely
+    # Outside worktree entirely — this is the actual safety boundary.
     return {
         'allowed': False,
         'reason': 'You are restricted to files in your worktree',

@@ -117,28 +117,23 @@ class WorktreeHookSubprocessTest(unittest.TestCase):
             f'Write with relative path must be allowed, got: {result}',
         )
 
-    def test_write_with_absolute_path_inside_worktree_is_denied_with_relative_suggestion(self):
-        """Absolute path pointing inside the worktree must be denied with a relative suggestion.
+    def test_write_with_absolute_path_inside_worktree_is_allowed(self):
+        """Absolute path pointing inside the worktree must be ALLOWED.
 
-        The reason must contain the relative equivalent so the agent can self-correct.
+        Earlier this case was denied with a "use relative path" hint —
+        Claude Code surfaced that denial as a user permission prompt
+        rather than returning the reason to the agent.  Workers blocked
+        on prompts the user couldn't see, exited their turn with "I'm
+        blocked on permission," and the dispatch tree stalled.  The
+        path is in-bounds (the hook itself proves it); whether the
+        agent uses absolute or relative addressing is style, not
+        safety.  Allow the write.
         """
         inside = os.path.join(self.worktree_root, 'src', 'foo.py')
         result = _run_hook('Write', {'file_path': inside}, cwd=self.worktree_root)
-        self.assertFalse(
-            result.get('allowed', True),
-            f'Write to absolute in-worktree path {inside} must be denied, got: {result}',
-        )
-        reason = result.get('reason', '')
-        self.assertIn(
-            'src/foo.py',
-            reason,
-            f'Denial reason must suggest the relative path "src/foo.py", got: {reason!r}',
-        )
-        # Must NOT say "restricted to files in your worktree" — that's for truly outside paths
-        self.assertNotIn(
-            'restricted',
-            reason.lower(),
-            f'In-worktree denial must suggest relative path, not generic restriction: {reason!r}',
+        self.assertTrue(
+            result.get('allowed', False),
+            f'Write to absolute in-worktree path {inside} must be allowed, got: {result}',
         )
 
     # ── path tools ─────────────────────────────────────────────────────────

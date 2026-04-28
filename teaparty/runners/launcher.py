@@ -175,53 +175,24 @@ def _inject_baseline_deny(settings: dict) -> None:
     settings['autoMemoryEnabled'] = False
 
 
-# Write-capable built-in tools that must be scoped to the worktree when
-# present in the allow list as bare names (blanket grants).
-_WRITE_TOOLS: tuple[str, ...] = ('Write', 'Edit', 'NotebookEdit')
-
-
-def _scope_writes_to_worktree(settings: dict, worktree: str) -> None:
-    """Confine blanket Write / Edit / NotebookEdit grants to the worktree.
-
-    If ``permissions.allow`` contains a bare write-capable tool (e.g.
-    ``Edit``), replace it with path-scoped entries that permit writes
-    only within the agent's worktree plus the system temp directories.
-    Writes to any other path then fall through to the default permission
-    handling (prompt in interactive, deny in headless ``claude -p``).
-
-    No-op when ``worktree`` is empty (chat tier runs in the project's
-    real cwd; scoping there would be a behaviour change, not a safety
-    fence). No-op for any tool that already has only path-scoped entries.
-    """
-    if not worktree:
-        return
-    worktree_abs = os.path.abspath(worktree)
-    perms = settings.get('permissions') or {}
-    allow = list(perms.get('allow') or [])
-    scoped_prefixes = (
-        worktree_abs,
-        '/tmp',
-        '/private/tmp',
-    )
-    new_allow: list[str] = []
-    scoped: set[str] = set()
-    for entry in allow:
-        if entry in _WRITE_TOOLS:
-            scoped.add(entry)
-            continue  # drop blanket grant; replaced below
-        new_allow.append(entry)
-    for tool in _WRITE_TOOLS:
-        if tool not in scoped:
-            continue
-        for prefix in scoped_prefixes:
-            rule_dir = f'{tool}({prefix}/**)'
-            rule_file = f'{tool}({prefix}/*)'
-            if rule_dir not in new_allow:
-                new_allow.append(rule_dir)
-            if rule_file not in new_allow:
-                new_allow.append(rule_file)
-    perms['allow'] = new_allow
-    settings['permissions'] = perms
+# Layer 3 — path-scoping bare ``Write``/``Edit``/``NotebookEdit`` grants
+# to the worktree — was deliberately removed.  It was defense-in-depth
+# on top of the worktree-jail hook (layer 4) and the deny patterns
+# (layer 2), but its safety contribution depended on Claude Code's
+# permission-pattern matcher exactly normalising paths the same way
+# the agent did.  In practice the matcher's quirks (symlink resolution
+# differences on macOS where ``/var`` resolves to ``/private/var``,
+# absolute-vs-relative comparison, glob-anchor edge cases) caused
+# in-tree writes to fall through to permission prompts.  Workers
+# blocked on prompts that the user couldn't see, exited their turn
+# with "I'm blocked on permission," and the dispatch tree stalled.
+#
+# Bare ``Write`` / ``Edit`` are now passed through to Claude CLI
+# unchanged.  Out-of-tree writes are stopped by the PreToolUse
+# worktree-jail hook (registered at compose time).  Catalog writes
+# are stopped by ``BASELINE_DENY_RULES``.  The worktree's git
+# isolation is the underlying boundary.  Three layers of protection
+# remain; the brittle middle layer is gone.
 
 
 # ── Data ─────────────────────────────────────────────────────────────────────
@@ -1325,17 +1296,11 @@ async def launch(
     else:
         settings = _merge_settings(agent_name, scope, teaparty_home)
     _inject_baseline_deny(settings)
-    _scope_writes_to_worktree(settings, worktree)
 
     # Derive --tools from settings.yaml's permissions.allow; fall back to
     # frontmatter tools: for agents that have not yet migrated to settings.yaml.
-    #
-    # --tools takes BARE tool names ("Write", "Edit"), not permission
-    # patterns ("Write(/path/**)"). When _scope_writes_to_worktree has
-    # rewritten bare Write/Edit/NotebookEdit into path-scoped forms, the
-    # bare name must still appear in --tools or the tool isn't enabled
-    # at all. Strip the parenthesised arg from each entry to extract the
-    # tool name, then dedupe.
+    # ``--tools`` takes BARE tool names ("Write", "Edit"); permission
+    # patterns ("Write(/path/**)") are stripped to bare names.
     tools = tools_override
     if tools is None:
         tools = derive_tools_from_settings(
