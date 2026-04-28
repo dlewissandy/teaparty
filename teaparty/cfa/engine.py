@@ -435,6 +435,10 @@ class Orchestrator:
                 on_dispatch=self._on_dispatch,
                 agent_name=lead_agent_id,
                 bus=_close_bus,
+                # Match the dispatch ctx: workers live at
+                # ``{infra_dir}/tasks/<sid>/``, so close_conversation
+                # has to look there to find their metadata.json.
+                tasks_dir=os.path.join(self.infra_dir, 'tasks'),
             )
             from teaparty.messaging.child_dispatch import (
                 build_session_dispatcher,

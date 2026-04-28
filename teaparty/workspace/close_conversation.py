@@ -58,6 +58,7 @@ async def close_conversation(
     teaparty_home: str,
     scope: str,
     bus=None,
+    tasks_dir: str = '',
 ) -> dict[str, Any]:
     """Close a dispatch conversation, merging the child's work back.
 
@@ -72,6 +73,13 @@ async def close_conversation(
             ``bus.children_of(parent_id)`` — the single source of truth
             for the dispatch tree (issue #422).  Left ``None`` for a
             brief transition window while callers are migrated.
+        tasks_dir: When set, dispatched-worker sessions live at
+            ``{tasks_dir}/<sid>/`` instead of the legacy
+            ``{teaparty_home}/<scope>/sessions/<sid>/``.  Mirrors the
+            ``parent_dir`` parameter on ``create_session`` /
+            ``load_session``.  Empty string keeps the legacy lookup
+            for chat-tier dispatchers and back-compat with sessions
+            created before the layout change.
 
     Returns:
         A dict with at least ``status`` and ``message``. Statuses:
@@ -90,7 +98,7 @@ async def close_conversation(
     if not child_session_id:
         return {'status': 'noop', 'message': 'Empty child session id.'}
 
-    sessions_dir = os.path.join(teaparty_home, scope, 'sessions')
+    legacy_sessions_dir = os.path.join(teaparty_home, scope, 'sessions')
 
     # Telemetry: close_conversation + session_closed for the target and
     # every descendant brought down by the recursive cascade (Issue #405).
@@ -128,7 +136,9 @@ async def close_conversation(
         pass
 
     # Recursively close child + descendants, merging from the leaves up.
-    result = await _close_recursive(sessions_dir, child_session_id, bus)
+    result = await _close_recursive(
+        legacy_sessions_dir, child_session_id, bus, tasks_dir=tasks_dir,
+    )
     if result['status'] != 'ok':
         return result
 
@@ -151,9 +161,11 @@ async def close_conversation(
 
 
 async def _close_recursive(
-    sessions_dir: str,
+    legacy_sessions_dir: str,
     session_id: str,
     bus=None,
+    *,
+    tasks_dir: str = '',
 ) -> dict[str, Any]:
     """Close *session_id* and all its descendants, merging from leaves up.
 
@@ -164,8 +176,23 @@ async def _close_recursive(
     of truth for the dispatch tree (issue #422).  Merge metadata
     (worktree path, target branch, etc.) still comes from the child's
     session metadata on disk; that's not tree structure.
+
+    ``tasks_dir`` is checked first when set: dispatched sessions in
+    CfA jobs live at ``{tasks_dir}/<sid>/``.  Falls back to
+    ``{legacy_sessions_dir}/<sid>/`` so chat-tier and pre-layout-change
+    sessions still close cleanly.
     """
-    session_path = os.path.join(sessions_dir, session_id)
+    candidates: list[str] = []
+    if tasks_dir:
+        candidates.append(os.path.join(tasks_dir, session_id))
+    candidates.append(os.path.join(legacy_sessions_dir, session_id))
+    session_path = ''
+    for cand in candidates:
+        if os.path.isfile(os.path.join(cand, 'metadata.json')):
+            session_path = cand
+            break
+    if not session_path:
+        session_path = candidates[0]
     meta_path = os.path.join(session_path, 'metadata.json')
 
     meta: dict[str, Any] = {}
@@ -185,7 +212,9 @@ async def _close_recursive(
         if c.id.startswith('dispatch:')
     ]
     for grandchild_id in grandchildren:
-        sub = await _close_recursive(sessions_dir, grandchild_id, bus)
+        sub = await _close_recursive(
+            legacy_sessions_dir, grandchild_id, bus, tasks_dir=tasks_dir,
+        )
         if sub['status'] != 'ok' and sub['status'] != 'noop':
             # Bubble the failure up. The child keeps its worktree,
             # and every ancestor of the failure stays open until the
@@ -299,6 +328,7 @@ def build_close_fn(
     on_dispatch: Callable[[dict], None] | None,
     agent_name: str = '',
     bus=None,
+    tasks_dir: str = '',
 ) -> Callable:
     """Build the close_fn that the CloseConversation MCP tool invokes.
 
@@ -357,6 +387,7 @@ def build_close_fn(
         close_result = await close_conversation(
             dispatch_session, conversation_id,
             teaparty_home=teaparty_home, scope=scope, bus=bus,
+            tasks_dir=tasks_dir,
         )
         if close_result.get('status') not in ('ok', 'noop'):
             return close_result
