@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
@@ -32,6 +33,41 @@ from teaparty.messaging.conversations import (
     ConversationType,
     SqliteMessageBus,
 )
+
+
+# An agent that exits a turn cleanly but with a reply indicating it
+# was blocked on a permission prompt (and therefore could not finish
+# its work) is a soft-failure: the orchestrator must NOT treat the
+# reply as the agent's deliverable.  Without this detection the loop
+# accepts the "I'm blocked" string, the parent gathers it, and the
+# dispatch tree silently delivers an error message instead of work.
+# Patterns are matched case-insensitively against the result text;
+# any match triggers the on_failure recovery path, which can retry
+# (operator may have granted in the interim) or replace the message
+# with a prompt explaining that the tool is allowed.
+_PERMISSION_STALL_PATTERNS: tuple[re.Pattern, ...] = (
+    re.compile(r"blocked on[^.]{0,80}permission", re.IGNORECASE),
+    re.compile(r"haven['’]t granted", re.IGNORECASE),
+    re.compile(r"requested permissions? to[^.]{0,200}but you haven", re.IGNORECASE),
+    re.compile(r"please grant[^.]{0,80}permission", re.IGNORECASE),
+)
+
+
+def _looks_like_permission_stall(text: str) -> bool:
+    """True when the agent's reply suggests it stalled on a permission prompt.
+
+    Used by ``run_agent_loop`` to convert an apparent clean exit into
+    a soft-failure routed through ``on_failure``.  A worker whose
+    deliverable is *"I'm blocked on permission"* did not finish its
+    work; treating that string as the dispatch's reply silently
+    propagates the error up the tree.
+    """
+    if not text:
+        return False
+    for pat in _PERMISSION_STALL_PATTERNS:
+        if pat.search(text):
+            return True
+    return False
 
 _log = logging.getLogger('teaparty.messaging.child_dispatch')
 
@@ -329,6 +365,39 @@ async def run_agent_loop(
                     _log.debug(
                         'on_phase(launched) raised', exc_info=True,
                     )
+
+        # ── PERMISSION-STALL RECOVERY ──────────────────────────────────
+        # A turn that exits cleanly with a reply like "I'm blocked on
+        # permission for X" did not finish its work.  Without this
+        # check the loop accepts the string as the agent's deliverable,
+        # the parent gathers it, and the dispatch tree silently
+        # delivers an error message instead of progress.  Route it
+        # through ``on_failure`` so the tier-specific recovery (CfA's
+        # retry policy, chat-tier's dialog) can decide what to do.
+        result_text = getattr(result, 'result', '') or ''
+        if _looks_like_permission_stall(result_text):
+            _log.warning(
+                '%s: agent reply indicates a permission stall — '
+                'routing through on_failure rather than accepting as a '
+                "deliverable. reply head: %r",
+                agent_name, result_text[:200],
+            )
+            if on_failure is None:
+                break
+            try:
+                decision = await on_failure(result)
+            except Exception:
+                _log.exception(
+                    '%s on_failure raised on stall recovery; aborting loop',
+                    agent_name,
+                )
+                break
+            if decision == 'retry':
+                continue
+            if decision == 'abort':
+                break
+            current_message = decision
+            continue
 
         # ── POST-TURN: tier-specific bookkeeping (scratch, compaction) ─
         if on_post_turn is not None:
