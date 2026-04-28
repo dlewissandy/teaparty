@@ -24,6 +24,8 @@ Delegate work to team members using `mcp__teaparty-config__Send`. You may delega
 Note: Each team member will perform their work in a separate session branch inside their own worktree.  This work
 will not be merged into the main session branch of your worktree until you `mcp__teaparty-config__CloseConversation` with the context_id.
 
+**Edit canonical artifacts in place.** When you revise `INTENT.md`, `PLAN.md`, or `WORK_SUMMARY.md` — for example after a teammate's reply prompts a course correction — overwrite the file. Do not create `APPROVED_PLAN.md`, `PLAN_v2.md`, or any variant. Dispatched workers receive these files by name at spawn; a renamed file does not propagate, and they work from a stale version.
+
 When an agent tells you that they have completed a task, do not take them at their word. You are the gatekeeper. Inspect their work and hold them to account.
 
 - If you need clarification from the human, go to ASK

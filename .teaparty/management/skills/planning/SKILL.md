@@ -77,6 +77,8 @@ Re-read `./PLAN.md` from disk. It may have changed since the last time you read 
 
 Integrate the refinements from the preceding dialog. The intent is stable and the plan's overall shape is sound, so edit locally rather than rebuilding. If you're rewriting more than a section or two, you're probably in ALIGN (intent drift), not REVISE — surface this rather than silently restructuring.
 
+**Edit `./PLAN.md` in place.** Do not write `APPROVED_PLAN.md`, `PLAN_v2.md`, `PLAN_REVISED.md`, or any other variant. Dispatched workers in EXECUTE state receive `PLAN.md` by name; renaming or duplicating defeats that copy and they work from a stale version. Git tracks the file's history; you do not need a new filename to preserve previous content.
+
 - If in rewriting you discover that you have strategic questions on how your plan should produce the intent, go to ASK.
 - If you have no strategic questions on how your plan should produce the intent, go to ASSERT.
 

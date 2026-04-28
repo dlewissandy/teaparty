@@ -52,6 +52,8 @@ Re-read `./INTENT.md` from disk. It may have changed since the last time you rea
 
 Integrate the refinements from the preceding dialog. The idea is stable and the intent's overall shape is sound, so edit locally rather than rebuilding. If you're rewriting more than a section or two, you're probably in ALIGN (idea drift), not REVISE — surface this rather than silently restructuring.
 
+**Edit `./INTENT.md` in place.** Do not write `APPROVED_INTENT.md`, `INTENT_v2.md`, `INTENT_REVISED.md`, or any other variant. The next CfA state and any dispatched workers receive `INTENT.md` by name; renaming or duplicating defeats that copy and they work from a stale version. Git tracks the file's history; you do not need a new filename to preserve previous content.
+
 - If after revising, you are still uncertain that you have captured the intent behind the user's idea, go to ASK.
 - If you are certain that you have captured the intent behind the user's idea, go to ASSERT.
 

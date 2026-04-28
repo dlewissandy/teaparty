@@ -8,6 +8,20 @@ import shutil
 
 log = logging.getLogger(__name__)
 
+# Canonical CfA artifacts written at the worktree root.  Gitignored
+# (see ``job_store._write_artifact_gitignore``) so they never reach
+# main, but they describe the work the parent is dispatching and must
+# travel by explicit copy when a child worktree is forked.  The names
+# are stable: the planning skill must edit ``PLAN.md`` in place rather
+# than creating ``REVISED_PLAN.md`` etc., otherwise this copy misses
+# the latest version.
+_CANONICAL_ARTIFACT_NAMES: tuple[str, ...] = (
+    'IDEA.md',
+    'INTENT.md',
+    'PLAN.md',
+    'WORK_SUMMARY.md',
+)
+
 # Per-repo locks to serialize concurrent worktree operations.
 # git worktree add and remove both modify .git/worktrees/ under an advisory
 # lock; two concurrent calls on the same repo will race and one will fail.
@@ -174,13 +188,24 @@ async def create_subchat_worktree(
     ``.scratch/``) so that parallel subchats forked from the same parent
     HEAD do not conflict on those files during squash-merge.
 
-    When *parent_worktree* is given and contains a ``.scratch/`` directory,
-    its contents are copied into the new worktree's ``.scratch/``.  This
-    is how inter-agent scratch notes propagate across Send boundaries:
-    the parent writes ``.scratch/<name>.md``, Send fires, the child's
-    worktree boots with a snapshot of those notes.  The copy is one-way
-    and point-in-time; the parent's later writes do not reach the
-    already-running child.
+    When *parent_worktree* is given:
+
+    - Its ``.scratch/`` directory contents are copied into the new
+      worktree's ``.scratch/``.  This is how inter-agent scratch notes
+      propagate across Send boundaries: the parent writes
+      ``.scratch/<name>.md``, Send fires, the child's worktree boots
+      with a snapshot of those notes.
+    - The canonical CfA artifacts (``INTENT.md``, ``PLAN.md``,
+      ``WORK_SUMMARY.md``) are copied verbatim if present.  These
+      files are gitignored — they describe the work, they are not the
+      work — so they would otherwise miss git-worktree propagation.
+      Every dispatched worker boots with the parent's *current* version,
+      whatever the parent has revised the file into in place.  Agents
+      that rename instead of editing (e.g. ``REVISED_PLAN.md``) defeat
+      this copy; the corresponding skill prompts forbid that pattern.
+
+    The copy is one-way and point-in-time; the parent's later writes
+    do not reach the already-running child.
     """
     os.makedirs(os.path.dirname(dest_path), exist_ok=True)
     async with _repo_lock(source_repo):
@@ -228,6 +253,25 @@ async def create_subchat_worktree(
                         'scratch copy failed for %s → %s: %s',
                         src, dst, exc,
                     )
+
+        # Copy the canonical CfA artifacts the parent has authored
+        # so far.  Gitignored, so git worktree branching alone
+        # doesn't carry them; an explicit copy is the only path to
+        # the child.  Picks up whatever revisions the parent has
+        # made — agents must edit in place rather than versioning
+        # the filename.
+        for artifact in _CANONICAL_ARTIFACT_NAMES:
+            src = os.path.join(parent_worktree, artifact)
+            dst = os.path.join(dest_path, artifact)
+            if not os.path.isfile(src):
+                continue
+            try:
+                shutil.copy2(src, dst)
+            except OSError as exc:
+                log.warning(
+                    'artifact copy failed for %s → %s: %s',
+                    src, dst, exc,
+                )
 
 
 async def commit_all_pending(worktree_path: str, message: str) -> bool:
