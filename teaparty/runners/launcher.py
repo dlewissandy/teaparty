@@ -769,6 +769,50 @@ def compose_launch_config(
     }
 
 
+def derive_tools_from_settings(
+    allow: list[str], frontmatter_tools: str = '',
+) -> str | None:
+    """Build the ``--tools`` string passed to Claude CLI.
+
+    Claude CLI's ``--tools`` argument is the visibility whitelist:
+    tools NOT in this list are not part of the agent's tool catalog.
+    The list is derived from the agent's ``permissions.allow`` (or, for
+    agents not yet migrated, from the frontmatter ``tools:`` field).
+    Permission-style entries like ``Write(/path/**)`` are stripped to
+    bare names (``Write``).
+
+    Returns the comma-joined string, or ``None`` when no allow list is
+    available (caller falls through to whatever the CLI defaults
+    expose).
+
+    What this function deliberately does NOT do: inject
+    ``ToolSearch``.  An earlier implementation forced ToolSearch into
+    every agent's ``--tools``, which let agents fetch the schema of
+    any tool registered with any MCP server — including tools outside
+    their allow list — and then attempt to call them.  Calls hit the
+    permission-prompt path and stalled.  Whitelisting only works when
+    discovery is also gated; an agent that legitimately needs tool
+    discovery must add ``ToolSearch`` to its own
+    ``permissions.allow``.
+    """
+    effective_allow = allow
+    if not effective_allow and frontmatter_tools:
+        effective_allow = [
+            t.strip() for t in frontmatter_tools.split(',') if t.strip()
+        ]
+    if not effective_allow:
+        return None
+    bare_names: list[str] = []
+    seen: set[str] = set()
+    for entry in effective_allow:
+        paren = entry.find('(')
+        name = entry[:paren].strip() if paren > 0 else entry.strip()
+        if name and name not in seen:
+            bare_names.append(name)
+            seen.add(name)
+    return ','.join(bare_names)
+
+
 def _merge_settings(
     agent_name: str,
     scope: str,
@@ -1274,23 +1318,10 @@ async def launch(
     # tool name, then dedupe.
     tools = tools_override
     if tools is None:
-        allow = (settings.get('permissions') or {}).get('allow') or []
-        if not allow:
-            tools_str = fm.get('tools', '')
-            if tools_str:
-                allow = [t.strip() for t in tools_str.split(',') if t.strip()]
-        if allow:
-            bare_names: list[str] = []
-            seen: set[str] = set()
-            for entry in allow:
-                paren = entry.find('(')
-                name = entry[:paren].strip() if paren > 0 else entry.strip()
-                if name and name not in seen:
-                    bare_names.append(name)
-                    seen.add(name)
-            if 'ToolSearch' not in seen:
-                bare_names.append('ToolSearch')
-            tools = ','.join(bare_names)
+        tools = derive_tools_from_settings(
+            (settings.get('permissions') or {}).get('allow') or [],
+            fm.get('tools', ''),
+        )
 
     if is_chat:
         effective_cwd = launch_cwd
