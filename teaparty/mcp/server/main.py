@@ -1056,40 +1056,72 @@ def _load_agent_tools(
     scope: str = 'management',
     project_name: str = '',
 ) -> set[str] | None:
-    """Read the allowed tools from an agent's frontmatter.
+    """Read an agent's tool whitelist for MCP tools/list filtering.
 
-    Scope resolution: project overrides management. If scope is a project
-    name, look there first; fall back to management.
+    The whitelist's source of truth is the agent's ``settings.yaml``
+    under ``permissions.allow`` (merged with the scope's
+    ``settings.yaml``).  Permission-style entries like
+    ``Write(/path/**)`` are stripped to bare names.
 
-    Returns the set of tool names (both builtins and MCP), or None if
-    the agent has no tools restriction.
+    Falls back to the legacy frontmatter ``tools:`` field for agents
+    that have not yet migrated.  Returns ``None`` only when neither
+    settings nor frontmatter declares any allow list at all — at that
+    point pass-through is the only sensible default.
+
+    Scope resolution: project overrides management. If scope is a
+    project name, look there first; fall back to management.
+
+    Returns the set of bare tool names (no ``mcp__teaparty-config__``
+    prefix, no permission-pattern parens), or ``None`` if no whitelist
+    is declared anywhere.
     """
-    from teaparty.config.config_reader import read_agent_frontmatter
-
     teaparty_home = _resolve_teaparty_home()
     if not teaparty_home:
         return None
 
-    candidates = []
-
-    # Project scope: check project agents first
+    # Each candidate is (settings_yaml_path, agent_md_path).  Ordered
+    # so project-tier wins over management-tier.
+    candidates: list[tuple[str, str]] = []
     if project_name and project_name != 'management':
         from teaparty.mcp.tools.config_crud import _find_project_path
         project_dir = _find_project_path(project_name, teaparty_home)
         if project_dir:
-            candidates.append(
-                os.path.join(project_dir, '.teaparty', 'project', 'agents', agent_id, 'agent.md')
-            )
+            candidates.append((
+                os.path.join(
+                    project_dir, '.teaparty', 'project', 'agents',
+                    agent_id, 'settings.yaml',
+                ),
+                os.path.join(
+                    project_dir, '.teaparty', 'project', 'agents',
+                    agent_id, 'agent.md',
+                ),
+            ))
+    candidates.append((
+        os.path.join(
+            teaparty_home, 'management', 'agents', agent_id, 'settings.yaml',
+        ),
+        os.path.join(
+            teaparty_home, 'management', 'agents', agent_id, 'agent.md',
+        ),
+    ))
 
-    # Management scope: always checked as fallback
-    candidates.append(
-        os.path.join(teaparty_home, 'management', 'agents', agent_id, 'agent.md')
-    )
-
-    for agent_md in candidates:
+    for settings_yaml, agent_md in candidates:
+        # Primary source: settings.yaml's permissions.allow.
+        allow = _read_permissions_allow(settings_yaml)
+        if allow is not None:
+            mcp_prefix = 'mcp__teaparty-config__'
+            return {
+                _strip_permission_pattern(e)[len(mcp_prefix):]
+                if _strip_permission_pattern(e).startswith(mcp_prefix)
+                else _strip_permission_pattern(e)
+                for e in allow
+                if _strip_permission_pattern(e)
+            }
+        # Fallback: legacy frontmatter ``tools:`` field.
         if not os.path.isfile(agent_md):
             continue
         try:
+            from teaparty.config.config_reader import read_agent_frontmatter
             fm = read_agent_frontmatter(agent_md)
             tools_str = fm.get('tools', '')
             if tools_str:
@@ -1098,6 +1130,29 @@ def _load_agent_tools(
             continue
 
     return None
+
+
+def _strip_permission_pattern(entry: str) -> str:
+    """``Write(/path/**)`` → ``Write``."""
+    paren = entry.find('(')
+    return entry[:paren].strip() if paren > 0 else entry.strip()
+
+
+def _read_permissions_allow(settings_yaml: str) -> list[str] | None:
+    """Return ``permissions.allow`` from a settings.yaml, or None if absent."""
+    if not os.path.isfile(settings_yaml):
+        return None
+    try:
+        import yaml as _yaml
+        with open(settings_yaml) as fh:
+            data = _yaml.safe_load(fh) or {}
+    except (OSError, Exception):
+        return None
+    perms = data.get('permissions') or {}
+    allow = perms.get('allow')
+    if not isinstance(allow, list):
+        return None
+    return [str(e) for e in allow if e]
 
 
 # ── HTTP server with ASGI response filter ─────────────────────────────────────
