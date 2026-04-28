@@ -37,12 +37,19 @@ def _run(coro):
 
 
 class _StubBus:
-    """In-memory bus stub: `children_of` returns whatever the test injects."""
+    """In-memory bus stub: `children_of` returns whatever the test injects.
+
+    Tracks invocation count so tests can assert that the precondition
+    actually walked the bus, rather than short-circuiting on an empty
+    ``current_conversation_id`` and never reaching the children query.
+    """
 
     def __init__(self, children: list | None = None) -> None:
         self._children = list(children or [])
+        self.children_of_calls: list[str] = []
 
     def children_of(self, parent_conversation_id: str):
+        self.children_of_calls.append(parent_conversation_id)
         return list(self._children)
 
     def close(self) -> None:
@@ -100,10 +107,22 @@ class DelegateReturnShapeTest(unittest.TestCase):
 
 
 class DelegateOpenThreadPreconditionTest(unittest.TestCase):
-    """Acceptance criterion 2: open ACTIVE thread to target → rejection."""
+    """Acceptance criterion 2: open ACTIVE thread to target → rejection.
+
+    Every test in this class sets ``current_conversation_id`` in
+    ``setUp`` so the precondition's bus query actually fires.  Without
+    this the contextvar's empty default short-circuits ``_open_dispatch_to``
+    before the state-or-member filters run, and tests appear to verify
+    behavior that never executes.
+    """
 
     def setUp(self) -> None:
         mcp_registry.clear()
+        # Caller's conversation_id — required by ``_open_dispatch_to``
+        # to reach the bus.children_of branch where the state and
+        # member filters live.  Each test overrides nothing more than
+        # the bus contents.
+        mcp_registry.current_conversation_id.set('parent-conv')
 
     def tearDown(self) -> None:
         mcp_registry.clear()
@@ -122,9 +141,6 @@ class DelegateOpenThreadPreconditionTest(unittest.TestCase):
 
         spawn_calls: list = []
         self._register_spawn_that_records_calls(spawn_calls)
-        # Caller's conversation_id — required for the precondition to
-        # have a parent conversation to walk children of.
-        mcp_registry.current_conversation_id.set('parent-conv')
 
         existing_thread = 'dispatch:already_open_abc'
         bus = _StubBus([
@@ -161,8 +177,15 @@ class DelegateOpenThreadPreconditionTest(unittest.TestCase):
 
     def test_closed_thread_does_not_block_delegate(self) -> None:
         """Only ACTIVE threads block. A CLOSED thread to the same target
-        must allow Delegate to proceed (otherwise the caller would be
-        permanently blocked from re-dispatching after a normal close)."""
+        must allow Delegate to proceed.
+
+        The precondition must actually execute the state filter — a
+        regression that ignored the ``state`` field entirely (treating
+        every child as blocking) would still pass an assertion that
+        only checks the outcome.  Asserting on ``children_of_calls``
+        proves the bus query reached the state-comparison branch,
+        not just the early-return short-circuit.
+        """
         from teaparty.mcp.tools.messaging import _default_delegate_post
 
         spawn_calls: list = []
@@ -187,9 +210,24 @@ class DelegateOpenThreadPreconditionTest(unittest.TestCase):
             f'spawn_fn must be invoked exactly once when precondition '
             f'allows; observed: {spawn_calls!r}',
         )
+        # Proof the state filter ran: the precondition reached
+        # bus.children_of and inspected the closed row, then let the
+        # call through.  Without this assertion a regression that
+        # short-circuits before the state comparison would still pass.
+        self.assertEqual(
+            bus.children_of_calls, ['parent-conv'],
+            f'Precondition must call bus.children_of with the caller '
+            f'conversation_id to reach the state filter. Observed '
+            f'calls: {bus.children_of_calls!r}',
+        )
 
     def test_open_thread_to_different_member_does_not_block(self) -> None:
-        """An open thread to member A must not block a Delegate to member B."""
+        """An open thread to member A must not block a Delegate to member B.
+
+        Same load-bearing concern as the closed-thread test: the
+        precondition must actually execute the member-name filter,
+        not short-circuit before reaching it.
+        """
         from teaparty.mcp.tools.messaging import _default_delegate_post
 
         spawn_calls: list = []
@@ -210,6 +248,12 @@ class DelegateOpenThreadPreconditionTest(unittest.TestCase):
             f'workgroup-lead; got: {payload}',
         )
         self.assertEqual(len(spawn_calls), 1)
+        self.assertEqual(
+            bus.children_of_calls, ['parent-conv'],
+            f'Precondition must call bus.children_of to reach the '
+            f'member-name filter. Observed calls: '
+            f'{bus.children_of_calls!r}',
+        )
 
 
 class DelegateWorkflowPrefixTest(unittest.TestCase):
@@ -291,10 +335,21 @@ class DelegateWorkflowPrefixTest(unittest.TestCase):
             post_fn=post,
         ))
         composite = captured[0]['composite']
-        # No leading slash command pattern.
+        # Broad negative-space: no skill directive of any shape may
+        # appear when skill=None.  An always-fire regression that
+        # rendered ``Run the `/None` skill...`` would not contain
+        # ``/attempt-task`` but would contain the directive opener
+        # ``Run the ``/`` — the broader pattern catches that.
         self.assertNotIn(
             '/attempt-task', composite,
             f'Composite must NOT contain `/attempt-task` when skill=None. '
+            f'Got composite head: {composite[:200]!r}',
+        )
+        self.assertNotIn(
+            'Run the `/', composite,
+            f'Composite must NOT contain any `Run the `/<skill>...` '
+            f'directive when skill=None — the prefix block must be '
+            f'gated by ``if skill:``, not always-fire. '
             f'Got composite head: {composite[:200]!r}',
         )
 
