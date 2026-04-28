@@ -65,13 +65,38 @@ BASELINE_DENY_RULES: tuple[str, ...] = (
     'Write(*/.claude/agents/**)',
     'Write(*/.claude/hooks/**)',
     'Write(*/.claude/mcp.json)',
-    # TeaParty config tampering — management + project tiers only; the
-    # jobs tier is where the agent's own worktree lives.
-    'Edit(*/.teaparty/management/**)',
-    'Edit(*/.teaparty/project/**)',
+    # TeaParty config tampering — agent definitions, skill bodies,
+    # workgroup rosters, and the top-level YAMLs are the load-bearing
+    # config that an agent could rewrite to alter its own behaviour or
+    # escape its sandbox.  Worktrees of dispatched tasks live under
+    # ``.teaparty/management/sessions/`` and ``.teaparty/project/sessions/``,
+    # and CfA-job worktrees live under ``.teaparty/jobs/`` — none of
+    # those are denied here, so an agent can write its own deliverables.
+    # Avoid broad ``*/.teaparty/management/**`` patterns: they catch
+    # session worktrees too, and prompt the user on every in-tree write.
+    'Edit(*/.teaparty/management/agents/**)',
+    'Edit(*/.teaparty/management/skills/**)',
+    'Edit(*/.teaparty/management/workgroups/**)',
+    'Edit(*/.teaparty/management/teaparty.yaml)',
+    'Edit(*/.teaparty/management/settings.yaml)',
+    'Edit(*/.teaparty/management/external-projects.yaml)',
+    'Edit(*/.teaparty/project/agents/**)',
+    'Edit(*/.teaparty/project/skills/**)',
+    'Edit(*/.teaparty/project/workgroups/**)',
+    'Edit(*/.teaparty/project/project.yaml)',
+    'Edit(*/.teaparty/project/settings.yaml)',
     'Edit(*/.teaparty/teaparty.yaml)',
-    'Write(*/.teaparty/management/**)',
-    'Write(*/.teaparty/project/**)',
+    'Write(*/.teaparty/management/agents/**)',
+    'Write(*/.teaparty/management/skills/**)',
+    'Write(*/.teaparty/management/workgroups/**)',
+    'Write(*/.teaparty/management/teaparty.yaml)',
+    'Write(*/.teaparty/management/settings.yaml)',
+    'Write(*/.teaparty/management/external-projects.yaml)',
+    'Write(*/.teaparty/project/agents/**)',
+    'Write(*/.teaparty/project/skills/**)',
+    'Write(*/.teaparty/project/workgroups/**)',
+    'Write(*/.teaparty/project/project.yaml)',
+    'Write(*/.teaparty/project/settings.yaml)',
     'Write(*/.teaparty/teaparty.yaml)',
 )
 
