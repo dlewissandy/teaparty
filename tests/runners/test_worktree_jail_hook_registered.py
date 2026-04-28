@@ -15,6 +15,7 @@ ever launches has the hook in its PreToolUse declarations.
 """
 from __future__ import annotations
 
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -34,9 +35,19 @@ class RegisterWorktreeJailHookTest(unittest.TestCase):
         self.assertEqual(len(pre), 1)
         entry = pre[0]
         self.assertEqual(entry['matcher'], 'Read|Edit|Write|Glob|Grep')
-        self.assertEqual(
-            entry['hooks'][0]['command'],
-            'python3 .claude/hooks/worktree_hook.py',
+        # The command resolves to an ABSOLUTE path to the package's
+        # ``worktree_hook.py``.  Chat-tier launches (proxy, OM) run from
+        # a cwd with no ``.claude/hooks/`` next to it; a relative path
+        # produces ``can't open file`` on every Read/Edit/Write/Glob/Grep
+        # invocation.  Absolute keeps both tiers on one codepath.
+        cmd = entry['hooks'][0]['command']
+        self.assertTrue(
+            cmd.startswith('python3 /'),
+            f'expected absolute path command, got {cmd!r}',
+        )
+        self.assertTrue(
+            cmd.endswith('/teaparty/workspace/worktree_hook.py'),
+            f'expected ship-with-package script, got {cmd!r}',
         )
         self.assertEqual(entry['hooks'][0]['type'], 'command')
 
@@ -65,7 +76,41 @@ class RegisterWorktreeJailHookTest(unittest.TestCase):
         commands = [h.get('command') for entry in pre for h in entry.get('hooks', [])]
         self.assertIn('.claude/hooks/enforce-ownership.sh', commands)
         self.assertIn('python3 .claude/hooks/bash_jail_hook.py', commands)
-        self.assertIn('python3 .claude/hooks/worktree_hook.py', commands)
+        self.assertTrue(
+            any(c.endswith('/teaparty/workspace/worktree_hook.py')
+                for c in commands),
+            f'no absolute worktree_hook.py command in {commands!r}',
+        )
+
+    def test_stale_relative_entry_is_healed(self) -> None:
+        """A settings file written before the absolute-path migration is healed.
+
+        Prior versions wrote ``python3 .claude/hooks/worktree_hook.py``
+        (relative), which fails for chat-tier launches whose cwd has
+        no staged ``.claude/hooks/``.  On the next launch the helper
+        rewrites that entry to the absolute path so the broken
+        config does not survive a process restart.
+        """
+        settings = {
+            'hooks': {
+                'PreToolUse': [
+                    {
+                        'matcher': 'Read|Edit|Write|Glob|Grep',
+                        'hooks': [{
+                            'type': 'command',
+                            'command': 'python3 .claude/hooks/worktree_hook.py',
+                        }],
+                    },
+                ],
+            },
+        }
+        _register_worktree_jail_hook(settings)
+        pre = settings['hooks']['PreToolUse']
+        # Same single entry, but with the absolute-path command now.
+        self.assertEqual(len(pre), 1)
+        cmd = pre[0]['hooks'][0]['command']
+        self.assertTrue(cmd.startswith('python3 /'))
+        self.assertTrue(cmd.endswith('/teaparty/workspace/worktree_hook.py'))
 
     def test_idempotent_no_duplicate_on_repeated_calls(self) -> None:
         """Calling twice does not duplicate the entry."""
@@ -120,7 +165,44 @@ class RegisterWorktreeJailHookTest(unittest.TestCase):
                 for entry in (settings.get('hooks') or {}).get('PreToolUse', [])
                 for h in entry.get('hooks', [])
             ]
-            self.assertIn('python3 .claude/hooks/worktree_hook.py', commands)
+            self.assertTrue(
+                any(c.endswith('/teaparty/workspace/worktree_hook.py')
+                    and c.startswith('python3 /')
+                    for c in commands),
+                f'compose_launch_config did not register absolute hook: {commands!r}',
+            )
+
+    def test_chat_tier_hook_command_resolves_without_staging(self) -> None:
+        """The hook must run from a chat-tier cwd that has no .claude/hooks/.
+
+        Concrete regression: when the hook command was relative
+        (``python3 .claude/hooks/worktree_hook.py``), every chat-tier
+        proxy launch failed every Read with ``can't open file`` —
+        because the proxy's launch_cwd is ``child_session.path``
+        (a config dir, not a worktree) and ``.claude/hooks/`` is not
+        next to it.  The proxy gave a meta-response about a hook
+        configuration issue instead of ruling on the gate, and the
+        dashboard's gate panel saw no resolution.
+
+        This test pins the resolution: parse the registered command,
+        check that the script path it points to actually exists.
+        """
+        import shlex
+        settings: dict = {}
+        _register_worktree_jail_hook(settings)
+        cmd = settings['hooks']['PreToolUse'][0]['hooks'][0]['command']
+        tokens = shlex.split(cmd)
+        # Token 0 is the interpreter; token 1 must be the script path.
+        self.assertEqual(tokens[0], 'python3')
+        script_path = tokens[1]
+        self.assertTrue(
+            os.path.isabs(script_path),
+            f'hook script path must be absolute, got {script_path!r}',
+        )
+        self.assertTrue(
+            os.path.isfile(script_path),
+            f'hook script path does not resolve to a file: {script_path!r}',
+        )
 
 
 if __name__ == '__main__':

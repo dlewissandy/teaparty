@@ -772,9 +772,30 @@ def _register_worktree_jail_hook(settings: dict) -> None:
     invocation outside the allow list, surfacing blocking prompts the
     operator never sees and stalling dispatched workers.
 
+    The command path is **absolute** and resolves to the script as
+    shipped with the teaparty package.  Two launch shapes need this
+    hook:
+
+    - **Worktree-tier** (every CfA worker, every dispatched chat
+      child) has ``.claude/hooks/`` populated by ``_stage_hook_scripts``,
+      so a relative path would also work — but the absolute path
+      hurts nothing here.
+    - **Chat-tier** (top-level chats: OM, project leads, the proxy)
+      runs from a ``launch_cwd`` that is the config dir or the repo
+      root, neither of which has ``.claude/hooks/`` next to it.  A
+      relative ``python3 .claude/hooks/worktree_hook.py`` produces
+      ``can't open file`` on every Read/Edit/Write/Glob/Grep call,
+      and the agent (most visibly the proxy) gives a meta-response
+      about hook errors instead of acting on the gate.  An absolute
+      path collapses both shapes onto one codepath.
+
+    The jail boundary itself is still ``os.getcwd()`` inside the
+    hook — that gives the agent's runtime cwd, not the location of
+    the script — so this change does not weaken the sandbox.
+
     Idempotent: appends a single ``Read|Edit|Write|Glob|Grep`` matcher
-    entry that calls ``.claude/hooks/worktree_hook.py``.  No-op if a
-    declaration with that command is already present.
+    entry.  No-op if a declaration whose command resolves to
+    ``worktree_hook.py`` is already present (under any path).
     """
     hooks = settings.setdefault('hooks', {})
     if not isinstance(hooks, dict):
@@ -784,12 +805,32 @@ def _register_worktree_jail_hook(settings: dict) -> None:
     if not isinstance(pre, list):
         pre = []
         hooks['PreToolUse'] = pre
-    cmd = 'python3 .claude/hooks/worktree_hook.py'
+    # Absolute path so the hook resolves whether or not the launch
+    # path stages a ``.claude/hooks/`` directory next to the cwd.
+    script_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        'workspace', 'worktree_hook.py',
+    )
+    cmd = f'python3 {script_path}'
+    # Idempotency: any existing declaration that ends in
+    # ``worktree_hook.py`` (relative or absolute) counts as installed.
+    # Migrating an existing relative entry to absolute happens via
+    # rewrite below so a stale settings file from before this change
+    # is healed on the next launch.
     for entry in pre:
         if not isinstance(entry, dict):
             continue
         for h in (entry.get('hooks') or []):
-            if isinstance(h, dict) and h.get('command') == cmd:
+            if not isinstance(h, dict):
+                continue
+            existing = h.get('command') or ''
+            if existing == cmd:
+                return
+            if existing.endswith('worktree_hook.py') or existing.endswith(
+                    'worktree_hook.py"',  # quoted form
+            ):
+                # Heal a stale relative-path entry to absolute.
+                h['command'] = cmd
                 return
     pre.append({
         'matcher': 'Read|Edit|Write|Glob|Grep',
