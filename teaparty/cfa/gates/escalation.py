@@ -59,6 +59,16 @@ DispatchHook = Callable[[dict], Any]
 # How often we poll the proxy bus for human dialog replies.
 _POLL_INTERVAL = 0.1
 
+# Default escalation policy used whenever the project's ``escalation:``
+# map omits an entry for the current state.  Must match the bridge's
+# convention at ``_handle_escalation_get`` / ``_handle_escalation_patch``:
+# the PATCH handler deletes a state's entry when the user picks
+# ``when_unsure``, encoding "default = absent".  The skill's dispatcher,
+# meanwhile, treats an empty argument as ``UNKNOWN POLICY``.  Returning
+# the default here bridges the two contracts so a project that uses the
+# default everywhere doesn't trip the skill's error path.
+_DEFAULT_ESCALATION_POLICY = 'when_unsure'
+
 
 class AskQuestionRunner:
     """Per-caller runner for the AskQuestion MCP tool.
@@ -438,22 +448,28 @@ class AskQuestionRunner:
         Reads ``.cfa-state.json`` from ``infra_dir`` for the current
         state, then ``{project_root}/.teaparty/project/project.yaml``
         for its ``escalation:`` map.  Returns the mode string
-        (``always`` / ``when_unsure`` / ``never``) or ``''`` when either
-        file is missing.  Chat-tier callers have no ``.cfa-state.json``
-        and get ``''`` — the skill's dispatcher treats that as the
-        fallback policy.
+        (``always`` / ``when_unsure`` / ``never``).
+
+        When the file, key, or value is missing, returns
+        ``_DEFAULT_ESCALATION_POLICY``.  This matches the bridge UI's
+        convention: the PATCH handler treats ``when_unsure`` as the
+        default by deleting the entry rather than writing it, so a
+        project where every state is ``when_unsure`` ends up with no
+        ``escalation:`` map at all.  Returning the default here keeps
+        that representation working end-to-end; otherwise the skill's
+        dispatcher would reject the empty argument as ``UNKNOWN POLICY``.
         """
         if not self.infra_dir:
-            return ''
+            return _DEFAULT_ESCALATION_POLICY
         cfa_path = os.path.join(self.infra_dir, '.cfa-state.json')
         try:
             with open(cfa_path) as fh:
                 cfa = json.load(fh)
         except (OSError, json.JSONDecodeError):
-            return ''
+            return _DEFAULT_ESCALATION_POLICY
         state = cfa.get('state', '')
         if not state:
-            return ''
+            return _DEFAULT_ESCALATION_POLICY
         # infra_dir is {project_root}/.teaparty/jobs/{job-dir}.  Walk
         # up three levels to reach {project_root}.
         project_root = os.path.dirname(
@@ -467,10 +483,12 @@ class AskQuestionRunner:
             with open(project_yaml) as fh:
                 config = yaml.safe_load(fh) or {}
         except (OSError, Exception):
-            return ''
+            return _DEFAULT_ESCALATION_POLICY
         escalation = config.get('escalation') or {}
-        value = escalation.get(state, '')
-        return value if isinstance(value, str) else ''
+        value = escalation.get(state)
+        if isinstance(value, str) and value:
+            return value
+        return _DEFAULT_ESCALATION_POLICY
 
     def _resolve_proxy_bus(self) -> SqliteMessageBus:
         """Open the proxy's message bus at its canonical location."""
