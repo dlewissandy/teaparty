@@ -697,6 +697,32 @@ def make_spawn_fn(
     return spawn_fn
 
 
+def _resolve_effective_tasks_dir(
+    ctx: 'ChildDispatchContext', caller_sid: str,
+) -> str:
+    """Pick the directory under which a worker's session should be created.
+
+    ``ctx.tasks_dir`` is set once at engine boot to ``{job_dir}/tasks``.
+    Top-level dispatch (project-lead → workgroup-lead) uses it as-is so
+    the worker lands at ``{job_dir}/tasks/<sid>/``.  Nested dispatch
+    (workgroup-lead → workgroup-agent) puts the worker under the
+    dispatcher's own ``tasks/`` subdir so the filesystem tree mirrors
+    the dispatch tree at any depth.  Without per-dispatch derivation,
+    every level — regardless of depth — would land flat at the job's
+    ``tasks/``, and the bridge UI's recursive ``_scan_tasks`` would
+    render the dispatch tree as if it were one level deep.
+
+    When ``ctx.tasks_dir`` is empty (chat-tier dispatchers), the legacy
+    catalog-keyed layout applies and this returns ''.
+    """
+    if not ctx.tasks_dir:
+        return ''
+    if caller_sid and caller_sid in ctx.session_registry:
+        nested_dispatcher = ctx.session_registry[caller_sid]
+        return os.path.join(nested_dispatcher.path, 'tasks')
+    return ctx.tasks_dir
+
+
 async def schedule_child_dispatch(
     member: str,
     composite: str,
@@ -738,6 +764,9 @@ async def schedule_child_dispatch(
         caller_sid, ctx.dispatcher_session,
     )
 
+    # ── 1a. Compute effective tasks_dir for arbitrary-depth nesting ─────
+    effective_tasks_dir = _resolve_effective_tasks_dir(ctx, caller_sid)
+
     # ── 2. Thread continuation ──────────────────────────────────────────
     bus_db_path = ctx.bus_listener.bus_db_path if ctx.bus_listener else ''
     existing_child = detect_thread_continuation(
@@ -746,7 +775,7 @@ async def schedule_child_dispatch(
         member=member,
         teaparty_home=ctx.teaparty_home,
         scope=ctx.fixed_scope or 'management',
-        parent_dir=ctx.tasks_dir,
+        parent_dir=effective_tasks_dir,
     )
 
     # ── 3. Paused-check refusal (skipped on resume) ─────────────────────
@@ -847,7 +876,7 @@ async def schedule_child_dispatch(
         child_session = _create_session(
             agent_name=member, scope=member_scope,
             teaparty_home=ctx.teaparty_home,
-            parent_dir=ctx.tasks_dir,
+            parent_dir=effective_tasks_dir,
         )
 
         if is_cross_repo:

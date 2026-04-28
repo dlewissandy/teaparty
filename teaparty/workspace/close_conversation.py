@@ -177,22 +177,37 @@ async def _close_recursive(
     (worktree path, target branch, etc.) still comes from the child's
     session metadata on disk; that's not tree structure.
 
-    ``tasks_dir`` is checked first when set: dispatched sessions in
-    CfA jobs live at ``{tasks_dir}/<sid>/``.  Falls back to
-    ``{legacy_sessions_dir}/<sid>/`` so chat-tier and pre-layout-change
-    sessions still close cleanly.
+    Locating the session directory: the bus's DISPATCH row stores
+    ``worktree_path``, and the session_path is its parent directory
+    (worktree always lives at ``{session_path}/worktree``).  This
+    works at arbitrary depth — a worker dispatched from another
+    worker lives at ``{parent_session.path}/tasks/<sid>``, and the
+    bus row records that exact worktree path.  When no bus row is
+    available (legacy callers passing ``bus=None``), fall back to
+    ``tasks_dir``-then-legacy candidate paths.
     """
-    candidates: list[str] = []
-    if tasks_dir:
-        candidates.append(os.path.join(tasks_dir, session_id))
-    candidates.append(os.path.join(legacy_sessions_dir, session_id))
     session_path = ''
-    for cand in candidates:
-        if os.path.isfile(os.path.join(cand, 'metadata.json')):
-            session_path = cand
-            break
+    if bus is not None:
+        try:
+            conv = bus.get_conversation(f'dispatch:{session_id}')
+        except Exception:
+            conv = None
+        bus_worktree = getattr(conv, 'worktree_path', '') if conv else ''
+        if bus_worktree:
+            candidate = os.path.dirname(bus_worktree.rstrip('/'))
+            if os.path.isfile(os.path.join(candidate, 'metadata.json')):
+                session_path = candidate
     if not session_path:
-        session_path = candidates[0]
+        candidates: list[str] = []
+        if tasks_dir:
+            candidates.append(os.path.join(tasks_dir, session_id))
+        candidates.append(os.path.join(legacy_sessions_dir, session_id))
+        for cand in candidates:
+            if os.path.isfile(os.path.join(cand, 'metadata.json')):
+                session_path = cand
+                break
+        if not session_path:
+            session_path = candidates[0]
     meta_path = os.path.join(session_path, 'metadata.json')
 
     meta: dict[str, Any] = {}
