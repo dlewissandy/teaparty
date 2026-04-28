@@ -938,11 +938,20 @@ async def schedule_child_dispatch(
             # the worker is invisible to the project's task list.
             # ``metadata.json`` carries the dispatch flow's needs;
             # ``task.json`` carries the UI's needs.
+            #
+            # The whole block is best-effort: a missing task.json is
+            # only a UI-visibility gap, never a reason to abort the
+            # dispatch.  In particular, a long-running bridge whose
+            # ``job_store`` module was cached before this function
+            # existed would otherwise raise ``ImportError`` here and
+            # crash every dispatch — that is a process-staleness
+            # problem, not a correctness one, and we refuse to
+            # propagate it.
             if ctx.tasks_dir:
-                from teaparty.workspace.job_store import (
-                    register_dispatched_task,
-                )
                 try:
+                    from teaparty.workspace.job_store import (
+                        register_dispatched_task,
+                    )
                     register_dispatched_task(
                         task_dir=child_session.path,
                         task_id=child_session.id,
@@ -951,9 +960,10 @@ async def schedule_child_dispatch(
                         team=ctx.fixed_scope or member_scope,
                         slug=member,
                     )
-                except OSError:
+                except (ImportError, OSError, Exception):
                     _log.exception(
-                        '%s: register_dispatched_task failed for %s',
+                        '%s: register_dispatched_task failed for %s '
+                        '(non-fatal — dispatch continues)',
                         ctx.log_tag, member,
                     )
 
