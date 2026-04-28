@@ -319,6 +319,49 @@ async def create_task(
     }
 
 
+def register_dispatched_task(
+    *,
+    task_dir: str,
+    task_id: str,
+    agent: str,
+    branch: str,
+    team: str = '',
+    slug: str = '',
+) -> None:
+    """Mark a dispatched-worker session as a discoverable task.
+
+    Dispatched workers created via the ``schedule_child_dispatch``
+    path live at ``{job_dir}/tasks/<sid>/`` and write a
+    ``metadata.json`` describing the session.  The bridge UI's
+    ``_scan_tasks``, however, walks ``{job_dir}/tasks/`` looking for
+    ``task.json`` to populate the project's task list — a different
+    schema from a different system (this module's :func:`create_task`).
+    Without ``task.json`` the dispatched worker is invisible to the UI.
+
+    This function bridges the two systems by writing ``task.json``
+    alongside ``metadata.json``.  The two files are complementary:
+    ``metadata.json`` carries the dispatch flow's needs (claude session
+    id, merge target, phase); ``task.json`` carries the UI's needs
+    (task_id, status, team, agent, branch).  A future cut may collapse
+    them into a single record.
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    task_state = {
+        'task_id': task_id,
+        'slug': slug or agent,
+        'team': team,
+        'agent': agent,
+        'branch': branch,
+        'status': 'active',
+        'created_at': now,
+        'updated_at': now,
+    }
+    os.makedirs(task_dir, exist_ok=True)
+    with open(os.path.join(task_dir, 'task.json'), 'w') as f:
+        json.dump(task_state, f, indent=2)
+        f.write('\n')
+
+
 # ── Withdrawal ──────────────────────────────────────────────────────────────
 
 def _kill_pid(pid: int) -> None:

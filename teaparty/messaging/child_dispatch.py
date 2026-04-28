@@ -903,6 +903,31 @@ async def schedule_child_dispatch(
             child_session.merge_target_branch = merge_target_branch
             child_session.merge_target_worktree = merge_target_worktree
 
+            # When the session lives under a job's tasks/ dir, also
+            # write the task.json marker the bridge UI's _scan_tasks
+            # walker reads (issue #384's task system).  Without it,
+            # the worker is invisible to the project's task list.
+            # ``metadata.json`` carries the dispatch flow's needs;
+            # ``task.json`` carries the UI's needs.
+            if ctx.tasks_dir:
+                from teaparty.workspace.job_store import (
+                    register_dispatched_task,
+                )
+                try:
+                    register_dispatched_task(
+                        task_dir=child_session.path,
+                        task_id=child_session.id,
+                        agent=member,
+                        branch=session_branch,
+                        team=ctx.fixed_scope or member_scope,
+                        slug=member,
+                    )
+                except OSError:
+                    _log.exception(
+                        '%s: register_dispatched_task failed for %s',
+                        ctx.log_tag, member,
+                    )
+
         child_session.parent_session_id = (
             dispatcher_session.id if dispatcher_session else ''
         )
