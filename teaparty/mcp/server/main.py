@@ -20,6 +20,7 @@ from teaparty.mcp.tools.escalation import (
 
 from teaparty.mcp.tools.messaging import (
     send_handler,
+    delegate_handler,
     close_conversation_handler,
 )
 
@@ -180,6 +181,41 @@ def create_server(agent_tools: set[str] | None = None) -> FastMCP:
             member=member,
             message=message,
             context_id=context_id,
+            scratch_path=_scratch_path_from_env(),
+        )
+
+    @server.tool(description=(
+        'Open a fresh dispatch thread to a team member, optionally '
+        'invoking a workflow skill on the recipient.\n\n'
+        'Delegate is for opening new dispatch threads. To continue a '
+        'thread you have already opened (clarifying questions, '
+        'corrections, follow-ups), use Send with the conversation_id '
+        'returned by the original Delegate. Calling Delegate when an '
+        'open thread to the same member already exists is rejected; '
+        'the rejection names the existing channel so you can re-route.\n\n'
+        'When ``skill`` is set, the recipient invokes that workflow '
+        'skill on launch — use this to dispatch to a workgroup-lead '
+        'with ``skill="attempt-task"``. Leave ``skill=None`` to '
+        'dispatch to a specialist (the recipient processes the task '
+        'directly without a workflow rail).\n\n'
+        'Self-contained: the recipient hasn\'t seen your conversation. '
+        'Name the work, definition of done, pointers to authoritative '
+        'context, and what you have decided or ruled out. After '
+        'Delegate your turn ends; TeaParty re-invokes you on reply.\n\n'
+        'Args:\n'
+        '    member: Name key of a roster entry in --agents.\n'
+        '    task: The task to dispatch, self-contained per the above.\n'
+        '    skill: Optional workflow skill to invoke on the recipient. '
+        'Use "attempt-task" when dispatching to a workgroup-lead. '
+        'Leave None for specialists.'
+    ))
+    async def Delegate(
+        member: str, task: str, skill: str | None = None,
+    ) -> str:
+        return await delegate_handler(
+            member=member,
+            task=task,
+            skill=skill,
             scratch_path=_scratch_path_from_env(),
         )
 

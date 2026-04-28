@@ -122,6 +122,9 @@ class DelegateOpenThreadPreconditionTest(unittest.TestCase):
 
         spawn_calls: list = []
         self._register_spawn_that_records_calls(spawn_calls)
+        # Caller's conversation_id — required for the precondition to
+        # have a parent conversation to walk children of.
+        mcp_registry.current_conversation_id.set('parent-conv')
 
         existing_thread = 'dispatch:already_open_abc'
         bus = _StubBus([
@@ -230,15 +233,28 @@ class DelegateWorkflowPrefixTest(unittest.TestCase):
         """When `skill='attempt-task'`, the dispatched composite must
         contain a directive that names the skill prefixed with `/`,
         following the same pattern the engine uses for project-leads
-        (e.g. `Run the /attempt-task skill...`)."""
-        from teaparty.mcp.tools.messaging import _default_delegate_post
+        (e.g. `Run the /attempt-task skill...`).
+
+        The prefix is built by ``delegate_handler`` (the public entry
+        point) before the post_fn is called, so this test exercises
+        the handler — not the bare post_fn — to cover the full path.
+        """
+        from teaparty.mcp.tools.messaging import delegate_handler
 
         captured: list = []
         self._register_capturing_spawn(captured)
 
-        _run(_default_delegate_post(
-            'workgroup-lead', 'produce a report', skill='attempt-task',
-            _bus_for_test=_StubBus([]),
+        async def post(member, composite, skill):
+            from teaparty.mcp.tools.messaging import _default_delegate_post
+            return await _default_delegate_post(
+                member, composite, skill, _bus_for_test=_StubBus([]),
+            )
+
+        _run(delegate_handler(
+            member='workgroup-lead', task='produce a report',
+            skill='attempt-task',
+            scratch_path='/no/such/scratch',
+            post_fn=post,
         ))
         self.assertEqual(len(captured), 1)
         composite = captured[0]['composite']
@@ -258,14 +274,21 @@ class DelegateWorkflowPrefixTest(unittest.TestCase):
         """When `skill=None`, the composite must contain no `/<skill>`
         directive. Delegate-without-skill is a plain dispatch (the
         recipient processes the task directly, e.g. specialists)."""
-        from teaparty.mcp.tools.messaging import _default_delegate_post
+        from teaparty.mcp.tools.messaging import delegate_handler
 
         captured: list = []
         self._register_capturing_spawn(captured)
 
-        _run(_default_delegate_post(
-            'specialist', 'small task', skill=None,
-            _bus_for_test=_StubBus([]),
+        async def post(member, composite, skill):
+            from teaparty.mcp.tools.messaging import _default_delegate_post
+            return await _default_delegate_post(
+                member, composite, skill, _bus_for_test=_StubBus([]),
+            )
+
+        _run(delegate_handler(
+            member='specialist', task='small task', skill=None,
+            scratch_path='/no/such/scratch',
+            post_fn=post,
         ))
         composite = captured[0]['composite']
         # No leading slash command pattern.
@@ -279,16 +302,24 @@ class DelegateWorkflowPrefixTest(unittest.TestCase):
         """The original task body must appear in the composite, after
         the skill directive. Without this, the recipient runs the
         skill but receives no task — workflow with no work."""
-        from teaparty.mcp.tools.messaging import _default_delegate_post
+        from teaparty.mcp.tools.messaging import delegate_handler
 
         captured: list = []
         self._register_capturing_spawn(captured)
 
+        async def post(member, composite, skill):
+            from teaparty.mcp.tools.messaging import _default_delegate_post
+            return await _default_delegate_post(
+                member, composite, skill, _bus_for_test=_StubBus([]),
+            )
+
         unique_marker = 'XYZ_TASK_MARKER_42'
-        _run(_default_delegate_post(
-            'workgroup-lead', f'{unique_marker} the body content here',
+        _run(delegate_handler(
+            member='workgroup-lead',
+            task=f'{unique_marker} the body content here',
             skill='attempt-task',
-            _bus_for_test=_StubBus([]),
+            scratch_path='/no/such/scratch',
+            post_fn=post,
         ))
         composite = captured[0]['composite']
         self.assertIn(

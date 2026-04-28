@@ -1370,6 +1370,7 @@ async def schedule_child_dispatch(
             base_routes.ask_question_runner if base_routes else None
         ),
         dispatcher=child_dispatcher,
+        bus_db_path=base_routes.bus_db_path if base_routes else '',
     )
 
     initial_resume_sid = (

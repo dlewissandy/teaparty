@@ -103,13 +103,30 @@ def _make_teaparty_home_with_workgroup(tmp: str) -> str:
 
 
 class AttemptTaskStagingChatTierTest(unittest.TestCase):
-    """`compose_launch_config` stages `attempt-task` for workgroup-leads."""
+    """`compose_launch_config` stages `attempt-task` for workgroup-leads.
+
+    Chat-tier staging targets ``$CLAUDE_CONFIG_DIR/skills/`` — the
+    discovery path Claude Code's headless ``Skill`` tool reads.  In
+    these tests the dir is set to a temp path so the assertion
+    inspects per-test state, not the test runner's dotfiles.
+    """
+
+    def setUp(self) -> None:
+        self._prior_env = os.environ.get('CLAUDE_CONFIG_DIR')
+
+    def tearDown(self) -> None:
+        if self._prior_env is None:
+            os.environ.pop('CLAUDE_CONFIG_DIR', None)
+        else:
+            os.environ['CLAUDE_CONFIG_DIR'] = self._prior_env
 
     def test_workgroup_lead_chat_tier_gets_attempt_task(self) -> None:
         from teaparty.runners.launcher import compose_launch_config
 
         with tempfile.TemporaryDirectory() as tmp:
             tp_home = _make_teaparty_home_with_workgroup(tmp)
+            claude_home = os.path.join(tmp, 'claude-home')
+            os.environ['CLAUDE_CONFIG_DIR'] = claude_home
             config_dir = os.path.join(tmp, 'cfg')
             compose_launch_config(
                 config_dir=config_dir,
@@ -118,7 +135,7 @@ class AttemptTaskStagingChatTierTest(unittest.TestCase):
                 teaparty_home=tp_home,
             )
             staged = os.path.join(
-                config_dir, 'skills', 'attempt-task', 'SKILL.md',
+                claude_home, 'skills', 'attempt-task', 'SKILL.md',
             )
             self.assertTrue(
                 os.path.isfile(staged),
@@ -136,6 +153,8 @@ class AttemptTaskStagingChatTierTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             tp_home = _make_teaparty_home_with_workgroup(tmp)
+            claude_home = os.path.join(tmp, 'claude-home')
+            os.environ['CLAUDE_CONFIG_DIR'] = claude_home
             config_dir = os.path.join(tmp, 'cfg')
             compose_launch_config(
                 config_dir=config_dir,
@@ -144,7 +163,7 @@ class AttemptTaskStagingChatTierTest(unittest.TestCase):
                 teaparty_home=tp_home,
             )
             staged = os.path.join(
-                config_dir, 'skills', 'attempt-task', 'SKILL.md',
+                claude_home, 'skills', 'attempt-task', 'SKILL.md',
             )
             self.assertFalse(
                 os.path.isfile(staged),
@@ -209,6 +228,15 @@ class AttemptTaskStagingWorktreeTierTest(unittest.TestCase):
 class AttemptTaskStagingRosterFailureTest(unittest.TestCase):
     """Compose must not crash if roster lookup fails — graceful no-op."""
 
+    def setUp(self) -> None:
+        self._prior_env = os.environ.get('CLAUDE_CONFIG_DIR')
+
+    def tearDown(self) -> None:
+        if self._prior_env is None:
+            os.environ.pop('CLAUDE_CONFIG_DIR', None)
+        else:
+            os.environ['CLAUDE_CONFIG_DIR'] = self._prior_env
+
     def test_compose_does_not_crash_on_missing_workgroup_config(self) -> None:
         """If `derive_team_roster` returns None (config missing,
         unknown agent name, etc.), the launcher logs and proceeds
@@ -225,6 +253,8 @@ class AttemptTaskStagingRosterFailureTest(unittest.TestCase):
                     'unknown-agent', 'agent.md'), 'w') as f:
                 f.write('---\nname: unknown-agent\n---\nbody\n')
 
+            claude_home = os.path.join(tmp, 'claude-home')
+            os.environ['CLAUDE_CONFIG_DIR'] = claude_home
             config_dir = os.path.join(tmp, 'cfg-unknown')
             # Must not raise.
             compose_launch_config(
@@ -235,7 +265,7 @@ class AttemptTaskStagingRosterFailureTest(unittest.TestCase):
             )
             # And the skill is not staged (because roster said it's not a lead).
             staged = os.path.join(
-                config_dir, 'skills', 'attempt-task', 'SKILL.md',
+                claude_home, 'skills', 'attempt-task', 'SKILL.md',
             )
             self.assertFalse(
                 os.path.isfile(staged),

@@ -315,6 +315,42 @@ def resolve_agent_definition(
 
 # ── Skill staging (shared by chat-tier and worktree-tier launches) ──────────
 
+def _role_implied_skills(
+    *, agent_name: str, teaparty_home: str,
+) -> list[str]:
+    """Return skill names implied by the agent's role (issue #423).
+
+    A workgroup-lead's procedural rails live in the ``attempt-task``
+    skill — when ``Delegate(skill='attempt-task')`` lands at a
+    workgroup-lead, that slash command must resolve.  Auto-staging
+    the skill for every agent the roster identifies as a
+    workgroup-lead removes the per-agent frontmatter edit and keeps
+    the role-vs-skill mapping in one place.
+
+    Detection: ``derive_team_roster(agent_name)`` returns the team
+    headed by this agent.  Workgroup-leads head teams whose direct
+    members are ``workgroup-agent``; project-leads head teams whose
+    members are ``workgroup-lead``; the OM heads a team of
+    project-leads + management workgroup-leads + proxy.  The
+    member-role check distinguishes a workgroup-lead unambiguously
+    without parsing names.
+
+    Returns ``[]`` for any agent the roster does not identify as a
+    workgroup-lead, including agents the roster lookup fails for —
+    callers append nothing in that case.
+    """
+    try:
+        from teaparty.config.roster import derive_team_roster
+        roster = derive_team_roster(agent_name, teaparty_home)
+    except Exception:
+        return []
+    if roster is None or not roster.members:
+        return []
+    if any(m.role == 'workgroup-agent' for m in roster.members):
+        return ['attempt-task']
+    return []
+
+
 def _stage_skills(
     *,
     allowed_skills: list[str],
@@ -460,9 +496,17 @@ def compose_launch_worktree(
         else:
             shutil.copy2(agent_def_path, dest_md)
 
-    # ── Skills (filtered by agent allowlist) ─────────────────────────────
+    # ── Skills (frontmatter allowlist + role-implied) ───────────────────
+    _declared = list(fm.get('skills') or [])
+    _implied = _role_implied_skills(
+        agent_name=agent_name, teaparty_home=teaparty_home,
+    )
+    _allowed: list[str] = list(_declared)
+    for s in _implied:
+        if s not in _allowed:
+            _allowed.append(s)
     _stage_skills(
-        allowed_skills=fm.get('skills') or [],
+        allowed_skills=_allowed,
         worktree_skills_dest=os.path.join(claude_dir, 'skills'),
         scope=scope,
         teaparty_home=teaparty_home,
@@ -757,8 +801,16 @@ def compose_launch_config(
     # ``Skill`` tool uses is the shared CLAUDE_CONFIG_DIR one.  Without
     # this call a chat-tier agent's ``skills:`` frontmatter is inert
     # and its ``/<name>`` slash command fails with "Unknown skill".
+    _declared_chat = list(fm.get('skills') or [])
+    _implied_chat = _role_implied_skills(
+        agent_name=agent_name, teaparty_home=teaparty_home,
+    )
+    _allowed_chat: list[str] = list(_declared_chat)
+    for s in _implied_chat:
+        if s not in _allowed_chat:
+            _allowed_chat.append(s)
     _stage_skills(
-        allowed_skills=fm.get('skills') or [],
+        allowed_skills=_allowed_chat,
         worktree_skills_dest='',
         scope=scope,
         teaparty_home=teaparty_home,
