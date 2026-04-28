@@ -455,6 +455,7 @@ def compose_launch_worktree(
     # ── Settings (scope base + agent override) ───────────────────────────
     settings = _merge_settings(agent_name, scope, teaparty_home)
     _inject_baseline_deny(settings)
+    _register_worktree_jail_hook(settings)
     settings_path = os.path.join(claude_dir, 'settings.json')
     with open(settings_path, 'w') as f:
         json.dump(settings, f, indent=2)
@@ -671,6 +672,7 @@ def compose_launch_config(
             settings['permissions'] = perms
 
     _inject_baseline_deny(settings)
+    _register_worktree_jail_hook(settings)
     settings_path = os.path.join(config_dir, 'settings.json')
     with open(settings_path, 'w') as f:
         json.dump(settings, f, indent=2)
@@ -758,6 +760,41 @@ def compose_launch_config(
         'agents_json': agents_json,
         'agents_file': agents_file,
     }
+
+
+def _register_worktree_jail_hook(settings: dict) -> None:
+    """Add a PreToolUse declaration for ``worktree_hook.py``.
+
+    The hook is the actual sandbox boundary for an agent's filesystem
+    writes: it denies any absolute path that resolves outside the
+    agent's cwd.  Without it registered, Claude CLI falls back to its
+    default permission flow — which prompts the user for any tool
+    invocation outside the allow list, surfacing blocking prompts the
+    operator never sees and stalling dispatched workers.
+
+    Idempotent: appends a single ``Read|Edit|Write|Glob|Grep`` matcher
+    entry that calls ``.claude/hooks/worktree_hook.py``.  No-op if a
+    declaration with that command is already present.
+    """
+    hooks = settings.setdefault('hooks', {})
+    if not isinstance(hooks, dict):
+        hooks = {}
+        settings['hooks'] = hooks
+    pre = hooks.setdefault('PreToolUse', [])
+    if not isinstance(pre, list):
+        pre = []
+        hooks['PreToolUse'] = pre
+    cmd = 'python3 .claude/hooks/worktree_hook.py'
+    for entry in pre:
+        if not isinstance(entry, dict):
+            continue
+        for h in (entry.get('hooks') or []):
+            if isinstance(h, dict) and h.get('command') == cmd:
+                return
+    pre.append({
+        'matcher': 'Read|Edit|Write|Glob|Grep',
+        'hooks': [{'type': 'command', 'command': cmd}],
+    })
 
 
 def derive_tools_from_settings(
@@ -1296,6 +1333,7 @@ async def launch(
     else:
         settings = _merge_settings(agent_name, scope, teaparty_home)
     _inject_baseline_deny(settings)
+    _register_worktree_jail_hook(settings)
 
     # Derive --tools from settings.yaml's permissions.allow; fall back to
     # frontmatter tools: for agents that have not yet migrated to settings.yaml.

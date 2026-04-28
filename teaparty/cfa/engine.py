@@ -884,7 +884,10 @@ class Orchestrator:
         if not agents_json:
             agents_path = os.path.join(self.poc_root, spec.agent_file)
 
-        # Build settings + install the worktree jail hook (Issue #150).
+        # Build settings.  Stage the worktree jail script into the
+        # session worktree (Issue #150) so the launcher's universal
+        # PreToolUse hook registration can find it; the launcher
+        # injects the matcher entry itself, no per-engine wiring.
         try:
             settings = _lm(spec.lead, 'project', teaparty_home_for_agent)
         except Exception:
@@ -892,19 +895,6 @@ class Orchestrator:
         _JAIL = '.claude/hooks/worktree_hook.py'
         _stage_jail_hook(self.session_worktree, _JAIL)
         _check_jail_hook(self.session_worktree, _JAIL)
-        jail_hook = {
-            'type': 'command',
-            'command': f'python3 {_JAIL}',
-        }
-        hooks_section = settings.setdefault('hooks', {})
-        if not isinstance(hooks_section, dict):
-            hooks_section = {}
-            settings['hooks'] = hooks_section
-        pre = hooks_section.setdefault('PreToolUse', [])
-        pre.append({
-            'matcher': 'Read|Edit|Write|Glob|Grep',
-            'hooks': [jail_hook],
-        })
 
         mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
         base = dict(
