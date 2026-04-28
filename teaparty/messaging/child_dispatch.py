@@ -389,6 +389,12 @@ async def run_agent_loop(
     current_message = initial_message
     current_claude_session = resume_claude_session or ''
     terminal_value: Any = None
+    # Set when a permission-stall is detected and ``on_failure`` returns a
+    # non-abort decision; cleared the next time a turn lands cleanly with
+    # no stall.  When the flag is cleared we also emit ``stall_recovered``
+    # — pairing the open ``stall_detected`` event when (and only when)
+    # recovery actually produced a clean turn.
+    recovering_from_stall: bool = False
 
     def on_event(ev: dict) -> None:
         for sender, content in _classify_event(
@@ -530,20 +536,31 @@ async def run_agent_loop(
                     agent_name,
                 )
                 break
-            if decision != 'abort':
-                _emit_stall_recovery_signal(
-                    bus=bus,
-                    conv_id=conv_id,
-                    agent_name=agent_name,
-                    launch_kwargs_base=launch_kwargs_base,
-                    decision=('retry' if decision == 'retry' else 'message'),
-                )
-            if decision == 'retry':
-                continue
             if decision == 'abort':
                 break
+            # Mark the loop as recovering from a stall.  ``stall_recovered``
+            # fires only after the next turn lands cleanly without stalling
+            # — an attempted recovery that re-stalls keeps the flag set
+            # and re-emits ``stall_detected`` instead.
+            recovering_from_stall = True
+            if decision == 'retry':
+                continue
             current_message = decision
             continue
+
+        # ── STALL-RECOVERED: pair the open stall_detected event ────────
+        # A clean turn after a stall closes the friction-signal pair.
+        # Without the matching event the dashboard can't tell whether a
+        # detected stall was ever resolved or stayed open.
+        if recovering_from_stall:
+            _emit_stall_recovery_signal(
+                bus=bus,
+                conv_id=conv_id,
+                agent_name=agent_name,
+                launch_kwargs_base=launch_kwargs_base,
+                decision='clean_turn',
+            )
+            recovering_from_stall = False
 
         # ── POST-TURN: tier-specific bookkeeping (scratch, compaction) ─
         if on_post_turn is not None:

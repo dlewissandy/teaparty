@@ -171,17 +171,156 @@ class StallRecoverySignalsEmitTest(unittest.TestCase):
                 conv_id='conv-abc',
                 agent_name='writing-lead',
                 launch_kwargs_base={'scope': 'project-x', 'session_id': 'sid'},
-                decision='retry',
+                decision='clean_turn',
             )
         finally:
             _tele.record_event = original
 
         self.assertEqual(len(recorded), 1)
         self.assertEqual(recorded[0]['event_type'], 'stall_recovered')
-        self.assertEqual(recorded[0]['data'].get('decision'), 'retry')
+        self.assertEqual(recorded[0]['data'].get('decision'), 'clean_turn')
         self.assertEqual(len(bus.calls), 1)
         self.assertEqual(bus.calls[0][1], 'system')
         self.assertIn('recovery', bus.calls[0][2].lower())
+
+
+class RunAgentLoopStallSemanticsTest(unittest.TestCase):
+    """``run_agent_loop`` emits ``stall_recovered`` only after a CLEAN turn.
+
+    Semantics check: an attempted recovery that re-stalls must NOT emit
+    ``stall_recovered`` — the dashboard would otherwise count an
+    unresolved stall as resolved.  Only when the next turn actually
+    lands cleanly does the friction-signal pair close.
+    """
+
+    def _run_loop(
+        self, *, scripted_replies, on_failure_decisions,
+    ) -> tuple[list[str], list[tuple[str, str, str]]]:
+        """Drive ``run_agent_loop`` against a scripted launch_fn.
+
+        ``scripted_replies`` is a list of agent reply texts, one per
+        turn.  ``on_failure_decisions`` is a list of decisions returned
+        by ``on_failure``, one per stall — they advance independently
+        of replies because clean turns do not consume a decision.
+
+        Returns ``(telemetry_events, bus_calls)`` so the test can
+        assert on the event order and contents.
+        """
+        import asyncio
+        from teaparty.messaging import child_dispatch
+
+        # ── stub launch_fn ─────────────────────────────────────────────
+        reply_idx = {'i': 0}
+
+        class _FakeResult:
+            def __init__(self, text: str) -> None:
+                self.result = text
+                self.session_id = 'claude-sid'
+                self.exit_code = 0
+                self.stall_killed = False
+
+        async def fake_launch(**kwargs):
+            text = scripted_replies[reply_idx['i']]
+            reply_idx['i'] += 1
+            return _FakeResult(text)
+
+        # ── stub bus ───────────────────────────────────────────────────
+        bus_calls: list[tuple[str, str, str]] = []
+
+        class _Bus:
+            def send(self, conv_id, sender, content):
+                bus_calls.append((conv_id, sender, content))
+                return 'mid'
+
+            def children_of(self, conv_id):
+                return []
+
+        # ── stub on_failure ───────────────────────────────────────────
+        decision_idx = {'i': 0}
+
+        async def on_failure(result):
+            d = on_failure_decisions[decision_idx['i']]
+            decision_idx['i'] += 1
+            return d
+
+        # ── stub telemetry ────────────────────────────────────────────
+        telemetry: list[str] = []
+
+        def _capture_event(event_type, *, scope, agent_name, session_id, data):
+            telemetry.append(event_type)
+
+        # ── stub _classify_event so on_event is a no-op ──────────────
+        from teaparty.teams import stream as _stream
+        original_classify = _stream._classify_event
+        _stream._classify_event = lambda ev, agent, tu, tr: []
+
+        # ── stub session ──────────────────────────────────────────────
+        class _Session:
+            id = 'sid'
+            claude_session_id = ''
+
+        # ── stub telemetry record_event ──────────────────────────────
+        import teaparty.telemetry as _tele
+        original_record = _tele.record_event
+        _tele.record_event = _capture_event
+
+        try:
+            asyncio.run(child_dispatch.run_agent_loop(
+                agent_name='writing-lead',
+                initial_message='go',
+                bus=_Bus(),
+                conv_id='conv',
+                session=_Session(),
+                tasks_by_child={},
+                results_by_child={},
+                launch_fn=fake_launch,
+                launch_kwargs_base={'scope': 'project-x', 'session_id': 'sid'},
+                on_failure=on_failure,
+            ))
+        finally:
+            _tele.record_event = original_record
+            _stream._classify_event = original_classify
+        return telemetry, bus_calls
+
+    def test_clean_turn_after_stall_emits_recovered(self) -> None:
+        """detected → recovery (retry) → clean → recovered."""
+        telemetry, _ = self._run_loop(
+            scripted_replies=[
+                "I'm blocked on permission for X",
+                'Done. Wrote the file.',
+            ],
+            on_failure_decisions=['retry'],
+        )
+        # Filter to the stall events; the loop also emits TURN_START /
+        # TURN_COMPLETE which we don't care about here.
+        stall_events = [t for t in telemetry if t.startswith('stall_')]
+        self.assertEqual(stall_events, ['stall_detected', 'stall_recovered'])
+
+    def test_abort_after_stall_does_not_emit_recovered(self) -> None:
+        """detected → on_failure aborts → no recovered event."""
+        telemetry, _ = self._run_loop(
+            scripted_replies=[
+                "I'm blocked on permission for X",
+            ],
+            on_failure_decisions=['abort'],
+        )
+        stall_events = [t for t in telemetry if t.startswith('stall_')]
+        self.assertEqual(stall_events, ['stall_detected'])
+
+    def test_repeated_stall_emits_detected_again_not_recovered(self) -> None:
+        """detected → retry → detected → abort.  Recovery stays open
+        across the re-stall; only a clean turn closes it.
+        """
+        telemetry, _ = self._run_loop(
+            scripted_replies=[
+                "I'm blocked on permission for X",
+                "haven't granted that yet",
+            ],
+            on_failure_decisions=['retry', 'abort'],
+        )
+        stall_events = [t for t in telemetry if t.startswith('stall_')]
+        # Two detections; never a recovery (no clean turn ever ran).
+        self.assertEqual(stall_events, ['stall_detected', 'stall_detected'])
 
 
 if __name__ == '__main__':
