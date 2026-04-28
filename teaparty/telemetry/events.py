@@ -70,6 +70,12 @@ COMMIT_REVERTED = 'commit_reverted'
 # ── Dispatch patterns ────────────────────────────────────────────────────────
 FAN_OUT_DETECTED = 'fan_out_detected'
 DISPATCH_DEPTH_EXCEEDED = 'dispatch_depth_exceeded'
+# A lead-tier turn that produced filesystem-mutating tool calls
+# (Write/Edit/Bash) and zero ``Send`` calls.  The role tells leads to
+# delegate; this signal converts a silent skip into an operator-visible
+# event so the catalog → role drift can be addressed at the prompt or
+# config level rather than discovered by reading bus history.
+DELEGATION_SKIPPED = 'delegation_skipped'
 
 # ── Errors and degradation ───────────────────────────────────────────────────
 RATE_LIMIT = 'rate_limit'
@@ -134,7 +140,7 @@ ALL_EVENT_TYPES: frozenset[str] = frozenset({
     STALL_DETECTED, STALL_RECOVERED,
     CONTEXT_COMPACTED, CONTEXT_CLEARED, CONTEXT_SATURATION_WARNED,
     COMMIT_MADE, COMMIT_REVERTED,
-    FAN_OUT_DETECTED, DISPATCH_DEPTH_EXCEEDED,
+    FAN_OUT_DETECTED, DISPATCH_DEPTH_EXCEEDED, DELEGATION_SKIPPED,
     RATE_LIMIT, MCP_SERVER_FAILURE, SESSION_POISONED,
     SUBPROCESS_KILLED, TURN_ERROR,
     PAUSE_ALL, RESUME_ALL, CLOSE_CONVERSATION, JOB_CREATED,

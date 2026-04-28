@@ -191,6 +191,67 @@ def _emit_stall_recovery_signal(
         )
 
 
+def _emit_delegation_skipped(
+    *,
+    bus: Any,
+    conv_id: str,
+    agent_name: str,
+    launch_kwargs_base: dict,
+    tool_use_counts: dict,
+) -> None:
+    """Surface a lead-tier turn that mutated the filesystem without dispatching.
+
+    The lead's role tells it to ``Send`` to a member; the team roster
+    is in its system prompt.  When the lead writes/edits/bashes
+    instead, the catalog → role wiring has drifted (or the prompt
+    isn't strong enough).  Either is operator-actionable and neither
+    is visible from logs alone.
+
+    Best-effort: telemetry write skipped when scope is empty (the
+    event store rejects rows without a scope); bus failures are
+    swallowed so a closed conversation does not abort the loop.
+    """
+    scope = (
+        launch_kwargs_base.get('telemetry_scope')
+        or launch_kwargs_base.get('scope')
+        or ''
+    )
+    session_id = launch_kwargs_base.get('session_id') or ''
+    if scope:
+        try:
+            from teaparty.telemetry import record_event
+            from teaparty.telemetry import events as _telem_events
+            record_event(
+                _telem_events.DELEGATION_SKIPPED,
+                scope=scope,
+                agent_name=agent_name,
+                session_id=session_id,
+                data={'tool_use_counts': tool_use_counts},
+            )
+        except Exception:
+            _log.debug(
+                '%s: delegation_skipped telemetry emit failed', agent_name,
+                exc_info=True,
+            )
+    write_n = tool_use_counts.get('Write', 0)
+    edit_n = tool_use_counts.get('Edit', 0)
+    bash_n = tool_use_counts.get('Bash', 0)
+    try:
+        bus.send(
+            conv_id, 'system',
+            f'Delegation skipped: {agent_name} produced '
+            f'{write_n} Write, {edit_n} Edit, {bash_n} Bash calls '
+            'and zero Send calls. Leads delegate; the catalog enables '
+            'direct production but the role does not. Inspect the '
+            "lead's prompt or roster.",
+        )
+    except Exception:
+        _log.debug(
+            '%s: bus.send(system, delegation_skipped) failed', agent_name,
+            exc_info=True,
+        )
+
+
 _log = logging.getLogger('teaparty.messaging.child_dispatch')
 
 
@@ -396,7 +457,33 @@ async def run_agent_loop(
     # recovery actually produced a clean turn.
     recovering_from_stall: bool = False
 
+    # Delegation-skip detection (#260 follow-on).  A lead-tier agent is
+    # supposed to ``Send`` to a member rather than produce content
+    # directly — its agent.md says so, its team roster is in the
+    # system prompt.  When the lead nevertheless writes/edits/bashes
+    # without ever dispatching, the role is being violated and the
+    # operator should know.  Tally tool calls per turn; latch
+    # ``has_ever_dispatched`` once any ``Send`` fires so subsequent
+    # assembly turns (Write after Send) are not flagged.
+    is_lead = agent_name.endswith('-lead') or agent_name == 'office-manager'
+    has_ever_dispatched: bool = False
+    tool_use_counts: dict[str, int] = {}
+
     def on_event(ev: dict) -> None:
+        nonlocal has_ever_dispatched
+        if ev.get('type') == 'assistant':
+            msg = ev.get('message') or {}
+            content = msg.get('content') or []
+            if isinstance(content, list):
+                for c in content:
+                    if isinstance(c, dict) and c.get('type') == 'tool_use':
+                        name = c.get('name') or ''
+                        if name:
+                            tool_use_counts[name] = (
+                                tool_use_counts.get(name, 0) + 1
+                            )
+                        if name == 'mcp__teaparty-config__Send':
+                            has_ever_dispatched = True
         for sender, content in _classify_event(
                 ev, agent_name, seen_tu, seen_tr):
             if content:
@@ -419,6 +506,7 @@ async def run_agent_loop(
             if c.id.startswith('dispatch:')
         }
         response_parts.clear()
+        tool_use_counts.clear()
 
         launch_kwargs = dict(launch_kwargs_base)
         launch_kwargs['message'] = current_message
@@ -561,6 +649,35 @@ async def run_agent_loop(
                 decision='clean_turn',
             )
             recovering_from_stall = False
+
+        # ── DELEGATION-SKIPPED detection ───────────────────────────────
+        # A lead's first turn after a fresh dispatch should produce at
+        # least one ``Send`` — that is the role.  When the lead instead
+        # produces filesystem-mutating tool calls (Write/Edit/Bash) and
+        # never dispatches, the role is being violated; the operator
+        # should know rather than discover it by reading bus history.
+        # Latches on first ``Send``: subsequent assembly turns (Write
+        # after the team has delivered) are not flagged.
+        if (
+            is_lead
+            and not has_ever_dispatched
+            and (
+                tool_use_counts.get('Write', 0)
+                + tool_use_counts.get('Edit', 0)
+                + tool_use_counts.get('Bash', 0)
+            ) > 0
+        ):
+            _emit_delegation_skipped(
+                bus=bus,
+                conv_id=conv_id,
+                agent_name=agent_name,
+                launch_kwargs_base=launch_kwargs_base,
+                tool_use_counts=dict(tool_use_counts),
+            )
+            # Latch so we don't re-emit every assembly turn even though
+            # the lead has not dispatched.  One signal per loop suffices;
+            # repeated emissions would just be operator noise.
+            has_ever_dispatched = True
 
         # ── POST-TURN: tier-specific bookkeeping (scratch, compaction) ─
         if on_post_turn is not None:

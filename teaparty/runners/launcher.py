@@ -441,7 +441,24 @@ def compose_launch_worktree(
             os.unlink(entry.path)
     if agent_def_path:
         dest_md = os.path.join(agents_dir, f'{agent_name}.md')
-        shutil.copy2(agent_def_path, dest_md)
+        # For leads, append the team roster so the model has the
+        # answer to "who is on my team" without a ListTeamMembers
+        # round-trip.  No-op for specialists (returns body unchanged).
+        try:
+            with open(agent_def_path) as _f:
+                _raw = _f.read()
+        except OSError:
+            _raw = ''
+        if _raw:
+            with open(dest_md, 'w') as _f:
+                _f.write(_agent_md_with_roster(
+                    _raw,
+                    agent_name=agent_name,
+                    scope=scope,
+                    teaparty_home=teaparty_home,
+                ))
+        else:
+            shutil.copy2(agent_def_path, dest_md)
 
     # ── Skills (filtered by agent allowlist) ─────────────────────────────
     _stage_skills(
@@ -503,6 +520,64 @@ def compose_launch_worktree(
         mcp_path = os.path.join(worktree, '.mcp.json')
         with open(mcp_path, 'w') as f:
             json.dump(mcp_data, f, indent=2)
+
+
+def _render_team_roster_block(
+    *, agent_name: str, scope: str, teaparty_home: str,
+) -> str:
+    """Return a ``## Your team`` markdown block for a lead's agent.md.
+
+    A lead's first action is delegation, which requires knowing who is
+    on the team.  Today the lead has to call ``ListTeamMembers`` on
+    every dispatch; in the live joke-book run, ``research-lead`` skipped
+    that call and went straight to Write.  Inlining the roster removes
+    that off-ramp — the answer is already in the system prompt, so the
+    model's autonomous "I see what to do, let me just do it" instinct
+    has nowhere to bypass.
+
+    Returns ``''`` when the agent is not a lead (no roster from
+    ``derive_team_roster``) or when the lookup fails — caller appends
+    nothing in that case.  Every line below pulls weight: the lead name
+    is the team identity; each member's one-line description is what
+    the model uses to route.
+    """
+    try:
+        from teaparty.config.roster import derive_team_roster
+        roster = derive_team_roster(agent_name, teaparty_home)
+    except Exception:
+        return ''
+    if roster is None or not roster.members:
+        return ''
+    lines = ['## Your team', '']
+    for m in roster.members:
+        desc = (m.description or m.role or '').strip().splitlines()[0] if (
+            m.description or m.role) else ''
+        if desc:
+            lines.append(f'- **{m.name}** — {desc}')
+        else:
+            lines.append(f'- **{m.name}**')
+    lines.append('')
+    lines.append('Send to a member by name. Do not call ListTeamMembers.')
+    return '\n'.join(lines) + '\n'
+
+
+def _agent_md_with_roster(
+    raw: str, *, agent_name: str, scope: str, teaparty_home: str,
+) -> str:
+    """Append the team roster to the agent.md body when the agent is a lead.
+
+    Preserves the original frontmatter and body; the roster lands at
+    the end so the role/responsibility text reads first and the team
+    listing serves as the "given this team, dispatch" reference.
+    No-op when the agent is not a lead.
+    """
+    block = _render_team_roster_block(
+        agent_name=agent_name, scope=scope, teaparty_home=teaparty_home,
+    )
+    if not block:
+        return raw
+    sep = '' if raw.endswith('\n') else '\n'
+    return f'{raw}{sep}\n{block}'
 
 
 def _stage_hook_scripts(
@@ -735,6 +810,14 @@ def compose_launch_config(
             parts = raw.split('---', 2)
             if len(parts) == 3:
                 body = parts[2].lstrip('\n')
+        # Append the team roster for leads so the model has the team
+        # listing in its system prompt without a ListTeamMembers call.
+        body = _agent_md_with_roster(
+            body,
+            agent_name=agent_name,
+            scope=scope,
+            teaparty_home=teaparty_home,
+        )
         entry: dict[str, Any] = {
             'description': fm.get('description', '') or agent_name,
             'prompt': body,
