@@ -5,6 +5,8 @@ description: "Writing workgroup lead \u2014 route original content production (d
   \ before dispatch."
 model: sonnet
 maxTurns: 20
+skills:
+- attempt-task
 disallowedTools:
 - TeamCreate
 - TeamDelete

@@ -4,6 +4,8 @@ description: "Coding workgroup lead \u2014 route implementation, testing, refact
   \ or code-review work here when the deliverable is code changes."
 model: sonnet
 maxTurns: 20
+skills:
+- attempt-task
 disallowedTools:
 - TeamCreate
 - TeamDelete

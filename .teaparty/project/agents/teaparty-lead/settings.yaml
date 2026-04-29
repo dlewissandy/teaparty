@@ -7,6 +7,7 @@ permissions:
   - Edit
   - Bash
   - mcp__teaparty-config__Send
+  - mcp__teaparty-config__Delegate
   - mcp__teaparty-config__CloseConversation
   - mcp__teaparty-config__GetAgent
   - mcp__teaparty-config__ListAgents

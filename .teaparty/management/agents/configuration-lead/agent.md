@@ -4,6 +4,8 @@ description: "Configuration workgroup lead \u2014 route requests to create or mo
   \ agents, skills, hooks, MCP servers, or scheduled tasks here."
 model: sonnet
 maxTurns: 20
+skills:
+- attempt-task
 disallowedTools:
 - TeamCreate
 - TeamDelete

@@ -7,6 +7,7 @@ model: sonnet
 maxTurns: 20
 skills:
 - digest
+- attempt-task
 disallowedTools:
 - TeamCreate
 - TeamDelete

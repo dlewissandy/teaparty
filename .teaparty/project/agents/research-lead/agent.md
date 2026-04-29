@@ -5,6 +5,8 @@ description: "Research workgroup lead \u2014 route web, academic-literature, pat
   \ original content or deep analysis."
 model: sonnet
 maxTurns: 20
+skills:
+- attempt-task
 disallowedTools:
 - TeamCreate
 - TeamDelete

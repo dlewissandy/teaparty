@@ -4,6 +4,8 @@ description: "Art workgroup lead \u2014 route diagram, illustration, vector-grap
   \ or generative-image production here when the deliverable is a visual artifact."
 model: sonnet
 maxTurns: 20
+skills:
+- attempt-task
 disallowedTools:
 - TeamCreate
 - TeamDelete

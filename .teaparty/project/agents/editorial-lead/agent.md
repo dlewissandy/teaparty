@@ -4,6 +4,8 @@ description: "Editorial workgroup lead \u2014 route prose improvement (mechanics
   \ fact-checking, style, voice) here. Input must be a draft; output is a better draft."
 model: sonnet
 maxTurns: 20
+skills:
+- attempt-task
 disallowedTools:
 - TeamCreate
 - TeamDelete

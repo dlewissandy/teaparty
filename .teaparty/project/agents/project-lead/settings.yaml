@@ -9,6 +9,7 @@ permissions:
   - WebFetch
   - Bash
   - mcp__teaparty-config__Send
+  - mcp__teaparty-config__Delegate
   - mcp__teaparty-config__CloseConversation
   - mcp__teaparty-config__AskQuestion
   - mcp__teaparty-config__GetAgent
