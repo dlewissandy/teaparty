@@ -69,16 +69,40 @@ class AttemptTaskSkillExistsTest(unittest.TestCase):
         )
 
     def test_state_graph_present(self) -> None:
-        """All four state names must appear as headings or strong markers."""
+        """The four states must appear as headings AND in the
+        START → EXECUTE → ASK → DELIVER source order. Section
+        reordering breaks the procedural rail even when all four
+        names still appear somewhere in the body.
+        """
         body = self.SKILL_PATH.read_text()
         for state in ('START', 'EXECUTE', 'ASK', 'DELIVER'):
             self.assertIn(
-                state, body,
-                f'State {state!r} must appear in the skill body — the '
-                f'skill encodes the state graph START → EXECUTE → '
-                f'(ASK ↔ EXECUTE) → DELIVER. Missing state collapses '
-                f'the workflow.',
+                f'## {state}', body,
+                f'State {state!r} must appear as a `## {state}` '
+                f'heading — the skill encodes the state graph '
+                f'START → EXECUTE → (ASK ↔ EXECUTE) → DELIVER. '
+                f'Missing heading collapses the workflow.',
             )
+        # Order: START first, then EXECUTE, then ASK, then DELIVER.
+        # ASK ↔ EXECUTE bidirectionality is documented inside the
+        # sections (transition arrows in prose) — pinned separately
+        # via the existing per-section assertions.
+        positions = {
+            state: body.find(f'## {state}')
+            for state in ('START', 'EXECUTE', 'ASK', 'DELIVER')
+        }
+        self.assertLess(
+            positions['START'], positions['EXECUTE'],
+            f'## START must precede ## EXECUTE; got positions {positions}',
+        )
+        self.assertLess(
+            positions['EXECUTE'], positions['ASK'],
+            f'## EXECUTE must precede ## ASK; got positions {positions}',
+        )
+        self.assertLess(
+            positions['ASK'], positions['DELIVER'],
+            f'## ASK must precede ## DELIVER; got positions {positions}',
+        )
 
     def test_execute_step_prescribes_delegate_not_send(self) -> None:
         """The EXECUTE step must direct the lead to use Delegate for

@@ -307,6 +307,18 @@ class DelegateWorkflowPrefixTest(unittest.TestCase):
             f'Composite must contain `/attempt-task` directive when '
             f'skill is set. Got composite head: {composite[:200]!r}',
         )
+        # Spec wording: the composite *begins with* the directive.
+        # A regression that swaps composition order to put the directive
+        # at the end (or in the middle) would still satisfy a bare
+        # ``in`` check but violates the spec.
+        self.assertTrue(
+            composite.lstrip().startswith('Run the `/attempt-task`'),
+            f'Composite must START with the skill directive. Spec '
+            f'requires the directive at the head so Claude Code\'s '
+            f'slash-command-aware parsing routes the message to the '
+            f'model with the skill named first. Got composite head: '
+            f'{composite[:200]!r}',
+        )
         # Original task body is preserved.
         self.assertIn(
             'produce a report', composite,

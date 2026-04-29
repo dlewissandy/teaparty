@@ -144,6 +144,17 @@ class AttemptTaskStagingChatTierTest(unittest.TestCase):
                 f'recipient cannot resolve the `/attempt-task` skill '
                 f'invocation that Delegate prepends.',
             )
+            # Verify the staged file is the skill body, not an empty
+            # file or a wrong-source copy. The fixture wrote a known
+            # marker to the canonical skill path; the staged copy must
+            # round-trip it.
+            self.assertIn(
+                'Test stub body',
+                Path(staged).read_text(),
+                f'Staged attempt-task at {staged!r} does not contain '
+                f'the expected fixture body. The staging path is wrong, '
+                f'or the copy is incomplete/empty.',
+            )
 
     def test_specialist_chat_tier_does_not_get_attempt_task(self) -> None:
         """A specialist whose frontmatter does not list attempt-task
@@ -198,6 +209,13 @@ class AttemptTaskStagingWorktreeTierTest(unittest.TestCase):
                 f'a workgroup-lead at {staged!r}. Without staging, '
                 f'dispatched workgroup-leads cannot resolve the '
                 f'`/attempt-task` slash invocation.',
+            )
+            self.assertIn(
+                'Test stub body',
+                Path(staged).read_text(),
+                f'Staged attempt-task at {staged!r} does not contain '
+                f'the expected fixture body. The staging path is wrong, '
+                f'or the copy is incomplete/empty.',
             )
 
     def test_specialist_worktree_tier_does_not_get_attempt_task(self) -> None:
