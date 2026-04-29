@@ -510,6 +510,7 @@ class Orchestrator:
                 close_fn=close_fn,
                 ask_question_runner=self._ask_question_runner,
                 dispatcher=dispatcher,
+                bus_db_path=os.path.join(self.infra_dir, 'messages.db'),
             )
             # mcp_routes must be on the dispatch ctx so children inherit it.
             self._dispatch_ctx.mcp_routes = self._mcp_routes

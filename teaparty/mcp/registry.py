@@ -61,6 +61,16 @@ _close_fns: dict[str, Callable] = {}
 # ``current_agent_name`` contextvar.
 _ask_question_runners: dict[str, Any] = {}
 
+# {agent_name: bus_db_path}
+# The Delegate MCP tool checks an open-thread precondition by walking
+# the caller's bus.  The bus path is registered with the agent's MCP
+# routes at launch time (see ``MCPRoutes.bus_db_path``); the Delegate
+# handler reads it via ``get_bus_db_path`` keyed by ``current_agent_name``.
+# Empty when the launch context did not install a bus (chat-tier
+# bootstrap, scripted tests) — Delegate skips the precondition in that
+# case, matching Send's "no enforcement without a registered authority."
+_bus_db_paths: dict[str, str] = {}
+
 # {agent_name: BusDispatcher}
 # The Send MCP tool calls ``dispatcher.authorize(sender, recipient)``
 # before invoking ``spawn_fn``.  This is the single enforcement point that
@@ -154,6 +164,23 @@ def get_dispatcher(agent_name: str = '') -> Any | None:
     return _dispatchers.get(name)
 
 
+def register_bus_db_path(agent_name: str, bus_db_path: str) -> None:
+    """Register the bus DB path for an agent's MCP calls (issue #423).
+
+    The Delegate handler queries this for its open-thread precondition
+    check.  Set at launch time via ``MCPRoutes.bus_db_path``.
+    """
+    if not bus_db_path:
+        return
+    _bus_db_paths[agent_name] = bus_db_path
+
+
+def get_bus_db_path(agent_name: str = '') -> str:
+    """Return the bus DB path for an agent, or '' if unregistered."""
+    name = agent_name or current_agent_name.get('')
+    return _bus_db_paths.get(name, '')
+
+
 def mark_escalation_active(qualifier: str) -> None:
     """Mark a proxy qualifier as owned by an in-flight escalation.
 
@@ -233,6 +260,7 @@ class MCPRoutes:
     close_fn: Callable | None = None
     ask_question_runner: Any | None = None
     dispatcher: Any | None = None
+    bus_db_path: str = ''
 
 
 def register_agent_mcp_routes(agent_name: str, routes: MCPRoutes | None) -> None:
@@ -252,6 +280,8 @@ def register_agent_mcp_routes(agent_name: str, routes: MCPRoutes | None) -> None
         register_ask_question_runner(agent_name, routes.ask_question_runner)
     if routes.dispatcher is not None:
         register_dispatcher(agent_name, routes.dispatcher)
+    if routes.bus_db_path:
+        register_bus_db_path(agent_name, routes.bus_db_path)
 
 
 def clear() -> None:
@@ -261,4 +291,5 @@ def clear() -> None:
     _close_fns.clear()
     _ask_question_runners.clear()
     _dispatchers.clear()
+    _bus_db_paths.clear()
     _active_escalations.clear()

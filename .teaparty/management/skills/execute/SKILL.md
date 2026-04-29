@@ -2,7 +2,7 @@
 name: execute
 description: Run the CfA execution phase to completion and emit a terminal outcome (APPROVED_WORK, REALIGN, REPLAN, or WITHDRAW).
 user-invocable: false
-allowed-tools: Read, Write, Edit, Glob, Grep, mcp__teaparty-config__AskQuestion, mcp__teaparty-config__Send, mcp__teaparty-config__CloseConversation
+allowed-tools: Read, Write, Edit, Glob, Grep, mcp__teaparty-config__AskQuestion, mcp__teaparty-config__Delegate, mcp__teaparty-config__Send, mcp__teaparty-config__CloseConversation
 ---
 
 # Execution
@@ -20,9 +20,11 @@ Once you have read the files and understand the scope of work, proceed to EXECUT
 Execute the PLAN.md.    You are the manager, not a primary contributor.   You decompose work into manageable tasks,
 delegate work, and resolve conflicts as they arise.
 
-Delegate work to team members using `mcp__teaparty-config__Send`. You may delegate in parallel.
-Note: Each team member will perform their work in a separate session branch inside their own worktree.  This work
-will not be merged into the main session branch of your worktree until you `mcp__teaparty-config__CloseConversation` with the context_id.
+Use `mcp__teaparty-config__Delegate(member, task, skill='attempt-task')` to dispatch work to a workgroup-lead. The `skill='attempt-task'` argument prescribes the workgroup-lead's workflow rail; without it the recipient improvises. You may Delegate to several members in parallel — independent units run concurrently.
+
+`Delegate` opens a fresh dispatch thread. To continue an open thread (e.g. answering a workgroup-lead's clarifying question), use `mcp__teaparty-config__Send` on that thread's `conversation_id`. Calling `Delegate` on an open thread is rejected by the tool — the rejection names the existing channel so you can re-route.
+
+Note: Each team member performs their work on a separate session branch in their own worktree. Their commits are not merged into your worktree until you call `mcp__teaparty-config__CloseConversation` with the dispatch's `conversation_id`.
 
 **Edit canonical artifacts in place.** When you revise `INTENT.md`, `PLAN.md`, or `WORK_SUMMARY.md` — for example after a teammate's reply prompts a course correction — overwrite the file. Do not create `APPROVED_PLAN.md`, `PLAN_v2.md`, or any variant. Dispatched workers receive these files by name at spawn; a renamed file does not propagate, and they work from a stale version.
 

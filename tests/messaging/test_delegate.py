@@ -1,0 +1,529 @@
+"""Specification tests for the Delegate MCP tool (issue #423).
+
+`Delegate(member, task, skill=None)` is shape-isomorphic to `Send` plus
+two added behaviours that distinguish work dispatch from peer messaging:
+
+1. **Open thread precondition**: when the caller already has an open
+   dispatch conversation to *member*, `Delegate` rejects without
+   launching anything and names the existing channel so the caller can
+   switch to `Send` for follow-up.
+
+2. **Workflow prefix**: when `skill` is set, the recipient's first
+   dispatched composite is preceded by a directive naming the skill
+   with a leading slash (e.g. `Run the /attempt-task skill...`). This
+   routes the message to the model, which invokes the skill via the
+   `Skill` tool — the same pattern the engine uses to start
+   `intent-alignment` / `planning` / `execute` for project-leads.
+
+Each test is load-bearing: reverting the corresponding production
+behaviour must produce a specific, named failure.
+"""
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import sys
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+from teaparty.mcp import registry as mcp_registry
+
+
+def _run(coro):
+    return asyncio.new_event_loop().run_until_complete(coro)
+
+
+class _StubBus:
+    """In-memory bus stub: `children_of` returns whatever the test injects.
+
+    Tracks invocation count so tests can assert that the precondition
+    actually walked the bus, rather than short-circuiting on an empty
+    ``current_conversation_id`` and never reaching the children query.
+    """
+
+    def __init__(self, children: list | None = None) -> None:
+        self._children = list(children or [])
+        self.children_of_calls: list[str] = []
+
+    def children_of(self, parent_conversation_id: str):
+        self.children_of_calls.append(parent_conversation_id)
+        return list(self._children)
+
+    def close(self) -> None:
+        pass
+
+
+class _ConvRow:
+    """Minimal Conversation shape for `children_of` results."""
+
+    def __init__(self, conv_id: str, agent_name: str, state: str) -> None:
+        self.id = conv_id
+        self.agent_name = agent_name
+        self.state = state
+
+
+class DelegateReturnShapeTest(unittest.TestCase):
+    """Acceptance criterion 1: return shape matches `Send`."""
+
+    def setUp(self) -> None:
+        mcp_registry.clear()
+
+    def tearDown(self) -> None:
+        mcp_registry.clear()
+
+    def _register_succeeding_spawn(self, captured: list) -> None:
+        async def spawn(member, composite, context_id):
+            captured.append((member, composite, context_id))
+            return ('abc12345', '/tmp/wt', '')
+        mcp_registry.register_spawn_fn('caller-agent', spawn)
+        mcp_registry.current_agent_name.set('caller-agent')
+
+    def test_delegate_returns_dispatch_conversation_id(self) -> None:
+        """A successful Delegate returns JSON whose `conversation_id`
+        matches `Send`'s shape: `dispatch:<sid>`.
+        """
+        from teaparty.mcp.tools.messaging import _default_delegate_post
+
+        captured: list = []
+        self._register_succeeding_spawn(captured)
+        result = _run(_default_delegate_post(
+            'target-member', 'do this work', skill=None,
+            _bus_for_test=_StubBus([]),
+        ))
+        payload = json.loads(result)
+        self.assertEqual(
+            payload.get('status'), 'message_sent',
+            f'Delegate must return status=message_sent on success; '
+            f'got: {payload}',
+        )
+        self.assertTrue(
+            payload.get('conversation_id', '').startswith('dispatch:'),
+            f'Delegate must return conversation_id of shape '
+            f'dispatch:<sid>; got: {payload.get("conversation_id")!r}',
+        )
+
+
+class DelegateOpenThreadPreconditionTest(unittest.TestCase):
+    """Acceptance criterion 2: open ACTIVE thread to target → rejection.
+
+    Every test in this class sets ``current_conversation_id`` in
+    ``setUp`` so the precondition's bus query actually fires.  Without
+    this the contextvar's empty default short-circuits ``_open_dispatch_to``
+    before the state-or-member filters run, and tests appear to verify
+    behavior that never executes.
+    """
+
+    def setUp(self) -> None:
+        mcp_registry.clear()
+        # Caller's conversation_id — required by ``_open_dispatch_to``
+        # to reach the bus.children_of branch where the state and
+        # member filters live.  Each test overrides nothing more than
+        # the bus contents.
+        mcp_registry.current_conversation_id.set('parent-conv')
+
+    def tearDown(self) -> None:
+        mcp_registry.clear()
+
+    def _register_spawn_that_records_calls(self, calls: list) -> None:
+        async def spawn(member, composite, context_id):
+            calls.append((member, composite, context_id))
+            return ('newsid', '/tmp/wt', '')
+        mcp_registry.register_spawn_fn('caller-agent', spawn)
+        mcp_registry.current_agent_name.set('caller-agent')
+
+    def test_open_active_thread_rejects_without_invoking_spawn(self) -> None:
+        """A pre-existing ACTIVE dispatch to the same member must reject
+        Delegate without calling spawn_fn at all."""
+        from teaparty.mcp.tools.messaging import _default_delegate_post
+
+        spawn_calls: list = []
+        self._register_spawn_that_records_calls(spawn_calls)
+
+        existing_thread = 'dispatch:already_open_abc'
+        bus = _StubBus([
+            _ConvRow(existing_thread, 'workgroup-lead', 'active'),
+        ])
+
+        result = _run(_default_delegate_post(
+            'workgroup-lead', 'new work', skill='attempt-task',
+            _bus_for_test=bus,
+        ))
+        payload = json.loads(result)
+
+        self.assertEqual(
+            payload.get('status'), 'failed',
+            f'Open ACTIVE thread to target must produce status=failed; '
+            f'got: {payload}',
+        )
+        self.assertIn(
+            existing_thread, payload.get('reason', ''),
+            f'Rejection reason must name the existing channel '
+            f'({existing_thread!r}) so the caller can re-route via Send. '
+            f'Got reason: {payload.get("reason")!r}',
+        )
+        self.assertIn(
+            'Send', payload.get('reason', ''),
+            f'Rejection reason must direct the caller to Send for '
+            f'continuation. Got reason: {payload.get("reason")!r}',
+        )
+        self.assertEqual(
+            spawn_calls, [],
+            f'spawn_fn must NOT be invoked when the precondition rejects; '
+            f'observed calls: {spawn_calls!r}',
+        )
+
+    def test_closed_thread_does_not_block_delegate(self) -> None:
+        """Only ACTIVE threads block. A CLOSED thread to the same target
+        must allow Delegate to proceed.
+
+        The precondition must actually execute the state filter — a
+        regression that ignored the ``state`` field entirely (treating
+        every child as blocking) would still pass an assertion that
+        only checks the outcome.  Asserting on ``children_of_calls``
+        proves the bus query reached the state-comparison branch,
+        not just the early-return short-circuit.
+        """
+        from teaparty.mcp.tools.messaging import _default_delegate_post
+
+        spawn_calls: list = []
+        self._register_spawn_that_records_calls(spawn_calls)
+
+        bus = _StubBus([
+            _ConvRow('dispatch:old_closed', 'workgroup-lead', 'closed'),
+        ])
+
+        result = _run(_default_delegate_post(
+            'workgroup-lead', 'fresh work', skill='attempt-task',
+            _bus_for_test=bus,
+        ))
+        payload = json.loads(result)
+
+        self.assertEqual(
+            payload.get('status'), 'message_sent',
+            f'CLOSED thread must not block a new Delegate; got: {payload}',
+        )
+        self.assertEqual(
+            len(spawn_calls), 1,
+            f'spawn_fn must be invoked exactly once when precondition '
+            f'allows; observed: {spawn_calls!r}',
+        )
+        # Proof the state filter ran: the precondition reached
+        # bus.children_of and inspected the closed row, then let the
+        # call through.  Without this assertion a regression that
+        # short-circuits before the state comparison would still pass.
+        self.assertEqual(
+            bus.children_of_calls, ['parent-conv'],
+            f'Precondition must call bus.children_of with the caller '
+            f'conversation_id to reach the state filter. Observed '
+            f'calls: {bus.children_of_calls!r}',
+        )
+
+    def test_open_thread_to_different_member_does_not_block(self) -> None:
+        """An open thread to member A must not block a Delegate to member B.
+
+        Same load-bearing concern as the closed-thread test: the
+        precondition must actually execute the member-name filter,
+        not short-circuit before reaching it.
+        """
+        from teaparty.mcp.tools.messaging import _default_delegate_post
+
+        spawn_calls: list = []
+        self._register_spawn_that_records_calls(spawn_calls)
+
+        bus = _StubBus([
+            _ConvRow('dispatch:other_member', 'other-lead', 'active'),
+        ])
+
+        result = _run(_default_delegate_post(
+            'workgroup-lead', 'work', skill=None,
+            _bus_for_test=bus,
+        ))
+        payload = json.loads(result)
+        self.assertEqual(
+            payload.get('status'), 'message_sent',
+            f'Open thread to other-lead must not block Delegate to '
+            f'workgroup-lead; got: {payload}',
+        )
+        self.assertEqual(len(spawn_calls), 1)
+        self.assertEqual(
+            bus.children_of_calls, ['parent-conv'],
+            f'Precondition must call bus.children_of to reach the '
+            f'member-name filter. Observed calls: '
+            f'{bus.children_of_calls!r}',
+        )
+
+
+class DelegateWorkflowPrefixTest(unittest.TestCase):
+    """Acceptance criteria 3 & 4: skill prefix injection."""
+
+    def setUp(self) -> None:
+        mcp_registry.clear()
+
+    def tearDown(self) -> None:
+        mcp_registry.clear()
+
+    def _register_capturing_spawn(self, captured: list) -> None:
+        async def spawn(member, composite, context_id):
+            captured.append({'member': member, 'composite': composite,
+                             'context_id': context_id})
+            return ('sid123', '/tmp/wt', '')
+        mcp_registry.register_spawn_fn('caller-agent', spawn)
+        mcp_registry.current_agent_name.set('caller-agent')
+
+    def test_skill_set_injects_directive_naming_skill_with_slash(self) -> None:
+        """When `skill='attempt-task'`, the dispatched composite must
+        contain a directive that names the skill prefixed with `/`,
+        following the same pattern the engine uses for project-leads
+        (e.g. `Run the /attempt-task skill...`).
+
+        The prefix is built by ``delegate_handler`` (the public entry
+        point) before the post_fn is called, so this test exercises
+        the handler — not the bare post_fn — to cover the full path.
+        """
+        from teaparty.mcp.tools.messaging import delegate_handler
+
+        captured: list = []
+        self._register_capturing_spawn(captured)
+
+        async def post(member, composite, skill):
+            from teaparty.mcp.tools.messaging import _default_delegate_post
+            return await _default_delegate_post(
+                member, composite, skill, _bus_for_test=_StubBus([]),
+            )
+
+        _run(delegate_handler(
+            member='workgroup-lead', task='produce a report',
+            skill='attempt-task',
+            scratch_path='/no/such/scratch',
+            post_fn=post,
+        ))
+        self.assertEqual(len(captured), 1)
+        composite = captured[0]['composite']
+        self.assertIn(
+            '/attempt-task', composite,
+            f'Composite must contain `/attempt-task` directive when '
+            f'skill is set. Got composite head: {composite[:200]!r}',
+        )
+        # Spec wording: the composite *begins with* the directive.
+        # A regression that swaps composition order to put the directive
+        # at the end (or in the middle) would still satisfy a bare
+        # ``in`` check but violates the spec. The exact form is bare
+        # slash with no backticks — same prose pattern the CfA engine
+        # uses for project-lead skills.
+        self.assertTrue(
+            composite.lstrip().startswith('Run the /attempt-task'),
+            f'Composite must START with the skill directive in the '
+            f'engine\'s exact prose form (`Run the /<skill> skill...`, '
+            f'bare slash, no backticks). Got composite head: '
+            f'{composite[:200]!r}',
+        )
+        # Original task body is preserved.
+        self.assertIn(
+            'produce a report', composite,
+            f'Original task body must survive prefix injection. '
+            f'Got composite head: {composite[:200]!r}',
+        )
+
+    def test_skill_none_emits_no_skill_directive(self) -> None:
+        """When `skill=None`, the composite must contain no `/<skill>`
+        directive. Delegate-without-skill is a plain dispatch (the
+        recipient processes the task directly, e.g. specialists)."""
+        from teaparty.mcp.tools.messaging import delegate_handler
+
+        captured: list = []
+        self._register_capturing_spawn(captured)
+
+        async def post(member, composite, skill):
+            from teaparty.mcp.tools.messaging import _default_delegate_post
+            return await _default_delegate_post(
+                member, composite, skill, _bus_for_test=_StubBus([]),
+            )
+
+        _run(delegate_handler(
+            member='specialist', task='small task', skill=None,
+            scratch_path='/no/such/scratch',
+            post_fn=post,
+        ))
+        composite = captured[0]['composite']
+        # Broad negative-space: no skill directive of any shape may
+        # appear when skill=None.  An always-fire regression that
+        # rendered ``Run the /None skill...`` would not contain
+        # ``/attempt-task`` but would contain the directive opener
+        # ``Run the /`` — the broader pattern catches that.
+        self.assertNotIn(
+            '/attempt-task', composite,
+            f'Composite must NOT contain `/attempt-task` when skill=None. '
+            f'Got composite head: {composite[:200]!r}',
+        )
+        self.assertNotIn(
+            'Run the /', composite,
+            f'Composite must NOT contain any `Run the /<skill>...` '
+            f'directive when skill=None — the prefix block must be '
+            f'gated by ``if skill:``, not always-fire. '
+            f'Got composite head: {composite[:200]!r}',
+        )
+
+    def test_skill_attempt_task_composite_contains_task_body(self) -> None:
+        """The original task body must appear in the composite, after
+        the skill directive. Without this, the recipient runs the
+        skill but receives no task — workflow with no work."""
+        from teaparty.mcp.tools.messaging import delegate_handler
+
+        captured: list = []
+        self._register_capturing_spawn(captured)
+
+        async def post(member, composite, skill):
+            from teaparty.mcp.tools.messaging import _default_delegate_post
+            return await _default_delegate_post(
+                member, composite, skill, _bus_for_test=_StubBus([]),
+            )
+
+        unique_marker = 'XYZ_TASK_MARKER_42'
+        _run(delegate_handler(
+            member='workgroup-lead',
+            task=f'{unique_marker} the body content here',
+            skill='attempt-task',
+            scratch_path='/no/such/scratch',
+            post_fn=post,
+        ))
+        composite = captured[0]['composite']
+        self.assertIn(
+            unique_marker, composite,
+            f'Original task body marker {unique_marker!r} must be '
+            f'present in the dispatched composite. The skill directive '
+            f'must not consume the body. Got: {composite[:300]!r}',
+        )
+
+
+class DelegateInputValidationTest(unittest.TestCase):
+    """The handler must reject empty member or empty task."""
+
+    def test_empty_member_raises(self) -> None:
+        from teaparty.mcp.tools.messaging import delegate_handler
+        with self.assertRaisesRegex(ValueError, 'member'):
+            _run(delegate_handler(member='', task='x'))
+
+    def test_empty_task_raises(self) -> None:
+        from teaparty.mcp.tools.messaging import delegate_handler
+        with self.assertRaisesRegex(ValueError, 'task'):
+            _run(delegate_handler(member='m', task=''))
+
+
+class DelegateBaselineAllowTest(unittest.TestCase):
+    """Delegate must be in the universal baseline allow list — without
+    this, the MCP tools/list filter strips Delegate from every agent's
+    catalog because no agent's settings.yaml lists it explicitly.
+    """
+
+    def test_delegate_is_in_baseline_allow_rules(self) -> None:
+        from teaparty.runners.launcher import BASELINE_ALLOW_RULES
+        self.assertIn(
+            'mcp__teaparty-config__Delegate', BASELINE_ALLOW_RULES,
+            'Delegate must be in BASELINE_ALLOW_RULES so it survives '
+            'the MCP tools/list filter on every agent. Without this, '
+            'the project-lead\'s execute skill prescribes a tool the '
+            'agent cannot see.',
+        )
+
+    def test_delegate_appears_in_composed_allow_list(self) -> None:
+        """End-to-end: a fresh compose has Delegate in the settings.json
+        allow list, regardless of what the agent's own settings.yaml
+        says — because the baseline merges it in."""
+        import json
+        import os as _os
+        import tempfile
+        from teaparty.runners.launcher import compose_launch_config
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tp_home = _os.path.join(tmp, '.teaparty')
+            agent_dir = _os.path.join(
+                tp_home, 'management', 'agents', 'minimal-agent',
+            )
+            _os.makedirs(agent_dir)
+            with open(_os.path.join(agent_dir, 'agent.md'), 'w') as f:
+                f.write('---\nname: minimal-agent\n---\nbody\n')
+            # Per-agent settings.yaml does NOT list Delegate.
+            with open(_os.path.join(agent_dir, 'settings.yaml'), 'w') as f:
+                f.write('permissions:\n  allow:\n  - Read\n')
+            config_dir = _os.path.join(tmp, 'cfg')
+            compose_launch_config(
+                config_dir=config_dir,
+                agent_name='minimal-agent',
+                scope='management',
+                teaparty_home=tp_home,
+            )
+            with open(_os.path.join(config_dir, 'settings.json')) as f:
+                composed = json.load(f)
+            allow = (composed.get('permissions') or {}).get('allow') or []
+            self.assertIn(
+                'mcp__teaparty-config__Delegate', allow,
+                f'Delegate must be merged into every agent\'s composed '
+                f'allow list via BASELINE_ALLOW_RULES, even when the '
+                f'agent\'s own settings.yaml omits it. Got: {allow}',
+            )
+
+
+class ToolDescriptionDisambiguationTest(unittest.TestCase):
+    """Send and Delegate must describe themselves so a model picking
+    between them at choice-time has unambiguous guidance.
+
+    The bug class this guards against: a workgroup-lead with both
+    Send and Delegate in its catalog defaulting to Send (its trained
+    instinct) for a fresh dispatch — exactly the failure mode that
+    motivated #423 at the project-lead level.  Fixing the catalog
+    ontology without fixing the descriptions would leave the
+    confusion vector open at every nesting level.
+    """
+
+    def test_send_docstring_scopes_to_continuation_or_peer(self) -> None:
+        """Send's tool docstring must NOT describe it as opening new
+        dispatch threads — that role belongs to Delegate now."""
+        from teaparty.mcp.server import main as _server_main
+        import inspect
+        src = inspect.getsource(_server_main.create_server)
+        # Locate the Send tool definition.  Fragile to refactor but
+        # acceptable: the bug class is "Send still claims to dispatch."
+        send_idx = src.find('async def Send(')
+        self.assertGreater(send_idx, -1)
+        # Read the docstring block following ``async def Send``.
+        next_def = src.find('async def ', send_idx + 1)
+        send_block = src[send_idx:next_def] if next_def > 0 else src[send_idx:]
+        self.assertIn(
+            'Continue', send_block,
+            f'Send docstring must scope itself to thread continuation '
+            f'or peer messaging. The old "opening or continuing" '
+            f'wording leaves the dispatch role ambiguous, defeating '
+            f'the verb-tool split #423 introduces.',
+        )
+        self.assertIn(
+            'Delegate', send_block,
+            f'Send docstring must point the agent at Delegate for '
+            f'opening new dispatch threads. Without this redirect, '
+            f'an agent picking between the two tools may default to '
+            f'its trained Send-as-dispatch instinct.',
+        )
+
+    def test_delegate_docstring_describes_open_thread_role(self) -> None:
+        """Delegate's tool docstring must position it as the
+        open-new-thread verb, not as a generic dispatch alternative."""
+        from teaparty.mcp.server import main as _server_main
+        import inspect
+        src = inspect.getsource(_server_main.create_server)
+        delegate_idx = src.find('async def Delegate(')
+        self.assertGreater(delegate_idx, -1)
+        block = src[max(0, delegate_idx - 2000):delegate_idx]
+        self.assertIn(
+            'fresh dispatch thread',
+            block,
+            f'Delegate docstring must describe its role as opening a '
+            f'fresh dispatch thread (the verb the issue spec assigns '
+            f'to it). Without this framing, the tool-choice signal at '
+            f'agent decision time is muddled.',
+        )
+
+
+if __name__ == '__main__':
+    unittest.main()

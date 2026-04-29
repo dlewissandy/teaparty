@@ -191,6 +191,222 @@ async def _default_send_post(member: str, composite: str, context_id: str) -> st
     })
 
 
+async def delegate_handler(
+    member: str,
+    task: str,
+    skill: str | None = None,
+    *,
+    scratch_path: str = '',
+    post_fn: Callable[[str, str, str | None], Awaitable[str]] | None = None,
+) -> str:
+    """Core handler for the Delegate MCP tool (issue #423).
+
+    Delegate opens a fresh dispatch thread to *member*.  Two
+    behaviours separate it from Send:
+
+    1. **Open-thread precondition**: when the caller already has an
+       ACTIVE dispatch conversation to *member*, Delegate refuses
+       and names the existing channel so the caller routes via Send
+       instead.  Reuse-vs-new is structural, not heuristic.
+    2. **Workflow prefix**: when *skill* is set, the recipient's
+       first dispatched composite begins with a directive naming the
+       skill (e.g. ``Run the /attempt-task skill...``).  This is the
+       same pattern the engine uses to start project-lead skills —
+       embedding the slash in prose routes the message to the model,
+       which then invokes the skill via the ``Skill`` tool.
+
+    Composition order: scratch context first (via ``_build_composite``),
+    then a skill-directive prefix on top when requested.  The original
+    task body survives both wrappings.
+    """
+    if not member or not member.strip():
+        raise ValueError('Delegate requires a non-empty member')
+    if not task or not task.strip():
+        raise ValueError('Delegate requires a non-empty task')
+
+    resolved = scratch_path or _scratch_path_from_env()
+    scratch = _read_scratch(resolved)
+    composite = _build_composite(task, scratch)
+    if skill:
+        # Match the prose pattern the CfA engine uses to start
+        # project-lead skills (see ``cfa/engine.py::_task_for_phase``):
+        # bare slash, no backticks.  The bare ``/<skill>`` at the
+        # head of a user message is what Claude Code's slash-command-
+        # aware parsing recognises consistently; backticks would mark
+        # the token as code-formatted and could change routing.
+        composite = (
+            f'Run the /{skill} skill to completion on the task '
+            f'below.\n\n{composite}'
+        )
+
+    if post_fn is None:
+        post_fn = _default_delegate_post
+    return await post_fn(member, composite, skill)
+
+
+def _open_dispatch_to(member: str, bus: Any) -> str:
+    """Return the conversation_id of an open ACTIVE dispatch from the
+    caller to *member*, or ``''`` when none exists.
+
+    Reads the caller's bus context from ``current_conversation_id``
+    and walks ``bus.children_of(...)`` looking for a child dispatch
+    whose recipient is *member* and whose state is ``active``.  Used
+    by ``_default_delegate_post`` to enforce the fresh-thread
+    precondition.
+    """
+    from teaparty.mcp.registry import current_conversation_id
+    from teaparty.messaging.conversations import ConversationState
+
+    caller_conv = current_conversation_id.get('')
+    if not caller_conv:
+        return ''
+    try:
+        children = bus.children_of(caller_conv)
+    except Exception:
+        return ''
+    for child in children:
+        if not getattr(child, 'id', '').startswith('dispatch:'):
+            continue
+        if getattr(child, 'agent_name', '') != member:
+            continue
+        state = getattr(child, 'state', '')
+        # State may arrive as the enum value (string 'active') or the
+        # enum itself; normalize to the string form for comparison.
+        if hasattr(state, 'value'):
+            state = state.value
+        if state == ConversationState.ACTIVE.value:
+            return child.id
+    return ''
+
+
+async def _default_delegate_post(
+    member: str,
+    composite: str,
+    skill: str | None,
+    *,
+    _bus_for_test: Any | None = None,
+) -> str:
+    """Default Delegate transport: precondition check then spawn_fn.
+
+    Reuses Send's spawn_fn registry path so the wire-level shape of
+    a successful Delegate matches Send: same channel id format
+    (``dispatch:<sid>``), same non-blocking semantics, same DISPATCH
+    row on the bus.  The only differences from Send are the
+    precondition check (this function) and the workflow-prefix
+    composite (built by ``delegate_handler`` before the post_fn is
+    called).
+    """
+    import time as _time
+    import logging as _logging
+    _delegate_log = _logging.getLogger('teaparty.mcp.tools.messaging.delegate')
+
+    from teaparty.mcp.registry import (
+        get_spawn_fn, get_dispatcher, current_agent_name,
+    )
+    from teaparty.messaging.dispatcher import RoutingError
+
+    # ── Precondition: target thread is fresh ───────────────────────
+    bus = _bus_for_test if _bus_for_test is not None else _resolve_bus_for_caller()
+    if bus is not None:
+        existing = _open_dispatch_to(member, bus)
+        if existing:
+            return json.dumps({
+                'status': 'failed',
+                'reason': (
+                    f'An open dispatch thread to {member!r} already '
+                    f'exists ({existing}). Delegate opens new threads; '
+                    f'use Send with context_id={existing!r} to '
+                    f'continue the existing conversation.'
+                ),
+            })
+
+    spawn_fn = get_spawn_fn()
+    if spawn_fn is None:
+        raise RuntimeError(
+            'No spawn_fn in registry — launch() did not install '
+            'MCPRoutes for this agent.',
+        )
+
+    dispatcher = get_dispatcher()
+    if dispatcher is not None:
+        sender = current_agent_name.get('')
+        try:
+            dispatcher.authorize(sender, member)
+        except RoutingError as exc:
+            _delegate_log.warning(
+                'delegate: %r → %r refused by dispatcher: %s',
+                sender, member, exc,
+            )
+            return json.dumps({
+                'status': 'failed',
+                'reason': (
+                    f'Routing refused: {sender!r} → {member!r} — '
+                    f'recipient is not on your team. Use '
+                    f'ListTeamMembers to see who you can reach.'
+                ),
+            })
+
+    t0 = _time.monotonic()
+    try:
+        # Delegate opens a fresh thread — context_id is always empty.
+        session_id, worktree, result_text = await spawn_fn(
+            member, composite, '',
+        )
+    except Exception as exc:
+        _delegate_log.warning('delegate failed for %r: %s', member, exc)
+        return json.dumps({'status': 'error', 'reason': str(exc)})
+
+    if not session_id:
+        reason = _spawn_refusal_reason(result_text, member)
+        _delegate_log.warning(
+            'delegate: member=%r refused (%s)',
+            member, result_text or 'unknown',
+        )
+        return json.dumps({'status': 'failed', 'reason': reason})
+
+    conv_id = f'dispatch:{session_id}'
+    _delegate_log.info(
+        'delegate: member=%r conv=%s skill=%r elapsed=%.2fs',
+        member, conv_id, skill, _time.monotonic() - t0,
+    )
+    return json.dumps({
+        'status': 'message_sent',
+        'conversation_id': conv_id,
+        'message': (
+            f'Delegated to {member!r} with skill={skill!r}. '
+            f'The recipient runs the {skill or "(none)"} workflow on '
+            f'their own session branch (``session/{session_id}``). '
+            f'Their work is not visible in your worktree until you '
+            f'call CloseConversation.\n\n'
+            f'Use Send(context_id={conv_id!r}, ...) to continue this '
+            f'thread (clarifying questions, corrections). '
+            f'CloseConversation(conversation_id={conv_id!r}) merges '
+            f"the recipient's session branch into yours and ends the "
+            f'thread.'
+        ),
+    })
+
+
+def _resolve_bus_for_caller() -> Any | None:
+    """Resolve the bus the caller's conversation lives on.
+
+    The bus path is registered with the MCP routes at launch time
+    (see ``MCPRoutes.bus_db_path``).  When the caller has no
+    registered bus path the precondition check is skipped (compose-
+    time scripted tests, bootstrap) — same default as Send's
+    "no enforcement when no dispatcher registered."
+    """
+    from teaparty.mcp import registry as _registry
+    bus_path = getattr(_registry, 'get_bus_db_path', lambda: '')()
+    if not bus_path:
+        return None
+    try:
+        from teaparty.messaging.conversations import SqliteMessageBus
+        return SqliteMessageBus(bus_path)
+    except Exception:
+        return None
+
+
 async def close_conversation_handler(
     context_id: str,
     *,

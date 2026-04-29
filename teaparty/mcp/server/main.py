@@ -20,6 +20,7 @@ from teaparty.mcp.tools.escalation import (
 
 from teaparty.mcp.tools.messaging import (
     send_handler,
+    delegate_handler,
     close_conversation_handler,
 )
 
@@ -156,7 +157,14 @@ def create_server(agent_tools: set[str] | None = None) -> FastMCP:
 
     @server.tool()
     async def Send(member: str, message: str, context_id: str = '') -> str:
-        """Send a message to a roster member, opening or continuing a thread.
+        """Continue an existing dispatch thread, or open a peer-messaging thread.
+
+        Use `Send` when you already have a `conversation_id` from a
+        prior `Delegate` (clarifying questions to the recipient,
+        corrections, follow-up after a Reply). For opening a new
+        dispatch thread that runs a workflow skill on the recipient,
+        use `Delegate`. Send carries no skill prefix — it is for
+        peer messaging, not for kicking off a workflow.
 
         Self-contained: the recipient hasn't seen your conversation.
         Name the work, definition of done, pointers to authoritative
@@ -173,13 +181,49 @@ def create_server(agent_tools: set[str] | None = None) -> FastMCP:
         Args:
             member: Name key of a roster entry in --agents.
             message: The task or question, self-contained per the above.
-            context_id: Existing context ID to continue a thread; omit
-                to open a new one.
+            context_id: Existing context ID (`dispatch:<sid>`) to
+                continue a thread. Required for thread continuation;
+                opening a new dispatch thread should use `Delegate`.
         """
         return await send_handler(
             member=member,
             message=message,
             context_id=context_id,
+            scratch_path=_scratch_path_from_env(),
+        )
+
+    @server.tool(description=(
+        'Open a fresh dispatch thread to a team member, optionally '
+        'invoking a workflow skill on the recipient.\n\n'
+        'Delegate is for opening new dispatch threads. To continue a '
+        'thread you have already opened (clarifying questions, '
+        'corrections, follow-ups), use Send with the conversation_id '
+        'returned by the original Delegate. Calling Delegate when an '
+        'open thread to the same member already exists is rejected; '
+        'the rejection names the existing channel so you can re-route.\n\n'
+        'When ``skill`` is set, the recipient invokes that workflow '
+        'skill on launch — use this to dispatch to a workgroup-lead '
+        'with ``skill="attempt-task"``. Leave ``skill=None`` to '
+        'dispatch to a specialist (the recipient processes the task '
+        'directly without a workflow rail).\n\n'
+        'Self-contained: the recipient hasn\'t seen your conversation. '
+        'Name the work, definition of done, pointers to authoritative '
+        'context, and what you have decided or ruled out. After '
+        'Delegate your turn ends; TeaParty re-invokes you on reply.\n\n'
+        'Args:\n'
+        '    member: Name key of a roster entry in --agents.\n'
+        '    task: The task to dispatch, self-contained per the above.\n'
+        '    skill: Optional workflow skill to invoke on the recipient. '
+        'Use "attempt-task" when dispatching to a workgroup-lead. '
+        'Leave None for specialists.'
+    ))
+    async def Delegate(
+        member: str, task: str, skill: str | None = None,
+    ) -> str:
+        return await delegate_handler(
+            member=member,
+            task=task,
+            skill=skill,
             scratch_path=_scratch_path_from_env(),
         )
 
