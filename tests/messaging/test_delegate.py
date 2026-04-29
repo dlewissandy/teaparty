@@ -36,35 +36,6 @@ def _run(coro):
     return asyncio.new_event_loop().run_until_complete(coro)
 
 
-class _StubBus:
-    """In-memory bus stub: `children_of` returns whatever the test injects.
-
-    Tracks invocation count so tests can assert that the precondition
-    actually walked the bus, rather than short-circuiting on an empty
-    ``current_conversation_id`` and never reaching the children query.
-    """
-
-    def __init__(self, children: list | None = None) -> None:
-        self._children = list(children or [])
-        self.children_of_calls: list[str] = []
-
-    def children_of(self, parent_conversation_id: str):
-        self.children_of_calls.append(parent_conversation_id)
-        return list(self._children)
-
-    def close(self) -> None:
-        pass
-
-
-class _ConvRow:
-    """Minimal Conversation shape for `children_of` results."""
-
-    def __init__(self, conv_id: str, agent_name: str, state: str) -> None:
-        self.id = conv_id
-        self.agent_name = agent_name
-        self.state = state
-
-
 class DelegateReturnShapeTest(unittest.TestCase):
     """Acceptance criterion 1: return shape matches `Send`."""
 
@@ -91,7 +62,6 @@ class DelegateReturnShapeTest(unittest.TestCase):
         self._register_succeeding_spawn(captured)
         result = _run(_default_delegate_post(
             'target-member', 'do this work', skill=None,
-            _bus_for_test=_StubBus([]),
         ))
         payload = json.loads(result)
         self.assertEqual(
@@ -103,156 +73,6 @@ class DelegateReturnShapeTest(unittest.TestCase):
             payload.get('conversation_id', '').startswith('dispatch:'),
             f'Delegate must return conversation_id of shape '
             f'dispatch:<sid>; got: {payload.get("conversation_id")!r}',
-        )
-
-
-class DelegateOpenThreadPreconditionTest(unittest.TestCase):
-    """Acceptance criterion 2: open ACTIVE thread to target → rejection.
-
-    Every test in this class sets ``current_conversation_id`` in
-    ``setUp`` so the precondition's bus query actually fires.  Without
-    this the contextvar's empty default short-circuits ``_open_dispatch_to``
-    before the state-or-member filters run, and tests appear to verify
-    behavior that never executes.
-    """
-
-    def setUp(self) -> None:
-        mcp_registry.clear()
-        # Caller's conversation_id — required by ``_open_dispatch_to``
-        # to reach the bus.children_of branch where the state and
-        # member filters live.  Each test overrides nothing more than
-        # the bus contents.
-        mcp_registry.current_conversation_id.set('parent-conv')
-
-    def tearDown(self) -> None:
-        mcp_registry.clear()
-
-    def _register_spawn_that_records_calls(self, calls: list) -> None:
-        async def spawn(member, composite, context_id):
-            calls.append((member, composite, context_id))
-            return ('newsid', '/tmp/wt', '')
-        mcp_registry.register_spawn_fn('caller-agent', spawn)
-        mcp_registry.current_agent_name.set('caller-agent')
-
-    def test_open_active_thread_rejects_without_invoking_spawn(self) -> None:
-        """A pre-existing ACTIVE dispatch to the same member must reject
-        Delegate without calling spawn_fn at all."""
-        from teaparty.mcp.tools.messaging import _default_delegate_post
-
-        spawn_calls: list = []
-        self._register_spawn_that_records_calls(spawn_calls)
-
-        existing_thread = 'dispatch:already_open_abc'
-        bus = _StubBus([
-            _ConvRow(existing_thread, 'workgroup-lead', 'active'),
-        ])
-
-        result = _run(_default_delegate_post(
-            'workgroup-lead', 'new work', skill='attempt-task',
-            _bus_for_test=bus,
-        ))
-        payload = json.loads(result)
-
-        self.assertEqual(
-            payload.get('status'), 'failed',
-            f'Open ACTIVE thread to target must produce status=failed; '
-            f'got: {payload}',
-        )
-        self.assertIn(
-            existing_thread, payload.get('reason', ''),
-            f'Rejection reason must name the existing channel '
-            f'({existing_thread!r}) so the caller can re-route via Send. '
-            f'Got reason: {payload.get("reason")!r}',
-        )
-        self.assertIn(
-            'Send', payload.get('reason', ''),
-            f'Rejection reason must direct the caller to Send for '
-            f'continuation. Got reason: {payload.get("reason")!r}',
-        )
-        self.assertEqual(
-            spawn_calls, [],
-            f'spawn_fn must NOT be invoked when the precondition rejects; '
-            f'observed calls: {spawn_calls!r}',
-        )
-
-    def test_closed_thread_does_not_block_delegate(self) -> None:
-        """Only ACTIVE threads block. A CLOSED thread to the same target
-        must allow Delegate to proceed.
-
-        The precondition must actually execute the state filter — a
-        regression that ignored the ``state`` field entirely (treating
-        every child as blocking) would still pass an assertion that
-        only checks the outcome.  Asserting on ``children_of_calls``
-        proves the bus query reached the state-comparison branch,
-        not just the early-return short-circuit.
-        """
-        from teaparty.mcp.tools.messaging import _default_delegate_post
-
-        spawn_calls: list = []
-        self._register_spawn_that_records_calls(spawn_calls)
-
-        bus = _StubBus([
-            _ConvRow('dispatch:old_closed', 'workgroup-lead', 'closed'),
-        ])
-
-        result = _run(_default_delegate_post(
-            'workgroup-lead', 'fresh work', skill='attempt-task',
-            _bus_for_test=bus,
-        ))
-        payload = json.loads(result)
-
-        self.assertEqual(
-            payload.get('status'), 'message_sent',
-            f'CLOSED thread must not block a new Delegate; got: {payload}',
-        )
-        self.assertEqual(
-            len(spawn_calls), 1,
-            f'spawn_fn must be invoked exactly once when precondition '
-            f'allows; observed: {spawn_calls!r}',
-        )
-        # Proof the state filter ran: the precondition reached
-        # bus.children_of and inspected the closed row, then let the
-        # call through.  Without this assertion a regression that
-        # short-circuits before the state comparison would still pass.
-        self.assertEqual(
-            bus.children_of_calls, ['parent-conv'],
-            f'Precondition must call bus.children_of with the caller '
-            f'conversation_id to reach the state filter. Observed '
-            f'calls: {bus.children_of_calls!r}',
-        )
-
-    def test_open_thread_to_different_member_does_not_block(self) -> None:
-        """An open thread to member A must not block a Delegate to member B.
-
-        Same load-bearing concern as the closed-thread test: the
-        precondition must actually execute the member-name filter,
-        not short-circuit before reaching it.
-        """
-        from teaparty.mcp.tools.messaging import _default_delegate_post
-
-        spawn_calls: list = []
-        self._register_spawn_that_records_calls(spawn_calls)
-
-        bus = _StubBus([
-            _ConvRow('dispatch:other_member', 'other-lead', 'active'),
-        ])
-
-        result = _run(_default_delegate_post(
-            'workgroup-lead', 'work', skill=None,
-            _bus_for_test=bus,
-        ))
-        payload = json.loads(result)
-        self.assertEqual(
-            payload.get('status'), 'message_sent',
-            f'Open thread to other-lead must not block Delegate to '
-            f'workgroup-lead; got: {payload}',
-        )
-        self.assertEqual(len(spawn_calls), 1)
-        self.assertEqual(
-            bus.children_of_calls, ['parent-conv'],
-            f'Precondition must call bus.children_of to reach the '
-            f'member-name filter. Observed calls: '
-            f'{bus.children_of_calls!r}',
         )
 
 
@@ -291,7 +111,7 @@ class DelegateWorkflowPrefixTest(unittest.TestCase):
         async def post(member, composite, skill):
             from teaparty.mcp.tools.messaging import _default_delegate_post
             return await _default_delegate_post(
-                member, composite, skill, _bus_for_test=_StubBus([]),
+                member, composite, skill,
             )
 
         _run(delegate_handler(
@@ -339,7 +159,7 @@ class DelegateWorkflowPrefixTest(unittest.TestCase):
         async def post(member, composite, skill):
             from teaparty.mcp.tools.messaging import _default_delegate_post
             return await _default_delegate_post(
-                member, composite, skill, _bus_for_test=_StubBus([]),
+                member, composite, skill,
             )
 
         _run(delegate_handler(
@@ -378,7 +198,7 @@ class DelegateWorkflowPrefixTest(unittest.TestCase):
         async def post(member, composite, skill):
             from teaparty.mcp.tools.messaging import _default_delegate_post
             return await _default_delegate_post(
-                member, composite, skill, _bus_for_test=_StubBus([]),
+                member, composite, skill,
             )
 
         unique_marker = 'XYZ_TASK_MARKER_42'
@@ -673,13 +493,18 @@ class ToolDescriptionDisambiguationTest(unittest.TestCase):
         delegate_idx = src.find('async def Delegate(')
         self.assertGreater(delegate_idx, -1)
         block = src[max(0, delegate_idx - 2000):delegate_idx]
-        self.assertIn(
-            'fresh dispatch thread',
-            block,
+        # Either ``new dispatch thread`` or ``fresh dispatch thread`` —
+        # the framing is what matters, not the specific adjective.
+        opens_thread = (
+            'new dispatch thread' in block
+            or 'fresh dispatch thread' in block
+        )
+        self.assertTrue(
+            opens_thread,
             f'Delegate docstring must describe its role as opening a '
-            f'fresh dispatch thread (the verb the issue spec assigns '
-            f'to it). Without this framing, the tool-choice signal at '
-            f'agent decision time is muddled.',
+            f'(new|fresh) dispatch thread — the verb the issue spec '
+            f'assigns to it. Without this framing, the tool-choice '
+            f'signal at agent decision time is muddled.',
         )
 
 

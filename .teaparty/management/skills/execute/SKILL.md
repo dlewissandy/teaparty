@@ -22,7 +22,7 @@ delegate work, and resolve conflicts as they arise.
 
 Use `mcp__teaparty-config__Delegate(member, task, skill='attempt-task')` to dispatch work to a workgroup-lead. The `skill='attempt-task'` argument prescribes the workgroup-lead's workflow rail; without it the recipient improvises. You may Delegate to several members in parallel — independent units run concurrently.
 
-`Delegate` opens a fresh dispatch thread. To continue an open thread (e.g. answering a workgroup-lead's clarifying question), use `mcp__teaparty-config__Send` on that thread's `conversation_id`. Calling `Delegate` on an open thread is rejected by the tool — the rejection names the existing channel so you can re-route.
+`Delegate` opens a new dispatch thread. To continue an open thread (e.g. answering a workgroup-lead's clarifying question), use `mcp__teaparty-config__Send` with that thread's `conversation_id`. Send is for continuation and peer messaging; Delegate is for opening with a workflow.
 
 Note: Each team member performs their work on a separate session branch in their own worktree. Their commits are not merged into your worktree until you call `mcp__teaparty-config__CloseConversation` with the dispatch's `conversation_id`.
 

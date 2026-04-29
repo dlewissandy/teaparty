@@ -193,14 +193,12 @@ def create_server(agent_tools: set[str] | None = None) -> FastMCP:
         )
 
     @server.tool(description=(
-        'Open a fresh dispatch thread to a team member, optionally '
+        'Open a new dispatch thread to a team member, optionally '
         'invoking a workflow skill on the recipient.\n\n'
-        'Delegate is for opening new dispatch threads. To continue a '
-        'thread you have already opened (clarifying questions, '
-        'corrections, follow-ups), use Send with the conversation_id '
-        'returned by the original Delegate. Calling Delegate when an '
-        'open thread to the same member already exists is rejected; '
-        'the rejection names the existing channel so you can re-route.\n\n'
+        'Delegate is the dispatch verb that opens with a workflow '
+        'rail. To continue a thread you have already opened '
+        '(clarifying questions, corrections, follow-ups), use Send '
+        'with the conversation_id returned by the original Delegate.\n\n'
         'When ``skill`` is set, the recipient invokes that workflow '
         'skill on launch — use this to dispatch to a workgroup-lead '
         'with ``skill="attempt-task"``. Leave ``skill=None`` to '
