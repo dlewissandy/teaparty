@@ -130,11 +130,17 @@ BASELINE_ALLOW_RULES: tuple[str, ...] = (
     # Messaging primitives — minimum complement for any dispatch
     # participant.  See module-level comment above for rationale.
     'mcp__teaparty-config__Send',
-    'mcp__teaparty-config__Delegate',
     'mcp__teaparty-config__AskQuestion',
     'mcp__teaparty-config__ListTeamMembers',
     'mcp__teaparty-config__CloseConversation',
 )
+# ``Delegate`` is intentionally NOT in this baseline.  It is granted
+# role-conditionally by ``_role_implied_tools``: an agent gets
+# Delegate when its team roster contains members of role
+# ``project-lead`` or ``workgroup-lead`` (i.e. the agent dispatches
+# to recipients that run their own workflow skill on launch).
+# Workgroup-leads (whose members are all ``workgroup-agent``) and
+# specialists (no team) get only ``Send``.
 
 
 
@@ -174,6 +180,31 @@ def _inject_baseline_deny(settings: dict) -> None:
 
     settings['permissions'] = perms
     settings['autoMemoryEnabled'] = False
+
+
+def _inject_role_implied_tools(
+    settings: dict, *, agent_name: str, teaparty_home: str,
+) -> None:
+    """Merge role-conditional tool grants into ``permissions.allow``.
+
+    Called by every compose path after ``_inject_baseline_deny`` so the
+    universal baseline lands first and role-specific tools layer on
+    top.  See ``_role_implied_tools`` for the role rule.
+    """
+    extras = _role_implied_tools(
+        agent_name=agent_name, teaparty_home=teaparty_home,
+    )
+    if not extras:
+        return
+    perms = settings.get('permissions') or {}
+    existing_allow = list(perms.get('allow') or [])
+    seen_allow = set(existing_allow)
+    for rule in extras:
+        if rule not in seen_allow:
+            existing_allow.append(rule)
+            seen_allow.add(rule)
+    perms['allow'] = existing_allow
+    settings['permissions'] = perms
 
 
 # Layer 3 — path-scoping bare ``Write``/``Edit``/``NotebookEdit`` grants
@@ -315,6 +346,45 @@ def resolve_agent_definition(
 
 
 # ── Skill staging (shared by chat-tier and worktree-tier launches) ──────────
+
+def _role_implied_tools(
+    *, agent_name: str, teaparty_home: str,
+) -> list[str]:
+    """Return tool names implied by the agent's role (issue #423).
+
+    ``mcp__teaparty-config__Delegate`` is granted only to agents whose
+    team roster contains at least one member of role ``project-lead``
+    or ``workgroup-lead`` — i.e. agents that dispatch to recipients
+    that run their own workflow skill on launch.  The OM and project-
+    leads qualify; workgroup-leads (whose members are all
+    ``workgroup-agent``) and specialists do not.
+
+    The rule comes directly from how Delegate is supposed to work:
+    its ``skill=`` parameter prescribes the workflow rail at the
+    *recipient*.  If the recipient runs no workflow, the dispatcher
+    has no use for Delegate's distinguishing feature; it should use
+    ``Send`` instead.  Making Delegate structurally unavailable to
+    workgroup-leads removes the off-ramp that let research-lead pass
+    ``skill='attempt-task'`` to a specialist in live joke-book runs.
+
+    Returns ``[]`` for any agent the roster does not identify as a
+    lead-dispatching agent, including agents whose roster lookup
+    fails — callers append nothing in that case.
+    """
+    try:
+        from teaparty.config.roster import derive_team_roster
+        roster = derive_team_roster(agent_name, teaparty_home)
+    except Exception:
+        return []
+    if roster is None or not roster.members:
+        return []
+    if any(
+        m.role in ('project-lead', 'workgroup-lead')
+        for m in roster.members
+    ):
+        return ['mcp__teaparty-config__Delegate']
+    return []
+
 
 def _role_implied_skills(
     *, agent_name: str, teaparty_home: str,
@@ -517,6 +587,9 @@ def compose_launch_worktree(
     # ── Settings (scope base + agent override) ───────────────────────────
     settings = _merge_settings(agent_name, scope, teaparty_home)
     _inject_baseline_deny(settings)
+    _inject_role_implied_tools(
+        settings, agent_name=agent_name, teaparty_home=teaparty_home,
+    )
     _register_worktree_jail_hook(settings)
     settings_path = os.path.join(claude_dir, 'settings.json')
     with open(settings_path, 'w') as f:
@@ -792,6 +865,9 @@ def compose_launch_config(
             settings['permissions'] = perms
 
     _inject_baseline_deny(settings)
+    _inject_role_implied_tools(
+        settings, agent_name=agent_name, teaparty_home=teaparty_home,
+    )
     _register_worktree_jail_hook(settings)
     settings_path = os.path.join(config_dir, 'settings.json')
     with open(settings_path, 'w') as f:
@@ -1510,6 +1586,9 @@ async def launch(
     else:
         settings = _merge_settings(agent_name, scope, teaparty_home)
     _inject_baseline_deny(settings)
+    _inject_role_implied_tools(
+        settings, agent_name=agent_name, teaparty_home=teaparty_home,
+    )
     _register_worktree_jail_hook(settings)
 
     # Derive --tools from settings.yaml's permissions.allow; fall back to
