@@ -1,14 +1,19 @@
 ---
 name: attempt-task
-description: Workgroup-lead workflow — assess a dispatched task, delegate work units to the team, assemble replies, deliver. Invoked when a workgroup-lead receives a Delegate.
+description: Workgroup-lead workflow — assess a dispatched task, dispatch work units to the team via Send, assemble replies, deliver. Invoked when a workgroup-lead receives a Delegate.
 user-invocable: false
-allowed-tools: Read, Write, Edit, Glob, Grep, Bash, mcp__teaparty-config__Delegate, mcp__teaparty-config__Send, mcp__teaparty-config__AskQuestion, mcp__teaparty-config__CloseConversation, mcp__teaparty-config__ListTeamMembers
+allowed-tools: Read, Write, Edit, Glob, Grep, Bash, mcp__teaparty-config__Send, mcp__teaparty-config__AskQuestion, mcp__teaparty-config__CloseConversation, mcp__teaparty-config__ListTeamMembers
 ---
 
 # Attempt task
 
 You received a Delegate. Run this workflow to completion in a single
 invocation. Each terminal step ends with a `Reply` to the originator.
+
+You dispatch to your team via `Send`, not `Delegate`. Your members
+are specialists — they produce content directly with no workflow
+rail at the recipient. `Delegate` is the verb a project-lead uses
+to launch your workflow; you in turn launch specialists with `Send`.
 
 ## START
 
@@ -29,7 +34,7 @@ If the task is itself a question only the originator can decide
 
 You are the manager, not a primary contributor. You decompose the
 task into units of work that fit a single team member's capability;
-you delegate; you assemble replies into the deliverable.
+you dispatch; you assemble replies into the deliverable.
 
 1. Call `mcp__teaparty-config__ListTeamMembers` to read your team's
    current capabilities. The roster is data on demand — read it now,
@@ -37,12 +42,9 @@ you delegate; you assemble replies into the deliverable.
 2. For each unit of work, identify the team member whose capability
    covers it. A unit you would have to split across two members is
    too big — re-decompose.
-3. For each unit, call `mcp__teaparty-config__Delegate(member,
-   task, skill=<skill>)`. Choose `skill='attempt-task'` when the
-   recipient is itself a workgroup-lead; leave `skill=None` for a
-   specialist (specialists process the task directly without a
-   workflow rail). Independent units run in parallel — Delegate to
-   each in the same turn; threads run concurrently.
+3. For each unit, call `mcp__teaparty-config__Send(member, message)`
+   to open a dispatch thread. Independent units run in parallel —
+   Send to each in the same turn; threads run concurrently.
 4. End your turn here. The runtime re-invokes you when replies
    arrive.
 
@@ -51,7 +53,8 @@ satisfied, call `mcp__teaparty-config__CloseConversation` on the
 thread — close is what merges the member's session branch into your
 worktree. Until close, you cannot read the member's deliverables.
 If a piece is unsatisfactory, call `mcp__teaparty-config__Send` on
-the same thread with a correction; return to EXECUTE when the next
+the same thread with a correction (passing the thread's
+`conversation_id` as `context_id`); return to EXECUTE when the next
 reply arrives.
 
 If a unit has no covering member at all, write `./NOFIT.md`

@@ -6,8 +6,9 @@ These pin three things at the source-content level:
 1. `attempt-task` exists at the canonical path with the state graph
    `START → EXECUTE → (ASK ↔ EXECUTE) → DELIVER`.
 
-2. `attempt-task`'s EXECUTE step prescribes `Delegate(...)` (not
-   `Send`) for dispatching to its members, and prescribes
+2. `attempt-task`'s EXECUTE step prescribes `Send(...)` for
+   dispatching to specialists (workgroup-leads do not have
+   `Delegate` in their tool catalog), and prescribes
    `ListTeamMembers` as the team-discovery mechanism — within the
    EXECUTE prose, not merely incidentally in the YAML frontmatter.
 
@@ -104,11 +105,13 @@ class AttemptTaskSkillExistsTest(unittest.TestCase):
             f'## ASK must precede ## DELIVER; got positions {positions}',
         )
 
-    def test_execute_step_prescribes_delegate_not_send(self) -> None:
-        """The EXECUTE step must direct the lead to use Delegate for
-        dispatching to members. The directive must live in the EXECUTE
-        prose — frontmatter ``allowed-tools:`` listing the name does
-        not constitute a procedural directive.
+    def test_execute_step_prescribes_send_for_specialist_dispatch(self) -> None:
+        """The EXECUTE step must direct the lead to use ``Send`` to
+        dispatch work to its members.  Workgroup-leads dispatch to
+        specialists, who run no workflow skill on receipt — ``Send``
+        is the right verb.  ``Delegate`` is for opening with a
+        workflow rail at the recipient; the workgroup-lead does not
+        have it (only project-lead-shaped agents do).
         """
         execute = _section_of(self.SKILL_PATH.read_text(), 'EXECUTE')
         self.assertNotEqual(
@@ -117,11 +120,21 @@ class AttemptTaskSkillExistsTest(unittest.TestCase):
             f'is the procedural rail for dispatching work.',
         )
         self.assertIn(
+            'Send(', execute,
+            f'attempt-task EXECUTE must contain the ``Send(`` call '
+            f'form for dispatching to specialists. A workgroup-lead '
+            f'does not hold ``Delegate`` (it has no lead members); '
+            f'using ``Delegate`` produces a permission denial at '
+            f'runtime. Got EXECUTE section head: {execute[:400]!r}',
+        )
+        # And must NOT prescribe Delegate, since the workgroup-lead
+        # cannot invoke it.
+        self.assertNotIn(
             'Delegate(', execute,
-            f'attempt-task EXECUTE must contain the `Delegate(` call '
-            f'form. A workgroup-lead that uses Send for fresh dispatch '
-            f'reproduces the bug at the next nesting level. Got '
-            f'EXECUTE section head: {execute[:300]!r}',
+            f'attempt-task EXECUTE must NOT prescribe ``Delegate(`` '
+            f'as the dispatch verb — workgroup-leads do not have '
+            f'Delegate in their tool catalog. Got EXECUTE section '
+            f'head: {execute[:400]!r}',
         )
 
     def test_execute_step_names_listteammembers(self) -> None:
