@@ -228,8 +228,14 @@ async def delegate_handler(
     scratch = _read_scratch(resolved)
     composite = _build_composite(task, scratch)
     if skill:
+        # Match the prose pattern the CfA engine uses to start
+        # project-lead skills (see ``cfa/engine.py::_task_for_phase``):
+        # bare slash, no backticks.  The bare ``/<skill>`` at the
+        # head of a user message is what Claude Code's slash-command-
+        # aware parsing recognises consistently; backticks would mark
+        # the token as code-formatted and could change routing.
         composite = (
-            f'Run the `/{skill}` skill to completion on the task '
+            f'Run the /{skill} skill to completion on the task '
             f'below.\n\n{composite}'
         )
 

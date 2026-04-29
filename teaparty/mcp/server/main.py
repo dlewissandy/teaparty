@@ -157,7 +157,14 @@ def create_server(agent_tools: set[str] | None = None) -> FastMCP:
 
     @server.tool()
     async def Send(member: str, message: str, context_id: str = '') -> str:
-        """Send a message to a roster member, opening or continuing a thread.
+        """Continue an existing dispatch thread, or open a peer-messaging thread.
+
+        Use `Send` when you already have a `conversation_id` from a
+        prior `Delegate` (clarifying questions to the recipient,
+        corrections, follow-up after a Reply). For opening a new
+        dispatch thread that runs a workflow skill on the recipient,
+        use `Delegate`. Send carries no skill prefix — it is for
+        peer messaging, not for kicking off a workflow.
 
         Self-contained: the recipient hasn't seen your conversation.
         Name the work, definition of done, pointers to authoritative
@@ -174,8 +181,9 @@ def create_server(agent_tools: set[str] | None = None) -> FastMCP:
         Args:
             member: Name key of a roster entry in --agents.
             message: The task or question, self-contained per the above.
-            context_id: Existing context ID to continue a thread; omit
-                to open a new one.
+            context_id: Existing context ID (`dispatch:<sid>`) to
+                continue a thread. Required for thread continuation;
+                opening a new dispatch thread should use `Delegate`.
         """
         return await send_handler(
             member=member,

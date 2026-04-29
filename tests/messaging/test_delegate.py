@@ -310,13 +310,14 @@ class DelegateWorkflowPrefixTest(unittest.TestCase):
         # Spec wording: the composite *begins with* the directive.
         # A regression that swaps composition order to put the directive
         # at the end (or in the middle) would still satisfy a bare
-        # ``in`` check but violates the spec.
+        # ``in`` check but violates the spec. The exact form is bare
+        # slash with no backticks — same prose pattern the CfA engine
+        # uses for project-lead skills.
         self.assertTrue(
-            composite.lstrip().startswith('Run the `/attempt-task`'),
-            f'Composite must START with the skill directive. Spec '
-            f'requires the directive at the head so Claude Code\'s '
-            f'slash-command-aware parsing routes the message to the '
-            f'model with the skill named first. Got composite head: '
+            composite.lstrip().startswith('Run the /attempt-task'),
+            f'Composite must START with the skill directive in the '
+            f'engine\'s exact prose form (`Run the /<skill> skill...`, '
+            f'bare slash, no backticks). Got composite head: '
             f'{composite[:200]!r}',
         )
         # Original task body is preserved.
@@ -349,17 +350,17 @@ class DelegateWorkflowPrefixTest(unittest.TestCase):
         composite = captured[0]['composite']
         # Broad negative-space: no skill directive of any shape may
         # appear when skill=None.  An always-fire regression that
-        # rendered ``Run the `/None` skill...`` would not contain
+        # rendered ``Run the /None skill...`` would not contain
         # ``/attempt-task`` but would contain the directive opener
-        # ``Run the ``/`` — the broader pattern catches that.
+        # ``Run the /`` — the broader pattern catches that.
         self.assertNotIn(
             '/attempt-task', composite,
             f'Composite must NOT contain `/attempt-task` when skill=None. '
             f'Got composite head: {composite[:200]!r}',
         )
         self.assertNotIn(
-            'Run the `/', composite,
-            f'Composite must NOT contain any `Run the `/<skill>...` '
+            'Run the /', composite,
+            f'Composite must NOT contain any `Run the /<skill>...` '
             f'directive when skill=None — the prefix block must be '
             f'gated by ``if skill:``, not always-fire. '
             f'Got composite head: {composite[:200]!r}',
@@ -463,6 +464,65 @@ class DelegateBaselineAllowTest(unittest.TestCase):
                 f'allow list via BASELINE_ALLOW_RULES, even when the '
                 f'agent\'s own settings.yaml omits it. Got: {allow}',
             )
+
+
+class ToolDescriptionDisambiguationTest(unittest.TestCase):
+    """Send and Delegate must describe themselves so a model picking
+    between them at choice-time has unambiguous guidance.
+
+    The bug class this guards against: a workgroup-lead with both
+    Send and Delegate in its catalog defaulting to Send (its trained
+    instinct) for a fresh dispatch — exactly the failure mode that
+    motivated #423 at the project-lead level.  Fixing the catalog
+    ontology without fixing the descriptions would leave the
+    confusion vector open at every nesting level.
+    """
+
+    def test_send_docstring_scopes_to_continuation_or_peer(self) -> None:
+        """Send's tool docstring must NOT describe it as opening new
+        dispatch threads — that role belongs to Delegate now."""
+        from teaparty.mcp.server import main as _server_main
+        import inspect
+        src = inspect.getsource(_server_main.create_server)
+        # Locate the Send tool definition.  Fragile to refactor but
+        # acceptable: the bug class is "Send still claims to dispatch."
+        send_idx = src.find('async def Send(')
+        self.assertGreater(send_idx, -1)
+        # Read the docstring block following ``async def Send``.
+        next_def = src.find('async def ', send_idx + 1)
+        send_block = src[send_idx:next_def] if next_def > 0 else src[send_idx:]
+        self.assertIn(
+            'Continue', send_block,
+            f'Send docstring must scope itself to thread continuation '
+            f'or peer messaging. The old "opening or continuing" '
+            f'wording leaves the dispatch role ambiguous, defeating '
+            f'the verb-tool split #423 introduces.',
+        )
+        self.assertIn(
+            'Delegate', send_block,
+            f'Send docstring must point the agent at Delegate for '
+            f'opening new dispatch threads. Without this redirect, '
+            f'an agent picking between the two tools may default to '
+            f'its trained Send-as-dispatch instinct.',
+        )
+
+    def test_delegate_docstring_describes_open_thread_role(self) -> None:
+        """Delegate's tool docstring must position it as the
+        open-new-thread verb, not as a generic dispatch alternative."""
+        from teaparty.mcp.server import main as _server_main
+        import inspect
+        src = inspect.getsource(_server_main.create_server)
+        delegate_idx = src.find('async def Delegate(')
+        self.assertGreater(delegate_idx, -1)
+        block = src[max(0, delegate_idx - 2000):delegate_idx]
+        self.assertIn(
+            'fresh dispatch thread',
+            block,
+            f'Delegate docstring must describe its role as opening a '
+            f'fresh dispatch thread (the verb the issue spec assigns '
+            f'to it). Without this framing, the tool-choice signal at '
+            f'agent decision time is muddled.',
+        )
 
 
 if __name__ == '__main__':
