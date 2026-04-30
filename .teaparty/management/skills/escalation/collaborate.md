@@ -6,11 +6,11 @@ Your ACT-R memory introspection is in your prompt: activation levels, behavioral
 
 ## START
 
-Read `../QUESTION.md` — the file lives one level above your cwd because your cwd is the caller's worktree (a clone of it).  It contains your teammate's question and any inline context.
+Read `./QUESTION.md`.  It contains your teammate's question and any inline context.  Your cwd holds two things: the question file at the root, and a `worktree/` subdirectory that is a real-file clone of the caller's worktree — every file the caller had is there at `./worktree/<relpath>`.
 
 Now do diligence on the work itself.  This is required, not advisory — your reply must be grounded in what was actually delivered, not in how the question describes it.
 
-1. Walk the worktree (your cwd).  List directories.  Identify what is a deliverable (manuscript, code, document), what is planning artifact (`INTENT.md`, `PLAN.md`, `RESEARCH.md`, `.scratch/`), and what is configuration.
+1. Walk the worktree at `./worktree/`.  List directories.  Identify what is a deliverable (manuscript, code, document), what is planning artifact (`INTENT.md`, `PLAN.md`, `RESEARCH.md`, `.scratch/`), and what is configuration.
 2. Read the relevant artifacts directly.  For an approval gate, read the actual deliverable — chapter files, generated code, written documents.  For a status query, read the state files.  For a configuration question, read the configs.
 3. Verify the question's claims against the artifacts — counts, paths, presence/absence.  Trust-but-verify is the literal procedure.  When the prose says the work is done, the burden is on the artifacts to show it.
 4. Form an opinion from what was actually delivered, not from the question's framing.  If the prose disagrees with the artifacts, name the gap.  Your reply must name the specific files you inspected.

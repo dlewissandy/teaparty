@@ -160,17 +160,30 @@ class PrepareProxyWorkspaceTest(unittest.TestCase):
             'QUESTION.md must contain the question text verbatim (#425)',
         )
 
-    def test_launch_cwd_is_set_to_clone_path(self) -> None:
+    def test_launch_cwd_is_set_to_session_path(self) -> None:
         self.runner._prepare_proxy_workspace(
             self.child_session, question='Approve?', context='',
         )
-        clone_dir = os.path.join(self.session_path, 'worktree')
         self.assertEqual(
-            self.child_session.launch_cwd, clone_dir,
-            f"child_session.launch_cwd must point at the clone "
-            f"({clone_dir}); the proxy launches there so its file "
-            f"reads land in the caller's worktree subtree (#425)",
+            self.child_session.launch_cwd, self.session_path,
+            f"child_session.launch_cwd must point at the session dir "
+            f"({self.session_path}); the worktree-jail then bounds "
+            f"reads to that subtree, covering both ./QUESTION.md and "
+            f"./worktree/ (#425)",
         )
+
+    def test_clone_is_reachable_from_launch_cwd(self) -> None:
+        self.runner._prepare_proxy_workspace(
+            self.child_session, question='Approve?', context='',
+        )
+        clone_dir = os.path.join(self.child_session.launch_cwd, 'worktree')
+        for relpath in self.expected_files:
+            self.assertTrue(
+                os.path.isfile(os.path.join(clone_dir, relpath)),
+                f"file {relpath} must be reachable from launch_cwd "
+                f"as worktree/{relpath} (#425 — proxy walks the clone "
+                f"subtree under cwd)",
+            )
 
 
 if __name__ == '__main__':

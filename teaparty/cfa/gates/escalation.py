@@ -250,14 +250,17 @@ class AskQuestionRunner:
 
         Lays out the proxy session directory as:
 
-          <session.path>/
-            QUESTION.md       # the agent's question + context
-            worktree/         # real-file clone of the caller's worktree
+          <session.path>/                 (== launch_cwd)
+            QUESTION.md                   # the agent's question + context
+            worktree/                     # real-file clone of caller's worktree
 
-        ``child_session.launch_cwd`` is set to the clone path — that is
-        where the proxy launches.  The skill body reads the question via
-        ``../QUESTION.md`` (the worktree-jail hook accepts relative
-        paths); the diligence pass walks the clone subtree directly.
+        ``child_session.launch_cwd`` is set to ``session.path`` — that
+        is the proxy's cwd.  The clone of the caller's worktree lives
+        inside it as ``worktree/`` so every file the caller had is
+        reachable to the proxy at ``./worktree/<relpath>`` during its
+        diligence pass.  The question stays at ``./QUESTION.md`` (the
+        existing convention).  The worktree-jail hook constrains reads
+        to this subtree, which covers both the question and the clone.
 
         Returns the absolute path to ``QUESTION.md``.
         """
@@ -269,12 +272,13 @@ class AskQuestionRunner:
             materialize_worktree(caller_worktree, clone_dir)
         else:
             # No caller worktree to clone — still create the empty dir
-            # so cwd is valid.  This path is exercised by management-tier
-            # callers whose "worktree" is the management repo root, or
-            # by tests with no infra_dir.
+            # so the diligence walk has something to descend into.  This
+            # path is exercised by management-tier callers whose "worktree"
+            # is the management repo (handled differently up the stack)
+            # and by tests with no infra_dir.
             os.makedirs(clone_dir, exist_ok=True)
 
-        child_session.launch_cwd = clone_dir
+        child_session.launch_cwd = child_session.path
 
         question_md = os.path.join(child_session.path, 'QUESTION.md')
         body = question
