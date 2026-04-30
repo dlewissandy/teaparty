@@ -109,16 +109,22 @@ class AskQuestionRunner:
         self._last_escalation_source: str = ''
 
     def rehydrate(self) -> None:
-        """Re-register in-flight escalations from the bus (#422).
+        """Re-register in-flight escalations from the bus (#422, #426).
 
         The ``_active_escalations`` registry is in-memory and is lost
         across bridge restarts, but the bus record for each escalation
         is durable — so startup repopulates the registry by querying
         ``children_of`` the dispatcher's conversation and filtering for
-        ``agent_name='proxy'``.  Without this the workflow-bar dot and
-        the ``is_escalation_active`` guard in the bridge's HTTP
-        auto-invoke would be blank for escalations that survived a
-        restart.
+        ``agent_name='proxy'`` rows in an in-flight state.  Without this
+        the workflow-bar dot and the ``is_escalation_active`` guard in
+        the bridge's HTTP auto-invoke would be blank for escalations
+        that survived a restart.
+
+        Only ACTIVE and PAUSED rows are re-marked.  CLOSED / WITHDRAWN
+        rows are no longer in flight; re-marking them would leak the
+        sentinel that the watchdog reads for stall suppression (#426),
+        permanently exempting the caller's session from stall detection
+        for any future non-AskQuestion stall.
         """
         if self._dispatcher_session is None:
             return
@@ -131,6 +137,10 @@ class AskQuestionRunner:
             parent_conv_id = self._resolve_parent_conv_id()
             for child in bus.children_of(parent_conv_id):
                 if child.agent_name != 'proxy':
+                    continue
+                if child.state not in (
+                    ConversationState.ACTIVE, ConversationState.PAUSED,
+                ):
                     continue
                 qualifier = f'{self._dispatcher_session.id}:{child.request_id}'
                 _mark(qualifier)
@@ -512,7 +522,25 @@ class AskQuestionRunner:
         return None
 
     def _close_resumed_conversation(self, conv_id: str) -> None:
-        """Transition a resumed PROXY conversation to CLOSED on delivery (#426)."""
+        """Transition a resumed PROXY conversation to CLOSED on delivery (#426).
+
+        Also clears the in-memory escalation marker for the resumed
+        qualifier.  ``rehydrate()`` re-marks every ACTIVE/PAUSED proxy
+        child on bridge startup; without an explicit clear here, a
+        session whose escalation was satisfied via resume-pickup would
+        keep that qualifier in ``_active_escalations`` for the lifetime
+        of the bridge, deadlocking the watchdog for any future stall.
+        """
+        # Conv ids for proxy escalations have the form
+        # ``proxy:{caller_session_id}:{escalation_id}``; the qualifier
+        # is everything after the first ``:``.
+        prefix, sep, qualifier = conv_id.partition(':')
+        if sep and qualifier:
+            from teaparty.mcp.registry import (
+                mark_escalation_done as _mark_done,
+            )
+            _mark_done(qualifier)
+
         try:
             bus = SqliteMessageBus(self.bus_db_path)
             try:

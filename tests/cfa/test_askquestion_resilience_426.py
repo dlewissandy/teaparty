@@ -153,6 +153,47 @@ class _AskQuestionResilienceCase(unittest.TestCase):
             proxy_bus.close()
         return proxy_conv_id
 
+    def _seed_existing_escalation_with_status(
+        self,
+        *,
+        question: str,
+        status: str,
+        message: str,
+        state: ConversationState = ConversationState.ACTIVE,
+        escalation_id: str = 'esc-prior',
+    ) -> str:
+        """Seed an existing escalation whose terminal status is custom
+        (RESPONSE or WITHDRAW).  Used by the WITHDRAW-pickup test."""
+        dispatcher_id = 'caller-session-426'
+        qualifier = f'{dispatcher_id}:{escalation_id}'
+        proxy_conv_id = make_conversation_id(ConversationType.PROXY, qualifier)
+
+        caller_bus = SqliteMessageBus(self.caller_bus_db)
+        try:
+            caller_bus.create_conversation(
+                ConversationType.PROXY, qualifier,
+                agent_name='proxy',
+                parent_conversation_id=f'dispatch:{dispatcher_id}',
+                request_id=escalation_id,
+                state=state,
+            )
+        finally:
+            caller_bus.close()
+
+        proxy_bus = SqliteMessageBus(self.proxy_bus_db)
+        try:
+            proxy_bus.create_conversation(
+                ConversationType.PROXY, qualifier, state=state,
+            )
+            proxy_bus.send(proxy_conv_id, 'joke-book-lead', question)
+            proxy_bus.send(
+                proxy_conv_id, 'proxy',
+                json.dumps({'status': status, 'message': message}),
+            )
+        finally:
+            proxy_bus.close()
+        return proxy_conv_id
+
     def _count_proxy_rows(self, parent_conv_id: str) -> int:
         bus = SqliteMessageBus(self.caller_bus_db)
         try:
@@ -186,6 +227,10 @@ class TestResumePickupReturnsExistingReply(_AskQuestionResilienceCase):
     """
 
     def test_existing_active_proxy_with_reply_is_returned_no_spawn(self) -> None:
+        from teaparty.mcp.registry import (
+            _active_escalations, mark_escalation_active,
+        )
+
         question = 'Pass 7: re-submitting for approval. OK to merge?'
         expected_reply = 'Yes, merge.'
 
@@ -194,6 +239,14 @@ class TestResumePickupReturnsExistingReply(_AskQuestionResilienceCase):
             proxy_reply=expected_reply,
             state=ConversationState.ACTIVE,
         )
+        # Simulate the bridge-restart re-marking (``rehydrate()`` marks
+        # every in-flight proxy child on startup).  Without this
+        # precondition the marker-leak invariant cannot be exercised:
+        # the runner.run() entrance path doesn't set the marker until
+        # the spawn branch, and the resume-pickup branch returns before
+        # that — so a marker leak only manifests when something else
+        # has already set the marker.
+        mark_escalation_active('caller-session-426:esc-prior')
 
         invoker = MagicMock()  # MagicMock is not awaitable; if called, fails
 
@@ -231,6 +284,23 @@ class TestResumePickupReturnsExistingReply(_AskQuestionResilienceCase):
             'conversation row state MUST be CLOSED — otherwise the bus '
             'leaks ACTIVE rows whose subprocess is long gone',
         )
+        # Marker hygiene: pickup-path return must not leave a marker
+        # behind.  ``rehydrate()`` re-marks every active proxy child
+        # on bridge restart, so a leaked qualifier here would deadlock
+        # the watchdog for the caller's session forever (suppressing
+        # any future non-AskQuestion stall — exactly what Risk #1 in
+        # the issue's risk comment warns against).
+        leaked = [
+            q for q in _active_escalations
+            if q.startswith('caller-session-426:')
+        ]
+        self.assertEqual(
+            leaked, [],
+            'resume-pickup return must clear the in-memory escalation '
+            'marker; otherwise the watchdog sees the session as still '
+            'in an in-flight escalation and never declares a stall, '
+            'even for unrelated hung tools',
+        )
 
     def test_existing_paused_proxy_with_reply_is_returned(self) -> None:
         """Bridge-restart variant: the bus startup sweep moves ACTIVE
@@ -238,6 +308,10 @@ class TestResumePickupReturnsExistingReply(_AskQuestionResilienceCase):
         them — otherwise a post-bridge-restart resume always falls
         through to a fresh spawn.
         """
+        from teaparty.mcp.registry import (
+            _active_escalations, mark_escalation_active,
+        )
+
         question = 'After bridge restart: same question, still waiting'
         expected_reply = 'reply that survived the restart'
 
@@ -246,6 +320,7 @@ class TestResumePickupReturnsExistingReply(_AskQuestionResilienceCase):
             proxy_reply=expected_reply,
             state=ConversationState.PAUSED,
         )
+        mark_escalation_active('caller-session-426:esc-prior')
 
         async def _should_not_be_called(**_: object) -> None:
             raise AssertionError(
@@ -259,6 +334,52 @@ class TestResumePickupReturnsExistingReply(_AskQuestionResilienceCase):
         self.assertEqual(
             self._conv_state(proxy_conv_id), ConversationState.CLOSED,
             'PAUSED-with-reply pickup must also CLOSE the row on delivery',
+        )
+        leaked = [
+            q for q in _active_escalations
+            if q.startswith('caller-session-426:')
+        ]
+        self.assertEqual(
+            leaked, [],
+            'paused-pickup return must clear the in-memory escalation '
+            'marker (rehydrate() may have re-marked the qualifier on '
+            'bridge restart, and the pickup-path close must clear it)',
+        )
+
+    def test_existing_paused_proxy_with_withdraw_reply_is_returned(self) -> None:
+        """WITHDRAW is the second terminal status the proxy can emit;
+        ``_find_resumable_reply`` formats WITHDRAW as
+        ``[WITHDRAW]\\n<reason>`` — distinct from RESPONSE — and must
+        be exercised lest a regression silently swap the formatting or
+        drop the WITHDRAW arm of the parser.
+        """
+        question = 'Should we proceed with the migration?'
+
+        proxy_conv_id = self._seed_existing_escalation_with_status(
+            question=question,
+            status='WITHDRAW',
+            message='abandoned — out of scope',
+            state=ConversationState.PAUSED,
+        )
+
+        async def _should_not_be_called(**_: object) -> None:
+            raise AssertionError(
+                'WITHDRAW pickup must not re-spawn the proxy',
+            )
+
+        runner = self._make_runner(proxy_invoker=_should_not_be_called)
+        answer = _run(runner.run(question))
+
+        self.assertEqual(
+            answer, '[WITHDRAW]\nabandoned — out of scope',
+            'WITHDRAW pickup must format the answer as '
+            "'[WITHDRAW]\\n<reason>' — exact match including bracket "
+            'prefix and newline; matches the contract that the '
+            'happy-path runner uses for the same terminal status',
+        )
+        self.assertEqual(
+            self._conv_state(proxy_conv_id), ConversationState.CLOSED,
+            'WITHDRAW pickup must also CLOSE the row',
         )
 
 
@@ -407,6 +528,19 @@ class TestHappyPathClosesProxyConversation(_AskQuestionResilienceCase):
             self._conv_state(proxy_conv_id), ConversationState.CLOSED,
             'happy-path RESPONSE must leave the proxy row CLOSED — '
             'this invariant is what lets the bus reflect real lifecycle',
+        )
+        # Marker hygiene on the happy path: the spawn-path ``finally``
+        # must clear the marker on RESPONSE termination.  Asymmetry
+        # between the spawn-path's terminal cleanup and the cancellation
+        # cleanup would defeat the marker hygiene the issue's mechanism
+        # describes ("the runner clears the sentinel and the watchdog
+        # resumes normal behaviour for the next turn").
+        from teaparty.mcp.registry import is_escalation_active
+        self.assertFalse(
+            is_escalation_active(captured_qualifier[0]),
+            'happy-path RESPONSE termination must clear the in-memory '
+            'escalation marker; otherwise the watchdog stays suppressed '
+            'after the wait completes successfully',
         )
 
 
