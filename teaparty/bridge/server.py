@@ -2120,6 +2120,16 @@ class TeaPartyBridge:
             when the slug is unknown (deleted project, registry drift).
           * ``<name>`` (no colon) → the click happened on the management
             page; cwd = management repo (the bridge's repo root).
+
+        Deliberate departure from the #425 spec: chat-tier launches do
+        NOT materialize a clone of the worktree.  The "stable snapshot
+        survives caller teardown" rationale (issue body, "Launch /
+        Materialization") applies to AskQuestion — where a concurrent
+        agent caller would otherwise race the proxy's reads.  In chat,
+        the human IS the caller; there is no race, and freezing the
+        worktree at chat-open time would surprise the user (their later
+        edits would be invisible to the proxy).  cwd is therefore the
+        live worktree, not a clone.
         """
         if ':' in qualifier:
             slug, _sep, _name = qualifier.partition(':')

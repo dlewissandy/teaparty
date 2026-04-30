@@ -258,9 +258,18 @@ class AskQuestionRunner:
         is the proxy's cwd.  The clone of the caller's worktree lives
         inside it as ``worktree/`` so every file the caller had is
         reachable to the proxy at ``./worktree/<relpath>`` during its
-        diligence pass.  The question stays at ``./QUESTION.md`` (the
-        existing convention).  The worktree-jail hook constrains reads
-        to this subtree, which covers both the question and the clone.
+        diligence pass.  The question stays at ``./QUESTION.md``.  The
+        worktree-jail hook constrains reads to this subtree, which
+        covers both the question and the clone.
+
+        Deliberate departure from the literal #425 spec text: the spec
+        says ``cwd is the worktree`` and references a separate
+        ``TEAPARTY_QUESTION_PATH`` env var for question delivery.
+        The session-dir-as-cwd layout (with ``worktree/`` as a sibling
+        of ``QUESTION.md``) keeps both inside one jail subtree without
+        needing a relative-path-escape (``../QUESTION.md``) and without
+        an env var the proxy cannot read (no ``Bash`` tool in the
+        catalog).  Skill bodies and tests target this layout.
 
         Returns the absolute path to ``QUESTION.md``.
         """
