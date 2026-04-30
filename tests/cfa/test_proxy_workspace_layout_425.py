@@ -186,5 +186,96 @@ class PrepareProxyWorkspaceTest(unittest.TestCase):
             )
 
 
+class PrepareProxyWorkspaceGitSourceTest(unittest.TestCase):
+    """End-to-end through the runner with a git-repo caller worktree.
+
+    The materialize unit tests cover ``git clone`` and ``copytree`` in
+    isolation; this test pins that ``_prepare_proxy_workspace`` uses
+    the right one (git path) when the caller's worktree is a real
+    repo, and that the layout invariants still hold (clone exists,
+    files reachable, no symlinks).
+    """
+
+    def setUp(self) -> None:
+        import subprocess
+        self._tmp = tempfile.mkdtemp(prefix='proxy-workspace-git-')
+        self.caller_worktree = os.path.join(self._tmp, 'caller-job', 'worktree')
+        self.session_path = os.path.join(self._tmp, 'proxy-session')
+        os.makedirs(self.caller_worktree)
+        os.makedirs(self.session_path)
+        self.expected_files = _make_caller_worktree(self.caller_worktree)
+        # Make the caller worktree a real git repo with one commit.
+        subprocess.run(
+            ['git', 'init', '-q', self.caller_worktree],
+            check=True, capture_output=True,
+        )
+        subprocess.run(
+            ['git', '-C', self.caller_worktree, 'config', 'user.email', 't@t'],
+            check=True,
+        )
+        subprocess.run(
+            ['git', '-C', self.caller_worktree, 'config', 'user.name', 't'],
+            check=True,
+        )
+        subprocess.run(
+            ['git', '-C', self.caller_worktree, 'add', '.'],
+            check=True, capture_output=True,
+        )
+        subprocess.run(
+            ['git', '-C', self.caller_worktree, 'commit', '-q', '-m', 'init'],
+            check=True, capture_output=True,
+        )
+        self.runner = AskQuestionRunner(
+            bus_db_path='',
+            session_id='session-test',
+            infra_dir=os.path.join(self._tmp, 'caller-job'),
+        )
+        self.child_session = _FakeChildSession(self.session_path)
+
+    def tearDown(self) -> None:
+        import shutil
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def test_git_source_files_reachable_in_clone(self) -> None:
+        self.runner._prepare_proxy_workspace(
+            self.child_session, question='Approve?', context='',
+        )
+        clone_dir = os.path.join(self.session_path, 'worktree')
+        for relpath in self.expected_files:
+            target = os.path.join(clone_dir, relpath)
+            self.assertTrue(
+                os.path.isfile(target),
+                f'git-source: clone missing {relpath}; runner did not '
+                f'dispatch through git clone correctly (#425)',
+            )
+
+    def test_git_source_clone_has_no_symlinks(self) -> None:
+        self.runner._prepare_proxy_workspace(
+            self.child_session, question='Approve?', context='',
+        )
+        clone_dir = os.path.join(self.session_path, 'worktree')
+        symlinks: list[str] = []
+        for dirpath, _dirs, files in os.walk(clone_dir):
+            for name in files:
+                full = os.path.join(dirpath, name)
+                if os.path.islink(full):
+                    symlinks.append(os.path.relpath(full, clone_dir))
+        self.assertEqual(
+            symlinks, [],
+            f'git-source clone contains symlinks: {symlinks}; '
+            f'#425 forbids symlinks',
+        )
+
+    def test_git_source_launch_cwd_is_session_path(self) -> None:
+        self.runner._prepare_proxy_workspace(
+            self.child_session, question='Approve?', context='',
+        )
+        self.assertEqual(
+            self.child_session.launch_cwd, self.session_path,
+            'git-source: launch_cwd must point at the session dir, '
+            'same as the plain-source case (#425)',
+        )
+
+
 if __name__ == '__main__':
     unittest.main()

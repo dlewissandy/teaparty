@@ -145,9 +145,18 @@ function participantItems(humans, scope, projectSlug) {
       return '<option value="' + r + '"' + (h.role === r ? ' selected' : '') + '>' + r + '</option>';
     }).join('');
     var scopeArg = projectSlug && scope !== 'global' ? "'" + scope + "','" + h.name + "',this.value,'" + projectSlug + "'" : "'" + scope + "','" + h.name + "',this.value";
+    // Issue #425: encode project scope in the proxy chat qualifier so
+    // the bridge resolves the proxy's cwd to the project's worktree
+    // when the click happened on a project page.  Bare ``proxy:<name>``
+    // (no slug) is the management/OM case.
+    var projectQualifier = projectSlug || (scope !== 'global' && scope.indexOf('wg:') !== 0 ? scope : '');
+    var convQualifier = projectQualifier
+      ? projectQualifier + ':' + h.name
+      : h.name;
+    var convId = 'proxy:' + encodeURIComponent(convQualifier);
     return itemCard({
       icon: '&#9786;', iconClass: 'icon-member',
-      title: '<a href="chat.html?conv=proxy:' + encodeURIComponent(h.name) + '" style="color:inherit;text-decoration:none" onmouseover="this.style.textDecoration=\'underline\'" onmouseout="this.style.textDecoration=\'none\'">' + h.name + '</a>',
+      title: '<a href="chat.html?conv=' + convId + '" style="color:inherit;text-decoration:none" onmouseover="this.style.textDecoration=\'underline\'" onmouseout="this.style.textDecoration=\'none\'">' + h.name + '</a>',
       trailing: '<select class="role-select" onchange="setParticipantRole(' + scopeArg + ')">' + sel + '</select>',
     });
   });

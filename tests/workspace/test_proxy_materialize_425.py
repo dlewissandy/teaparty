@@ -30,7 +30,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from teaparty.workspace.materialize import materialize_worktree
+from teaparty.workspace.materialize import (
+    MaterializationError,
+    materialize_worktree,
+)
 
 
 def _sha256(path: str) -> str:
@@ -215,9 +218,33 @@ class MaterializeNonEmptyDestTest(unittest.TestCase):
         import shutil
         shutil.rmtree(self._tmp, ignore_errors=True)
 
-    def test_non_empty_destination_raises(self) -> None:
-        with self.assertRaises(Exception):
+    def test_non_empty_destination_raises_materialization_error(self) -> None:
+        # The specific exception type matters: a future regression that
+        # silently merged the source into the dest could happen to raise
+        # an unrelated error elsewhere, and ``assertRaises(Exception)``
+        # would let that pass.  We pin the exact class.
+        with self.assertRaises(MaterializationError) as cm:
             materialize_worktree(self.src, self.dest)
+        self.assertIn(
+            'not empty', str(cm.exception).lower(),
+            'MaterializationError on a non-empty dest must explain '
+            'the reason in its message ("not empty" / "refusing to '
+            'merge"); a generic message hides the invariant.',
+        )
+
+    def test_non_empty_destination_does_not_partially_copy(self) -> None:
+        # The error should fire BEFORE any source files leak into the
+        # dest — a half-merged state is the bug pattern this guards.
+        try:
+            materialize_worktree(self.src, self.dest)
+        except MaterializationError:
+            pass
+        # Dest should still contain only the pre-existing file.
+        self.assertEqual(
+            sorted(os.listdir(self.dest)), ['preexisting.md'],
+            'non-empty-dest rejection must NOT partially merge source '
+            'files; dest must be untouched',
+        )
 
 
 if __name__ == '__main__':

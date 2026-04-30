@@ -85,8 +85,10 @@ class ProxyTeapartyHomeIsManagementTest(unittest.TestCase):
         coro = self.mini._invoke_proxy(qualifier, **kwargs)
         asyncio.run(coro)
 
-    def test_default_invocation_uses_management_home(self) -> None:
-        self._run('proxy:office-manager')
+    def test_management_invocation_uses_management_home(self) -> None:
+        # Bare-name qualifier (management-page click).  ``cwd`` is
+        # required by ``_invoke_proxy``; pass a placeholder.
+        self._run('primus', cwd=self.management_home)
         self.assertEqual(
             len(self.mini._invoke_agent_calls), 1,
             'expected exactly one _invoke_agent call',
@@ -94,7 +96,7 @@ class ProxyTeapartyHomeIsManagementTest(unittest.TestCase):
         call = self.mini._invoke_agent_calls[0]
         self.assertEqual(
             call.get('teaparty_home', ''), self.management_home,
-            f"default proxy launch must use management home "
+            f"proxy launch must use management home "
             f"({self.management_home}); got {call.get('teaparty_home')!r}",
         )
 
@@ -102,7 +104,7 @@ class ProxyTeapartyHomeIsManagementTest(unittest.TestCase):
         # A project-tier caller might pass its own teaparty_home; the
         # proxy must ignore it and stay at management (#425).
         self._run(
-            'proxy:joke-book-lead',
+            'joke-book:primus',
             cwd='/tmp/some-job-worktree',
             teaparty_home=self.project_home,
             scope='project',
@@ -123,7 +125,8 @@ class ProxyTeapartyHomeIsManagementTest(unittest.TestCase):
 
     def test_management_home_used_even_when_scope_is_project(self) -> None:
         self._run(
-            'proxy:joke-book-lead',
+            'joke-book:primus',
+            cwd='/tmp/joke-book/worktree',
             teaparty_home=self.project_home,
             scope='project',
         )

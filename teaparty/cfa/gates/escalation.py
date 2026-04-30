@@ -426,9 +426,15 @@ class AskQuestionRunner:
             while True:
                 invocation_start = time.time()
 
+                # The cwd handed to the proxy invoker is whatever
+                # ``_prepare_proxy_workspace`` set as the session's
+                # ``launch_cwd``.  Reading it back from the session
+                # rather than re-deriving here keeps the two in lock
+                # step — if the workspace layout changes, only the
+                # preparer knows the new cwd, and ``_route`` follows.
                 await self._proxy_invoker_fn(
                     qualifier=qualifier,
-                    cwd=child_session.path,
+                    cwd=child_session.launch_cwd,
                     teaparty_home=self._teaparty_home,
                     scope=self._scope,
                 )

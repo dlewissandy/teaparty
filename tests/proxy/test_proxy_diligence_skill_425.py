@@ -192,9 +192,15 @@ class DiligenceRailOrderingTest(unittest.TestCase):
 class DiligenceRailMandatoryLanguageTest(unittest.TestCase):
     """The rail must be required, not advisory.
 
-    Words like 'optionally', 'if helpful', 'review if useful' undermine the
-    rail.  The issue says: 'The skill body names these steps as required,
-    not advisory.'
+    Two halves:
+      * Forbid advisory hedges ('optionally', 'if helpful', etc.).
+      * Affirm explicit imperative phrasing — the diligence rail must
+        contain a sentence that calls itself out as required, not just
+        steps that happen to use imperative verbs.
+
+    A cosmetic rewrite that swaps 'walk the worktree' for 'you may walk
+    the worktree' would fail both — the first by the affirmative check,
+    the second by the forbidden-phrase check.
     """
 
     _ADVISORY_HINTS = (
@@ -204,8 +210,16 @@ class DiligenceRailMandatoryLanguageTest(unittest.TestCase):
         r'\bmay\s+also\b',
         r'\breview\s+if\b',
     )
+    # The skill bodies all carry a sentence affirming the rail's
+    # mandatory status.  The exact sentence varies slightly per skill;
+    # we accept any of the canonical forms.
+    _IMPERATIVE_HINTS = (
+        r'required,\s+not\s+advisory',
+        r'this\s+is\s+required',
+        r'mandatory,\s+not\s+optional',
+    )
 
-    def _check(self, skill: str) -> None:
+    def _check_no_advisory(self, skill: str) -> None:
         body = _load(skill)
         for pat in self._ADVISORY_HINTS:
             self.assertIsNone(
@@ -214,13 +228,75 @@ class DiligenceRailMandatoryLanguageTest(unittest.TestCase):
                 f'#425 diligence rail must be required, not optional',
             )
 
+    def _check_imperative_present(self, skill: str) -> None:
+        body = _load(skill)
+        present = any(
+            re.search(pat, body, re.IGNORECASE)
+            for pat in self._IMPERATIVE_HINTS
+        )
+        self.assertTrue(
+            present,
+            f'{skill}: must contain an explicit "required, not advisory" '
+            f'(or equivalent) statement on the diligence rail; the '
+            f'spec mandates this phrasing so a cosmetic rewrite to '
+            f'permissive language is rejected (#425)',
+        )
+
     def test_collaborate_no_advisory_phrasing(self) -> None:
-        self._check('collaborate.md')
+        self._check_no_advisory('collaborate.md')
 
     def test_escalate_no_advisory_phrasing(self) -> None:
-        self._check('escalate.md')
+        self._check_no_advisory('escalate.md')
 
     def test_delegate_no_advisory_phrasing(self) -> None:
+        self._check_no_advisory('delegate.md')
+
+    def test_collaborate_has_imperative_statement(self) -> None:
+        self._check_imperative_present('collaborate.md')
+
+    def test_escalate_has_imperative_statement(self) -> None:
+        self._check_imperative_present('escalate.md')
+
+    def test_delegate_has_imperative_statement(self) -> None:
+        self._check_imperative_present('delegate.md')
+
+
+class DiligenceRailNameFilesTest(unittest.TestCase):
+    """Acceptance: 'The proxy's reply names specific files it inspected.'
+
+    The skill body must instruct the proxy to name the files it
+    inspected when forming its reply.  Without this instruction the
+    diligence rail is invisible to the caller — a proxy that read
+    everything but didn't say so is indistinguishable from one that
+    read nothing.
+    """
+
+    _NAME_FILES_PATTERNS = (
+        r'name\s+(the\s+)?specific\s+files',
+        r'must\s+name.*files',
+        r'reply\s+must\s+name.*files',
+    )
+
+    def _check(self, skill: str) -> None:
+        body = _load(skill)
+        present = any(
+            re.search(pat, body, re.IGNORECASE)
+            for pat in self._NAME_FILES_PATTERNS
+        )
+        self.assertTrue(
+            present,
+            f"{skill}: must instruct the proxy to name specific files "
+            f"in its reply; without this the diligence rail is "
+            f"unobservable to the caller (#425 acceptance)",
+        )
+
+    def test_collaborate_requires_naming_files(self) -> None:
+        self._check('collaborate.md')
+
+    def test_escalate_requires_naming_files(self) -> None:
+        self._check('escalate.md')
+
+    def test_delegate_requires_naming_files(self) -> None:
         self._check('delegate.md')
 
 

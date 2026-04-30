@@ -1867,11 +1867,16 @@ class TeaPartyBridge:
             # for this qualifier — the runner fires the proxy itself
             # with the correct cwd / teaparty_home / scope.  A parallel
             # HTTP-triggered invoke would double-respond per human turn
-            # and run the proxy in the wrong cwd (the skill would fail
-            # to Read ./QUESTION.md).
+            # and run the proxy in the wrong cwd.
             from teaparty.mcp.registry import is_escalation_active
             if not is_escalation_active(qualifier):
-                asyncio.create_task(self._invoke_proxy(qualifier))
+                # #425: the call site computes cwd from its own
+                # knowledge of where the work lives and passes it; the
+                # launcher does not branch on caller type.
+                chat_cwd = self._proxy_chat_cwd(qualifier)
+                asyncio.create_task(
+                    self._invoke_proxy(qualifier, cwd=chat_cwd),
+                )
         elif conv_id.startswith('config:'):
             asyncio.create_task(self._invoke_config_lead(qualifier))
         elif conv_id.startswith('lead:'):
@@ -2105,18 +2110,19 @@ class TeaPartyBridge:
         """Resolve the cwd for a participants-card click on ``qualifier``.
 
         Per #425's intent table: the proxy launches in the worktree of
-        whoever it is standing in for.
+        whoever it is standing in for.  The participants-card UI
+        (``config.html::participantItems``) encodes the click's scope in
+        the qualifier:
 
-          * ``office-manager``  → management repo (the bridge's repo root).
-          * ``<slug>-lead``     → that project's worktree, when the slug
+          * ``<slug>:<name>`` → the click happened on the project page
+            for ``<slug>``; cwd = that project's worktree, when the slug
             resolves to a registered project.  Falls back to management
             when the slug is unknown (deleted project, registry drift).
-          * Anything else       → management.
+          * ``<name>`` (no colon) → the click happened on the management
+            page; cwd = management repo (the bridge's repo root).
         """
-        if qualifier == 'office-manager':
-            return self._repo_root
-        if qualifier.endswith('-lead'):
-            slug = qualifier[:-len('-lead')]
+        if ':' in qualifier:
+            slug, _sep, _name = qualifier.partition(':')
             project_path = self._lookup_project_path(slug)
             if project_path:
                 return project_path
@@ -2125,52 +2131,44 @@ class TeaPartyBridge:
     async def _invoke_proxy(
         self,
         qualifier: str,
-        cwd: str | None = None,
+        cwd: str,
         teaparty_home: str = '',
         scope: str = 'management',
     ) -> None:
         """Invoke the proxy agent for the given conversation qualifier.
 
-        Runs as a fire-and-forget asyncio task. The proxy agent reads the
+        Runs as a fire-and-forget asyncio task.  The proxy reads the
         conversation history and ACT-R memory, responds, processes any
-        [CORRECTION:...] signals, and writes its reply to the proxy bus.
-        MessageRelay picks up the reply and broadcasts it to WebSocket clients.
+        ``[CORRECTION:...]``/``[REINFORCE:...]`` signals, and writes
+        its reply to the proxy bus.  MessageRelay picks up the reply
+        and broadcasts it.  Concurrent invocations for the same
+        qualifier queue via an asyncio.Lock.
 
-        Concurrent invocations for the same qualifier queue via an asyncio.Lock —
-        the second message begins only after the first completes, ensuring the
-        --resume session ID from the first turn is available to the second.
+        On runner failure, writes an error message to the bus so the
+        human sees feedback rather than silence.
 
-        On runner failure, writes an error message to the bus so the human sees
-        feedback rather than silence.
-
-        ``cwd`` is None for ordinary proxy chat — the registry resolves the
-        proxy's launch_cwd to the repo root.  The escalation path passes a
-        per-escalation session directory (a clone of the caller's worktree,
-        per #425), which becomes the proxy's ``launch_cwd_override``.
+        ``cwd`` is the proxy's launch directory.  Required, supplied by
+        the caller — per #425 the launcher does not branch on caller
+        type.  Each engagement site passes its own cwd: the AskQuestion
+        path passes the per-escalation session directory; the chat-tier
+        message dispatch passes ``_proxy_chat_cwd(qualifier)``.
 
         ``teaparty_home`` and ``scope`` arguments are accepted for
         compatibility with existing call sites but ignored: the proxy's
         runtime files (sessions, message bus, ACT-R memory DB) always
         live under the bridge's management home (#425 — memory must not
-        fracture across project boundaries).  Whatever caller engages
-        the proxy, its state lands in one place.
+        fracture across project boundaries).
         """
         del teaparty_home, scope  # bridge's management home is the only home
         from teaparty.proxy.hooks import proxy_post_invoke, proxy_build_prompt
-        # Chat-side cwd resolution: per #425 the proxy launches in the
-        # worktree of whoever the human clicked on (the participant).
-        # The escalation path passes ``cwd`` explicitly (the materialized
-        # clone of the caller's worktree); we only resolve here when no
-        # cwd was supplied (chat-tier message dispatch).
-        effective_cwd = cwd if cwd is not None else self._proxy_chat_cwd(qualifier)
         await self._invoke_agent(
             session_key=f'proxy:{qualifier}',
             agent_name='proxy',
             agent_role='proxy',
             qualifier=qualifier,
             conversation_type=ConversationType.PROXY,
-            cwd=effective_cwd,
-            launch_cwd_override=effective_cwd,
+            cwd=cwd,
+            launch_cwd_override=cwd,
             teaparty_home=self.teaparty_home,
             scope='management',
             post_invoke_hook=proxy_post_invoke,
