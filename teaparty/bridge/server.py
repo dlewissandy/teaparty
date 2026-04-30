@@ -2158,18 +2158,29 @@ class TeaPartyBridge:
         chat's lifetime; the proxy reviews "what the work looked like
         when the human opened this chat."
 
+        Snapshot lifetime is tied to the proxy's AgentSession.  If the
+        session is cached in this process, the snapshot is current and
+        we reuse it.  If not (bridge just started, chat was closed and
+        reopened, or the cache was cleared), we discard any stale
+        clone on disk and materialize a fresh snapshot.
+
         Returns the absolute path of the clone (the proxy's cwd).
         """
+        import shutil
         from teaparty.workspace.materialize import materialize_worktree
 
         clone_dir = self._proxy_chat_clone_dir(qualifier)
-        if os.path.isdir(clone_dir) and os.listdir(clone_dir):
-            # Already materialized for this chat — reuse.
+        session_key = f'proxy:{qualifier}'
+        session_cached = session_key in self._agent_sessions
+        if session_cached and os.path.isdir(clone_dir) and os.listdir(clone_dir):
+            # Same chat instance in this bridge process — reuse the
+            # snapshot from when this AgentSession was first created.
             return clone_dir
-        source = self._proxy_chat_source_worktree(qualifier)
-        # Remove any stale empty leftover before materializing into it.
+        # Fresh chat (new bridge process, or chat reopened after the
+        # cache was cleared): wipe any stale snapshot and re-materialize.
         if os.path.isdir(clone_dir):
-            os.rmdir(clone_dir)
+            shutil.rmtree(clone_dir, ignore_errors=True)
+        source = self._proxy_chat_source_worktree(qualifier)
         os.makedirs(os.path.dirname(clone_dir), exist_ok=True)
         materialize_worktree(source, clone_dir)
         return clone_dir

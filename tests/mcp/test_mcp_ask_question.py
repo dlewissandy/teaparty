@@ -165,9 +165,29 @@ class TestRunnerSkillLoop(unittest.TestCase):
 
         async def mock_invoker(qualifier: str, cwd: str, **_: object) -> None:
             invocations.append((qualifier, cwd))
-            # The cwd is the materialized worktree clone (#425);
-            # the question itself reaches the proxy via the bus.
+            # The cwd is the materialized worktree clone (#425).
             assert os.path.isdir(cwd), f'cwd {cwd!r} must exist'
+            assert os.path.basename(cwd) == 'worktree', (
+                f'cwd basename must be `worktree` (the clone subdir); '
+                f'got {cwd!r}'
+            )
+            # The question must already be on the bus when the proxy is
+            # invoked — that is how the proxy receives it via its
+            # conversation history (#425; QUESTION.md is gone).
+            proxy_bus = SqliteMessageBus(self.proxy_bus_path)
+            conv_id = make_conversation_id(ConversationType.PROXY, qualifier)
+            messages = proxy_bus.receive(conv_id)
+            question_messages = [
+                m for m in messages
+                if m.sender not in ('proxy', 'human')
+                and 'What database?' in m.content
+            ]
+            assert question_messages, (
+                'expected the requesting agent\'s question to appear '
+                'on the proxy bus before invocation; the proxy reads '
+                'it via conversation history (#425).  Saw: '
+                f'{[(m.sender, m.content[:40]) for m in messages]}'
+            )
             # Accordion invariant: mid-loop, build_dispatch_tree rooted
             # at the dispatcher sees the escalation as a child node with
             # agent_name='proxy'.
@@ -179,8 +199,6 @@ class TestRunnerSkillLoop(unittest.TestCase):
                     root_session_id='test-dispatcher',
                 ),
             )
-            proxy_bus = SqliteMessageBus(self.proxy_bus_path)
-            conv_id = make_conversation_id(ConversationType.PROXY, qualifier)
             proxy_bus.send(conv_id, 'proxy', json.dumps({
                 'status': 'RESPONSE', 'message': 'Use Postgres',
             }))

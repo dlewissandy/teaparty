@@ -136,6 +136,11 @@ class ProxyChatWorkspaceMaterializationTest(unittest.TestCase):
             self.teaparty_home,
             {'jokebook': self.project_path},
         )
+        # The bridge's _ensure_proxy_chat_workspace consults the
+        # ``_agent_sessions`` cache to decide whether the snapshot is
+        # current.  Provide an empty cache so we can populate it in
+        # specific tests that exercise the reuse path.
+        self.mini._agent_sessions = {}
         _bind(
             self.mini,
             '_proxy_chat_source_worktree',
@@ -180,11 +185,13 @@ class ProxyChatWorkspaceMaterializationTest(unittest.TestCase):
             f'symlinks (worktree-jail would reject via realpath)',
         )
 
-    def test_repeated_call_reuses_existing_clone(self) -> None:
+    def test_repeated_call_within_session_reuses_existing_clone(self) -> None:
         # Snapshot is taken at chat-open time; subsequent turns of the
-        # same chat must reuse the same clone (the proxy reviews "what
-        # the work looked like when the human opened this chat").
+        # *same* AgentSession reuse the clone.  We simulate the cached
+        # session by populating the agent_sessions dict.
         clone1 = self.mini._ensure_proxy_chat_workspace('jokebook:primus')
+        # Pretend the AgentSession got created after that first call.
+        self.mini._agent_sessions['proxy:jokebook:primus'] = object()
         # Mutate the clone to mark it.
         marker = os.path.join(clone1, '.chat-marker')
         with open(marker, 'w') as f:
@@ -197,9 +204,39 @@ class ProxyChatWorkspaceMaterializationTest(unittest.TestCase):
         )
         self.assertTrue(
             os.path.isfile(marker),
-            f'reuse must NOT re-clone over the existing dir; the '
-            f"marker file at {marker} should survive (#425 — chat "
-            f"snapshot is stable across turns)",
+            f'reuse within an AgentSession must NOT re-clone over the '
+            f"existing dir; the marker at {marker} should survive "
+            f"(#425 — chat snapshot is stable across turns)",
+        )
+
+    def test_fresh_chat_after_session_eviction_remateralizes(self) -> None:
+        # First materialization, mark the clone, then drop the
+        # AgentSession (simulating bridge restart or chat close).  The
+        # next call must wipe the stale clone and take a fresh snapshot.
+        clone1 = self.mini._ensure_proxy_chat_workspace('jokebook:primus')
+        marker = os.path.join(clone1, '.stale-marker')
+        with open(marker, 'w') as f:
+            f.write('this should disappear on a fresh chat')
+        # Source worktree gains a new file AFTER the first snapshot.
+        new_file = os.path.join(
+            self.project_path, 'manuscript', 'chapter-2.md',
+        )
+        with open(new_file, 'w') as f:
+            f.write('# chapter two — added after first snapshot\n')
+        # No AgentSession cached → ensure() must re-materialize.
+        # (The cache is empty by default in setUp.)
+        self.mini._ensure_proxy_chat_workspace('jokebook:primus')
+        self.assertFalse(
+            os.path.isfile(marker),
+            f"a fresh chat (no AgentSession cached) must wipe the "
+            f"stale clone; the old marker at {marker} should be gone "
+            f"(#425 — snapshot taken at chat-open time)",
+        )
+        self.assertTrue(
+            os.path.isfile(os.path.join(clone1, 'manuscript', 'chapter-2.md')),
+            "fresh re-materialization must capture source changes "
+            "made between snapshots (#425 — snapshot is current at "
+            "chat-open time, not stale from a previous session)",
         )
 
     def test_distinct_qualifiers_get_distinct_clones(self) -> None:
