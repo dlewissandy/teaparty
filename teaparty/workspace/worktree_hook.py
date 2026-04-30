@@ -1,14 +1,30 @@
 """PreToolUse hook: restrict file tools to the worktree.
 
 Runs as a subprocess of Claude Code.  Reads hook input from stdin,
-checks whether the target path is within the worktree (cwd),
-and returns allow/deny JSON.
+checks whether the target path is within the worktree (cwd), and
+returns Claude Code's PreToolUse permission verdict.
 
 Covers: Read, Edit, Write (file_path), Glob, Grep (path).
 
-Messages are crafted to guide the agent without leaking directory structure:
-- Outside worktree:  "You are restricted to files in your worktree"
-- Absolute path to own worktree:  "Use relative path '<rel>' instead"
+Output protocol — must match what Claude Code consumes for PreToolUse:
+
+    {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "allow" | "deny",
+            "permissionDecisionReason": "<message>"
+        }
+    }
+
+The legacy ``{"allowed": <bool>, "reason": "..."}`` shape is no
+longer honored by Claude Code: a deny in that shape was silently
+treated as "no decision" and the tool ran anyway.  See issue #425
+follow-up for the regression that surfaced this.
+
+The ``allowed``/``reason`` keys are still emitted alongside the
+canonical fields so existing tests and tooling that read the legacy
+shape continue to work; Claude Code reads ``hookSpecificOutput`` and
+ignores the legacy keys when both are present.
 """
 from __future__ import annotations
 
@@ -22,6 +38,28 @@ _FILE_PATH_TOOLS = frozenset({'Read', 'Edit', 'Write'})
 _PATH_TOOLS = frozenset({'Glob', 'Grep'})
 
 
+def _allow() -> dict:
+    return {
+        'allowed': True,
+        'hookSpecificOutput': {
+            'hookEventName': 'PreToolUse',
+            'permissionDecision': 'allow',
+        },
+    }
+
+
+def _deny(reason: str) -> dict:
+    return {
+        'allowed': False,
+        'reason': reason,
+        'hookSpecificOutput': {
+            'hookEventName': 'PreToolUse',
+            'permissionDecision': 'deny',
+            'permissionDecisionReason': reason,
+        },
+    }
+
+
 def _check(tool_name: str, tool_input: dict) -> dict:
     # Extract the relevant path parameter
     if tool_name in _FILE_PATH_TOOLS:
@@ -29,16 +67,16 @@ def _check(tool_name: str, tool_input: dict) -> dict:
     elif tool_name in _PATH_TOOLS:
         target = tool_input.get('path', '')
     else:
-        return {'allowed': True}
+        return _allow()
 
     if not target:
-        return {'allowed': True}
+        return _allow()
 
     worktree = os.getcwd()
 
     # Relative paths resolve within worktree — always allowed
     if not os.path.isabs(target):
-        return {'allowed': True}
+        return _allow()
 
     abs_target = os.path.normpath(target)
     worktree_norm = os.path.normpath(worktree)
@@ -54,20 +92,19 @@ def _check(tool_name: str, tool_input: dict) -> dict:
     # stylistic preference, not a safety boundary.  Allowing the
     # write removes the friction without changing the safety model.
     if abs_target == worktree_norm or abs_target.startswith(worktree_norm + os.sep):
-        return {'allowed': True}
+        return _allow()
 
     # Outside worktree entirely — this is the actual safety boundary.
-    return {
-        'allowed': False,
-        'reason': 'You are restricted to files in your worktree',
-    }
+    return _deny('You are restricted to files in your worktree')
 
 
 def main() -> None:
     try:
         raw = json.loads(sys.stdin.read())
     except (json.JSONDecodeError, OSError):
-        json.dump({'allowed': True}, sys.stdout)
+        # Fail-open on malformed input — a crash here would be invisible
+        # to the operator (hook runs as a fire-and-forget subprocess).
+        json.dump(_allow(), sys.stdout)
         return
 
     tool_name = raw.get('tool_name', '')

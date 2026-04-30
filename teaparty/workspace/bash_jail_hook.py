@@ -46,11 +46,33 @@ _WRITE_COMMANDS = frozenset({
 
 
 def _deny(reason: str) -> dict:
-    return {'allowed': False, 'reason': reason}
+    # Output protocol — must match what Claude Code consumes for
+    # PreToolUse.  The legacy ``{"allowed": <bool>, "reason": "..."}``
+    # shape is no longer honored: a deny in that shape was silently
+    # treated as "no decision" and the tool ran anyway (#425 follow-up).
+    # The legacy keys are kept alongside the canonical
+    # ``hookSpecificOutput`` so existing tests reading the old shape
+    # still work; Claude Code reads ``hookSpecificOutput`` and ignores
+    # the legacy keys when both are present.
+    return {
+        'allowed': False,
+        'reason': reason,
+        'hookSpecificOutput': {
+            'hookEventName': 'PreToolUse',
+            'permissionDecision': 'deny',
+            'permissionDecisionReason': reason,
+        },
+    }
 
 
 def _allow() -> dict:
-    return {'allowed': True}
+    return {
+        'allowed': True,
+        'hookSpecificOutput': {
+            'hookEventName': 'PreToolUse',
+            'permissionDecision': 'allow',
+        },
+    }
 
 
 def _check_bash(command: str, worktree: str) -> dict:
@@ -137,11 +159,11 @@ def main() -> None:
         # Malformed hook input — fail open (transport bug should not block
         # agent work).  The substring/token checks would have nothing to
         # examine anyway.
-        json.dump({'allowed': True}, sys.stdout)
+        json.dump(_allow(), sys.stdout)
         return
 
     if raw.get('tool_name') != 'Bash':
-        json.dump({'allowed': True}, sys.stdout)
+        json.dump(_allow(), sys.stdout)
         return
 
     command = raw.get('tool_input', {}).get('command', '') or ''
