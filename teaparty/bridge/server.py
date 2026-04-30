@@ -1867,11 +1867,17 @@ class TeaPartyBridge:
             # for this qualifier — the runner fires the proxy itself
             # with the correct cwd / teaparty_home / scope.  A parallel
             # HTTP-triggered invoke would double-respond per human turn
-            # and run the proxy in the wrong cwd (the skill would fail
-            # to Read ./QUESTION.md).
+            # and run the proxy in the wrong cwd.
             from teaparty.mcp.registry import is_escalation_active
             if not is_escalation_active(qualifier):
-                asyncio.create_task(self._invoke_proxy(qualifier))
+                # #425: the call site materializes the participant's
+                # worktree into a per-chat clone (snapshot at chat-open
+                # time) and passes that clone as cwd.  The launcher
+                # does not branch on caller type.
+                chat_cwd = self._ensure_proxy_chat_workspace(qualifier)
+                asyncio.create_task(
+                    self._invoke_proxy(qualifier, cwd=chat_cwd),
+                )
         elif conv_id.startswith('config:'):
             asyncio.create_task(self._invoke_config_lead(qualifier))
         elif conv_id.startswith('lead:'):
@@ -2101,37 +2107,116 @@ class TeaPartyBridge:
             project_slug=project_slug,
         )
 
+    def _proxy_chat_source_worktree(self, qualifier: str) -> str:
+        """Resolve the source worktree for a participants-card click.
+
+        Per #425's intent table, the proxy launches in the worktree of
+        whoever it is standing in for.  The participants-card UI
+        (``config.html::participantItems``) encodes the click's scope in
+        the qualifier:
+
+          * ``<slug>:<name>`` → click on the project page for ``<slug>``;
+            source = that project's worktree, when the slug resolves to
+            a registered project.  Falls back to management when the
+            slug is unknown (deleted project, registry drift).
+          * ``<name>`` (no colon) → click on the management page;
+            source = management repo (the bridge's repo root).
+
+        This returns the source worktree.  The caller materializes it
+        into the proxy's per-chat clone via
+        ``_ensure_proxy_chat_workspace`` before launch — the proxy's
+        cwd is the clone, not the source.
+        """
+        if ':' in qualifier:
+            slug, _sep, _name = qualifier.partition(':')
+            project_path = self._lookup_project_path(slug)
+            if project_path:
+                return project_path
+        return self._repo_root
+
+    def _proxy_chat_clone_dir(self, qualifier: str) -> str:
+        """The stable per-chat clone path under the management home.
+
+        One directory per chat session, keyed by the qualifier.  Reused
+        across turns so the proxy stays inside the same snapshot for
+        the chat's lifetime.  Closing the chat (or removing the dir
+        out-of-band) causes the next turn to re-materialize.
+        """
+        safe = (
+            qualifier.replace('/', '-').replace(':', '-').replace(' ', '-')
+        )
+        return os.path.join(
+            self.teaparty_home, 'proxy-chats', safe, 'worktree',
+        )
+
+    def _ensure_proxy_chat_workspace(self, qualifier: str) -> str:
+        """Materialize the participant's worktree as a per-chat clone.
+
+        Per #425, the proxy launches inside a real-file copy of the
+        caller's worktree — uniform across engagement types.  For chat
+        the snapshot is taken at chat-open time and reused for the
+        chat's lifetime; the proxy reviews "what the work looked like
+        when the human opened this chat."
+
+        Snapshot lifetime is tied to the proxy's AgentSession.  If the
+        session is cached in this process, the snapshot is current and
+        we reuse it.  If not (bridge just started, chat was closed and
+        reopened, or the cache was cleared), we discard any stale
+        clone on disk and materialize a fresh snapshot.
+
+        Returns the absolute path of the clone (the proxy's cwd).
+        """
+        import shutil
+        from teaparty.workspace.materialize import materialize_worktree
+
+        clone_dir = self._proxy_chat_clone_dir(qualifier)
+        session_key = f'proxy:{qualifier}'
+        session_cached = session_key in self._agent_sessions
+        if session_cached and os.path.isdir(clone_dir) and os.listdir(clone_dir):
+            # Same chat instance in this bridge process — reuse the
+            # snapshot from when this AgentSession was first created.
+            return clone_dir
+        # Fresh chat (new bridge process, or chat reopened after the
+        # cache was cleared): wipe any stale snapshot and re-materialize.
+        if os.path.isdir(clone_dir):
+            shutil.rmtree(clone_dir, ignore_errors=True)
+        source = self._proxy_chat_source_worktree(qualifier)
+        os.makedirs(os.path.dirname(clone_dir), exist_ok=True)
+        materialize_worktree(source, clone_dir)
+        return clone_dir
+
     async def _invoke_proxy(
         self,
         qualifier: str,
-        cwd: str | None = None,
+        cwd: str,
         teaparty_home: str = '',
         scope: str = 'management',
     ) -> None:
         """Invoke the proxy agent for the given conversation qualifier.
 
-        Runs as a fire-and-forget asyncio task. The proxy agent reads the
+        Runs as a fire-and-forget asyncio task.  The proxy reads the
         conversation history and ACT-R memory, responds, processes any
-        [CORRECTION:...] signals, and writes its reply to the proxy bus.
-        MessageRelay picks up the reply and broadcasts it to WebSocket clients.
+        ``[CORRECTION:...]``/``[REINFORCE:...]`` signals, and writes
+        its reply to the proxy bus.  MessageRelay picks up the reply
+        and broadcasts it.  Concurrent invocations for the same
+        qualifier queue via an asyncio.Lock.
 
-        Concurrent invocations for the same qualifier queue via an asyncio.Lock —
-        the second message begins only after the first completes, ensuring the
-        --resume session ID from the first turn is available to the second.
+        On runner failure, writes an error message to the bus so the
+        human sees feedback rather than silence.
 
-        On runner failure, writes an error message to the bus so the human sees
-        feedback rather than silence.
+        ``cwd`` is the proxy's launch directory.  Required, supplied by
+        the caller — per #425 the launcher does not branch on caller
+        type.  Each engagement site passes its own cwd: the AskQuestion
+        path passes the per-escalation session directory; the chat-tier
+        message dispatch passes ``_proxy_chat_cwd(qualifier)``.
 
-        ``cwd`` is None for ordinary proxy chat — the registry resolves the
-        proxy's launch_cwd to the repo root.  The escalation path (issue #420)
-        passes a per-escalation session directory, which becomes the proxy's
-        ``launch_cwd_override`` so ``./QUESTION.md`` resolves correctly.
-
-        ``teaparty_home``/``scope`` default to the bridge's management home.
-        The escalation path passes the caller's home and scope so the proxy's
-        escalation session lives alongside the caller's session — required for
-        ``build_dispatch_tree`` to walk into the escalation's child node.
+        ``teaparty_home`` and ``scope`` arguments are accepted for
+        compatibility with existing call sites but ignored: the proxy's
+        runtime files (sessions, message bus, ACT-R memory DB) always
+        live under the bridge's management home (#425 — memory must not
+        fracture across project boundaries).
         """
+        del teaparty_home, scope  # bridge's management home is the only home
         from teaparty.proxy.hooks import proxy_post_invoke, proxy_build_prompt
         await self._invoke_agent(
             session_key=f'proxy:{qualifier}',
@@ -2139,10 +2224,10 @@ class TeaPartyBridge:
             agent_role='proxy',
             qualifier=qualifier,
             conversation_type=ConversationType.PROXY,
-            cwd=cwd if cwd is not None else self._repo_root,
-            launch_cwd_override=cwd or '',
-            teaparty_home=teaparty_home,
-            scope=scope,
+            cwd=cwd,
+            launch_cwd_override=cwd,
+            teaparty_home=self.teaparty_home,
+            scope='management',
             post_invoke_hook=proxy_post_invoke,
             build_prompt_hook=proxy_build_prompt,
         )

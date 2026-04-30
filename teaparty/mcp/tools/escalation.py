@@ -20,7 +20,6 @@ async def ask_question_handler(
     context: str = '',
     *,
     scratch_path: str = '',
-    attachments: list[str] | None = None,
 ) -> str:
     """Delegate the AskQuestion tool call to the caller's runner.
 
@@ -28,10 +27,11 @@ async def ask_question_handler(
     that can receive questions.  The runner drives the proxy + skill
     loop and returns the answer; this handler is a thin lookup.
 
-    ``attachments`` are filepaths the agent named, relative to its
-    own worktree.  The runner copies each into the responder's
-    session dir at the same relative path so the responder can read
-    them with ``Read .scratch/<name>.md`` etc.
+    The proxy launches inside a real-file clone of the caller's
+    worktree (#425), so any file the caller could read is reachable
+    by the proxy at the same relative path under ``worktree/``.  No
+    attachment hand-off is needed; the proxy walks the clone itself
+    during its diligence pass.
     """
     if not question or not question.strip():
         raise ValueError('AskQuestion requires a non-empty question')
@@ -51,7 +51,7 @@ async def ask_question_handler(
             'the agent session must register one before AskQuestion '
             'becomes callable.',
         )
-    return await runner.run(question, context, attachments=list(attachments or []))
+    return await runner.run(question, context)
 
 
 # ── Scratch file helpers ────────────────────────────────────────────────
