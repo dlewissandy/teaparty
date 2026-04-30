@@ -3,15 +3,14 @@
 When the proxy is engaged from an AskQuestion call:
 
   1. `<session_path>/worktree/` exists and is a real-file clone of the
-     caller's worktree (issue invariant: cwd is the caller's worktree;
-     clone is the materialization of that).
-  2. `<session_path>/QUESTION.md` exists and holds the question text
-     (out of the caller's worktree clone, so walking the worktree does
-     not surface the question file as a deliverable).
-  3. The cwd handed to the proxy invoker is the clone path
-     (`<session_path>/worktree/`), not the session dir.
-  4. The clone is real files, no symlinks (so the worktree-jail does not
+     caller's worktree.
+  2. `child_session.launch_cwd` is set to that clone — the proxy's cwd
+     IS the worktree (issue #425 intent table, verbatim).
+  3. The clone is real files, no symlinks (so the worktree-jail does not
      reject any of them via realpath resolution).
+  4. No `QUESTION.md` is written.  The question reaches the proxy via
+     the conversation history (posted to the bus by ``_route``).  The
+     workspace is purely a snapshot of the work to review.
 
 Each test pins one slice so a regression names the specific layout fault.
 """
@@ -78,33 +77,27 @@ class PrepareProxyWorkspaceTest(unittest.TestCase):
         self.assertTrue(
             hasattr(self.runner, '_prepare_proxy_workspace'),
             "AskQuestionRunner must expose `_prepare_proxy_workspace` "
-            "(#425 — single helper that materializes clone + writes "
-            "question)",
+            "(#425 — materialize the caller's worktree as cwd)",
         )
 
     def test_clone_exists_under_session_path(self) -> None:
-        self.runner._prepare_proxy_workspace(
-            self.child_session, question='Approve?', context='',
-        )
+        self.runner._prepare_proxy_workspace(self.child_session)
         clone_dir = os.path.join(self.session_path, 'worktree')
         self.assertTrue(
             os.path.isdir(clone_dir),
-            f'expected clone at {clone_dir} after _prepare_proxy_workspace; '
-            f"the proxy's cwd must contain a materialized copy of the "
-            f"caller's worktree (#425)",
+            f'expected clone at {clone_dir}; the proxy\'s cwd must '
+            f"be a materialized copy of the caller's worktree (#425)",
         )
 
     def test_clone_holds_every_caller_file(self) -> None:
-        self.runner._prepare_proxy_workspace(
-            self.child_session, question='Approve?', context='',
-        )
+        self.runner._prepare_proxy_workspace(self.child_session)
         clone_dir = os.path.join(self.session_path, 'worktree')
         for relpath, expected in self.expected_files.items():
             target = os.path.join(clone_dir, relpath)
             self.assertTrue(
                 os.path.isfile(target),
-                f"clone missing {relpath}; proxy can't review what isn't "
-                f"copied (#425)",
+                f"clone missing {relpath}; proxy can't review what "
+                f"isn't copied (#425)",
             )
             with open(target) as f:
                 actual = f.read()
@@ -114,9 +107,7 @@ class PrepareProxyWorkspaceTest(unittest.TestCase):
             )
 
     def test_clone_contains_no_symlinks(self) -> None:
-        self.runner._prepare_proxy_workspace(
-            self.child_session, question='Approve?', context='',
-        )
+        self.runner._prepare_proxy_workspace(self.child_session)
         clone_dir = os.path.join(self.session_path, 'worktree')
         symlinks: list[str] = []
         for dirpath, _dirs, files in os.walk(clone_dir):
@@ -130,59 +121,47 @@ class PrepareProxyWorkspaceTest(unittest.TestCase):
             f'symlinks (worktree-jail would reject them via realpath)',
         )
 
-    def test_question_md_lives_at_session_root_not_in_clone(self) -> None:
-        self.runner._prepare_proxy_workspace(
-            self.child_session, question='Approve?', context='',
-        )
+    def test_no_question_md_is_written(self) -> None:
+        # The question reaches the proxy via the bus (conversation
+        # history), not via a file.  Writing one would be redundant
+        # and would surface to the diligence walk as a non-deliverable.
+        self.runner._prepare_proxy_workspace(self.child_session)
         question_md = os.path.join(self.session_path, 'QUESTION.md')
-        self.assertTrue(
-            os.path.isfile(question_md),
-            f"QUESTION.md must live at session root ({question_md}); "
-            f'#425 keeps it out of the caller worktree clone',
+        self.assertFalse(
+            os.path.exists(question_md),
+            "no ./QUESTION.md should exist in the proxy workspace; "
+            "the question is delivered via the bus (#425)",
         )
-        # And NOT under the clone — walking worktree must not surface it.
         clone_dir = os.path.join(self.session_path, 'worktree')
         self.assertFalse(
             os.path.exists(os.path.join(clone_dir, 'QUESTION.md')),
-            "QUESTION.md must NOT appear inside the caller-worktree "
-            "clone; that pollutes the diligence-rail walk (#425)",
+            "no QUESTION.md should appear inside the worktree clone; "
+            "the question is delivered via the bus (#425)",
         )
 
-    def test_question_md_holds_the_question_text(self) -> None:
-        self.runner._prepare_proxy_workspace(
-            self.child_session, question='Should we approve chapter 1?',
-            context='',
-        )
-        with open(os.path.join(self.session_path, 'QUESTION.md')) as f:
-            body = f.read()
-        self.assertIn(
-            'Should we approve chapter 1?', body,
-            'QUESTION.md must contain the question text verbatim (#425)',
-        )
-
-    def test_launch_cwd_is_set_to_session_path(self) -> None:
-        self.runner._prepare_proxy_workspace(
-            self.child_session, question='Approve?', context='',
-        )
+    def test_launch_cwd_is_set_to_clone_path(self) -> None:
+        self.runner._prepare_proxy_workspace(self.child_session)
+        clone_dir = os.path.join(self.session_path, 'worktree')
         self.assertEqual(
-            self.child_session.launch_cwd, self.session_path,
-            f"child_session.launch_cwd must point at the session dir "
-            f"({self.session_path}); the worktree-jail then bounds "
-            f"reads to that subtree, covering both ./QUESTION.md and "
-            f"./worktree/ (#425)",
+            self.child_session.launch_cwd, clone_dir,
+            f"child_session.launch_cwd must point at the clone "
+            f"({clone_dir}); per #425 the proxy's cwd IS the "
+            f"materialized worktree, not its parent dir",
         )
 
-    def test_clone_is_reachable_from_launch_cwd(self) -> None:
-        self.runner._prepare_proxy_workspace(
-            self.child_session, question='Approve?', context='',
-        )
-        clone_dir = os.path.join(self.child_session.launch_cwd, 'worktree')
+    def test_caller_files_reachable_at_cwd_root(self) -> None:
+        # The diligence rail says "walk the worktree (your cwd)" —
+        # caller files must be at ``./<relpath>`` from cwd, not
+        # ``./worktree/<relpath>`` (that would mean cwd is the parent
+        # of the worktree).
+        self.runner._prepare_proxy_workspace(self.child_session)
         for relpath in self.expected_files:
             self.assertTrue(
-                os.path.isfile(os.path.join(clone_dir, relpath)),
-                f"file {relpath} must be reachable from launch_cwd "
-                f"as worktree/{relpath} (#425 — proxy walks the clone "
-                f"subtree under cwd)",
+                os.path.isfile(
+                    os.path.join(self.child_session.launch_cwd, relpath),
+                ),
+                f"file {relpath} must be reachable from launch_cwd at "
+                f"./{relpath} (#425 — cwd is the worktree itself)",
             )
 
 
@@ -237,9 +216,7 @@ class PrepareProxyWorkspaceGitSourceTest(unittest.TestCase):
         shutil.rmtree(self._tmp, ignore_errors=True)
 
     def test_git_source_files_reachable_in_clone(self) -> None:
-        self.runner._prepare_proxy_workspace(
-            self.child_session, question='Approve?', context='',
-        )
+        self.runner._prepare_proxy_workspace(self.child_session)
         clone_dir = os.path.join(self.session_path, 'worktree')
         for relpath in self.expected_files:
             target = os.path.join(clone_dir, relpath)
@@ -250,9 +227,7 @@ class PrepareProxyWorkspaceGitSourceTest(unittest.TestCase):
             )
 
     def test_git_source_clone_has_no_symlinks(self) -> None:
-        self.runner._prepare_proxy_workspace(
-            self.child_session, question='Approve?', context='',
-        )
+        self.runner._prepare_proxy_workspace(self.child_session)
         clone_dir = os.path.join(self.session_path, 'worktree')
         symlinks: list[str] = []
         for dirpath, _dirs, files in os.walk(clone_dir):
@@ -266,14 +241,14 @@ class PrepareProxyWorkspaceGitSourceTest(unittest.TestCase):
             f'#425 forbids symlinks',
         )
 
-    def test_git_source_launch_cwd_is_session_path(self) -> None:
-        self.runner._prepare_proxy_workspace(
-            self.child_session, question='Approve?', context='',
-        )
+    def test_git_source_launch_cwd_is_clone_path(self) -> None:
+        self.runner._prepare_proxy_workspace(self.child_session)
+        clone_dir = os.path.join(self.session_path, 'worktree')
         self.assertEqual(
-            self.child_session.launch_cwd, self.session_path,
-            'git-source: launch_cwd must point at the session dir, '
-            'same as the plain-source case (#425)',
+            self.child_session.launch_cwd, clone_dir,
+            'git-source: launch_cwd must point at the clone, same as '
+            'the plain-source case — the proxy launches inside the '
+            'materialized worktree (#425)',
         )
 
 

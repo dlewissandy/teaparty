@@ -165,8 +165,9 @@ class TestRunnerSkillLoop(unittest.TestCase):
 
         async def mock_invoker(qualifier: str, cwd: str, **_: object) -> None:
             invocations.append((qualifier, cwd))
-            # QUESTION.md must exist at the invoker's cwd.
-            assert os.path.isfile(os.path.join(cwd, 'QUESTION.md'))
+            # The cwd is the materialized worktree clone (#425);
+            # the question itself reaches the proxy via the bus.
+            assert os.path.isdir(cwd), f'cwd {cwd!r} must exist'
             # Accordion invariant: mid-loop, build_dispatch_tree rooted
             # at the dispatcher sees the escalation as a child node with
             # agent_name='proxy'.

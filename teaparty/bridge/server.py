@@ -1870,10 +1870,11 @@ class TeaPartyBridge:
             # and run the proxy in the wrong cwd.
             from teaparty.mcp.registry import is_escalation_active
             if not is_escalation_active(qualifier):
-                # #425: the call site computes cwd from its own
-                # knowledge of where the work lives and passes it; the
-                # launcher does not branch on caller type.
-                chat_cwd = self._proxy_chat_cwd(qualifier)
+                # #425: the call site materializes the participant's
+                # worktree into a per-chat clone (snapshot at chat-open
+                # time) and passes that clone as cwd.  The launcher
+                # does not branch on caller type.
+                chat_cwd = self._ensure_proxy_chat_workspace(qualifier)
                 asyncio.create_task(
                     self._invoke_proxy(qualifier, cwd=chat_cwd),
                 )
@@ -2106,30 +2107,25 @@ class TeaPartyBridge:
             project_slug=project_slug,
         )
 
-    def _proxy_chat_cwd(self, qualifier: str) -> str:
-        """Resolve the cwd for a participants-card click on ``qualifier``.
+    def _proxy_chat_source_worktree(self, qualifier: str) -> str:
+        """Resolve the source worktree for a participants-card click.
 
-        Per #425's intent table: the proxy launches in the worktree of
+        Per #425's intent table, the proxy launches in the worktree of
         whoever it is standing in for.  The participants-card UI
         (``config.html::participantItems``) encodes the click's scope in
         the qualifier:
 
-          * ``<slug>:<name>`` → the click happened on the project page
-            for ``<slug>``; cwd = that project's worktree, when the slug
-            resolves to a registered project.  Falls back to management
-            when the slug is unknown (deleted project, registry drift).
-          * ``<name>`` (no colon) → the click happened on the management
-            page; cwd = management repo (the bridge's repo root).
+          * ``<slug>:<name>`` → click on the project page for ``<slug>``;
+            source = that project's worktree, when the slug resolves to
+            a registered project.  Falls back to management when the
+            slug is unknown (deleted project, registry drift).
+          * ``<name>`` (no colon) → click on the management page;
+            source = management repo (the bridge's repo root).
 
-        Deliberate departure from the #425 spec: chat-tier launches do
-        NOT materialize a clone of the worktree.  The "stable snapshot
-        survives caller teardown" rationale (issue body, "Launch /
-        Materialization") applies to AskQuestion — where a concurrent
-        agent caller would otherwise race the proxy's reads.  In chat,
-        the human IS the caller; there is no race, and freezing the
-        worktree at chat-open time would surprise the user (their later
-        edits would be invisible to the proxy).  cwd is therefore the
-        live worktree, not a clone.
+        This returns the source worktree.  The caller materializes it
+        into the proxy's per-chat clone via
+        ``_ensure_proxy_chat_workspace`` before launch — the proxy's
+        cwd is the clone, not the source.
         """
         if ':' in qualifier:
             slug, _sep, _name = qualifier.partition(':')
@@ -2137,6 +2133,46 @@ class TeaPartyBridge:
             if project_path:
                 return project_path
         return self._repo_root
+
+    def _proxy_chat_clone_dir(self, qualifier: str) -> str:
+        """The stable per-chat clone path under the management home.
+
+        One directory per chat session, keyed by the qualifier.  Reused
+        across turns so the proxy stays inside the same snapshot for
+        the chat's lifetime.  Closing the chat (or removing the dir
+        out-of-band) causes the next turn to re-materialize.
+        """
+        safe = (
+            qualifier.replace('/', '-').replace(':', '-').replace(' ', '-')
+        )
+        return os.path.join(
+            self.teaparty_home, 'proxy-chats', safe, 'worktree',
+        )
+
+    def _ensure_proxy_chat_workspace(self, qualifier: str) -> str:
+        """Materialize the participant's worktree as a per-chat clone.
+
+        Per #425, the proxy launches inside a real-file copy of the
+        caller's worktree — uniform across engagement types.  For chat
+        the snapshot is taken at chat-open time and reused for the
+        chat's lifetime; the proxy reviews "what the work looked like
+        when the human opened this chat."
+
+        Returns the absolute path of the clone (the proxy's cwd).
+        """
+        from teaparty.workspace.materialize import materialize_worktree
+
+        clone_dir = self._proxy_chat_clone_dir(qualifier)
+        if os.path.isdir(clone_dir) and os.listdir(clone_dir):
+            # Already materialized for this chat — reuse.
+            return clone_dir
+        source = self._proxy_chat_source_worktree(qualifier)
+        # Remove any stale empty leftover before materializing into it.
+        if os.path.isdir(clone_dir):
+            os.rmdir(clone_dir)
+        os.makedirs(os.path.dirname(clone_dir), exist_ok=True)
+        materialize_worktree(source, clone_dir)
+        return clone_dir
 
     async def _invoke_proxy(
         self,

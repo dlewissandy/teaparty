@@ -239,39 +239,21 @@ class AskQuestionRunner:
 
     # ── Skill loop ───────────────────────────────────────────────────────
 
-    def _prepare_proxy_workspace(
-        self,
-        child_session: Any,
-        *,
-        question: str,
-        context: str,
-    ) -> str:
-        """Materialize the caller's worktree, write the question, set cwd.
+    def _prepare_proxy_workspace(self, child_session: Any) -> None:
+        """Materialize the caller's worktree as the proxy's cwd.
 
-        Lays out the proxy session directory as:
+        Clones the caller's worktree into ``<session.path>/worktree/``
+        as a real-file copy (no symlinks) and sets the proxy's
+        ``launch_cwd`` to that clone.  After this returns, the proxy
+        launches inside the caller's snapshot — every file the caller
+        had is reachable at ``./<relpath>``.
 
-          <session.path>/                 (== launch_cwd)
-            QUESTION.md                   # the agent's question + context
-            worktree/                     # real-file clone of caller's worktree
-
-        ``child_session.launch_cwd`` is set to ``session.path`` — that
-        is the proxy's cwd.  The clone of the caller's worktree lives
-        inside it as ``worktree/`` so every file the caller had is
-        reachable to the proxy at ``./worktree/<relpath>`` during its
-        diligence pass.  The question stays at ``./QUESTION.md``.  The
-        worktree-jail hook constrains reads to this subtree, which
-        covers both the question and the clone.
-
-        Deliberate departure from the literal #425 spec text: the spec
-        says ``cwd is the worktree`` and references a separate
-        ``TEAPARTY_QUESTION_PATH`` env var for question delivery.
-        The session-dir-as-cwd layout (with ``worktree/`` as a sibling
-        of ``QUESTION.md``) keeps both inside one jail subtree without
-        needing a relative-path-escape (``../QUESTION.md``) and without
-        an env var the proxy cannot read (no ``Bash`` tool in the
-        catalog).  Skill bodies and tests target this layout.
-
-        Returns the absolute path to ``QUESTION.md``.
+        The question itself does not live in the proxy's cwd.  The
+        runner posts it to the proxy bus as a message from the
+        requesting agent (see ``_route``); the proxy reads it via the
+        conversation history its prompt builder injects.  No
+        ``QUESTION.md`` file is needed — the agent context already
+        carries the question.
         """
         from teaparty.workspace.materialize import materialize_worktree
 
@@ -281,21 +263,12 @@ class AskQuestionRunner:
             materialize_worktree(caller_worktree, clone_dir)
         else:
             # No caller worktree to clone — still create the empty dir
-            # so the diligence walk has something to descend into.  This
-            # path is exercised by management-tier callers whose "worktree"
-            # is the management repo (handled differently up the stack)
-            # and by tests with no infra_dir.
+            # so the diligence walk has something to descend into.
+            # This path is exercised by tests that construct a runner
+            # without a real ``infra_dir``.
             os.makedirs(clone_dir, exist_ok=True)
 
-        child_session.launch_cwd = child_session.path
-
-        question_md = os.path.join(child_session.path, 'QUESTION.md')
-        body = question
-        if context:
-            body = f'{body}\n\n## Context\n\n{context}'
-        with open(question_md, 'w') as fh:
-            fh.write(body)
-        return question_md
+        child_session.launch_cwd = clone_dir
 
     async def _route(
         self, question: str, context: str,
@@ -341,13 +314,10 @@ class AskQuestionRunner:
         child_session.parent_session_id = self._dispatcher_session.id
         child_session.initial_message = question
         # Materialize the caller's worktree into the proxy's cwd (#425).
-        # ``_prepare_proxy_workspace`` clones the caller's tree under
-        # ``child_session.path/worktree/`` and sets ``launch_cwd`` there;
-        # the proxy launches inside the caller's snapshot and reads the
-        # deliverables directly during its diligence pass.
-        question_path = self._prepare_proxy_workspace(
-            child_session, question=question, context=context,
-        )
+        # The proxy's cwd IS the clone of the caller's worktree; the
+        # diligence rail walks it directly.  The question reaches the
+        # proxy via the conversation history (posted to the bus below).
+        self._prepare_proxy_workspace(child_session)
         _save_meta(child_session)
 
         # Write ``conversation_id`` into metadata.json upfront so
@@ -407,9 +377,14 @@ class AskQuestionRunner:
         proxy_bus.create_conversation(ConversationType.PROXY, qualifier)
 
         # Post the question as a message from the requesting agent so
-        # the accordion iframe shows what the teammate actually asked.
+        # the accordion iframe shows what the teammate actually asked,
+        # and so the proxy sees it via conversation history (no
+        # QUESTION.md file is written; the bus message is the channel).
+        # Optional ``context`` rides on the same message under a
+        # ``## Context`` heading so the proxy gets both atomically.
         requestor = self._dispatcher_session.agent_name or 'caller'
-        proxy_bus.send(proxy_conv_id, requestor, question)
+        body = question if not context else f'{question}\n\n## Context\n\n{context}'
+        proxy_bus.send(proxy_conv_id, requestor, body)
 
         # Seed with /escalation so the skill loads on the proxy's first
         # turn.  The argument is the project's escalation policy for the
