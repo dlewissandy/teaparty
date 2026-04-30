@@ -161,8 +161,6 @@ class AskQuestionRunner:
         self,
         question: str,
         context: str = '',
-        *,
-        attachments: list[str] | None = None,
     ) -> str:
         """Run one AskQuestion through the proxy + ``/escalation`` skill.
 
@@ -216,9 +214,7 @@ class AskQuestionRunner:
             pass
 
         try:
-            answer = await self._route(
-                question, context, attachments=list(attachments or []),
-            )
+            answer = await self._route(question, context)
         except Exception:
             _log.exception('Error routing AskQuestion through proxy')
             answer = ''
@@ -243,9 +239,53 @@ class AskQuestionRunner:
 
     # ── Skill loop ───────────────────────────────────────────────────────
 
+    def _prepare_proxy_workspace(
+        self,
+        child_session: Any,
+        *,
+        question: str,
+        context: str,
+    ) -> str:
+        """Materialize the caller's worktree, write the question, set cwd.
+
+        Lays out the proxy session directory as:
+
+          <session.path>/
+            QUESTION.md       # the agent's question + context
+            worktree/         # real-file clone of the caller's worktree
+
+        ``child_session.launch_cwd`` is set to the clone path — that is
+        where the proxy launches.  The skill body reads the question via
+        ``../QUESTION.md`` (the worktree-jail hook accepts relative
+        paths); the diligence pass walks the clone subtree directly.
+
+        Returns the absolute path to ``QUESTION.md``.
+        """
+        from teaparty.workspace.materialize import materialize_worktree
+
+        clone_dir = os.path.join(child_session.path, 'worktree')
+        caller_worktree = self._resolve_caller_worktree()
+        if caller_worktree and os.path.isdir(caller_worktree):
+            materialize_worktree(caller_worktree, clone_dir)
+        else:
+            # No caller worktree to clone — still create the empty dir
+            # so cwd is valid.  This path is exercised by management-tier
+            # callers whose "worktree" is the management repo root, or
+            # by tests with no infra_dir.
+            os.makedirs(clone_dir, exist_ok=True)
+
+        child_session.launch_cwd = clone_dir
+
+        question_md = os.path.join(child_session.path, 'QUESTION.md')
+        body = question
+        if context:
+            body = f'{body}\n\n## Context\n\n{context}'
+        with open(question_md, 'w') as fh:
+            fh.write(body)
+        return question_md
+
     async def _route(
         self, question: str, context: str,
-        *, attachments: list[str] | None = None,
     ) -> str:
         """Run the proxy skill loop and return the final answer."""
         # #426: if the caller was killed mid-wait and is re-firing the
@@ -286,8 +326,15 @@ class AskQuestionRunner:
             session_id=proxy_session_key,
         )
         child_session.parent_session_id = self._dispatcher_session.id
-        child_session.launch_cwd = child_session.path
         child_session.initial_message = question
+        # Materialize the caller's worktree into the proxy's cwd (#425).
+        # ``_prepare_proxy_workspace`` clones the caller's tree under
+        # ``child_session.path/worktree/`` and sets ``launch_cwd`` there;
+        # the proxy launches inside the caller's snapshot and reads the
+        # deliverables directly during its diligence pass.
+        question_path = self._prepare_proxy_workspace(
+            child_session, question=question, context=context,
+        )
         _save_meta(child_session)
 
         # Write ``conversation_id`` into metadata.json upfront so
@@ -306,34 +353,6 @@ class AskQuestionRunner:
         with open(_tmp, 'w') as fh:
             json.dump(_meta, fh, indent=2)
         os.replace(_tmp, _meta_path)
-
-        # Copy attachments first — the QUESTION.md body lists what
-        # actually arrived, not what the agent asked for.  Bytes that
-        # never made it into the proxy's workspace shouldn't appear
-        # in the briefing.
-        copied_attachments: list[str] = []
-        if attachments:
-            copied_attachments = self._copy_attachments(
-                child_session.path, list(attachments or []),
-            )
-
-        # Write QUESTION.md into the session dir.  The proxy launches
-        # with cwd = session.path, so the skill's ``Read ./QUESTION.md``
-        # resolves here.
-        question_md = os.path.join(child_session.path, 'QUESTION.md')
-        body = question
-        if context:
-            body = f'{body}\n\n## Context\n\n{context}'
-        if copied_attachments:
-            body = f'{body}\n\n## Attachments\n\n' + ''.join(
-                f'- `{p}`\n' for p in copied_attachments
-            )
-            body += (
-                '\nRead each attachment before answering — they are '
-                "the agent's primary briefing material.\n"
-            )
-        with open(question_md, 'w') as fh:
-            fh.write(body)
 
         # Register the escalation in the caller's bus — single source of
         # truth for tree / name / state (#422).  Row id MUST equal
@@ -692,96 +711,6 @@ class AskQuestionRunner:
             return job_worktree
         bus_worktree = getattr(conv, 'worktree_path', '') if conv else ''
         return bus_worktree or job_worktree
-
-    # Total bytes copied per AskQuestion call.  Caps a runaway agent
-    # that asks for the world; overflow is logged and the offending
-    # attachments are skipped so the proxy still gets the rest.
-    _ATTACHMENT_BUDGET_BYTES = 200 * 1024
-
-    def _copy_attachments(
-        self, dest_dir: str, attachments: list[str],
-    ) -> list[str]:
-        """Copy ``attachments`` from the caller's worktree into ``dest_dir``.
-
-        Returns the list of relative paths that were successfully
-        copied, in input order.  Each path's directory structure is
-        preserved (``.scratch/foo.md`` lands at ``.scratch/foo.md``)
-        so the proxy reads attachments using the same paths the agent
-        named.
-
-        Refuses absolute paths and any path that, after resolution,
-        escapes the caller's worktree — the proxy must not be a
-        vector for reading arbitrary filesystem locations.  Skips
-        files past the byte budget rather than failing the whole
-        escalation.
-        """
-        caller_worktree = self._resolve_caller_worktree()
-        if not caller_worktree or not os.path.isdir(caller_worktree):
-            _log.warning(
-                'AskQuestion: cannot resolve caller worktree '
-                '(infra_dir=%r); attachments dropped',
-                self.infra_dir,
-            )
-            return []
-        real_root = os.path.realpath(caller_worktree)
-        copied: list[str] = []
-        used = 0
-        for relpath in attachments:
-            if not relpath or os.path.isabs(relpath):
-                _log.warning(
-                    'AskQuestion: rejecting attachment %r — must be '
-                    "relative to the caller's worktree", relpath,
-                )
-                continue
-            normalized = os.path.normpath(relpath)
-            if normalized.startswith('..') or normalized.split(os.sep)[0] == '..':
-                _log.warning(
-                    'AskQuestion: rejecting attachment %r — escapes '
-                    'caller worktree via ..', relpath,
-                )
-                continue
-            src_abs = os.path.realpath(os.path.join(caller_worktree, normalized))
-            # After realpath, ensure src is still inside caller_worktree.
-            if not (src_abs == real_root or src_abs.startswith(real_root + os.sep)):
-                _log.warning(
-                    'AskQuestion: rejecting attachment %r — resolves '
-                    'outside worktree', relpath,
-                )
-                continue
-            if not os.path.isfile(src_abs):
-                _log.warning(
-                    'AskQuestion: skipping attachment %r — not a file',
-                    relpath,
-                )
-                continue
-            try:
-                size = os.path.getsize(src_abs)
-            except OSError:
-                _log.warning(
-                    'AskQuestion: skipping attachment %r — stat failed',
-                    relpath, exc_info=True,
-                )
-                continue
-            if used + size > self._ATTACHMENT_BUDGET_BYTES:
-                _log.warning(
-                    'AskQuestion: skipping attachment %r (%d bytes) — '
-                    'would exceed %d-byte budget',
-                    relpath, size, self._ATTACHMENT_BUDGET_BYTES,
-                )
-                continue
-            dest_abs = os.path.join(dest_dir, normalized)
-            try:
-                os.makedirs(os.path.dirname(dest_abs) or dest_dir, exist_ok=True)
-                shutil.copy2(src_abs, dest_abs)
-            except OSError:
-                _log.warning(
-                    'AskQuestion: copy failed for %r', relpath,
-                    exc_info=True,
-                )
-                continue
-            copied.append(normalized)
-            used += size
-        return copied
 
     def _resolve_proxy_bus(self) -> SqliteMessageBus:
         """Open the proxy's message bus at its canonical location."""

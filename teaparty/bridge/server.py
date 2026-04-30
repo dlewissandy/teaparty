@@ -2101,6 +2101,27 @@ class TeaPartyBridge:
             project_slug=project_slug,
         )
 
+    def _proxy_chat_cwd(self, qualifier: str) -> str:
+        """Resolve the cwd for a participants-card click on ``qualifier``.
+
+        Per #425's intent table: the proxy launches in the worktree of
+        whoever it is standing in for.
+
+          * ``office-manager``  → management repo (the bridge's repo root).
+          * ``<slug>-lead``     → that project's worktree, when the slug
+            resolves to a registered project.  Falls back to management
+            when the slug is unknown (deleted project, registry drift).
+          * Anything else       → management.
+        """
+        if qualifier == 'office-manager':
+            return self._repo_root
+        if qualifier.endswith('-lead'):
+            slug = qualifier[:-len('-lead')]
+            project_path = self._lookup_project_path(slug)
+            if project_path:
+                return project_path
+        return self._repo_root
+
     async def _invoke_proxy(
         self,
         qualifier: str,
@@ -2123,26 +2144,35 @@ class TeaPartyBridge:
         feedback rather than silence.
 
         ``cwd`` is None for ordinary proxy chat — the registry resolves the
-        proxy's launch_cwd to the repo root.  The escalation path (issue #420)
-        passes a per-escalation session directory, which becomes the proxy's
-        ``launch_cwd_override`` so ``./QUESTION.md`` resolves correctly.
+        proxy's launch_cwd to the repo root.  The escalation path passes a
+        per-escalation session directory (a clone of the caller's worktree,
+        per #425), which becomes the proxy's ``launch_cwd_override``.
 
-        ``teaparty_home``/``scope`` default to the bridge's management home.
-        The escalation path passes the caller's home and scope so the proxy's
-        escalation session lives alongside the caller's session — required for
-        ``build_dispatch_tree`` to walk into the escalation's child node.
+        ``teaparty_home`` and ``scope`` arguments are accepted for
+        compatibility with existing call sites but ignored: the proxy's
+        runtime files (sessions, message bus, ACT-R memory DB) always
+        live under the bridge's management home (#425 — memory must not
+        fracture across project boundaries).  Whatever caller engages
+        the proxy, its state lands in one place.
         """
+        del teaparty_home, scope  # bridge's management home is the only home
         from teaparty.proxy.hooks import proxy_post_invoke, proxy_build_prompt
+        # Chat-side cwd resolution: per #425 the proxy launches in the
+        # worktree of whoever the human clicked on (the participant).
+        # The escalation path passes ``cwd`` explicitly (the materialized
+        # clone of the caller's worktree); we only resolve here when no
+        # cwd was supplied (chat-tier message dispatch).
+        effective_cwd = cwd if cwd is not None else self._proxy_chat_cwd(qualifier)
         await self._invoke_agent(
             session_key=f'proxy:{qualifier}',
             agent_name='proxy',
             agent_role='proxy',
             qualifier=qualifier,
             conversation_type=ConversationType.PROXY,
-            cwd=cwd if cwd is not None else self._repo_root,
-            launch_cwd_override=cwd or '',
-            teaparty_home=teaparty_home,
-            scope=scope,
+            cwd=effective_cwd,
+            launch_cwd_override=effective_cwd,
+            teaparty_home=self.teaparty_home,
+            scope='management',
             post_invoke_hook=proxy_post_invoke,
             build_prompt_hook=proxy_build_prompt,
         )

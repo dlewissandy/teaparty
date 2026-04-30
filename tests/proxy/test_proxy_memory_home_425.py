@@ -65,10 +65,17 @@ class ProxyTeapartyHomeIsManagementTest(unittest.TestCase):
         os.makedirs(self.management_home)
         os.makedirs(self.project_home)
         self.mini = _MiniBridge(self.management_home)
-        # Bind real _invoke_proxy from TeaPartyBridge onto the mini.
+        # Bind real _invoke_proxy from TeaPartyBridge onto the mini, plus
+        # the helper it relies on for chat-side cwd resolution.
         self.mini._invoke_proxy = MethodType(
             TeaPartyBridge._invoke_proxy, self.mini,
         )
+        self.mini._proxy_chat_cwd = MethodType(
+            TeaPartyBridge._proxy_chat_cwd, self.mini,
+        )
+        # The chat-side cwd resolution falls back to ``self._repo_root``
+        # for unknown qualifiers and the OM; ensure the mini exposes it.
+        self.mini._lookup_project_path = lambda slug: None
 
     def tearDown(self) -> None:
         import shutil
