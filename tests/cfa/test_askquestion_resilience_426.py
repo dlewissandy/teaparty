@@ -544,6 +544,94 @@ class TestHappyPathClosesProxyConversation(_AskQuestionResilienceCase):
         )
 
 
+# ── rehydrate() filter: only ACTIVE/PAUSED rows are re-marked ────────
+
+
+class TestRehydrateOnlyMarksInFlight(_AskQuestionResilienceCase):
+    """``rehydrate()`` runs on bridge startup to re-register escalations
+    that survived a restart.  It MUST filter to in-flight states
+    (ACTIVE, PAUSED) — re-marking CLOSED/WITHDRAWN rows leaks the
+    sentinel that the watchdog reads, deadlocking stall detection for
+    the caller's session forever (Risk #1 in the issue, finding F1
+    from the audit).
+    """
+
+    def _seed_proxy_row(
+        self,
+        *,
+        escalation_id: str,
+        state: ConversationState,
+    ) -> str:
+        dispatcher_id = 'caller-session-426'
+        qualifier = f'{dispatcher_id}:{escalation_id}'
+        bus = SqliteMessageBus(self.caller_bus_db)
+        try:
+            bus.create_conversation(
+                ConversationType.PROXY, qualifier,
+                agent_name='proxy',
+                parent_conversation_id=f'dispatch:{dispatcher_id}',
+                request_id=escalation_id,
+                state=state,
+            )
+        finally:
+            bus.close()
+        return qualifier
+
+    def test_rehydrate_marks_active_and_paused_skips_closed_and_withdrawn(self) -> None:
+        from teaparty.mcp.registry import _active_escalations
+
+        # Seed four rows, one per state.
+        active_q = self._seed_proxy_row(
+            escalation_id='esc-active', state=ConversationState.ACTIVE,
+        )
+        paused_q = self._seed_proxy_row(
+            escalation_id='esc-paused', state=ConversationState.PAUSED,
+        )
+        closed_q = self._seed_proxy_row(
+            escalation_id='esc-closed', state=ConversationState.CLOSED,
+        )
+        withdrawn_q = self._seed_proxy_row(
+            escalation_id='esc-withdrawn',
+            state=ConversationState.WITHDRAWN,
+        )
+
+        # Build the runner and rehydrate.
+        runner = self._make_runner(proxy_invoker=lambda **_: None)
+        runner.rehydrate()
+
+        # ACTIVE and PAUSED MUST be re-marked.
+        self.assertIn(
+            active_q, _active_escalations,
+            'ACTIVE proxy rows are in-flight escalations and must be '
+            're-marked on rehydrate so the workflow-bar dot, the HTTP '
+            'auto-invoke guard, and the watchdog suppression work after '
+            'a bridge restart',
+        )
+        self.assertIn(
+            paused_q, _active_escalations,
+            'PAUSED proxy rows are escalations that were live when the '
+            'bridge shut down (the startup sweep moves ACTIVE→PAUSED) '
+            'and must be re-marked so the user can resume them',
+        )
+
+        # CLOSED and WITHDRAWN MUST NOT be re-marked.  This is the
+        # invariant that prevents the marker-leak deadlock: a
+        # previously-CLOSED escalation must not silently exempt the
+        # caller's session from stall detection forever.
+        self.assertNotIn(
+            closed_q, _active_escalations,
+            'CLOSED proxy rows are no longer in flight; re-marking '
+            'them on rehydrate leaks the sentinel that the watchdog '
+            'reads (#426 finding F1) — the caller would be exempt '
+            'from stall detection for any future non-AskQuestion stall',
+        )
+        self.assertNotIn(
+            withdrawn_q, _active_escalations,
+            'WITHDRAWN proxy rows are explicitly discarded; re-marking '
+            'them is a marker leak with the same consequence as CLOSED',
+        )
+
+
 # ── Risk #1: marker MUST clear on every exit (cancellation, error) ──
 
 
