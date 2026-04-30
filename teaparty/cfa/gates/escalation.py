@@ -217,6 +217,17 @@ class AskQuestionRunner:
 
     async def _route(self, question: str, context: str) -> str:
         """Run the proxy skill loop and return the final answer."""
+        # #426: if the caller was killed mid-wait and is re-firing the
+        # same AskQuestion on ``--resume``, the proxy may have already
+        # answered.  Pick up the existing reply rather than spawning a
+        # duplicate escalation.
+        pickup = self._find_resumable_reply(question)
+        if pickup is not None:
+            existing_conv_id, reply = pickup
+            self._close_resumed_conversation(existing_conv_id)
+            self._last_escalation_source = 'resume_pickup'
+            return reply
+
         from teaparty.runners.launcher import (
             create_session as _create_session,
             _save_session_metadata as _save_meta,
@@ -369,8 +380,12 @@ class AskQuestionRunner:
                     proxy_bus, proxy_conv_id, since=invocation_start,
                 )
         finally:
+            # #426: clear the in-memory escalation marker on EVERY exit
+            # path.  Leaking the marker permanently exempts this session
+            # from stall detection — a leaked sentinel deadlocks the
+            # watchdog for any future stall on the same session.
+            _mark_done(qualifier)
             if terminal:
-                _mark_done(qualifier)
                 try:
                     _term_bus = SqliteMessageBus(self.bus_db_path)
                     try:
@@ -414,6 +429,102 @@ class AskQuestionRunner:
         except Exception:
             _log.debug(
                 'on_dispatch hook raised for %s', event_type, exc_info=True,
+            )
+
+    def _find_resumable_reply(
+        self, question: str,
+    ) -> tuple[str, str] | None:
+        """Look for an in-flight escalation under this caller whose
+        question matches and whose proxy reply is already on the bus.
+
+        Matching rule (#426): a PROXY conversation whose parent is
+        ``dispatcher_conv_id``, whose state is ACTIVE or PAUSED, whose
+        proxy bus has a requestor message byte-identical to ``question``,
+        and whose latest proxy message parses as a terminal status
+        (RESPONSE or WITHDRAW).  The byte-identical match defends
+        against cross-delivery between distinct outstanding questions —
+        ``--resume`` re-fires the buffered tool call with the original
+        payload, so an exact-match check is both necessary and
+        sufficient.
+
+        Returns ``(proxy_conv_id, answer)`` where ``answer`` is the
+        already-formatted return value (RESPONSE message verbatim, or
+        ``[WITHDRAW]\\n<reason>`` for WITHDRAW).  Returns None when no
+        candidate matches — the runner falls through to the normal
+        spawn path.
+        """
+        try:
+            parent_conv_id = self._resolve_parent_conv_id()
+        except RuntimeError:
+            return None
+
+        try:
+            caller_bus = SqliteMessageBus(self.bus_db_path)
+        except Exception:
+            return None
+        try:
+            children = caller_bus.children_of(parent_conv_id)
+        finally:
+            caller_bus.close()
+
+        candidates = [
+            c for c in children
+            if c.agent_name == 'proxy'
+            and c.state in (
+                ConversationState.ACTIVE, ConversationState.PAUSED,
+            )
+        ]
+        if not candidates:
+            return None
+
+        try:
+            proxy_bus = self._resolve_proxy_bus()
+        except Exception:
+            return None
+        try:
+            for conv in candidates:
+                try:
+                    messages = proxy_bus.receive(conv.id)
+                except Exception:
+                    continue
+                # Requestor's question is the first message that isn't
+                # the ``human`` /escalation seed and isn't from the
+                # proxy itself.
+                requestor_msg = next(
+                    (
+                        m for m in messages
+                        if m.sender not in ('human', 'proxy')
+                    ),
+                    None,
+                )
+                if requestor_msg is None or requestor_msg.content != question:
+                    continue
+                proxy_msgs = [m for m in messages if m.sender == 'proxy']
+                if not proxy_msgs:
+                    continue
+                status, body = _parse_skill_output(proxy_msgs[-1].content)
+                if status == 'RESPONSE':
+                    return conv.id, body
+                if status == 'WITHDRAW':
+                    return conv.id, f'[WITHDRAW]\n{body}'
+        finally:
+            proxy_bus.close()
+        return None
+
+    def _close_resumed_conversation(self, conv_id: str) -> None:
+        """Transition a resumed PROXY conversation to CLOSED on delivery (#426)."""
+        try:
+            bus = SqliteMessageBus(self.bus_db_path)
+            try:
+                bus.update_conversation_state(
+                    conv_id, ConversationState.CLOSED,
+                )
+            finally:
+                bus.close()
+        except Exception:
+            _log.debug(
+                'escalation: failed to close resumed PROXY row %s',
+                conv_id, exc_info=True,
             )
 
     def _resolve_parent_conv_id(self) -> str:

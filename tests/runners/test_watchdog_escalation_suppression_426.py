@@ -141,7 +141,13 @@ class TestStallDecisionSuppressedDuringEscalation(unittest.TestCase):
         runner = _make_runner(session_id='lead-sid-A')
         mark_escalation_active('lead-sid-A:esc-1')
         # Mid-escalation: suppressed.
-        self.assertFalse(runner._should_kill_for_stall(**_stalled_state()))
+        self.assertFalse(
+            runner._should_kill_for_stall(**_stalled_state()),
+            'precondition for cleanup test: while the marker is set, '
+            'the watchdog must classify the same state as alive — '
+            'otherwise this test cannot distinguish marker-set from '
+            'marker-cleared and the cleanup invariant is unverifiable',
+        )
         # Done: not suppressed any more.
         mark_escalation_done('lead-sid-A:esc-1')
         self.assertTrue(

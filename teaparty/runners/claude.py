@@ -318,6 +318,73 @@ class ClaudeRunner:
         env.update(self.env_vars)
         return env
 
+    def _should_kill_for_stall(
+        self,
+        *,
+        now: float,
+        last_output_time: float,
+        last_lead_event_time: float,
+        last_child_event_time: float,
+        open_tool_calls: dict[str, float],
+        children_file: str = '',
+        running_agent_count: int = 0,
+    ) -> bool:
+        """Return True iff the lead should be killed for a stall.
+
+        Returns False (alive) if any of:
+          0. Caller's session is in an in-flight AskQuestion wait
+             (#426 — the wait can legitimately span hours or days; the
+             watchdog must not interfere)
+          1. An open tool call is still active (started within
+             ``STALE_THRESHOLD``)
+          2. Lead emitted output recently
+          3. A child emitted stream events recently
+          4. Any child heartbeat is fresh on disk
+        Returns True only when every alive-signal fails AND
+        ``last_output_time`` is older than the effective stall timeout.
+        """
+        # #426: in-flight escalation pauses the kill timer.
+        if self.session_id:
+            from teaparty.mcp.registry import session_has_active_escalation
+            if session_has_active_escalation(self.session_id):
+                return False
+
+        if any(
+            (now - ts) < self.STALE_THRESHOLD
+            for ts in open_tool_calls.values()
+        ):
+            return False
+
+        if (now - last_lead_event_time) < self.STALE_THRESHOLD:
+            return False
+
+        if (
+            last_child_event_time > 0
+            and (now - last_child_event_time) < self.STALE_THRESHOLD
+        ):
+            return False
+
+        if children_file and os.path.exists(children_file):
+            from teaparty.bridge.state.heartbeat import (
+                is_heartbeat_stale, read_children,
+            )
+            children = read_children(children_file)
+            any_child_alive = any(
+                os.path.exists(c.get('heartbeat', ''))
+                and not is_heartbeat_stale(
+                    c['heartbeat'], self.STALE_THRESHOLD,
+                )
+                for c in children
+            )
+            if any_child_alive:
+                return False
+
+        age = now - last_output_time
+        effective_timeout = self.stall_timeout
+        if running_agent_count > 0:
+            effective_timeout = max(self.stall_timeout, 7200)
+        return age >= effective_timeout
+
     async def _stream_with_watchdog(self, stderr_lines: list[str]) -> int:
         """Stream stdout while monitoring for stalls.  Captures stderr.
 
@@ -450,13 +517,16 @@ class ClaudeRunner:
                     pass  # Transient disk error — tolerate
 
         async def watchdog():
-            """Priority cascade stall detection (issue #149).
+            """Priority cascade stall detection (issues #149, #426).
 
-            1. Mid-tool-call? (non-stale open tool_use → alive)
-            2. Recent lead events? (within STALE_THRESHOLD → alive)
-            3. Recent child stream events? (within STALE_THRESHOLD → alive)
-            4. Children heartbeats fresh on disk? (via .children → alive)
-            Only when all four fail: kill stale children, then declare stall.
+            Alive-signals (any pass → not stalled):
+              0. Caller is in an in-flight AskQuestion wait (#426)
+              1. Mid-tool-call (non-stale open tool_use)
+              2. Recent lead events (within STALE_THRESHOLD)
+              3. Recent child stream events (within STALE_THRESHOLD)
+              4. Children heartbeats fresh on disk (via .children)
+            When all fail: kill stale children, then declare stall if
+            ``last_output_time`` is older than the effective timeout.
             """
             while proc.returncode is None:
                 await asyncio.sleep(self.BEAT_INTERVAL)
@@ -465,36 +535,19 @@ class ClaudeRunner:
 
                 now = time.time()
 
-                # Check 1: Active (non-stale) tool call
-                has_active_tool = any(
-                    (now - ts) < self.STALE_THRESHOLD
-                    for ts in open_tool_calls.values()
-                )
-                if has_active_tool:
+                if not self._should_kill_for_stall(
+                    now=now,
+                    last_output_time=last_output_time,
+                    last_lead_event_time=last_lead_event_time,
+                    last_child_event_time=last_child_event_time,
+                    open_tool_calls=open_tool_calls,
+                    children_file=self.children_file,
+                    running_agent_count=running_agent_count,
+                ):
                     continue
 
-                # Check 2: Recent lead events
-                if (now - last_lead_event_time) < self.STALE_THRESHOLD:
-                    continue
-
-                # Check 3: Recent child stream events
-                if last_child_event_time > 0 and (now - last_child_event_time) < self.STALE_THRESHOLD:
-                    continue
-
-                # Check 4: Children heartbeats on disk
-                if self.children_file and os.path.exists(self.children_file):
-                    from teaparty.bridge.state.heartbeat import read_children, is_heartbeat_stale
-                    children = read_children(self.children_file)
-                    any_child_alive = any(
-                        os.path.exists(c.get('heartbeat', ''))
-                        and not is_heartbeat_stale(c['heartbeat'], self.STALE_THRESHOLD)
-                        for c in children
-                    )
-                    if any_child_alive:
-                        continue
-
-                # All checks failed — stall detected
-                # Kill stale children before declaring the lead stalled
+                # Stall detected — kill stale children before declaring
+                # the lead stalled.
                 if self.children_file and os.path.exists(self.children_file):
                     from teaparty.bridge.state.heartbeat import read_children, read_heartbeat
                     for child in read_children(self.children_file):
@@ -524,25 +577,23 @@ class ClaudeRunner:
                                         session_id=self.session_id,
                                     ))
 
-                # Now check if the lead itself is stalled
                 age = now - last_output_time
                 effective_timeout = self.stall_timeout
                 if running_agent_count > 0:
                     effective_timeout = max(self.stall_timeout, 7200)
-                if age >= effective_timeout:
-                    if self.event_bus:
-                        await self.event_bus.publish(Event(
-                            type=EventType.LOG,
-                            data={
-                                'category': 'watchdog_stall',
-                                'age_seconds': int(age),
-                                'effective_timeout': effective_timeout,
-                            },
-                            session_id=self.session_id,
-                        ))
-                    self._lifecycle('stall')
-                    _kill_process_tree(proc.pid)
-                    raise _StallTimeout()
+                if self.event_bus:
+                    await self.event_bus.publish(Event(
+                        type=EventType.LOG,
+                        data={
+                            'category': 'watchdog_stall',
+                            'age_seconds': int(age),
+                            'effective_timeout': effective_timeout,
+                        },
+                        session_id=self.session_id,
+                    ))
+                self._lifecycle('stall')
+                _kill_process_tree(proc.pid)
+                raise _StallTimeout()
 
         async def parent_watcher():
             """Detect dead parent and initiate graceful shutdown (issue #149).

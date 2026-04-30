@@ -410,5 +410,56 @@ class TestHappyPathClosesProxyConversation(_AskQuestionResilienceCase):
         )
 
 
+# ── Risk #1: marker MUST clear on every exit (cancellation, error) ──
+
+
+class TestEscalationMarkerClearedOnNonTerminalExit(_AskQuestionResilienceCase):
+    """The in-memory ``_active_escalations`` marker is what the
+    watchdog reads to suppress stall kills (#426).  If a runner exits
+    via cancellation or exception with the marker still set, the
+    watchdog is permanently exempted from stall detection for that
+    session — a hung tool unrelated to the escalation could never be
+    killed.  This test pins that the marker clears on the cancellation
+    path.
+    """
+
+    def test_marker_cleared_when_proxy_invoker_raises(self) -> None:
+        from teaparty.mcp.registry import is_escalation_active
+
+        async def boom_invoker(qualifier: str, cwd: str, **_: object) -> None:
+            # Snapshot: while the runner is awaiting us, the marker is
+            # set.  This is the precondition for the cleanup invariant
+            # below.
+            self.assertTrue(
+                is_escalation_active(qualifier),
+                'precondition: marker must be set while runner awaits',
+            )
+            raise RuntimeError('synthetic invoker failure')
+
+        runner = self._make_runner(proxy_invoker=boom_invoker)
+
+        # The runner catches its own exceptions in ``run()`` and returns
+        # an empty answer; the cleanup must happen anyway.
+        answer = _run(runner.run('A question whose proxy will fail'))
+        self.assertEqual(answer, '')
+
+        # Walk every qualifier whose prefix could have been ours.  None
+        # may remain — otherwise the watchdog would treat any future
+        # stall on this session as suppressed.
+        from teaparty.mcp.registry import _active_escalations
+        leaked = [
+            q for q in _active_escalations
+            if q.startswith('caller-session-426:')
+        ]
+        self.assertEqual(
+            leaked, [],
+            "marker leak: escalation marker must clear on every exit "
+            "path, even when the proxy invoker raises.  A leaked marker "
+            "permanently disables the stall watchdog for this session, "
+            "so an unrelated hung tool (not an AskQuestion wait) would "
+            "never be killed.",
+        )
+
+
 if __name__ == '__main__':
     unittest.main()
