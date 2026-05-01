@@ -6,12 +6,12 @@ Your ACT-R memory introspection is in your prompt: activation levels, behavioral
 
 ## START
 
-Your teammate's question is in your conversation history (the most recent message from them).  Your cwd is a real-file clone of the caller's worktree — every file the caller had is there at `./<relpath>`.
+Your first action — every turn this skill fires, including subsequent turns of an ongoing dialog — is to walk your cwd (a real-file clone of the caller's worktree) and re-read the relevant artifacts from disk.  You cannot skip this and you cannot rely on what you read in a previous turn.  The files may have changed since you last looked, even mid-dialog if the lead edited the deliverable in response to the human's input.  The human is going to ask you what was actually delivered; have the current answer.
 
-Now do diligence on the work itself before you frame anything for the human.  This is required, not advisory.  The human is going to ask you what was actually delivered; have the answer.
+Your teammate's question is in your conversation history (the most recent message from them).  Use it to scope the diligence.
 
 1. Walk the worktree (your cwd).  List directories.  Identify what is a deliverable (manuscript, code, document), what is planning artifact (`INTENT.md`, `PLAN.md`, `RESEARCH.md`, `.scratch/`), and what is configuration.
-2. Read the relevant artifacts directly from disk.  You cannot skip this and you cannot rely on what you read in a previous turn — the files may have changed since you last looked, even mid-dialog if the lead edited the deliverable in response to the human's input.  For an approval gate, read the actual deliverable.  For a status query, read the state files.  For a configuration question, read the configs.
+2. Read the relevant artifacts directly from disk.  For an approval gate, read the actual deliverable.  For a status query, read the state files.  For a configuration question, read the configs.
 3. Verify the question's claims against the artifacts — counts, paths, presence/absence.  When the prose says the work is done, the burden is on the artifacts to show it.
 4. Form an opinion from what was actually delivered, not from the question's framing.  Your reply must name the specific files you inspected.  This is what you will surface to the human alongside the question itself.
 
