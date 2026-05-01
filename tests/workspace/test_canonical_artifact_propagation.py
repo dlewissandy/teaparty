@@ -27,7 +27,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from teaparty.workspace.worktree import (
-    _CANONICAL_ARTIFACT_NAMES,
+    CANONICAL_ARTIFACT_NAMES,
     create_subchat_worktree,
 )
 
@@ -77,7 +77,7 @@ class CanonicalArtifactPropagationTest(unittest.TestCase):
     def test_canonical_artifact_set_is_known(self) -> None:
         """The list is what we expect."""
         self.assertEqual(
-            set(_CANONICAL_ARTIFACT_NAMES),
+            set(CANONICAL_ARTIFACT_NAMES),
             {'IDEA.md', 'INTENT.md', 'PLAN.md', 'WORK_SUMMARY.md'},
         )
 
@@ -92,12 +92,12 @@ class CanonicalArtifactPropagationTest(unittest.TestCase):
 
     def test_all_four_canonical_artifacts_copy(self) -> None:
         """Every name in the canonical set is propagated when present."""
-        for name in _CANONICAL_ARTIFACT_NAMES:
+        for name in CANONICAL_ARTIFACT_NAMES:
             with open(os.path.join(self.parent_wt, name), 'w') as f:
                 f.write(f'# {name}\n')
         child = os.path.join(self._tmp, 'child-wt')
         self._create_child(child, 'session/all')
-        for name in _CANONICAL_ARTIFACT_NAMES:
+        for name in CANONICAL_ARTIFACT_NAMES:
             self.assertTrue(
                 os.path.isfile(os.path.join(child, name)),
                 f'{name} should propagate to child',
@@ -152,7 +152,7 @@ class CanonicalArtifactPropagationTest(unittest.TestCase):
         child = os.path.join(self._tmp, 'child-wt')
         # Should not raise.
         self._create_child(child, 'session/none')
-        for name in _CANONICAL_ARTIFACT_NAMES:
+        for name in CANONICAL_ARTIFACT_NAMES:
             self.assertFalse(
                 os.path.isfile(os.path.join(child, name)),
             )

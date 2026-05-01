@@ -15,7 +15,7 @@ log = logging.getLogger(__name__)
 # are stable: the planning skill must edit ``PLAN.md`` in place rather
 # than creating ``REVISED_PLAN.md`` etc., otherwise this copy misses
 # the latest version.
-_CANONICAL_ARTIFACT_NAMES: tuple[str, ...] = (
+CANONICAL_ARTIFACT_NAMES: tuple[str, ...] = (
     'IDEA.md',
     'INTENT.md',
     'PLAN.md',
@@ -260,7 +260,7 @@ async def create_subchat_worktree(
         # the child.  Picks up whatever revisions the parent has
         # made — agents must edit in place rather than versioning
         # the filename.
-        for artifact in _CANONICAL_ARTIFACT_NAMES:
+        for artifact in CANONICAL_ARTIFACT_NAMES:
             src = os.path.join(parent_worktree, artifact)
             dst = os.path.join(dest_path, artifact)
             if not os.path.isfile(src):

@@ -14,7 +14,11 @@ Two cases:
     repo and survives caller teardown.  ``--no-hardlinks`` ensures that
     even though both directories share git history, each has its own
     object copies — destroying the caller's repo cannot corrupt the
-    proxy's snapshot.
+    proxy's snapshot.  ``git clone`` only checks out HEAD, so gitignored
+    files (notably the canonical CfA artifacts ``INTENT.md`` / ``PLAN.md``
+    / ``IDEA.md`` / ``WORK_SUMMARY.md``) are copied explicitly afterwards
+    — they describe the work the proxy is being asked to review and
+    would otherwise be invisible.
 
   * Source is a plain directory.  We use ``shutil.copytree(symlinks=False)``
     so any symlinks inside the source are followed and the destination
@@ -29,6 +33,8 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+
+from teaparty.workspace.worktree import CANONICAL_ARTIFACT_NAMES
 
 
 class MaterializationError(RuntimeError):
@@ -68,8 +74,25 @@ def materialize_worktree(src: str, dest: str) -> None:
 
     if os.path.isdir(os.path.join(src, '.git')):
         _git_clone(src, dest)
+        _copy_canonical_artifacts(src, dest)
     else:
         shutil.copytree(src, dest, symlinks=False)
+
+
+def _copy_canonical_artifacts(src: str, dest: str) -> None:
+    """Copy gitignored CfA artifacts that ``git clone`` skipped.
+
+    ``INTENT.md`` / ``PLAN.md`` / ``IDEA.md`` / ``WORK_SUMMARY.md`` live
+    at the worktree root and are gitignored so they never reach main —
+    but they describe the work the proxy is being asked to review.
+    Without this step the proxy's snapshot is missing the very files
+    it needs to read.  Mirrors ``create_subchat_worktree`` in
+    ``workspace.worktree``, which has the same problem class.
+    """
+    for name in CANONICAL_ARTIFACT_NAMES:
+        s = os.path.join(src, name)
+        if os.path.isfile(s):
+            shutil.copy2(s, os.path.join(dest, name))
 
 
 def _git_clone(src: str, dest: str) -> None:

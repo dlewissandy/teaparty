@@ -200,6 +200,86 @@ class MaterializeGitCloneTest(unittest.TestCase):
             )
 
 
+class MaterializeGitCanonicalArtifactsTest(unittest.TestCase):
+    """Gitignored CfA artifacts ride with the clone.
+
+    ``INTENT.md`` / ``PLAN.md`` / ``IDEA.md`` / ``WORK_SUMMARY.md`` are
+    gitignored so they never reach main — but they describe the work
+    the proxy is being asked to review.  ``git clone`` skips them; the
+    materializer must copy them explicitly.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.mkdtemp(prefix='materialize-canonical-')
+        self.src = os.path.join(self._tmp, 'caller')
+        self.dest = os.path.join(self._tmp, 'proxy-cwd')
+        os.makedirs(self.src)
+        # A real git repo with a single committed README so clone has
+        # something to check out, plus a .gitignore that excludes the
+        # canonical artifacts (mirrors the real job worktree layout).
+        with open(os.path.join(self.src, 'README.md'), 'w') as f:
+            f.write('# committed\n')
+        with open(os.path.join(self.src, '.gitignore'), 'w') as f:
+            f.write('IDEA.md\nINTENT.md\nPLAN.md\nWORK_SUMMARY.md\n')
+        subprocess.run(
+            ['git', 'init', '-q', self.src], check=True, capture_output=True,
+        )
+        subprocess.run(
+            ['git', '-C', self.src, 'config', 'user.email', 't@t'], check=True,
+        )
+        subprocess.run(
+            ['git', '-C', self.src, 'config', 'user.name', 't'], check=True,
+        )
+        subprocess.run(
+            ['git', '-C', self.src, 'add', '.'], check=True, capture_output=True,
+        )
+        subprocess.run(
+            ['git', '-C', self.src, 'commit', '-q', '-m', 'initial'],
+            check=True, capture_output=True,
+        )
+        # Author the canonical artifacts AFTER the commit so they live
+        # only in the working tree — exactly like the live job state
+        # the proxy is escalated against.
+        self.artifact_contents = {
+            'INTENT.md': '# intent\n\nDo the thing.\n',
+            'PLAN.md': '# plan\n\nStep one.\n',
+            'IDEA.md': 'the raw idea\n',
+            'WORK_SUMMARY.md': '# summary\n\nWhat happened.\n',
+        }
+        for name, content in self.artifact_contents.items():
+            with open(os.path.join(self.src, name), 'w') as f:
+                f.write(content)
+
+    def tearDown(self) -> None:
+        import shutil
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def test_canonical_artifacts_copied_into_destination(self) -> None:
+        # The bug: git clone copies HEAD only, so gitignored INTENT.md /
+        # PLAN.md / IDEA.md / WORK_SUMMARY.md never reach the proxy's
+        # cwd and the proxy can't read the work it's being asked about.
+        materialize_worktree(self.src, self.dest)
+        for name in self.artifact_contents:
+            full = os.path.join(self.dest, name)
+            self.assertTrue(
+                os.path.isfile(full),
+                f'gitignored canonical artifact {name} missing from '
+                f'destination at {full}; the proxy launches with cwd = '
+                f'destination and cannot reach the caller\'s artifacts',
+            )
+
+    def test_canonical_artifact_content_is_identical(self) -> None:
+        materialize_worktree(self.src, self.dest)
+        for name, expected in self.artifact_contents.items():
+            with open(os.path.join(self.dest, name)) as f:
+                self.assertEqual(
+                    f.read(), expected,
+                    f'{name}: content differs between caller and '
+                    f'materialized snapshot — the proxy would review '
+                    f'a stale or mangled version',
+                )
+
+
 class MaterializeNonEmptyDestTest(unittest.TestCase):
     """Non-empty destination is a hard error — we don't merge into someone else's tree."""
 
