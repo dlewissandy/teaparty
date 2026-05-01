@@ -47,7 +47,6 @@ For each dispatch you sent, inspect the work that has merged back into your work
 
 - If every dispatched task satisfies the task it was sent for, go to ASSESS.
 - If any item needs rework, go to DELEGATE — re-dispatch with corrective feedback in the new task.
-- If a reply or deliverable surfaces something you cannot resolve from the artifacts (scope drift, conflicting outputs, ambiguous spec), go to ASK.
 
 ## FINAL_REVIEW
 
@@ -60,9 +59,6 @@ Two checks, both must pass:
 
 - If both pass, go to ASSERT.
 - If a plan step is missing a deliverable or a deliverable doesn't match its step, go to DELEGATE — re-dispatch the gap as a task.
-- If something looks structurally off (intent appears unmet even though every plan step is executed, or a deliverable suggests the plan itself is wrong), go to ASK.
-
-You do not write `.phase-outcome.json` from FINAL_REVIEW. Only ASSERT writes terminal outcomes; if the human needs to weigh in on a backtrack, that is the seam.
 
 ## ASK
 
