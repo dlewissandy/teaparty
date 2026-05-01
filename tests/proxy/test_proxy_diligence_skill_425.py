@@ -212,11 +212,17 @@ class DiligenceRailMandatoryLanguageTest(unittest.TestCase):
     )
     # The skill bodies all carry a sentence affirming the rail's
     # mandatory status.  The exact sentence varies slightly per skill;
-    # we accept any of the canonical forms.
+    # we accept any of the canonical forms.  "Cannot skip this" and
+    # "must not skip" are the imperative phrasings introduced when the
+    # rail was hoisted to the first action of every turn (the failure
+    # mode being addressed: the proxy answering from a previous turn's
+    # read instead of re-reading current state).
     _IMPERATIVE_HINTS = (
         r'required,\s+not\s+advisory',
         r'this\s+is\s+required',
         r'mandatory,\s+not\s+optional',
+        r'cannot\s+skip\s+this',
+        r'must\s+not\s+skip',
     )
 
     def _check_no_advisory(self, skill: str) -> None:

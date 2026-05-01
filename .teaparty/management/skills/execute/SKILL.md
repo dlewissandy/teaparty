@@ -7,54 +7,84 @@ allowed-tools: Read, Write, Edit, Glob, Grep, mcp__teaparty-config__AskQuestion,
 
 # Execution
 
-Run the execution workflow to completion in a single invocation. Traverse the steps below. When you reach a terminal step, write `./.phase-outcome.json` and halt — the orchestrator will read the outcome and dispatch accordingly.
+Run the execution workflow to completion in a single invocation. Traverse the steps below. Only ASSERT writes `./.phase-outcome.json` — every other step is a lateral move within the cycle. Terminal outcomes (APPROVED_WORK, REALIGN, REPLAN, WITHDRAW) are the human's call, never yours.
+
+You are the manager, not a primary contributor. You decompose work into manageable tasks, delegate, verify, and resolve conflicts as they arise.
 
 ## START
 
-Read `./INTENT.md` — this describes what the user wants. Read `./PLAN.md` — this describes how the work should be done.
+Read `./INTENT.md` — what the user wants. Read `./PLAN.md` — how the work should be done.
 
-Once you have read the files and understand the scope of work, proceed to EXECUTE.
+Once you understand the scope, proceed to ASSESS.
 
-## EXECUTE
+## ASSESS
 
-Execute the PLAN.md.    You are the manager, not a primary contributor.   You decompose work into manageable tasks,
-delegate work, and resolve conflicts as they arise.
+Re-read `./INTENT.md` and `./PLAN.md` from disk. You cannot skip this and you cannot rely on what you read in a previous turn — the files may have changed since you last looked, and your routing depends on the current state.
 
-Use `mcp__teaparty-config__Delegate(member, task, skill='attempt-task')` to dispatch work to a workgroup-lead. The `skill='attempt-task'` argument prescribes the workgroup-lead's workflow rail; without it the recipient improvises. You may Delegate to several members in parallel — independent units run concurrently.
+Walk the worktree. Identify what each step in PLAN.md prescribes and which of those steps already have on-disk deliverables.
+
+- If every step in PLAN.md has a verified deliverable on disk, go to FINAL_REVIEW.
+- If work remains and you know what's next, go to DELEGATE.
+- If you need clarification from the human (priority, approach, or anything you cannot resolve from the artifacts), go to ASK.
+
+## DELEGATE
+
+Pick the next most important unit of work in PLAN.md and dispatch it. You may DELEGATE several independent units in parallel — they run concurrently.
+
+Use `mcp__teaparty-config__Delegate(member, task, skill='attempt-task')` to dispatch work to a workgroup-lead. The `skill='attempt-task'` argument prescribes the workgroup-lead's workflow rail; without it the recipient improvises.
 
 `Delegate` opens a new dispatch thread. To continue an open thread (e.g. answering a workgroup-lead's clarifying question), use `mcp__teaparty-config__Send` with that thread's `conversation_id`. Send is for continuation and peer messaging; Delegate is for opening with a workflow.
 
-Note: Each team member performs their work on a separate session branch in their own worktree. Their commits are not merged into your worktree until you call `mcp__teaparty-config__CloseConversation` with the dispatch's `conversation_id`.
+Note: each team member performs their work on a separate session branch in their own worktree. Their commits are not merged into your worktree until you call `mcp__teaparty-config__CloseConversation` with the dispatch's `conversation_id`.
 
 **Edit canonical artifacts in place.** When you revise `INTENT.md`, `PLAN.md`, or `WORK_SUMMARY.md` — for example after a teammate's reply prompts a course correction — overwrite the file. Do not create `APPROVED_PLAN.md`, `PLAN_v2.md`, or any variant. Dispatched workers receive these files by name at spawn; a renamed file does not propagate, and they work from a stale version.
 
-When an agent tells you that they have completed a task, do not take them at their word. You are the gatekeeper. Inspect their work and hold them to account.
+After your dispatches return, go to REVIEW.
 
-- If you need clarification from the human, go to ASK
-- If you deem your work to be complete, go to ASSERT
+## REVIEW
+
+For each dispatch you sent, inspect the work that has merged back into your worktree. Do not take the dispatched agent at their word — open the deliverable, verify it against the task you sent.
+
+- If every dispatched task satisfies the task it was sent for, go to ASSESS.
+- If any item needs rework, go to DELEGATE — re-dispatch with corrective feedback in the new task.
+- If a reply or deliverable surfaces something you cannot resolve from the artifacts (scope drift, conflicting outputs, ambiguous spec), go to ASK.
+
+## FINAL_REVIEW
+
+Re-read `./INTENT.md` and `./PLAN.md` from disk. You cannot skip this — what you assemble here is the guarantee you carry into ASSERT.
+
+Two checks, both must pass:
+
+1. **Intent satisfied.** Read the deliverables as a whole. Does the work fulfill what INTENT.md asks for, against its success criteria?
+2. **Plan faithfully executed.** Walk PLAN.md step by step. For each step, verify the corresponding deliverable exists on disk and matches what the step prescribed.
+
+- If both pass, go to ASSERT.
+- If a plan step is missing a deliverable or a deliverable doesn't match its step, go to DELEGATE — re-dispatch the gap as a task.
+- If something looks structurally off (intent appears unmet even though every plan step is executed, or a deliverable suggests the plan itself is wrong), go to ASK.
+
+You do not write `.phase-outcome.json` from FINAL_REVIEW. Only ASSERT writes terminal outcomes; if the human needs to weigh in on a backtrack, that is the seam.
+
 ## ASK
 
 Conduct a dialog with the human using `mcp__teaparty-config__AskQuestion`.
 
-Dialog purpose: you are not certain that you understand how the human wants to do things, and you are seeking guidance. Dialog is necessary because your expectations may not be aligned with the human's — the questions you are asking may not be the relevant ones, and the only way to ensure alignment is to dialogue. This discussion may uncover additional questions, or produce unexpected clarifications.
+Dialog purpose: you need information you cannot derive from the artifacts — priority of remaining work, an ambiguity in INTENT or PLAN, an unresolved conflict in dispatched outputs. Dialogue ensures your next decision is grounded in what the human actually wants, not in your best guess.
 
-- If the response begins with the line `[WITHDRAW]`, go to WITHDRAW. The text after `[WITHDRAW]` is the reason — carry it into `.phase-outcome.json`.
-- If the conversation confirms that the intent does not capture the human's idea, go to REALIGN.
-- If the conversation confirms that the plan does not capture the desired workflow, go to REPLAN
-- If the conversation confirms that the human no longer wants to continue this job, go to WITHDRAW.
-- Once your questions have been resolved (or the human deems them unnecessary), go to EXECUTE.
+The human's response is data, not a routing instruction. Whatever they say — even something terminal-sounding — informs your next ASSESS rather than triggering a terminal outcome directly. Backtrack and abandon are ASSERT's authority, not yours; if the human signals a defect, surface it through the next ASSERT.
+
+When the dialog resolves your question, go to ASSESS.
 
 ## ASSERT
 
 Conduct a dialog with the human regarding the current work using `mcp__teaparty-config__AskQuestion`.
 
-Dialog purpose: you expect that work is complete, and you are confirming with the human. Dialog is necessary because your expectations may not be aligned with the human's — the work may not actually be complete, and the only way to ensure alignment is to dialogue.
+Dialog purpose: FINAL_REVIEW says the work is complete and matches both INTENT and PLAN. You are asking the human to ratify that, not to audit it. Frame the dialog as "I have verified end-to-end; please confirm before I close" — the human's role is to ratify, raise an objection, or call a backtrack.
 
-**Before you enter ASSERT, close every dispatch you opened.** If any `dispatch:<id>` you sent during EXECUTE is still open, the work in those threads has not been merged into your worktree and the human will be asked to approve something they cannot see. For each thread: if you're satisfied, `mcp__teaparty-config__CloseConversation(conversation_id='dispatch:<id>')`; if you're not, go back to EXECUTE and Send again in the thread with feedback.
+**Before you enter ASSERT, close every dispatch you opened.** If any `dispatch:<id>` you sent during the cycle is still open, the work in those threads has not been merged into your worktree and the human will be asked to approve something they cannot see. For each thread: if you're satisfied, `mcp__teaparty-config__CloseConversation(conversation_id='dispatch:<id>')`; if you're not, go back to ASSESS and re-dispatch with feedback.
 
 - If the response begins with the line `[WITHDRAW]`, go to WITHDRAW. The text after `[WITHDRAW]` is the reason — carry it into `.phase-outcome.json`.
 - If the human approves the work, go to APPROVE.
-- If the dialog surfaces needed revisions, go to EXECUTE.
+- If the dialog surfaces needed revisions, go to ASSESS.
 - If the conversation confirms that the intent does not capture the human's idea, go to REALIGN.
 - If the conversation confirms that the plan does not capture the desired workflow, go to REPLAN.
 - If the conversation confirms that the human no longer wants to continue this job, go to WITHDRAW.

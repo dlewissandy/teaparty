@@ -193,45 +193,48 @@ class ExecuteSkillDirectiveTest(unittest.TestCase):
             f'execute skill must exist at {self.EXECUTE_PATH}',
         )
 
-    def test_execute_names_delegate_for_dispatch(self) -> None:
-        """The EXECUTE step must name `Delegate` as the dispatch *tool*,
+    def test_delegate_step_names_delegate_tool(self) -> None:
+        """The DELEGATE step must name `Delegate` as the dispatch *tool*,
         not merely use `delegate` as an English verb. The qualified
         tool name `mcp__teaparty-config__Delegate` (or a `Delegate(`
-        call form) distinguishes the directive from the existing
-        `"Delegate work to team members"` prose.
+        call form) distinguishes the directive from the section heading
+        and surrounding prose.
 
-        Section-scoped to EXECUTE so that frontmatter ``allowed-tools``
+        Section-scoped to DELEGATE so that frontmatter ``allowed-tools``
         listing the name does not satisfy the procedural directive
-        requirement.
+        requirement.  The DELEGATE step replaced the old EXECUTE step
+        when the skill was restructured into the
+        ASSESS / DELEGATE / REVIEW / FINAL_REVIEW cycle so that
+        terminal outcomes only fire from ASSERT.
         """
-        execute = _section_of(self.EXECUTE_PATH.read_text(), 'EXECUTE')
+        delegate = _section_of(self.EXECUTE_PATH.read_text(), 'DELEGATE')
         self.assertNotEqual(
-            execute, '',
-            f'execute skill must have an `## EXECUTE` section.',
+            delegate, '',
+            f'execute skill must have a `## DELEGATE` section.',
         )
         names_tool = (
-            'mcp__teaparty-config__Delegate' in execute
-            or 'Delegate(' in execute
+            'mcp__teaparty-config__Delegate' in delegate
+            or 'Delegate(' in delegate
         )
         self.assertTrue(
             names_tool,
-            f'execute EXECUTE must name the `Delegate` tool by its '
+            f'execute DELEGATE must name the `Delegate` tool by its '
             f'qualified MCP name or a call-form (`Delegate(...)`) — '
             f'the bare word "Delegate" already appears as an English '
             f'verb and does not constitute a directive to use the '
-            f'new tool. EXECUTE section head: {execute[:400]!r}',
+            f'new tool. DELEGATE section head: {delegate[:400]!r}',
         )
 
-    def test_execute_names_attempt_task_skill(self) -> None:
-        """The Delegate call in EXECUTE must name `attempt-task` as the
+    def test_delegate_step_names_attempt_task_skill(self) -> None:
+        """The Delegate call in DELEGATE must name `attempt-task` as the
         workflow skill prescribed for workgroup-leads."""
-        execute = _section_of(self.EXECUTE_PATH.read_text(), 'EXECUTE')
+        delegate = _section_of(self.EXECUTE_PATH.read_text(), 'DELEGATE')
         self.assertIn(
-            'attempt-task', execute,
-            f'execute EXECUTE must name `attempt-task` as the workflow '
+            'attempt-task', delegate,
+            f'execute DELEGATE must name `attempt-task` as the workflow '
             f'skill for workgroup-lead dispatch. The Delegate call '
             f'shape is Delegate(member, task, skill="attempt-task"). '
-            f'EXECUTE section head: {execute[:400]!r}',
+            f'DELEGATE section head: {delegate[:400]!r}',
         )
 
     def test_old_send_dispatch_wording_removed(self) -> None:
@@ -251,19 +254,94 @@ class ExecuteSkillDirectiveTest(unittest.TestCase):
             f'directive; leaving both produces contradictory '
             f'instructions in the same skill body.',
         )
-        # Replacement directive must be present in EXECUTE — without
+        # Replacement directive must be present in DELEGATE — without
         # this, a regression that drops the old wording without
         # supplying the new one (a partial revert) passes the negative
         # check vacuously.
-        execute = _section_of(body, 'EXECUTE')
+        delegate = _section_of(body, 'DELEGATE')
         self.assertIn(
-            "Delegate(member, task, skill='attempt-task')", execute,
-            f'execute EXECUTE must contain the explicit replacement '
+            "Delegate(member, task, skill='attempt-task')", delegate,
+            f'execute DELEGATE must contain the explicit replacement '
             f'directive `Delegate(member, task, skill=\'attempt-task\')`. '
             f'A regression that strips the old Send wording without '
-            f'supplying the new directive leaves the EXECUTE step '
+            f'supplying the new directive leaves the DELEGATE step '
             f'without dispatch guidance.',
         )
+
+    def test_only_assert_writes_phase_outcome(self) -> None:
+        """Terminal authority is concentrated at ASSERT — the lead
+        cannot write `.phase-outcome.json` from any other lead-internal
+        step (ASSESS, DELEGATE, REVIEW, FINAL_REVIEW, ASK).  This is the
+        invariant that prevents the failure mode where a lead deems a
+        sub-phase complete and emits APPROVED_WORK after the first
+        chunk of a multi-phase plan.
+
+        Implementation: every step that should NOT terminate has no
+        `.phase-outcome.json` directive in its body.  ASSERT and the
+        four terminal steps (APPROVE / REALIGN / REPLAN / WITHDRAW) are
+        the only places the file is written.
+        """
+        body = self.EXECUTE_PATH.read_text()
+        # Look for the actual write directive, not any mention of the
+        # filename — the lead-internal steps may legitimately reference
+        # `.phase-outcome.json` in a negative ("you do not write …")
+        # framing without being a directive to write it.  The terminal
+        # steps use the canonical phrasing "Write `./.phase-outcome.json`
+        # and halt"; that's what we forbid in lead-internal steps.
+        for step in ('ASSESS', 'DELEGATE', 'REVIEW', 'FINAL_REVIEW', 'ASK'):
+            section = _section_of(body, step)
+            self.assertNotEqual(
+                section, '',
+                f'execute skill must have a `## {step}` section.',
+            )
+            self.assertNotIn(
+                'Write `./.phase-outcome.json`', section,
+                f'execute {step} must NOT direct the lead to write '
+                f'`.phase-outcome.json` — terminal outcomes are '
+                f'ASSERT\'s authority alone.  A directive in {step} '
+                f'reintroduces the failure mode where the lead emits '
+                f'APPROVED_WORK after a sub-phase rather than after the '
+                f'whole PLAN.  {step} section head: {section[:300]!r}',
+            )
+
+    def test_final_review_routes_to_assert(self) -> None:
+        """The only path to ASSERT goes through FINAL_REVIEW — that
+        guarantees both the intent-met and plan-faithfully-executed
+        checks fire before the human is engaged for ratification.
+        """
+        body = self.EXECUTE_PATH.read_text()
+        final_review = _section_of(body, 'FINAL_REVIEW')
+        self.assertNotEqual(
+            final_review, '',
+            f'execute skill must have a `## FINAL_REVIEW` section — '
+            f'the gate before ASSERT.',
+        )
+        self.assertIn(
+            'ASSERT', final_review,
+            f'execute FINAL_REVIEW must route to ASSERT on success — '
+            f'otherwise there is no path from the cycle to terminal '
+            f'authority.  FINAL_REVIEW head: {final_review[:300]!r}',
+        )
+
+    def test_assess_rereads_intent_and_plan(self) -> None:
+        """ASSESS must direct the lead to re-read INTENT.md and PLAN.md
+        from disk every cycle.  Without an explicit re-read, the lead
+        routes from a stale snapshot — the same failure mode the
+        escalation skills address with their first-action re-read.
+        """
+        body = self.EXECUTE_PATH.read_text()
+        assess = _section_of(body, 'ASSESS')
+        self.assertNotEqual(
+            assess, '',
+            f'execute skill must have a `## ASSESS` section.',
+        )
+        for artifact in ('INTENT.md', 'PLAN.md'):
+            self.assertIn(
+                artifact, assess,
+                f'execute ASSESS must reference `./{artifact}` so the '
+                f'lead re-reads it before routing.  ASSESS head: '
+                f'{assess[:400]!r}',
+            )
 
 
 if __name__ == '__main__':
