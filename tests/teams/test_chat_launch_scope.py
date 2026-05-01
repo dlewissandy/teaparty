@@ -391,6 +391,120 @@ class TestChatLaunchDoesNotUseWorktree(unittest.TestCase):
         )
 
 
+class TestProxyLaunchUsesWorktreeTier(unittest.TestCase):
+    """Issue #425 follow-up: the proxy launches as worktree-tier so its
+    skill files land inside the cwd subtree.
+
+    Background: chat-tier composition stages skills only to
+    ``$CLAUDE_CONFIG_DIR/skills/`` (``launcher.py:761-771``).  After #425
+    the proxy runs in a materialized clone with a worktree-jail hook
+    that denies any absolute-path Read outside the cwd subtree
+    (``worktree_hook.py:97-98``).  The escalation ``SKILL.md`` then
+    issues ``Read collaborate.md`` against an absolute path under
+    ``$CLAUDE_CONFIG_DIR``, the jail denies, and the proxy reports
+    "I can't reach the skill file from this worktree."
+
+    The fix: when ``AgentSession`` is invoked with
+    ``launch_cwd_override`` (today, the proxy under #425), the launch
+    runs as ``tier='job'`` with ``worktree=launch_cwd_override``.
+    ``compose_launch_worktree`` then writes ``.claude/skills/<name>/``
+    into the clone, where the jail allows the Read.
+    """
+
+    def setUp(self):
+        self._tmpdir = tempfile.mkdtemp()
+        self._tp, self._teaparty_repo, _ = _make_env(self._tmpdir)
+        # Add a proxy agent that declares skills: [escalation].  The
+        # proxy is the only agent that today exercises the
+        # launch_cwd_override path — but the contract is generic.
+        proxy_dir = os.path.join(self._tp, 'management', 'agents', 'proxy')
+        os.makedirs(proxy_dir)
+        with open(os.path.join(proxy_dir, 'agent.md'), 'w') as f:
+            f.write(
+                '---\n'
+                'name: proxy\n'
+                'description: human proxy\n'
+                'skills:\n'
+                '- escalation\n'
+                '---\n\n'
+                'You are the proxy.\n'
+            )
+        # And the escalation skill source the launcher will copy.
+        skill_dir = os.path.join(
+            self._tp, 'management', 'skills', 'escalation',
+        )
+        os.makedirs(skill_dir)
+        for name, body in (
+            ('SKILL.md', '---\nname: escalation\n---\n\nDispatch on $ARGUMENTS.\n'),
+            ('collaborate.md', '# collaborate\n'),
+            ('delegate.md', '# delegate\n'),
+            ('escalate.md', '# escalate\n'),
+            ('unknown.md', '# unknown\n'),
+        ):
+            with open(os.path.join(skill_dir, name), 'w') as f:
+                f.write(body)
+
+    def tearDown(self):
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    def test_compose_launch_worktree_stages_proxy_skills_into_cwd(self):
+        # The fix's prerequisite: when the launcher composes a worktree
+        # for the proxy, the escalation skill ends up at
+        # ``<worktree>/.claude/skills/escalation/`` so a relative-path
+        # Read from SKILL.md resolves inside the worktree-jail.
+        from teaparty.runners.launcher import compose_launch_worktree
+
+        clone = os.path.join(self._tmpdir, 'proxy-clone')
+        os.makedirs(clone)
+        compose_launch_worktree(
+            worktree=clone,
+            agent_name='proxy',
+            scope='management',
+            teaparty_home=self._tp,
+            mcp_port=9000,
+            session_id='proxy-sess',
+        )
+        skill_root = os.path.join(clone, '.claude', 'skills', 'escalation')
+        self.assertTrue(
+            os.path.isdir(skill_root),
+            f'expected staged skill dir at {skill_root}; '
+            f'without it the proxy cannot Read collaborate.md / '
+            f'delegate.md / escalate.md from inside its worktree-jail',
+        )
+        for name in ('SKILL.md', 'collaborate.md', 'delegate.md',
+                     'escalate.md', 'unknown.md'):
+            full = os.path.join(skill_root, name)
+            self.assertTrue(
+                os.path.isfile(full),
+                f'missing {name} in staged skill dir; SKILL.md '
+                f'dispatches to these files by relative-path Read',
+            )
+
+    def test_session_dispatches_launch_cwd_override_to_job_tier(self):
+        # The session-level invariant: when a caller passes
+        # ``launch_cwd_override``, the launch_kwargs handed to the
+        # launcher use ``tier='job'`` with ``worktree=launch_cwd_override``,
+        # not ``tier='chat'``.  Reading the source is brittle in
+        # principle but pinning the dispatch line catches the regression
+        # exactly: a future "all chat-tier" simplification would lose
+        # the job-tier branch and re-introduce the skill-unreachable bug.
+        import inspect
+        from teaparty.teams.session import AgentSession
+        src = inspect.getsource(AgentSession._invoke_inner)
+        self.assertIn(
+            "tier='job'", src,
+            "AgentSession._invoke_inner must dispatch launch_cwd_override "
+            "to worktree-tier; 'tier=\"job\"' branch is missing",
+        )
+        # The same source must still preserve the chat-tier path for
+        # OM / PM / config-lead, whose cwd is the user's real repo.
+        self.assertIn(
+            "tier='chat'", src,
+            "AgentSession._invoke_inner must keep chat-tier for "
+            "non-override launches (OM/PM at the real repo)",
+        )
+
+
 def _snapshot(path: str) -> dict[str, int]:
     """Snapshot every file under *path* except .git and .teaparty/.
 

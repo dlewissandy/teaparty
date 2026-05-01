@@ -1084,16 +1084,14 @@ class AgentSession:
         await self._ensure_bus_listener(cwd)
         session = self._dispatch_session
 
-        # Chat tier: launch at the real repo root (teaparty for
-        # management agents, the project repo for project leads). No
-        # worktree is composed — per-launch config travels via CLI flags
-        # pointed at files under .teaparty/{scope}/agents/{name}/{qualifier}/config/.
+        # Resolve the launch cwd.  Two cases:
+        #   * ``launch_cwd_override`` set — the caller (proxy under #425)
+        #     already owns a per-launch clone and tells us exactly where
+        #     to run; registry resolution would point at the repo root
+        #     instead, breaking the materialized-worktree contract.
+        #   * No override — chat-tier launch at the real repo root via
+        #     the registry (OM in teaparty, project leads in their repo).
         if launch_cwd_override:
-            # Escalation path: the caller already knows exactly where the
-            # proxy should run (the per-escalation session directory).
-            # Skip registry resolution — it would send the proxy to the
-            # repo root instead and the ``/escalation`` skill's
-            # ``Read ./QUESTION.md`` would fail.
             launch_cwd = launch_cwd_override
         else:
             try:
@@ -1114,9 +1112,6 @@ class AgentSession:
                 launch_cwd = cwd
         session.launch_cwd = launch_cwd
         effective_cwd = launch_cwd
-        config_dir = _chat_cfg_dir(
-            self.teaparty_home, self.scope, self.agent_name, self.qualifier,
-        )
 
         # The launcher writes stream events to {session_dir}/stream.jsonl.
         # We read the slug from that same file after launch completes.
@@ -1124,21 +1119,27 @@ class AgentSession:
 
         mcp_port = int(os.environ.get('TEAPARTY_BRIDGE_PORT', '9000'))
 
-        # Build the launch_kwargs_base for run_agent_loop.  The loop
-        # will populate ``message``, ``on_stream_event``, and
-        # ``resume_session`` per iteration.  ONE lifecycle: this is
-        # the same loop run_child_lifecycle uses for dispatched
-        # children — top-level chat and dispatched children no longer
-        # have separate execution paths.
-        launch_kwargs_base = dict(
+        # Tier selection — invariant: a launcher-owned per-launch cwd
+        # goes through worktree-tier so compose_launch_worktree composes
+        # the agent's .claude/ harness (agents, skills, settings, MCP)
+        # INTO the cwd.  The worktree-jail allows reads inside the cwd
+        # subtree, so staged skill files and their relative-path Read
+        # calls from SKILL.md work.  The chat-tier path stages skills
+        # only to $CLAUDE_CONFIG_DIR/skills/, which the jail blocks
+        # from a worktree-bound cwd.
+        #
+        # ``launch_cwd_override`` is the signal: the caller (today, the
+        # proxy under #425) handed us a per-launch clone they own.
+        # Without override, the cwd is the user's real repo (OM, PM,
+        # project leads, config-lead) and we MUST NOT pollute it with
+        # composed .claude/ files — chat-tier travels via a separate
+        # config_dir under .teaparty/{scope}/agents/{name}/.../config/.
+        common_kwargs = dict(
             agent_name=self.agent_name,
             scope=self.scope,
             telemetry_scope=self._telemetry_scope,
             teaparty_home=self.teaparty_home,
             org_home=self._org_home,
-            tier='chat',
-            launch_cwd=launch_cwd,
-            config_dir=config_dir,
             stream_file=stream_path,
             mcp_port=mcp_port,
             session_id=session.id,
@@ -1149,6 +1150,22 @@ class AgentSession:
             # casing: each AgentSession knows its own conversation_id.
             caller_conversation_id=self.conversation_id,
         )
+        if launch_cwd_override:
+            launch_kwargs_base = dict(
+                common_kwargs,
+                tier='job',
+                worktree=launch_cwd,
+            )
+        else:
+            config_dir = _chat_cfg_dir(
+                self.teaparty_home, self.scope, self.agent_name, self.qualifier,
+            )
+            launch_kwargs_base = dict(
+                common_kwargs,
+                tier='chat',
+                launch_cwd=launch_cwd,
+                config_dir=config_dir,
+            )
         if self._llm_caller is not None:
             launch_kwargs_base['llm_caller'] = self._llm_caller
 
