@@ -753,7 +753,50 @@ async def run_agent_loop(
                     '%s on_terminate raised; treating as no-exit', agent_name,
                 )
                 terminal_value = None
-        break
+
+        if terminal_value is not None:
+            break
+
+        # No phase outcome AND no NEW grandchildren this turn — but the
+        # parent may have just Send'd into an existing dispatch
+        # (continuation rather than fresh Delegate).  ``new_gc_ids``
+        # only catches dispatches *opened* this turn; a continuation
+        # leaves it empty even though the child is now processing the
+        # new message and will eventually Reply.  Before declaring the
+        # phase incomplete, scan the bus for any dispatch the parent
+        # opened that is still ACTIVE; if any exist, wait for one of
+        # them to produce a non-human reply and feed it as the next
+        # turn's message.  Without this, a turn that ends with a Send
+        # continuation strands the parent's loop, the engine raises
+        # "skill turn ended without writing .phase-outcome.json and no
+        # workers are in flight," and a multi-turn dispatch with active
+        # children dies on its first round-trip.
+        open_dispatch_ids = [
+            c.id for c in bus.children_of(conv_id)
+            if c.id.startswith('dispatch:')
+            and c.state != ConversationState.CLOSED
+        ]
+        if not open_dispatch_ids:
+            break  # Nothing in flight; let the caller raise / recover.
+
+        if on_phase is not None:
+            try:
+                on_phase(
+                    'awaiting',
+                    [cid[len('dispatch:'):] for cid in open_dispatch_ids],
+                )
+            except Exception:
+                _log.debug(
+                    'on_phase(awaiting) raised', exc_info=True,
+                )
+
+        reply = await _await_continuation_reply(
+            bus, conv_id, open_dispatch_ids,
+        )
+        if reply is None:
+            break  # Every open dispatch closed without a reply — done.
+        current_message = reply
+        continue
 
     _log.info(
         '%s agent loop completed in %.2fs', agent_name, time.monotonic() - t0,
@@ -784,6 +827,70 @@ async def run_agent_loop(
         events=events,
         terminal=terminal_value,
     )
+
+
+_CONTINUATION_POLL_INTERVAL = 1.0
+
+
+async def _await_continuation_reply(
+    bus: Any,
+    parent_conv_id: str,
+    initial_dispatch_ids: list[str],
+    poll_interval: float = _CONTINUATION_POLL_INTERVAL,
+) -> str | None:
+    """Block until any of the parent's open dispatches gets a non-human reply.
+
+    Used by ``run_agent_loop``'s natural-exit branch to handle the
+    continuation-Send case: the parent ended its turn after Send'ing
+    into an existing dispatch (no new grandchildren this turn), the
+    child is still ACTIVE on the bus and will eventually Reply, but
+    the loop has no asyncio.Task awaiting that reply because Send
+    doesn't spawn one.
+
+    Polls the bus on ``poll_interval``.  Returns the first non-human
+    message formatted as ``[dispatch:<gid>] <content>`` — same shape
+    as the existing gc_replies path so the caller can feed it
+    straight into the next turn's ``current_message``.
+
+    The watch set narrows over time as dispatches CLOSE without
+    producing a reply (e.g. parent CloseConversation'd them out of
+    band).  Returns None when the watch set is empty — every
+    initially-open dispatch closed quietly, nothing left to await.
+
+    Snapshot timestamps are taken from the latest message currently
+    on each conversation; replies that arrived before this function
+    was called are intentionally not surfaced (the parent's claude
+    saw them via MCP during the just-finished turn and either acted
+    on them or chose not to).
+    """
+    snapshots: dict[str, float] = {}
+    for cid in initial_dispatch_ids:
+        msgs = bus.receive(cid)
+        snapshots[cid] = (
+            max((m.timestamp for m in msgs), default=0.0)
+        )
+    watch_set = set(initial_dispatch_ids)
+
+    while watch_set:
+        await asyncio.sleep(poll_interval)
+        # Refresh which dispatches are still ACTIVE; drop those that
+        # have CLOSED out of band (parent CloseConversation'd them).
+        live_ids = {
+            c.id for c in bus.children_of(parent_conv_id)
+            if c.id in watch_set
+            and c.state != ConversationState.CLOSED
+        }
+        watch_set &= live_ids
+        for cid in list(watch_set):
+            new_msgs = bus.receive(cid, since_timestamp=snapshots[cid])
+            if not new_msgs:
+                continue
+            snapshots[cid] = max(m.timestamp for m in new_msgs)
+            for m in new_msgs:
+                if m.sender != 'human':
+                    gid = cid[len('dispatch:'):]
+                    return f'[dispatch:{gid}] {m.content}'
+    return None
 
 
 async def run_child_lifecycle(
