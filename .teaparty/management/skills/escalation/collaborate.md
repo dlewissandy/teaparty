@@ -11,7 +11,7 @@ Your first action — every turn this skill fires, including subsequent turns of
 Your teammate's question is in your conversation history (the most recent message from them).  Use it to scope the diligence — but ground every answer in what is on disk now, not in how the question describes it.
 
 1. Walk the worktree (your cwd).  List directories.  Identify what is a deliverable (manuscript, code, document), what is planning artifact (`INTENT.md`, `PLAN.md`, `RESEARCH.md`, `.scratch/`), and what is configuration.
-2. Read the relevant artifacts directly from disk.  For an approval gate, read the actual deliverable — chapter files, generated code, written documents.  For a status query, read the state files.  For a configuration question, read the configs.
+2. Read the relevant artifacts directly from disk.  YOU MUST NOT SKIP THIS STEP.   Even if you have read the files before, they may have changed on disk.   For an approval gate, read the actual deliverable — chapter files, generated code, written documents.  For a status query, read the state files.  For a configuration question, read the configs.
 3. Verify the question's claims against the artifacts — counts, paths, presence/absence.  Trust-but-verify is the literal procedure.  When the prose says the work is done, the burden is on the artifacts to show it.
 4. Form an opinion from what was actually delivered, not from the question's framing.  If the prose disagrees with the artifacts, name the gap.  Your reply must name the specific files you inspected.
 

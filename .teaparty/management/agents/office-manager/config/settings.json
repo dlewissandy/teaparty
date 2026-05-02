@@ -5,6 +5,7 @@
       "WebSearch",
       "WebFetch",
       "mcp__teaparty-config__Send",
+      "mcp__teaparty-config__Delegate",
       "mcp__teaparty-config__AskQuestion",
       "mcp__teaparty-config__CloseConversation",
       "mcp__teaparty-config__WithdrawSession",
@@ -79,11 +80,29 @@
       "Write(*/.claude/agents/**)",
       "Write(*/.claude/hooks/**)",
       "Write(*/.claude/mcp.json)",
-      "Edit(*/.teaparty/management/**)",
-      "Edit(*/.teaparty/project/**)",
+      "Edit(*/.teaparty/management/agents/**)",
+      "Edit(*/.teaparty/management/skills/**)",
+      "Edit(*/.teaparty/management/workgroups/**)",
+      "Edit(*/.teaparty/management/teaparty.yaml)",
+      "Edit(*/.teaparty/management/settings.yaml)",
+      "Edit(*/.teaparty/management/external-projects.yaml)",
+      "Edit(*/.teaparty/project/agents/**)",
+      "Edit(*/.teaparty/project/skills/**)",
+      "Edit(*/.teaparty/project/workgroups/**)",
+      "Edit(*/.teaparty/project/project.yaml)",
+      "Edit(*/.teaparty/project/settings.yaml)",
       "Edit(*/.teaparty/teaparty.yaml)",
-      "Write(*/.teaparty/management/**)",
-      "Write(*/.teaparty/project/**)",
+      "Write(*/.teaparty/management/agents/**)",
+      "Write(*/.teaparty/management/skills/**)",
+      "Write(*/.teaparty/management/workgroups/**)",
+      "Write(*/.teaparty/management/teaparty.yaml)",
+      "Write(*/.teaparty/management/settings.yaml)",
+      "Write(*/.teaparty/management/external-projects.yaml)",
+      "Write(*/.teaparty/project/agents/**)",
+      "Write(*/.teaparty/project/skills/**)",
+      "Write(*/.teaparty/project/workgroups/**)",
+      "Write(*/.teaparty/project/project.yaml)",
+      "Write(*/.teaparty/project/settings.yaml)",
       "Write(*/.teaparty/teaparty.yaml)"
     ],
     "ask": [
@@ -115,6 +134,15 @@
           {
             "type": "command",
             "command": "python3 .claude/hooks/bash_jail_hook.py"
+          }
+        ]
+      },
+      {
+        "matcher": "Read|Edit|Write|Glob|Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /Users/darrell/git/teaparty/teaparty/workspace/worktree_hook.py"
           }
         ]
       }
