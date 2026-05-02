@@ -9,6 +9,16 @@ allowed-tools: Read, Write, Edit, Glob, Grep, mcp__teaparty-config__AskQuestion
 
 Run the planning workflow to completion in a single invocation. Traverse the steps below. When you reach a terminal step, write `./.phase-outcome.json` and halt — the orchestrator will read the outcome and dispatch accordingly.
 
+## What PLAN.md is — and isn't
+
+`PLAN.md` is a **work specification**: phases, deliverables, dependencies, success criteria. It describes *what to build* and *in what order*.
+
+`PLAN.md` is **not** a control-flow prescription for the execute skill. Do not include directives like "human checkpoint after this phase," "approval gate," "ASSERT here," "ratify with human before continuing," "the lead must Ask the human," or anything else that names a CfA-skill step. Those are mechanics owned by the execute skill — the plan's job is to specify the work, not to instruct the executor.
+
+A plan that prescribes mid-execution human gates breaks the execution flow: a confident lead reads the gate, calls ASSERT (the skill step labelled "ratify with human"), and the work terminates after one phase even though many remain. ASSERT is reserved for end-of-plan ratification by the execute skill itself.
+
+If a phase requires a human decision (style choice, scope cut, source selection, voice question), name *the decision the human owes* as a deliverable of that phase — "Phase 3 produces a narrator-voice decision" — not as a control directive. The execute skill reaches the human through its own ASK step when it cannot resolve the decision from the artifacts; the plan does not need to schedule that conversation.
+
 ## START
 
 Read `./INTENT.md`. You cannot skip this because the intent may have changed since the last time you read it.
@@ -46,7 +56,7 @@ Then go to ASSERT. The skill body is the proposal; the human reviews `PLAN.md`, 
 
 ## DRAFT
 
-Generate a plan that could reasonably produce the intent.
+Generate a plan that could reasonably produce the intent. Before writing, re-read **What PLAN.md is — and isn't** above: the plan describes *work* (phases, deliverables, success criteria), not *control flow* (no "human checkpoint," "approval gate," "ASSERT here").
 
 - If you have strategic questions on how your plan should produce the intent, go to ASK.
 - If you have no strategic questions on how your plan should produce the intent, go to ASSERT.
@@ -76,6 +86,8 @@ Dialog purpose: you are not certain that you understand how the human wants to d
 Re-read `./PLAN.md` from disk. It may have changed since the last time you read it.
 
 Integrate the refinements from the preceding dialog. The intent is stable and the plan's overall shape is sound, so edit locally rather than rebuilding. If you're rewriting more than a section or two, you're probably in ALIGN (intent drift), not REVISE — surface this rather than silently restructuring.
+
+If the human asked you to add a "checkpoint" or "approval gate" mid-plan, do not encode that as a control directive in PLAN.md.  See **What PLAN.md is — and isn't** above: a phase that requires a human decision names *the decision* as one of its deliverables; the execute skill reaches the human through its own ASK step when it needs to.  Adding "ASSERT here" or "ratify with human before continuing" to PLAN.md causes the lead to terminate the job at that point.
 
 **Edit `./PLAN.md` in place.** Do not write `APPROVED_PLAN.md`, `PLAN_v2.md`, `PLAN_REVISED.md`, or any other variant. Dispatched workers in EXECUTE state receive `PLAN.md` by name; renaming or duplicating defeats that copy and they work from a stale version. Git tracks the file's history; you do not need a new filename to preserve previous content.
 

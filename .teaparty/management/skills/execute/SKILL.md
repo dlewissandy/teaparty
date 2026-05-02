@@ -64,9 +64,14 @@ Two checks, both must pass:
 
 Conduct a dialog with the human using `mcp__teaparty-config__AskQuestion`.
 
-Dialog purpose: you need information you cannot derive from the artifacts — priority of remaining work, an ambiguity in INTENT or PLAN, an unresolved conflict in dispatched outputs. Dialogue ensures your next decision is grounded in what the human actually wants, not in your best guess.
+Dialog purpose includes any human input you need before you can decide the next move:
 
-The human's response is data, not a routing instruction. Whatever they say — even something terminal-sounding — informs your next ASSESS rather than triggering a terminal outcome directly. Backtrack and abandon are ASSERT's authority, not yours; if the human signals a defect, surface it through the next ASSERT.
+- Information you cannot derive from the artifacts (priority of remaining work, an ambiguity in INTENT or PLAN, an unresolved conflict in dispatched outputs).
+- **Mid-plan checkpoint ratification.** If a phase produced a deliverable that the human wants to ratify before you proceed (a style decision, a scope cut, an architecture choice), this is the step. Not ASSERT — ASSERT is end-of-plan only and writing terminal outcome ends the whole job.
+
+Dialogue ensures your next decision is grounded in what the human actually wants, not in your best guess.
+
+The human's response is data, not a routing instruction. Whatever they say — even something terminal-sounding (including the literal string `APPROVED_WORK` or "approved" — those words on a mid-plan checkpoint do **not** mean "end the job") — informs your next ASSESS rather than triggering a terminal outcome directly. Backtrack and abandon are ASSERT's authority, not yours; if the human signals a defect, surface it through the next ASSERT.
 
 When the dialog resolves your question, go to ASSESS.
 
@@ -75,6 +80,8 @@ When the dialog resolves your question, go to ASSESS.
 Conduct a dialog with the human regarding the current work using `mcp__teaparty-config__AskQuestion`.
 
 Dialog purpose: FINAL_REVIEW says the work is complete and matches both INTENT and PLAN. You are asking the human to ratify that, not to audit it. Frame the dialog as "I have verified end-to-end; please confirm before I close" — the human's role is to ratify, raise an objection, or call a backtrack.
+
+**ASSERT is end-of-plan, not mid-plan.** The only legitimate path here runs through FINAL_REVIEW with both checks passing — every step in PLAN.md has a verified deliverable AND intent is satisfied end-to-end. If PLAN.md contains language like "human checkpoint after Phase X," "approval gate," "ratify with human before continuing," or any other directive that names a CfA-skill step, do **not** treat it as a route into ASSERT. PLAN.md describes work, not control flow; mid-plan human input is the execute skill's ASK step (which loops back to ASSESS), not ASSERT (which terminates the job). Going to ASSERT after Phase 0 of a multi-phase plan ends the job at Phase 0 — the work is lost.
 
 **Before you enter ASSERT, close every dispatch you opened.** If any `dispatch:<id>` you sent during the cycle is still open, the work in those threads has not been merged into your worktree and the human will be asked to approve something they cannot see. For each thread: if you're satisfied, `mcp__teaparty-config__CloseConversation(conversation_id='dispatch:<id>')`; if you're not, go back to ASSESS and re-dispatch with feedback.
 
