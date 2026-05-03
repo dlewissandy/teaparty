@@ -24,7 +24,7 @@ The prologue research brief failed to persist to disk repeatedly across sessions
 
 ## Worktree Path Confusion
 
-Each dispatch ran in its own isolated git worktree, and the agents frequently struggled to understand which directory they were in, which directories they could access, and where to write their output. The [session log](../../projects/humor-book/.sessions/20260315-171017/session.log) contains several concrete examples:
+Each dispatch ran in its own isolated git worktree, and the agents frequently struggled to understand which directory they were in, which directories they could access, and where to write their output. The [session log](../../../projects/humor-book/.sessions/20260315-171017/session.log) contains several concrete examples:
 
 **Sandbox boundary errors.** A research sub-agent, dispatched into its own worktree (`research-1b423304--produce-a-research-brief-`), tried to `ls` the parent session worktree to orient itself. The sandbox blocked it: *"For security, Claude Code may only list files in the allowed working directories for this session."* The agent had to discover its own working directory by trial and error rather than by inspecting the broader project structure.
 

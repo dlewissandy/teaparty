@@ -36,4 +36,4 @@ Remaining design surface is narrow and mostly concerns integration with adjacent
 - [dispatch](dispatch.md) — Send/Reply semantics, the dispatch chain, routing rules, and context compression at each hop.
 - [chat-delivery](chat-delivery.md) — atomicity guarantees for chat delivery across the two buses.
 
-Related systems: [bridge](../bridge/index.md) consumes the event bus and renders the conversation bus in the dashboard; [workspace](../workspace/index.md) launches the agent processes that read and write messages. The [execution](../../case-study/execution.md) case study traces a full session through the messaging layer end-to-end.
+Related systems: [bridge](../bridge/index.md) consumes the event bus and renders the conversation bus in the dashboard; [workspace](../workspace/index.md) launches the agent processes that read and write messages. The [execution](../../case-study/v1/execution.md) case study traces a full session through the messaging layer end-to-end.

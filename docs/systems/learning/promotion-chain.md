@@ -40,7 +40,7 @@ Infrastructure-ready but not yet triggered automatically — project-to-global p
 `MemoryEntry` carries optional `promoted_from` and `promoted_at` fields (empty-string defaults) so every promoted learning records where it came from. This matters for two reasons:
 
 1. **Retraction.** If a project-level learning is later disproven, entries promoted from it can be traced and reviewed.
-2. **Attribution.** Credit assignment — which session produced a learning that graduated to global — is a signal we want to preserve for the [case study](../../case-study/learnings.md) and for debugging.
+2. **Attribution.** Credit assignment — which session produced a learning that graduated to global — is a signal we want to preserve for the [case study](../../case-study/v1/learnings.md) and for debugging.
 
 ## Extraction scopes
 

@@ -46,4 +46,4 @@ Remaining gaps are around cleanup ergonomics (orphaned worktrees after abnormal 
 - [unified-launch](unified-launch.md) — the launcher's two-tier model (chat vs job), one-shot launch with `--resume`, and the rules that keep `.teaparty/` config the single source of truth.
 - [agent-runtime](agent-runtime.md) — the `claude -p` invocation shape, `AgentSession`, stream processing, session health detection, and Max SLA constraints.
 
-For upstream consumers, see [cfa](../cfa-orchestration/index.md) (which drives job and task lifecycle), [messaging](../messaging/index.md) (which routes Send/Reply across sessions), and the [execution](../../case-study/execution.md) case study for an end-to-end walkthrough.
+For upstream consumers, see [cfa](../cfa-orchestration/index.md) (which drives job and task lifecycle), [messaging](../messaging/index.md) (which routes Send/Reply across sessions), and the [execution](../../case-study/v1/execution.md) case study for an end-to-end walkthrough.

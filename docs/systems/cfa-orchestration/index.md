@@ -31,7 +31,7 @@ The phase configuration is `teaparty/cfa/phase-config.json`. Each phase declares
 | Planning | `project-lead` (using `uber.md`) | `.plan-stream.jsonl` | `PLAN.md` | `PLAN_ASSERT` |
 | Execution | `project-lead` (using `uber.md`) | `.exec-stream.jsonl` | `WORK_SUMMARY.md` | `WORK_ASSERT` |
 
-The artifacts are free-form Markdown — no enforced schema — but a usable `INTENT.md` reads as something the human would have written if they had time and discipline to make every implicit assumption explicit. The [case study INTENT.md](../../case-study/artifacts/INTENT.md) is a representative example: Objective, Structure, Voice & Tone, Success Criteria, Constraints, Open Questions. `PLAN.md` is similarly free-form but is expected to operationalize the intent — phasing, success conditions per phase, dispatch decomposition. `WORK_SUMMARY.md` reports outcomes against both prior artifacts. All three live at the worktree root and persist with the session; INTENT.md and PLAN.md are propagated into per-task worktrees by `session.py`.
+The artifacts are free-form Markdown — no enforced schema — but a usable `INTENT.md` reads as something the human would have written if they had time and discipline to make every implicit assumption explicit. The [case study INTENT.md](../../case-study/v1/artifacts/INTENT.md) is a representative example: Objective, Structure, Voice & Tone, Success Criteria, Constraints, Open Questions. `PLAN.md` is similarly free-form but is expected to operationalize the intent — phasing, success conditions per phase, dispatch decomposition. `WORK_SUMMARY.md` reports outcomes against both prior artifacts. All three live at the worktree root and persist with the session; INTENT.md and PLAN.md are propagated into per-task worktrees by `session.py`.
 
 Between phases, approval gates involve the human proxy — a learned model of the human's preferences that decides whether to approve on the human's behalf or escalate. Backtracks cross phase boundaries in either direction: planning can return to intent when the specification turns out to be flawed; execution can return to planning (or all the way to intent) when reality contradicts what was approved earlier. Each backtrack increments a counter on the state, so rework is measurable, not hidden.
 
@@ -66,4 +66,4 @@ In progress / designed:
 Related systems:
 
 - [human-proxy](../human-proxy/index.md) — the learned model of the human that participates in every phase and decides at every gate.
-- Case study walkthrough of a real session through the three phases: [dialog](../../case-study/dialog.md), [execution](../../case-study/execution.md), [results](../../case-study/results.md).
+- Case study walkthrough of a real session through the three phases: [dialog](../../case-study/v1/dialog.md), [execution](../../case-study/v1/execution.md), [results](../../case-study/v1/results.md).

@@ -8,7 +8,7 @@ The first 21 minutes of the session produced two documents ([INTENT.md](./artifa
 
 The CfA state machine began at **IDEA** and the intent team's job was to turn the prompt into a complete intent document: precise enough that a planning team could work from it without guessing, but scoped only to *what* and *why*, never *how*.
 
-The intent agent checked for prior work (none — clean slate), then engaged the human with two targeted questions via [`AskQuestion`](../systems/human-proxy/approval-gate.md#escalationlistener-askquestion-mcp-tool) (the MCP tool that routes an agent's question through the proxy to the human). It does not ask a battery of questions. It identifies the two most consequential structural ambiguities in the prompt, asks them one at a time, and writes the intent as soon as it has what it needs.
+The intent agent checked for prior work (none — clean slate), then engaged the human with two targeted questions via [`AskQuestion`](../../systems/human-proxy/approval-gate.md#escalationlistener-askquestion-mcp-tool) (the MCP tool that routes an agent's question through the proxy to the human). It does not ask a battery of questions. It identifies the two most consequential structural ambiguities in the prompt, asks them one at a time, and writes the intent as soon as it has what it needs.
 
 ### Dialog
 

@@ -69,9 +69,9 @@ Launch it with `./teaparty.sh` from the repo root.
 ## Status
 
 Operational and used daily. The case study in
-[execution](../../case-study/execution.md) includes screenshots of the
+[execution](../../case-study/v1/execution.md) includes screenshots of the
 dashboard during a live run — see the
-[dashboard screenshot](../../case-study/artifacts/e2e%20workspace.png) for
+[dashboard screenshot](../../case-study/v1/artifacts/e2e%20workspace.png) for
 the blade, the dispatch accordion, and the session list in context.
 
 Known rough edges:

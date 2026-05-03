@@ -195,7 +195,7 @@ Concern vocabulary: error_handling, rollback, security, idempotency, testing, do
 
 ### Persisted artifact formats
 
-The proxy writes three runtime artifacts that the [case study](../../case-study/learnings.md) references and the dashboard reads:
+The proxy writes three runtime artifacts that the [case study](../../case-study/v1/learnings.md) references and the dashboard reads:
 
 **`proxy-confidence.json`** — per-(state | task_type) entry, keyed by `"{STATE}|{task_type}"`:
 
@@ -231,7 +231,7 @@ The proxy writes three runtime artifacts that the [case study](../../case-study/
 
 **`proxy-interactions.jsonl`** — append-only JSONL, one record per gate interaction. Each line carries the full `record_outcome()` payload (state, task_type, prior/posterior predictions, human response, timestamp). Used by the ACT-R memory system as raw chunk material.
 
-**`proxy-patterns.md`** — Markdown transcript of agent ↔ proxy dialog at gates, with `AGENT:` and `HUMAN:` markers (the `HUMAN:` slot is filled by the proxy when it acts on the human's behalf). Empty `HUMAN:` entries are timeouts, not silent approvals — see the [case-study learnings note](../../case-study/learnings.md#proxy-behavioral-patterns-proxy-patternsmd) on the deflection loop this can produce.
+**`proxy-patterns.md`** — Markdown transcript of agent ↔ proxy dialog at gates, with `AGENT:` and `HUMAN:` markers (the `HUMAN:` slot is filled by the proxy when it acts on the human's behalf). Empty `HUMAN:` entries are timeouts, not silent approvals — see the [case-study learnings note](../../case-study/v1/learnings.md#proxy-behavioral-patterns-proxy-patternsmd) on the deflection loop this can produce.
 
 ---
 

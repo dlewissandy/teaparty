@@ -78,12 +78,20 @@ nav:
     - Project Onboarding: guides/project-onboarding.md
   - Case Study:
     - Overview: case-study/index.md
-    - Intent & Planning: case-study/dialog.md
-    - Execution: case-study/execution.md
-    - The Manuscript: case-study/results.md
-    - Obstacles: case-study/obstacles.md
-    - Learnings: case-study/learnings.md
-    - Key Takeaways: case-study/takeaways.md
+    - v2 — Hierarchical Dispatch (May 2026):
+      - Overview: case-study/v2/index.md
+      - Dispatch Tree: case-study/v2/dispatch.md
+      - Proxy & ACT-R Memory: case-study/v2/proxy-and-memory.md
+      - Artifacts: case-study/v2/results.md
+      - Takeaways: case-study/v2/takeaways.md
+    - v1 — End-to-End Manuscript (March 2026):
+      - Overview: case-study/v1/index.md
+      - Intent & Planning: case-study/v1/dialog.md
+      - Execution: case-study/v1/execution.md
+      - The Manuscript: case-study/v1/results.md
+      - Obstacles: case-study/v1/obstacles.md
+      - Learnings: case-study/v1/learnings.md
+      - Key Takeaways: case-study/v1/takeaways.md
   - Reference:
     - Folder Structure: reference/folder-structure.md
     - Team Configuration: reference/team-configuration.md

@@ -66,6 +66,6 @@ All three feed into the proxy agent's context before it reasons about the decisi
 
 **Related research:** [act-r research](../../research/act-r.md), [proxy-prediction](../../research/proxy-prediction-and-active-learning.md)
 
-**Case study evidence:** [learnings](../../case-study/learnings.md), [artifacts/proxy-interactions.jsonl](../../case-study/artifacts/proxy-interactions.jsonl), [artifacts/proxy-patterns.md](../../case-study/artifacts/proxy-patterns.md)
+**Case study evidence:** [learnings](../../case-study/v1/learnings.md), [artifacts/proxy-interactions.jsonl](../../case-study/v1/artifacts/proxy-interactions.jsonl), [artifacts/proxy-patterns.md](../../case-study/v1/artifacts/proxy-patterns.md)
 
 **Tight coupling:** [learning](../learning/index.md) — the proxy's memory is the learning system's memory; corrections in either direction update the same model.

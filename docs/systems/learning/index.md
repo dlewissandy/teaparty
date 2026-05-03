@@ -44,7 +44,7 @@ Designed, not yet implemented:
 - In-flight extraction (assumption checkpoints at milestones during execution)
 - Prospective extraction (reflection on retrieved learnings before execution)
 
-See the [learnings case study](../../case-study/learnings.md) for how these mechanisms played out across real dispatches.
+See the [learnings case study](../../case-study/v1/learnings.md) for how these mechanisms played out across real dispatches.
 
 ## Deeper topics
 

@@ -76,7 +76,7 @@ This is bootstrapping in progress. Every page in this documentation, every archi
 
 The [**Humor Book case study**](case-study/index.md) walks through a complete end-to-end session: a four-sentence prompt becomes a 55,000-word manuscript — a prologue, seven chapters, two editorial passes, two verification passes — produced autonomously by hierarchical agent teams with proxy-managed approval gates. It includes the intent and planning dialogs, execution traces across five phases and eight parallel research tracks, the obstacles encountered, and the learning system's self-assessment.
 
-Every artifact the session produced — drafts, specs, proxy-interaction logs, worktree layouts, dashboard screenshot — is preserved in [`case-study/artifacts/`](case-study/artifacts/).
+Every artifact the session produced — drafts, specs, proxy-interaction logs, worktree layouts, dashboard screenshot — is preserved in [`case-study/v1/artifacts/`](case-study/v1/artifacts/).
 
 ### Project History
 

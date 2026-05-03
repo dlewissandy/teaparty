@@ -291,7 +291,7 @@ Every (A, t) instance has a workspace — an isolated filesystem region that hol
 
 The sandbox is structural, not prompt-driven. Each workspace contains a `.claude/` configuration constructed from agent A's role definition — only the tools and scripts A is permitted to invoke are visible to its Run. The configuration depends on A, not t: every (A, _) instance sees the same tool surface. A pre-tool-use boundary check refuses any tool effect that would escape the workspace's filesystem region; a workspace whose boundary cannot be verified at instance creation is a hard error at [spark] time, not a silent fall-through. Cross-instance artifact sharing is explicit — when a parent has content a child needs, [spark]'s registration copies the relevant files into the child's workspace by name. Workspace release happens below the rule layer, as the side effect of §9's [term-*] rules consuming an instance's molecules.
 
-Workspaces are implemented as git worktrees. The runtime distinguishes Terminate's two origins: a Terminate produced by [send-terminate] (a deliberate close from the parent's Run) merges the child's tree into the parent's, with the parent responsible for resolving any conflicts; a Terminate produced by [cascade] (an inherited withdraw) drops the workspace without merging.
+Workspaces are implemented as git worktrees. Two paths produce a merge into the parent's tree: an explicit close via [send-terminate], and end-of-phase merge for any dispatch the parent chose to leave open — closure is optional in CfA, and the two are operationally indistinguishable from the merge's perspective. A Terminate produced by [cascade] (an inherited withdraw) drops the workspace without merging. The parent is responsible for resolving any conflicts during merge.
 
 ## 11. Persistence and audit trail
 
@@ -301,7 +301,7 @@ Three properties hold across these records. *Reconstructability:* state record, 
 
 **Resumption.** The bus is the persisted soup. Mailboxes, threads, and `Parent` edges survive a process crash; Idle / Run / Send molecules are transient. After a crash, the system reconstructs the soup by reading the bus — any instance whose mailbox is non-empty becomes `Idle_A(t) ‖ Mailbox_A(t, queue)`, and the next [wake] resumes the lifecycle. Per-instance state crosses the restart on two channels: the Claude session handle, so the next Run resumes its conversation prefix; and the worktree, so its on-disk state is exactly where the prior turn left it. The resumable point is turn-boundary quiescence — a crash mid-Run loses that turn's work (no Send was emitted, no mailbox grew), so crash-loss is bounded to one in-flight turn per dead process.
 
-**Recovery.** Orphan recovery walks `Parent` edges on restart to re-attach live children whose parent's process died. Failure within a Run — stall, non-zero exit — is observed below the rule layer and surfaces as a Send into the failing instance's mailbox: retry, substitute, or Terminate. No failure-specific primitives beyond §5's.
+**Recovery.** Orphan recovery walks `Parent` edges on restart to re-attach live children whose parent's process died. A Run that exits with an error is observed below the rule layer and surfaces as a Send into the failing instance's mailbox: retry, substitute, or Terminate. No failure-specific primitives beyond §5's.
 
 ## 12. Invariants
 
