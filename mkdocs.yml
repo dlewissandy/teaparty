@@ -39,12 +39,7 @@ nav:
     - Organizational Model: overview.md
   - Architecture:
     - Overview: systems/index.md
-    - CfA Orchestration:
-      - Overview: systems/cfa-orchestration/index.md
-      - State Machine: systems/cfa-orchestration/state-machine.md
-      - Intent Engineering: systems/cfa-orchestration/intent-engineering.md
-      - Strategic Planning: systems/cfa-orchestration/planning.md
-      - Context Budget: systems/cfa-orchestration/context-budget.md
+    - CfA Orchestration: cfa-engineering.md
     - Messaging:
       - Overview: systems/messaging/index.md
       - Bus & Conversations: systems/messaging/bus-and-conversations.md

@@ -24,7 +24,7 @@ Winograd and Flores (*Understanding Computers and Cognition*, 1986) recognized t
 
 TeaParty adapts their Conversation for Action framework for this reality. A three-phase protocol (Intent, Planning, Execution) is formalized as a state machine with explicit transitions and cross-phase backtracks. Each phase produces artifacts that make implicit context explicit: what to optimize for, what to protect, and what tradeoffs are acceptable. Approval gates between phases are also learning opportunities where the system observes human corrections and preferences, feeding the memory and proxy systems described below. The result is intent engineering: agents operating from a shared specification of purpose rather than an ambiguous request.
 
-[CfA Orchestration →](systems/cfa-orchestration/index.md) · [Intent Engineering →](systems/cfa-orchestration/intent-engineering.md) · [Strategic Planning →](systems/cfa-orchestration/planning.md)
+[CfA Orchestration →](cfa-engineering.md)
 
 ### Hierarchical Memory and Learning
 

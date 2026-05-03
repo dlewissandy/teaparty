@@ -6,7 +6,7 @@ TeaParty's runtime is composed of six systems. Four of them realize the research
 
 | System | Role | Code |
 |---|---|---|
-| [CfA Orchestration](cfa-orchestration/index.md) | State-machine engine driving every session through Intent → Planning → Execution with approval gates and backtracks. | `teaparty/cfa/` |
+| [CfA Orchestration](../cfa-engineering.md) | State-machine engine driving every session through Intent → Planning → Execution with approval gates and backtracks. | `teaparty/cfa/` |
 | [Human Proxy](human-proxy/index.md) | Learned agent that stands in for the human at approval gates and escalations. | `teaparty/proxy/` |
 | [Learning & Memory](learning/index.md) | Hierarchical memory (episodic / procedural / research) with a promotion chain, temporal decay, and continuous skill refinement. | `teaparty/learning/` |
 | [Messaging](messaging/index.md) | Two buses — an async event bus (orchestrator ↔ bridge) and a SQLite-backed conversation bus (inter-agent Send; reply is the recipient's turn-end output). | `teaparty/messaging/` |
