@@ -12,9 +12,9 @@ The CfA Intent and Plan phases produce on-disk artifacts the human approves befo
 
 | Artifact | What it is | File |
 |---|---|---|
-| Original prompt | The four-sentence ask that started the session | [IDEA.md](./artifacts/planning/IDEA.md) |
-| Approved intent | The deliverable, audience, success criteria, hard stops | [INTENT.md](./artifacts/planning/INTENT.md) |
-| Approved plan | Phase 0 architecture; per-chapter drafting cadence; manuscript-level passes | [PLAN.md](./artifacts/planning/PLAN.md) |
+| Original prompt | The four-sentence ask that started the session | [IDEA_v2.md](./artifacts/planning/IDEA_v2.md) |
+| Approved intent | The deliverable, audience, success criteria, hard stops | [INTENT_v2.md](./artifacts/planning/INTENT_v2.md) |
+| Approved plan | Phase 0 architecture; per-chapter drafting cadence; manuscript-level passes | [PLAN_v2.md](./artifacts/planning/PLAN_v2.md) |
 | Consulted skill candidate | The May 1 humor-book attempt's plan, read by May 2's planner during DRAFT | [may01-skill-candidate.md](./artifacts/planning/may01-skill-candidate.md) |
 
 ---
