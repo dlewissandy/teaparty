@@ -24,7 +24,7 @@ Current agent systems fail at four things: they treat requests as complete speci
 TeaParty is building toward mixed teams where humans and AI agents collaborate on increasingly complex projects — not agents as tools, and not agents as autonomous replacements, but genuine teams where each member contributes what they do best.
 
 <p align="center">
-  <img src="docs/images/tui-dashboard.png" alt="TeaParty TUI Dashboard" width="900" />
+  <img src="docs/images/dashboard.png" alt="TeaParty HTML Dashboard" width="900" />
 </p>
 
 <p align="center"><em>The POC dashboard: projects, sessions with CfA state tracking, and task prompts at a glance.</em></p>
@@ -100,13 +100,13 @@ cd teaparty
 uv sync
 ```
 
-### Run a session (interactive TUI)
+### Run the HTML dashboard
 
 ```bash
 ./teaparty.sh
 ```
 
-The TUI dashboard shows active sessions, dispatches, and CfA state transitions in real time.
+Open http://localhost:8081 in your browser. The dashboard shows active sessions, dispatches, and CfA state transitions in real time.
 
 ### Run a session (CLI)
 

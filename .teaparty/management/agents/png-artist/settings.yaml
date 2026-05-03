@@ -1,0 +1,6 @@
+permissions:
+  allow:
+  - Write
+  - mcp__teaparty-config__image_gen_openai
+  - mcp__teaparty-config__image_gen_flux
+  - mcp__teaparty-config__image_gen_stability

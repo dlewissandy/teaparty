@@ -1,0 +1,930 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TeaParty — Configuration</title>
+<link rel="stylesheet" href="styles.css">
+<script src="breadcrumb.js"></script>
+<script src="accordion-chat.js"></script>
+<script src="stats-bar.js"></script>
+</head>
+<body>
+
+<div class="blade-layout">
+<div class="content-wrap">
+<div class="page-header">
+  <div id="breadcrumb-slot" style="flex:1;min-width:0"></div>
+  <button id="edit-toggle" class="edit-toggle-btn" onclick="toggleEditMode()">Edit</button>
+</div>
+<div id="stats-bar-slot"></div>
+<div id="content" class="app-pane active" style="overflow-y:auto;flex:1;min-width:0"></div>
+</div>
+<div class="blade" id="blade"></div>
+</div>
+
+<script>
+// ── State ────────────────────────────────────────────────────────────────────
+var _editMode = false;
+var _chatBlade = null;
+
+// Mutable context for re-rendering without re-fetching (agent toggles, etc.)
+var _agentCtx = null;
+var _currentWgName = null;
+var _currentWgProjectSlug = null;
+var _currentWgArtifacts = [];
+var _currentProjectSlug = null;
+var _currentProjectPins = [];
+
+// ── Chrome ───────────────────────────────────────────────────────────────────
+function toggleEditMode() {
+  _editMode = !_editMode;
+  document.getElementById('content').classList.toggle('edit-mode', _editMode);
+  document.getElementById('edit-toggle').classList.toggle('active', _editMode);
+}
+
+function seedBlade(seed) {
+  if (_chatBlade) _chatBlade.seed(seed);
+}
+
+function escAttr(s) {
+  return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// ── Generic card renderers ───────────────────────────────────────────────────
+
+function sectionCard(title, items, opts) {
+  var buttons = '';
+  if (opts && opts.browseHref) {
+    buttons += '<a class="action-btn" href="' + escAttr(opts.browseHref) + '">&#8230;</a>';
+  }
+  if (opts && opts.addSeed) {
+    buttons += '<button class="action-btn config-edit-btn" onclick="seedBlade(\'' + escAttr(opts.addSeed) + '\')">+ New</button>';
+  }
+  if (opts && opts.addSeed2) {
+    buttons += '<button class="action-btn config-edit-btn" onclick="seedBlade(\'' + escAttr(opts.addSeed2.seed) + '\')">' + (opts.addSeed2.label || '+ Add') + '</button>';
+  }
+  var body = items.length === 0 ? '<div class="empty">' + (opts && opts.empty || 'None') + '</div>' : items.join('');
+  return '<div class="section"><div class="section-header">' + title + '<span style="flex:1"></span>' + buttons + '</div><div class="section-scroll">' + body + '</div></div>';
+}
+
+// opts: { icon, iconClass, iconStyle, title, meta, source, overrides,
+//         badge, badgeClass, active, toggleScope, toggleType, toggleName,
+//         toggleExtra, href, onClick, trailing }
+// href: a URL that triggers real page navigation — rendered as an anchor
+// wrapping icon+body so Cmd-click / middle-click open a new tab natively.
+// onClick: a JS expression for in-page state change (e.g. configNav) —
+// rendered as an onclick handler on the outer div, unchanged.
+function itemCard(opts) {
+  var o = opts || {};
+  var isActive = o.active;
+  var cls = 'item';
+  if (isActive === true) cls += ' item-catalog-active';
+  else if (isActive === false) cls += ' item-catalog-inactive';
+  var click = (!o.href && o.onClick) ? ' onclick="' + o.onClick + '" style="cursor:pointer"' : '';
+  var iconStyle = o.iconStyle ? ' style="' + o.iconStyle + '"' : '';
+  var iconCls = o.iconClass ? ' ' + o.iconClass : '';
+  var html = '<div class="' + cls + '"' + click + '>';
+  var iconHtml = '<div class="item-icon' + iconCls + '"' + iconStyle + '>' + (o.icon || '') + '</div>';
+  var bodyHtml = '<div class="item-body"><div class="item-title">' + (o.title || '') + '</div>';
+  if (o.meta) bodyHtml += '<div class="item-meta">' + o.meta + '</div>';
+  bodyHtml += '</div>';
+  if (o.href) {
+    // Flex-container anchor wraps icon+body so clicks anywhere inside
+    // — including the 7px gap between icon and body — navigate. Toggle
+    // and trailing elements remain outside the anchor as siblings so
+    // their own click handlers don't compete.
+    html += '<a class="item-link" href="' + o.href + '" style="flex:1;display:flex;align-items:center;gap:7px;min-width:0;color:inherit;text-decoration:none">' + iconHtml + bodyHtml + '</a>';
+  } else {
+    html += iconHtml + bodyHtml;
+  }
+  if (o.toggleScope) {
+    var onCls = isActive ? ' toggle-on' : '';
+    var tExtra = o.toggleExtra ? ",'" + o.toggleExtra + "'" : '';
+    html += '<span class="catalog-toggle' + onCls + '" onclick="event.stopPropagation();toggleMembership(\'' + o.toggleScope + '\',\'' + o.toggleType + '\',\'' + o.toggleName + '\',' + !isActive + tExtra + ')"></span>';
+  }
+  if (o.trailing) html += o.trailing;
+  if (o.source) html += '<span class="source-badge source-' + o.source + '">' + o.source + '</span>';
+  if (o.overrides && o.overrides.length) html += '<span class="override-indicator">' + o.overrides.join(', ') + ' overridden</span>';
+  if (o.badge) html += '<span class="item-badge ' + (o.badgeClass || '') + '">' + o.badge + '</span>';
+  html += '</div>';
+  return html;
+}
+
+function artifactsBrowseUrl(scopeCtx) {
+  var sc = scopeCtx || {};
+  return 'artifacts.html?scope=' + encodeURIComponent(sc.scope || 'project') +
+    (sc.name ? '&name=' + encodeURIComponent(sc.name) : '') +
+    (sc.project ? '&project=' + encodeURIComponent(sc.project) : '') +
+    (sc.convId ? '&conv=' + encodeURIComponent(sc.convId) : '');
+}
+
+function renderPinItems(pins, scopeCtx) {
+  // scopeCtx: {scope, name, project, convId} — forwarded as URL params so artifacts.html
+  // opens in the correct scope context for pin toggles and chat routing.
+  var sc = scopeCtx || {};
+  return (pins || []).map(function(p) {
+    var displayPath = p.rel_path || p.path;
+    var fileUrl = 'artifacts.html?file=' + encodeURIComponent(p.path) +
+      '&scope=' + encodeURIComponent(sc.scope || 'project') +
+      (sc.name ? '&name=' + encodeURIComponent(sc.name) : '') +
+      (sc.project ? '&project=' + encodeURIComponent(sc.project) : '') +
+      (sc.convId ? '&conv=' + encodeURIComponent(sc.convId) : '');
+    return itemCard({
+      icon: '&#128204;',
+      iconStyle: 'background:rgba(78,204,163,0.15);color:var(--green)',
+      title: p.label, meta: displayPath, active: true,
+      href: fileUrl,
+    });
+  });
+}
+
+function participantItems(humans, scope, projectSlug) {
+  return (humans || []).map(function(h) {
+    var sel = ['decider','advisor','inform','none'].map(function(r) {
+      return '<option value="' + r + '"' + (h.role === r ? ' selected' : '') + '>' + r + '</option>';
+    }).join('');
+    var scopeArg = projectSlug && scope !== 'global' ? "'" + scope + "','" + h.name + "',this.value,'" + projectSlug + "'" : "'" + scope + "','" + h.name + "',this.value";
+    // Issue #425: encode project scope in the proxy chat qualifier so
+    // the bridge resolves the proxy's cwd to the project's worktree
+    // when the click happened on a project page.  Bare ``proxy:<name>``
+    // (no slug) is the management/OM case.
+    var projectQualifier = projectSlug || (scope !== 'global' && scope.indexOf('wg:') !== 0 ? scope : '');
+    var convQualifier = projectQualifier
+      ? projectQualifier + ':' + h.name
+      : h.name;
+    var convId = 'proxy:' + encodeURIComponent(convQualifier);
+    return itemCard({
+      icon: '&#9786;', iconClass: 'icon-member',
+      title: '<a href="chat.html?conv=' + convId + '" style="color:inherit;text-decoration:none" onmouseover="this.style.textDecoration=\'underline\'" onmouseout="this.style.textDecoration=\'none\'">' + h.name + '</a>',
+      trailing: '<select class="role-select" onchange="setParticipantRole(' + scopeArg + ')">' + sel + '</select>',
+    });
+  });
+}
+
+function skillItems(skills, toggleScope) {
+  return (skills || []).map(function(s) {
+    var name = typeof s === 'object' ? s.name : s;
+    var file = typeof s === 'object' ? s.file : null;
+    var source = typeof s === 'object' ? s.source : null;
+    var isActive = typeof s === 'object' ? s.active !== false : true;
+    return itemCard({ icon: '&#9881;', iconClass: 'icon-skill', title: name, source: source, active: isActive, toggleScope: toggleScope, toggleType: 'skill', toggleName: name, href: file ? 'artifacts.html?file=' + encodeURIComponent(file) : null });
+  });
+}
+
+function hookItems(hooks, toggleScope, projectSlug) {
+  return (hooks || []).map(function(h) {
+    var isActive = h.active !== false;
+    var meta = (projectSlug ? '&project=' + encodeURIComponent(projectSlug) : '&project=org') +
+      (h.event ? '&hook_event=' + encodeURIComponent(h.event) : '') +
+      (h.matcher ? '&hook_matcher=' + encodeURIComponent(h.matcher) : '') +
+      (h.type ? '&hook_type=' + encodeURIComponent(h.type) : '');
+    var scope = h.source === 'yaml' ? toggleScope : null;
+    return itemCard({ icon: '&#9889;', iconClass: 'icon-hook', title: (h.event || '') + (h.matcher ? ' [' + h.matcher + ']' : ''), meta: h.type || '', active: isActive, toggleScope: scope, toggleType: 'hook', toggleName: h.event || '', href: h.file ? 'artifacts.html?file=' + encodeURIComponent(h.file) + meta : null });
+  });
+}
+
+function cronItems(scheduled, toggleScope, projectSlug) {
+  return (scheduled || []).map(function(c) {
+    var isActive = c.enabled !== false;
+    var projParam = projectSlug ? encodeURIComponent(projectSlug) : 'org';
+    return itemCard({ icon: '&#9200;', iconClass: 'icon-cron', title: c.name, meta: c.schedule + (c.skill ? ' · ' + c.skill : ''), active: isActive, toggleScope: toggleScope, toggleType: 'scheduled_task', toggleName: c.name, href: c.file ? 'artifacts.html?file=' + encodeURIComponent(c.file) + '&project=' + projParam : null });
+  });
+}
+
+// ── Generic page renderer ────────────────────────────────────────────────────
+// spec: { crumbs, description?, subtitle?, cards?, bladeConvId?, bladeTitle? }
+// crumbs: [{label, onClick?}, …] — the last entry is the current page; its
+//   label drives <title>, the breadcrumb's rightmost span, and the H1. There
+//   is exactly one source of truth for the page identity.
+// cards: [{title, items, opts}, …]
+function renderConfigPage(spec) {
+  var crumbs = spec.crumbs;
+  var currentLabel = crumbs[crumbs.length - 1].label;
+
+  var bladeConfig = { convId: spec.bladeConvId || '', title: spec.bladeTitle || 'Manager' };
+  if (!_chatBlade) {
+    _chatBlade = AccordionChat.mount(document.getElementById('blade'), bladeConfig);
+  } else {
+    _chatBlade.configure(bladeConfig);
+  }
+
+  document.title = 'TeaParty \u2014 ' + currentLabel;
+  document.getElementById('breadcrumb-slot').innerHTML = breadcrumbBar(crumbs);
+
+  // Mount stats bar for the current scope, replacing any prior bar.
+  var statsSlot = document.getElementById('stats-bar-slot');
+  StatsBar.unmount(statsSlot);
+  if (spec.statsBarConfig) {
+    StatsBar.mount(statsSlot, spec.statsBarConfig);
+  }
+
+  var html = '<div class="pane-title">' + escAttr(currentLabel) + '</div>';
+  if (spec.description) html += '<div class="pane-description">' + escAttr(spec.description) + '</div>';
+  if (spec.subtitle) html += '<div class="pane-subtitle">' + spec.subtitle + '</div>';
+
+  html += '<div class="sections">';
+  (spec.cards || []).forEach(function(c) {
+    html += sectionCard(c.title, c.items, c.opts || {});
+  });
+  html += '</div>';
+
+  document.getElementById('content').innerHTML = html;
+}
+
+// Build a best-effort crumb trail from the URL scope. Used by renderScope for
+// the Loading / Failed-to-load specs so the current location is visible
+// before the fetch resolves and survives a rejection. The scope loaders
+// return a richer trail (resolved team.name, etc.) on success.
+function scopeCrumbs(scope) {
+  var crumbs = [{ label: 'Home', href: 'index.html' }];
+  if (!scope || scope.level === 'global') {
+    crumbs.push({ label: 'Management Team' });
+    return crumbs;
+  }
+  crumbs.push({ label: 'Management Team', onClick: "configNav('global')" });
+  if (scope.level === 'project') {
+    crumbs.push({ label: scope.name + ' Team' });
+    return crumbs;
+  }
+  if (scope.projectSlug) {
+    crumbs.push({ label: scope.projectSlug + ' Team', onClick: "configNav('project','" + scope.projectSlug + "')" });
+  }
+  crumbs.push({ label: scope.name });
+  return crumbs;
+}
+
+// ── Scope loaders ────────────────────────────────────────────────────────────
+
+async function loadGlobal() {
+  var [cfgResp, wgResp, pinsResp] = await Promise.all([
+    fetch('/api/config'),
+    fetch('/api/workgroups'),
+    fetch('/api/pins?scope=system'),
+  ]);
+  if (!cfgResp.ok) throw new Error('Failed to load config (' + cfgResp.status + ')');
+  if (!wgResp.ok) throw new Error('Failed to load workgroups (' + wgResp.status + ')');
+  var configData = await cfgResp.json();
+  var workgroupsData = await wgResp.json();
+  var pinsData = pinsResp.ok ? await pinsResp.json() : [];
+
+  var m = configData.management_team || {};
+  var projects = configData.projects || [];
+
+  var rosterByProject = {};
+  (m.roster || []).forEach(function(r) {
+    if (r.project) rosterByProject[r.project] = r;
+  });
+
+  var projectItems = [];
+  projects.forEach(function(p) {
+    var r = rosterByProject[p.name];
+    var meta = [r ? r.description : '', r ? r.name : ''].filter(Boolean).join(' · ');
+    projectItems.push(itemCard({ icon: '&#9654;', iconClass: 'icon-project', title: p.name, meta: meta, active: true, badge: 'project', badgeClass: 'badge-project', onClick: "configNav('project','" + p.name + "')" }));
+  });
+  var wgMgmtItems = [];
+  (workgroupsData || []).forEach(function(w) {
+    var meta = [w.description || '', (w.lead || '') + (w.agents_count != null ? ' · ' + w.agents_count + ' agents' : '')].filter(Boolean).join(' · ');
+    wgMgmtItems.push(itemCard({ icon: '&#9670;', iconClass: 'icon-workgroup', title: w.name, meta: meta, active: w.active !== false, toggleScope: 'global', toggleType: 'workgroup', toggleName: w.name, badge: 'workgroup', badgeClass: 'badge-workgroup', onClick: "configNav('workgroup','" + w.name + "')" }));
+  });
+
+  var agents = [];
+  if (m.lead) {
+    agents.push(itemCard({ icon: '&#9672;', iconClass: 'icon-member', title: m.lead, active: true, badge: 'lead', badgeClass: 'badge-lead', onClick: "configNav('agent','" + m.lead + "')" }));
+  }
+  (m.agents || []).forEach(function(a) {
+    var name = typeof a === 'object' ? a.name : a;
+    if (name === m.lead) return;
+    var isActive = typeof a === 'object' ? a.active !== false : true;
+    agents.push(itemCard({ icon: '&#9672;', iconClass: 'icon-member', title: name, active: isActive, toggleScope: 'global', toggleType: 'agent', toggleName: name, onClick: "configNav('agent','" + name + "')" }));
+  });
+
+  var subtitle = projects.length + ' projects &middot; ' + (workgroupsData || []).length + ' workgroups &middot; ' + (m.agents || []).length + ' agents';
+
+  return {
+    crumbs: [
+      { label: 'Home', href: 'index.html' },
+      { label: 'Management Team' },
+    ],
+    description: m.description || 'Cross-project coordination, human interaction, organizational strategy, and configuration management.',
+    subtitle: subtitle,
+    bladeConvId: 'om',
+    bladeTitle: 'Management Chat',
+    statsBarConfig: { scope: 'management', label: 'Management' },
+    cards: [
+      { title: 'Projects', items: projectItems, opts: { addSeed: 'I would like to create a new project.', addSeed2: { label: '+ Add Project', seed: 'I would like to add an existing project to the management team.' }, empty: 'No projects' } },
+      { title: 'Workgroups', items: wgMgmtItems, opts: { addSeed: 'I would like to create a new workgroup for the management team.', empty: 'No workgroups' } },
+      { title: 'Agents', items: agents, opts: { addSeed: 'I would like to create a new agent in the management agent catalog.' } },
+      { title: 'Participants', items: participantItems(m.humans, 'global') },
+      { title: 'Artifacts', items: renderPinItems(pinsData, {scope: 'system', convId: 'om'}), opts: { browseHref: artifactsBrowseUrl({scope: 'system', convId: 'om'}), empty: 'No organizational artifacts' } },
+      { title: 'Skills', items: skillItems(m.skills, 'global'), opts: { addSeed: 'I would like to add a new skill to the management catalog.' } },
+      { title: 'Hooks', items: hookItems(m.hooks, 'global'), opts: { addSeed: 'I would like to create a new hook for the management team.' } },
+      { title: 'Scheduled Tasks', items: cronItems(m.scheduled, 'global'), opts: { addSeed: 'I would like to create a new scheduled task for the management team.' } },
+    ],
+  };
+}
+
+async function loadProject(slug) {
+  var [projResp, pinsResp] = await Promise.all([
+    fetch('/api/config/' + encodeURIComponent(slug)),
+    fetch('/api/pins?scope=project&project=' + encodeURIComponent(slug)),
+  ]);
+  var projectData = await projResp.json();
+  if (!projResp.ok) throw new Error(projectData.error || slug);
+  var pinsData = pinsResp.ok ? await pinsResp.json() : [];
+
+  _currentProjectSlug = slug;
+  _currentProjectPins = (pinsData || []).map(function(p) {
+    return {path: p.rel_path || p.path, label: p.label};
+  });
+
+  var team = projectData.team || {};
+  var workgroups = projectData.workgroups || [];
+
+  var wgItems = workgroups.map(function(w) {
+    var meta = [w.description || '', (w.lead || '') + (w.agents_count != null ? ' · ' + w.agents_count + ' agents' : '')].filter(Boolean).join(' · ');
+    if (w.name.toLowerCase() === 'configuration') {
+      return itemCard({ icon: '&#9881;', iconClass: 'icon-config', title: w.name, meta: [w.description || '', 'config · ' + (w.lead || '')].filter(Boolean).join(' · '), source: w.source, onClick: "configNav('workgroup','" + w.name + "','" + slug + "')" });
+    }
+    // Catalog-only workgroups (active===false, source==='shared') have not yet been added to the
+    // project — show with a toggle to add them, but no navigation (no onClick) since the project
+    // workgroup detail requires the ref to already exist in the project config.
+    var inProject = w.active !== false || w.source !== 'shared';
+    var onClick = inProject ? "configNav('workgroup','" + w.name + "','" + slug + "')" : null;
+    return itemCard({ icon: '&#9670;', iconClass: 'icon-workgroup', title: w.name, meta: meta, source: w.source, overrides: w.overrides, active: w.active === true, toggleScope: slug, toggleType: 'workgroup', toggleName: w.name, onClick: onClick });
+  });
+
+  var agents = [];
+  if (team.lead) {
+    agents.push(itemCard({ icon: '&#9672;', iconClass: 'icon-member', title: team.lead, active: true, badge: 'lead', badgeClass: 'badge-lead', onClick: "configNav('agent','" + team.lead + "','" + slug + "')" }));
+  }
+  (team.agents || []).forEach(function(a) {
+    var name = typeof a === 'object' ? a.name : a;
+    if (name === team.lead) return;
+    var source = typeof a === 'object' ? a.source : null;
+    var isActive = typeof a === 'object' ? a.active !== false : true;
+    agents.push(itemCard({ icon: '&#9672;', iconClass: 'icon-member', title: name, source: source, active: isActive, toggleScope: slug, toggleType: 'agent', toggleName: name, onClick: "configNav('agent','" + name + "','" + slug + "')" }));
+  });
+
+  return {
+    crumbs: [
+      { label: 'Home', href: 'index.html' },
+      { label: 'Management Team', onClick: "configNav('global')" },
+      { label: (team.name || slug) + ' Team' },
+    ],
+    description: team.description || '',
+    subtitle: 'Decider: ' + (team.decider || '') + ' &middot; Lead: ' + (team.lead || ''),
+    bladeConvId: team.lead && team.decider ? 'lead:' + team.lead + ':' + team.decider : '',
+    bladeTitle: (team.name || slug) + ' Team Chat',
+    statsBarConfig: { scope: slug, label: team.name || slug },
+    cards: [
+      { title: 'Workgroups', items: wgItems, opts: { addSeed: 'I would like to create a new workgroup for the ' + (team.name || slug) + ' project.', empty: 'No workgroups' } },
+      { title: 'Agents', items: agents, opts: { addSeed: 'I would like to create a new agent in the ' + (team.name || slug) + ' project agent catalog.', empty: 'No agents' } },
+      { title: 'Participants', items: participantItems(team.humans, slug) },
+      { title: 'Artifacts', items: renderPinItems(pinsData, {scope: 'project', project: slug, convId: team.lead && team.decider ? 'lead:' + team.lead + ':' + team.decider : ''}), opts: { browseHref: artifactsBrowseUrl({scope: 'project', project: slug, convId: team.lead && team.decider ? 'lead:' + team.lead + ':' + team.decider : ''}), addSeed: 'I would like to pin an artifact to the ' + (team.name || slug) + ' project.', empty: 'No artifacts' } },
+      { title: 'Skills', items: skillItems(team.skills, slug), opts: { addSeed: 'I would like to add a new skill to the ' + (team.name || slug) + ' project catalog.', empty: 'No skills' } },
+      { title: 'Hooks', items: hookItems(team.hooks, slug, slug), opts: { addSeed: 'I would like to create a new hook for the ' + (team.name || slug) + ' project.', empty: 'No project-scoped hooks' } },
+      { title: 'Scheduled Tasks', items: cronItems(team.scheduled, slug, slug), opts: { addSeed: 'I would like to create a new scheduled task for the ' + (team.name || slug) + ' project.', empty: 'No project-scoped tasks' } },
+    ],
+  };
+}
+
+async function loadWorkgroup(name, projectSlug) {
+  var url = '/api/workgroups/' + encodeURIComponent(name);
+  if (projectSlug) url += '?project=' + encodeURIComponent(projectSlug);
+  var pinsUrl = '/api/pins?scope=workgroup&name=' + encodeURIComponent(name);
+  if (projectSlug) pinsUrl += '&project=' + encodeURIComponent(projectSlug);
+  var teamUrl = projectSlug
+    ? '/api/config/' + encodeURIComponent(projectSlug)
+    : '/api/config';
+
+  var [resp, pinsResp, teamResp] = await Promise.all([fetch(url), fetch(pinsUrl), fetch(teamUrl)]);
+  var wgData = await resp.json();
+  if (!resp.ok) throw new Error(wgData.error || name);
+  var wgPins = pinsResp.ok ? await pinsResp.json() : [];
+  var teamData = teamResp.ok ? await teamResp.json() : {};
+  var teamInfo = projectSlug ? (teamData.team || {}) : (teamData.management_team || {});
+
+  _currentWgName = name;
+  _currentWgProjectSlug = projectSlug || null;
+  _currentWgArtifacts = (wgData.artifacts || []).slice();
+
+  var leadItems = [];
+  if (wgData.lead) {
+    leadItems.push(itemCard({ icon: '&#9733;', iconClass: 'icon-member', title: wgData.lead, meta: 'workgroup lead', badge: 'lead', badgeClass: 'badge-lead', onClick: "configNav('agent','" + wgData.lead + "','" + (projectSlug || '') + "')" }));
+  }
+
+  var memberItems = (wgData.agents || []).map(function(a) {
+    var isActive = a.active !== false;
+    return itemCard({
+      icon: '&#9672;', iconClass: 'icon-member', title: a.name, active: isActive,
+      meta: (a.role || '') + (a.model ? ' &middot; ' + a.model : ''),
+      onClick: "configNav('agent','" + a.name + "','" + (projectSlug || '') + "')",
+      toggleScope: 'wg:' + name, toggleType: 'agent', toggleName: a.name,
+      toggleExtra: projectSlug || '', source: a.source,
+    });
+  });
+
+  var hooks = (wgData.hooks || []).map(function(h) {
+    var isActive = h.active !== false;
+    return itemCard({
+      icon: '&#9889;', iconClass: 'icon-hook', active: isActive,
+      title: (h.event || '') + (h.matcher ? ' [' + h.matcher + ']' : ''),
+      meta: h.type || '',
+      toggleScope: 'wg:' + name, toggleType: 'hook', toggleName: h.event || '',
+      toggleExtra: projectSlug || '',
+    });
+  });
+
+  var crumbs = [{ label: 'Home', href: 'index.html' }, { label: 'Management Team', onClick: "configNav('global')" }];
+  if (projectSlug) crumbs.push({ label: projectSlug + ' Team', onClick: "configNav('project','" + projectSlug + "')" });
+  crumbs.push({ label: name });
+
+  return {
+    crumbs: crumbs,
+    description: wgData.description || '',
+    subtitle: 'Lead: ' + (wgData.lead || '') + ' &middot; ' + (wgData.agents_count || 0) + ' agents',
+    bladeConvId: teamInfo.lead && teamInfo.decider ? 'lead:' + teamInfo.lead + ':' + teamInfo.decider : '',
+    bladeTitle: (projectSlug || 'Management') + ' Team Chat',
+    statsBarConfig: {
+      scope: projectSlug || 'management',
+      workgroup_filter: name,
+      label: name,
+    },
+    cards: [
+      { title: 'Lead', items: leadItems, opts: { empty: 'No lead assigned' } },
+      { title: 'Agents', items: memberItems, opts: { addSeed: 'I would like to add an agent to the ' + name + ' workgroup.', empty: 'No agents' } },
+      { title: 'Hooks', items: hooks, opts: { addSeed: 'I would like to create a new hook for the ' + name + ' workgroup.', empty: 'No hooks' } },
+      { title: 'Humans', items: participantItems(wgData.humans, 'wg:' + name, projectSlug) },
+      { title: 'Artifacts', items: renderPinItems(wgPins, {scope: 'workgroup', name: name, project: projectSlug, convId: teamInfo.lead && teamInfo.decider ? 'lead:' + teamInfo.lead + ':' + teamInfo.decider : ''}), opts: { browseHref: artifactsBrowseUrl({scope: 'workgroup', name: name, project: projectSlug, convId: teamInfo.lead && teamInfo.decider ? 'lead:' + teamInfo.lead + ':' + teamInfo.decider : ''}), addSeed: 'I would like to pin an artifact to the ' + name + ' team.', empty: 'No artifacts' } },
+    ],
+  };
+}
+
+var AVAILABLE_TOOLS = [];
+
+async function loadAgent(name, projectSlug) {
+  var agentUrl = '/api/agents/' + encodeURIComponent(name);
+  if (projectSlug) agentUrl += '?project=' + encodeURIComponent(projectSlug);
+  var catalogUrl = '/api/catalog/' + (projectSlug ? encodeURIComponent(projectSlug) : 'org');
+  var pinsUrl = '/api/pins?scope=agent&name=' + encodeURIComponent(name);
+  if (projectSlug) pinsUrl += '&project=' + encodeURIComponent(projectSlug);
+  var teamUrl = projectSlug
+    ? '/api/config/' + encodeURIComponent(projectSlug)
+    : '/api/config';
+
+  var [agentResp, catalogResp, pinsResp, teamResp] = await Promise.all([
+    fetch(agentUrl), fetch(catalogUrl), fetch(pinsUrl), fetch(teamUrl),
+  ]);
+  if (!agentResp.ok) {
+    var err = await agentResp.json();
+    throw new Error(err.error || name);
+  }
+  var fm = await agentResp.json();
+  var catalog = catalogResp.ok ? await catalogResp.json() : {agents: [], skills: [], hooks: [], tools: []};
+  if (catalog.tools && catalog.tools.length) AVAILABLE_TOOLS = catalog.tools;
+  var pins = pinsResp.ok ? await pinsResp.json() : [];
+  var teamData = teamResp.ok ? await teamResp.json() : {};
+  var teamInfo = projectSlug ? (teamData.team || {}) : (teamData.management_team || {});
+
+  _agentCtx = {name: fm.name || name, projectSlug: projectSlug || null, fm: fm, catalog: catalog, pins: pins, teamInfo: teamInfo};
+
+  return _buildAgentSpec();
+}
+
+function _buildAgentSpec() {
+  var fm = _agentCtx.fm;
+  var catalog = _agentCtx.catalog;
+  var name = _agentCtx.name;
+  var projectSlug = _agentCtx.projectSlug;
+  var teamInfo = _agentCtx.teamInfo || {};
+
+  var validModels = ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5',
+    'claude-opus-4-5', 'claude-sonnet-4-5', 'opus', 'sonnet', 'haiku'];
+  var modelOpts = validModels.map(function(m) {
+    return '<option value="' + m + '"' + (fm.model === m ? ' selected' : '') + '>' + m + '</option>';
+  }).join('');
+  var validModes = ['default', 'acceptEdits', 'plan'];
+  var currentMode = fm.permissionMode || 'default';
+  var permOpts = validModes.map(function(mode) {
+    return '<option value="' + mode + '"' + (currentMode === mode ? ' selected' : '') + '>' + mode + '</option>';
+  }).join('');
+  var settingsItems = [
+    '<div class="item"><div class="item-icon icon-hook">&#9881;</div><div class="item-body"><div class="item-title">Model</div></div><select class="role-select" onchange="saveAgentField(\'model\', this.value)">' + modelOpts + '</select></div>',
+    '<div class="item"><div class="item-icon" style="background:transparent"></div><div class="item-body"><div class="item-title">Max Turns</div></div><input type="number" value="' + escAttr(fm.maxTurns) + '" min="1" max="100" onblur="var v=parseInt(this.value);if(v>0)saveAgentField(\'maxTurns\',v);" style="width:60px;background:none;border:1px solid var(--border-color);color:var(--text);font-size:11px;padding:2px 4px;border-radius:3px;text-align:right"></div>',
+    '<div class="item"><div class="item-icon" style="background:transparent"></div><div class="item-body"><div class="item-title">Permissions</div></div><select class="role-select" onchange="setAgentPermissionMode(this.value)">' + permOpts + '</select></div>',
+  ];
+
+  var allSkills = catalog.skills || [];
+  var activeSkillSet = new Set(Array.isArray(fm.skills) ? fm.skills : []);
+  var agentSkillItems = allSkills.map(function(s) {
+    var sName = typeof s === 'object' ? s.name : s;
+    var isActive = activeSkillSet.has(sName);
+    var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
+    var toggle = '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleAgentSkill(\'' + sName + '\')"></span>';
+    return '<div class="item' + cls + '"><div class="item-icon icon-skill">&#9881;</div><div class="item-body"><div class="item-title">' + sName + '</div></div>' + toggle + '</div>';
+  });
+
+  var activeToolsSet = new Set(
+    (fm.tools || '').split(',').map(function(t){ return t.trim(); }).filter(Boolean)
+  );
+  var toolItems = AVAILABLE_TOOLS.map(function(tool) {
+    var isActive = activeToolsSet.has(tool);
+    var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
+    var toggle = '<span class="catalog-toggle' + (isActive ? ' toggle-on' : '') + '" onclick="event.stopPropagation();toggleAgentTool(\'' + tool + '\')"></span>';
+    return '<div class="item' + cls + '"><div class="item-icon icon-member">&#9679;</div><div class="item-body"><div class="item-title">' + tool + '</div></div>' + toggle + '</div>';
+  });
+
+  var crumbs = [{ label: 'Home', href: 'index.html' }, { label: 'Management Team', onClick: "configNav('global')" }];
+  if (projectSlug) crumbs.push({ label: projectSlug + ' Team', onClick: "configNav('project','" + projectSlug + "')" });
+  crumbs.push({ label: name });
+
+  return {
+    crumbs: crumbs,
+    description: fm.description || '',
+    bladeConvId: teamInfo.lead && teamInfo.decider ? 'lead:' + teamInfo.lead + ':' + teamInfo.decider : '',
+    bladeTitle: (projectSlug || 'Management') + ' Team Chat',
+    statsBarConfig: {
+      scope: projectSlug || 'management',
+      agent_filter: name,
+      label: name,
+    },
+    cards: [
+      { title: 'Artifacts', items: renderPinItems(_agentCtx.pins, {scope: 'agent', name: _agentCtx.name, project: _agentCtx.projectSlug, convId: teamInfo.lead && teamInfo.decider ? 'lead:' + teamInfo.lead + ':' + teamInfo.decider : ''}), opts: { browseHref: artifactsBrowseUrl({scope: 'agent', name: _agentCtx.name, project: _agentCtx.projectSlug, convId: teamInfo.lead && teamInfo.decider ? 'lead:' + teamInfo.lead + ':' + teamInfo.decider : ''}) } },
+      { title: 'Settings', items: settingsItems },
+      { title: 'Skills', items: agentSkillItems, opts: { empty: 'No skills in catalog' } },
+      { title: 'Tools', items: toolItems, opts: { empty: 'No tools available' } },
+    ],
+  };
+}
+
+// ── Navigation ───────────────────────────────────────────────────────────────
+
+function configNav(level, nameOrSlug, extra) {
+  if (level === 'global') {
+    history.pushState({}, '', 'config.html');
+    renderScope(loadGlobal, {level: 'global'});
+  } else if (level === 'project') {
+    history.pushState({}, '', 'config.html?project=' + encodeURIComponent(nameOrSlug));
+    renderScope(function() { return loadProject(nameOrSlug); }, {level: 'project', name: nameOrSlug});
+  } else if (level === 'workgroup') {
+    var projectSlug = extra || null;
+    var url = 'config.html?workgroup=' + encodeURIComponent(nameOrSlug);
+    if (projectSlug) url += '&project=' + encodeURIComponent(projectSlug);
+    history.pushState({}, '', url);
+    renderScope(function() { return loadWorkgroup(nameOrSlug, projectSlug); }, {level: 'workgroup', name: nameOrSlug, projectSlug: projectSlug});
+  } else if (level === 'agent') {
+    var projectSlug = extra || null;
+    var url = 'config.html?agent=' + encodeURIComponent(nameOrSlug);
+    if (projectSlug) url += '&project=' + encodeURIComponent(projectSlug);
+    history.pushState({}, '', url);
+    renderScope(function() { return loadAgent(nameOrSlug, projectSlug); }, {level: 'agent', name: nameOrSlug, projectSlug: projectSlug});
+  }
+}
+
+async function renderScope(loader, scope) {
+  var placeholder = scopeCrumbs(scope);
+  renderConfigPage({crumbs: placeholder, description: 'Loading\u2026'});
+  try {
+    renderConfigPage(await loader());
+  } catch (e) {
+    renderConfigPage({crumbs: placeholder, description: 'Failed to load: ' + e.message});
+  }
+}
+
+// ── Agent mutations (re-render without re-fetch) ─────────────────────────────
+
+function patchCurrentAgent(updates) {
+  if (!_agentCtx) return;
+  var url = '/api/agents/' + encodeURIComponent(_agentCtx.name);
+  if (_agentCtx.projectSlug) url += '?project=' + encodeURIComponent(_agentCtx.projectSlug);
+  fetch(url, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(updates),
+  });
+}
+
+function saveAgentField(field, value) {
+  if (!_agentCtx) return;
+  _agentCtx.fm[field] = value;
+  var update = {};
+  update[field] = value;
+  patchCurrentAgent(update);
+}
+
+function toggleAgentSkill(skill) {
+  if (!_agentCtx) return;
+  var skills = Array.isArray(_agentCtx.fm.skills) ? _agentCtx.fm.skills.slice() : [];
+  var idx = skills.indexOf(skill);
+  if (idx >= 0) skills.splice(idx, 1);
+  else skills.push(skill);
+  _agentCtx.fm.skills = skills;
+  patchCurrentAgent({skills: skills});
+  renderConfigPage(_buildAgentSpec());
+}
+
+function toggleAgentTool(tool) {
+  if (!_agentCtx) return;
+  var tools = (_agentCtx.fm.tools || '').split(',').map(function(t){ return t.trim(); }).filter(Boolean);
+  var idx = tools.indexOf(tool);
+  if (idx >= 0) tools.splice(idx, 1);
+  else tools.push(tool);
+  _agentCtx.fm.tools = tools.join(', ');
+  patchCurrentAgent({tools: _agentCtx.fm.tools});
+  renderConfigPage(_buildAgentSpec());
+}
+
+function setAgentPermissionMode(mode) {
+  if (!_agentCtx) return;
+  _agentCtx.fm.permissionMode = mode;
+  patchCurrentAgent({permissionMode: mode});
+  renderConfigPage(_buildAgentSpec());
+}
+
+// ── Membership toggles ──────────────────────────────────────────────────────
+
+async function setParticipantRole(scope, name, role, projectSlug) {
+  var url;
+  if (scope === 'global') {
+    url = '/api/config/management/participant';
+  } else if (scope.startsWith('wg:')) {
+    var wgName = scope.slice(3);
+    url = '/api/workgroups/' + encodeURIComponent(wgName) + '/participant';
+    if (projectSlug) url += '?project=' + encodeURIComponent(projectSlug);
+  } else {
+    url = '/api/config/' + encodeURIComponent(scope) + '/participant';
+  }
+  await fetch(url, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name: name, role: role}),
+  });
+}
+
+async function toggleMembership(scope, type, name, active, projectSlug) {
+  var url;
+  if (scope === 'global') {
+    url = '/api/config/management/toggle';
+  } else if (scope.startsWith('wg:')) {
+    var wgName = scope.slice(3);
+    url = '/api/workgroups/' + encodeURIComponent(wgName) + '/toggle';
+    if (projectSlug) url += '?project=' + encodeURIComponent(projectSlug);
+  } else {
+    url = '/api/config/' + encodeURIComponent(scope) + '/toggle';
+  }
+  await fetch(url, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({type: type, name: name, active: active}),
+  });
+  if (scope === 'global') {
+    renderScope(loadGlobal, {level: 'global'});
+  } else if (scope.startsWith('wg:')) {
+    var wgName = scope.slice(3);
+    renderScope(function() { return loadWorkgroup(wgName, projectSlug || null); }, {level: 'workgroup', name: wgName, projectSlug: projectSlug || null});
+  } else {
+    renderScope(function() { return loadProject(scope); }, {level: 'project', name: scope});
+  }
+}
+
+// ── Unpin operations ─────────────────────────────────────────────────────────
+
+async function unpinWorkgroupArtifact(path) {
+  var updated = (_currentWgArtifacts || []).filter(function(a) {
+    var p = typeof a === 'object' ? (a.path || '') : a;
+    return p !== path;
+  });
+  var url = '/api/workgroups/' + encodeURIComponent(_currentWgName);
+  if (_currentWgProjectSlug) url += '?project=' + encodeURIComponent(_currentWgProjectSlug);
+  await fetch(url, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({artifacts: updated}),
+  });
+  renderScope(function() { return loadWorkgroup(_currentWgName, _currentWgProjectSlug); }, {level: 'workgroup', name: _currentWgName, projectSlug: _currentWgProjectSlug});
+}
+
+async function unpinProjectPin(slug, relPath) {
+  var updated = (_currentProjectPins || []).filter(function(p) {
+    return p.path !== relPath;
+  });
+  await fetch('/api/artifacts/' + encodeURIComponent(slug) + '/pins', {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({artifact_pins: updated}),
+  });
+  renderScope(function() { return loadProject(slug); }, {level: 'project', name: slug});
+}
+
+// ── File browser modal ──────────────────────────────────────────────────────
+
+async function openFileBrowser(type, name, projectSlug) {
+  var slugForFs = type === 'project' ? name : (projectSlug || '');
+  if (!slugForFs) return;
+
+  var initResp = await fetch('/api/fs/list?project=' + encodeURIComponent(slugForFs));
+  if (!initResp.ok) return;
+  var initData = await initResp.json();
+  var rootPath = initData.path;
+  var selectedEntry = null;
+
+  var overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:1000;display:flex;align-items:center;justify-content:center';
+
+  var modal = document.createElement('div');
+  modal.style.cssText = 'background:var(--surface);border:1px solid var(--border);border-radius:4px;width:480px;max-height:70vh;display:flex;flex-direction:column;font-size:12px;overflow:hidden';
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+
+  function closeModal() { overlay.remove(); }
+
+  function renderConfirmRow() {
+    var cr = document.getElementById('fb-confirm-row');
+    if (!cr) return;
+    if (selectedEntry) {
+      cr.style.display = 'flex';
+      var lbl = document.getElementById('fb-label');
+      if (lbl && !lbl._userEdited) {
+        lbl.value = selectedEntry.name || selectedEntry.path.split('/').filter(Boolean).pop() || selectedEntry.path;
+      }
+    } else {
+      cr.style.display = 'none';
+    }
+  }
+
+  async function navigate(path) {
+    selectedEntry = null;
+    var resp = await fetch('/api/fs/list?path=' + encodeURIComponent(path));
+    if (!resp.ok) return;
+    var data = await resp.json();
+    renderBrowser(path, data.entries || []);
+  }
+
+  async function confirmPin() {
+    if (!selectedEntry) return;
+    var labelEl = document.getElementById('fb-label');
+    var label = labelEl ? labelEl.value.trim() : '';
+    var rel = (rootPath && selectedEntry.path.startsWith(rootPath + '/'))
+      ? selectedEntry.path.slice(rootPath.length + 1)
+      : selectedEntry.path;
+    if (!label) label = rel.split('/').filter(Boolean).pop() || rel;
+    var newPin = {path: rel, label: label};
+    if (type === 'workgroup') {
+      var url = '/api/workgroups/' + encodeURIComponent(name);
+      if (projectSlug) url += '?project=' + encodeURIComponent(projectSlug);
+      var arts = (_currentWgArtifacts || []).slice();
+      arts.push(newPin);
+      await fetch(url, {method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({artifacts: arts})});
+      closeModal();
+      renderScope(function() { return loadWorkgroup(name, projectSlug || null); }, {level: 'workgroup', name: name, projectSlug: projectSlug || null});
+    } else {
+      var pinsUrl = '/api/artifacts/' + encodeURIComponent(name) + '/pins';
+      var pins = (_currentProjectPins || []).slice();
+      pins.push(newPin);
+      await fetch(pinsUrl, {method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({artifact_pins: pins})});
+      closeModal();
+      renderScope(function() { return loadProject(name); }, {level: 'project', name: name});
+    }
+  }
+
+  function renderBrowser(currentPath, entries) {
+    while (modal.firstChild) modal.removeChild(modal.firstChild);
+
+    var hdr = document.createElement('div');
+    hdr.style.cssText = 'padding:8px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-shrink:0';
+    var pathLabel = document.createElement('span');
+    pathLabel.style.cssText = 'color:var(--text-dim);font-size:10px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+    pathLabel.textContent = currentPath.startsWith(rootPath) ? ('/' + currentPath.slice(rootPath.length)) || '/' : currentPath;
+    hdr.appendChild(pathLabel);
+    var pinFolderBtn = document.createElement('button');
+    pinFolderBtn.className = 'action-btn';
+    pinFolderBtn.style.cssText = 'font-size:10px;padding:2px 6px;flex-shrink:0';
+    pinFolderBtn.textContent = '+ Pin Folder';
+    pinFolderBtn.onclick = function() {
+      var folderName = currentPath.split('/').filter(Boolean).pop() || currentPath;
+      selectedEntry = {path: currentPath, is_dir: true, name: folderName};
+      var lbl = document.getElementById('fb-label');
+      if (lbl) { lbl.value = folderName; lbl._userEdited = false; }
+      renderConfirmRow();
+    };
+    hdr.appendChild(pinFolderBtn);
+    modal.appendChild(hdr);
+
+    if (currentPath !== rootPath) {
+      var parentPath = currentPath.replace(/\/[^/]+\/?$/, '') || rootPath;
+      var upRow = document.createElement('div');
+      upRow.style.cssText = 'padding:5px 12px;cursor:pointer;color:var(--text-dim);font-size:11px;border-bottom:1px solid var(--border);flex-shrink:0';
+      upRow.textContent = '\u2191 ..';
+      upRow.onmouseover = function() { upRow.style.background = 'rgba(255,255,255,0.04)'; };
+      upRow.onmouseout = function() { upRow.style.background = ''; };
+      upRow.onclick = function() { navigate(parentPath); };
+      modal.appendChild(upRow);
+    }
+
+    var list = document.createElement('div');
+    list.style.cssText = 'overflow-y:auto;flex:1';
+
+    entries.forEach(function(e) {
+      var row = document.createElement('div');
+      row.style.cssText = 'padding:5px 12px;cursor:pointer;display:flex;align-items:center;gap:6px;font-size:11px';
+      var icon = document.createElement('span');
+      icon.style.cssText = 'color:var(--green);font-size:9px;flex-shrink:0';
+      icon.textContent = e.is_dir ? '\u25b6' : '\u25cf';
+      row.appendChild(icon);
+      var nm = document.createElement('span');
+      nm.textContent = e.name;
+      row.appendChild(nm);
+      row.onmouseover = function() { row.style.background = 'rgba(255,255,255,0.04)'; };
+      row.onmouseout = function() { row.style.background = ''; };
+      if (e.is_dir) {
+        row.onclick = function() { navigate(e.path); };
+      } else {
+        row.onclick = function() {
+          selectedEntry = {path: e.path, is_dir: false, name: e.name};
+          var lbl = document.getElementById('fb-label');
+          if (lbl) { lbl.value = e.name; lbl._userEdited = false; }
+          renderConfirmRow();
+        };
+      }
+      list.appendChild(row);
+    });
+
+    if (entries.length === 0) {
+      var empty = document.createElement('div');
+      empty.style.cssText = 'padding:16px;color:var(--text-dim);font-size:11px;text-align:center';
+      empty.textContent = 'Empty directory';
+      list.appendChild(empty);
+    }
+
+    modal.appendChild(list);
+
+    var confirmRow = document.createElement('div');
+    confirmRow.id = 'fb-confirm-row';
+    confirmRow.style.cssText = 'padding:8px 12px;border-top:1px solid var(--border);display:none;align-items:center;gap:6px;flex-shrink:0';
+    var lbl = document.createElement('input');
+    lbl.id = 'fb-label';
+    lbl.placeholder = 'label';
+    lbl.style.cssText = 'flex:1;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:3px 6px;font-size:11px;font-family:inherit;outline:none';
+    lbl.oninput = function() { lbl._userEdited = true; };
+    confirmRow.appendChild(lbl);
+    var pinBtn = document.createElement('button');
+    pinBtn.className = 'action-btn';
+    pinBtn.textContent = 'Pin';
+    pinBtn.style.cssText = 'background:rgba(78,204,163,0.2);color:var(--green)';
+    pinBtn.onclick = confirmPin;
+    confirmRow.appendChild(pinBtn);
+    modal.appendChild(confirmRow);
+
+    var footer = document.createElement('div');
+    footer.style.cssText = 'padding:6px 12px;display:flex;justify-content:flex-end;border-top:1px solid var(--border);flex-shrink:0';
+    var cancelBtn = document.createElement('button');
+    cancelBtn.className = 'action-btn';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.onclick = closeModal;
+    footer.appendChild(cancelBtn);
+    modal.appendChild(footer);
+  }
+
+  renderBrowser(initData.path, initData.entries || []);
+}
+
+// ── WebSocket (for stats bar live updates) ────────────────────────────────────
+(function connectWS() {
+  var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  var ws = new WebSocket(proto + '//' + location.host + '/ws');
+  window._teapartyWS = ws;
+  ws.onclose = function() {
+    window._teapartyWS = null;
+    setTimeout(connectWS, 3000);
+  };
+}());
+
+// ── Boot ─────────────────────────────────────────────────────────────────────
+(async function boot() {
+  // Populate the tools catalog (builtins + MCP) before rendering any view.
+  try {
+    var r = await fetch('/api/catalog/org');
+    if (r.ok) {
+      var cat = await r.json();
+      if (cat.tools && cat.tools.length) AVAILABLE_TOOLS = cat.tools;
+    }
+  } catch (e) {}
+
+  var urlParams = new URLSearchParams(window.location.search);
+  var initAgent = urlParams.get('agent');
+  var initWorkgroup = urlParams.get('workgroup');
+  var initProject = urlParams.get('project');
+  if (initAgent) {
+    renderScope(function() { return loadAgent(initAgent, initProject); }, {level: 'agent', name: initAgent, projectSlug: initProject});
+  } else if (initWorkgroup) {
+    renderScope(function() { return loadWorkgroup(initWorkgroup, initProject); }, {level: 'workgroup', name: initWorkgroup, projectSlug: initProject});
+  } else if (initProject) {
+    renderScope(function() { return loadProject(initProject); }, {level: 'project', name: initProject});
+  } else {
+    renderScope(loadGlobal, {level: 'global'});
+  }
+})();
+</script>
+</body>
+</html>

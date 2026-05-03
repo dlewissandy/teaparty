@@ -21,13 +21,16 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
+      - name: Install Playwright browsers
+        run: uv run playwright install --with-deps chromium
+
       - name: Configure git for tests
         run: |
           git config --global user.email "ci@teaparty.test"
           git config --global user.name "CI"
 
       - name: Run tests
-        run: uv run pytest projects/POC/orchestrator/tests/ --tb=short -q
+        run: uv run pytest tests/ --tb=short -q
 
   docs:
     runs-on: ubuntu-latest

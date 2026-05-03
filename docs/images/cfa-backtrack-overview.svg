@@ -1,412 +1,457 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 540" width="1200" height="540" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif">
-  <defs>
-    <!-- Background gradient -->
-    <linearGradient id="bgGrad" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#0f0f1e"/>
-      <stop offset="100%" stop-color="#1a1a2e"/>
-    </linearGradient>
-
-    <!-- Phase panel gradients -->
-    <linearGradient id="intentGrad" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#4ecdc4" stop-opacity="0.18"/>
-      <stop offset="100%" stop-color="#4ecdc4" stop-opacity="0.06"/>
-    </linearGradient>
-    <linearGradient id="planGrad" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#f9c74f" stop-opacity="0.18"/>
-      <stop offset="100%" stop-color="#f9c74f" stop-opacity="0.06"/>
-    </linearGradient>
-    <linearGradient id="execGrad" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#f07167" stop-opacity="0.18"/>
-      <stop offset="100%" stop-color="#f07167" stop-opacity="0.06"/>
-    </linearGradient>
-
-    <!-- Forward flow arrow marker -->
-    <marker id="arrowFwd" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
-      <path d="M0,0.5 L6,3.5 L0,6.5 Z" fill="#aaaacc" opacity="0.7"/>
-    </marker>
-
-    <!-- Backtrack arrow marker — points LEFT (right-to-left direction) -->
-    <marker id="arrowBack" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
-      <path d="M0,0.5 L6,3.5 L0,6.5 Z" fill="#ff6b6b"/>
-    </marker>
-
-    <!-- Loop arrow marker (small) -->
-    <marker id="arrowLoop" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
-      <path d="M0,0.5 L5,3 L0,5.5 Z" fill="#aaaacc" opacity="0.45"/>
-    </marker>
-
-    <!-- Drop shadow for panels -->
-    <filter id="panelShadow" x="-4%" y="-4%" width="108%" height="108%">
-      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#000000" flood-opacity="0.5"/>
-    </filter>
-
-    <!-- Glow for backtrack arrows -->
-    <filter id="backtrackGlow" x="-20%" y="-80%" width="140%" height="260%">
-      <feGaussianBlur stdDeviation="2.2" result="blur"/>
-      <feMerge>
-        <feMergeNode in="blur"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
-    </filter>
-  </defs>
-
-  <!-- ═══════════════════════════ BACKGROUND ═══════════════════════════ -->
-  <rect width="1200" height="540" fill="url(#bgGrad)"/>
-
-  <!-- Subtle grid lines -->
-  <g opacity="0.035" stroke="#ffffff" stroke-width="1">
-    <line x1="0" y1="80" x2="1200" y2="80"/>
-    <line x1="0" y1="160" x2="1200" y2="160"/>
-    <line x1="0" y1="240" x2="1200" y2="240"/>
-    <line x1="0" y1="320" x2="1200" y2="320"/>
-    <line x1="0" y1="400" x2="1200" y2="400"/>
-    <line x1="0" y1="480" x2="1200" y2="480"/>
-  </g>
-
-  <!-- ═══════════════════════════ TITLE ═══════════════════════════ -->
-  <text x="600" y="30" text-anchor="middle" fill="#e0e0f0" font-size="15" font-weight="600" letter-spacing="0.05em" opacity="0.9">
-    TeaParty CfA — Conversation for Action Protocol
-  </text>
-  <text x="600" y="50" text-anchor="middle" fill="#8888aa" font-size="10.5" letter-spacing="0.08em">
-    THREE-PHASE FLOW WITH CROSS-PHASE BACKTRACKS
-  </text>
-
-  <!-- ═══════════════════════════ PHASE PANELS ═══════════════════════════ -->
-
-  <!-- Phase 1: Intent (x=10..300, width=290) -->
-  <rect x="10" y="65" width="290" height="358" rx="12" ry="12"
-        fill="url(#intentGrad)" stroke="#4ecdc4" stroke-width="1.5" stroke-opacity="0.5"
-        filter="url(#panelShadow)"/>
-  <text x="155" y="85" text-anchor="middle" fill="#4ecdc4" font-size="11" font-weight="700" letter-spacing="0.12em" opacity="0.9">PHASE 1</text>
-  <text x="155" y="102" text-anchor="middle" fill="#4ecdc4" font-size="15" font-weight="700">Intent</text>
-
-  <!-- Phase 2: Planning (x=314..600, width=286) -->
-  <rect x="314" y="65" width="286" height="358" rx="12" ry="12"
-        fill="url(#planGrad)" stroke="#f9c74f" stroke-width="1.5" stroke-opacity="0.5"
-        filter="url(#panelShadow)"/>
-  <text x="457" y="85" text-anchor="middle" fill="#f9c74f" font-size="11" font-weight="700" letter-spacing="0.12em" opacity="0.9">PHASE 2</text>
-  <text x="457" y="102" text-anchor="middle" fill="#f9c74f" font-size="15" font-weight="700">Planning</text>
-
-  <!-- Phase 3: Execution (x=614..1190, width=576) -->
-  <rect x="614" y="65" width="576" height="358" rx="12" ry="12"
-        fill="url(#execGrad)" stroke="#f07167" stroke-width="1.5" stroke-opacity="0.5"
-        filter="url(#panelShadow)"/>
-  <text x="902" y="85" text-anchor="middle" fill="#f07167" font-size="11" font-weight="700" letter-spacing="0.12em" opacity="0.9">PHASE 3</text>
-  <text x="902" y="102" text-anchor="middle" fill="#f07167" font-size="15" font-weight="700">Execution</text>
-
-  <!-- ═══════════════════════════ STATE NODES ═══════════════════════════ -->
-  <!--
-    Row layout (node top / center y):
-      r1: top=116, center=128  — entry states
-      r2: top=152, center=164  — second entry (PROPOSAL)
-      Synth loop box: y=185, height=82, bottom=267
-      r3: top=197, center=209  — QUESTION / ESCALATE
-      r4: top=233, center=245  — ASSERT / RESPONSE
-      r5: top=277, center=289  — terminal per phase / FAILED/COMPLETED_TASK
-      r6: top=313, center=325  — WORK_IN_PROGRESS
-      r7: top=349, center=361  — WORK_ASSERT / COMPLETED_WORK
-      r8: top=385, center=397  — WITHDRAWN
-    Node height: 24px throughout
-  -->
-
-  <!-- ─────────── INTENT PHASE NODES ─────────── -->
-
-  <!-- IDEA (entry) -->
-  <rect x="126" y="116" width="58" height="24" rx="5" fill="#0f0f1e" stroke="#4ecdc4" stroke-width="1.3"/>
-  <text x="155" y="132" text-anchor="middle" fill="#4ecdc4" font-size="10" font-weight="600">IDEA</text>
-
-  <!-- PROPOSAL -->
-  <rect x="111" y="152" width="88" height="24" rx="5" fill="#0f0f1e" stroke="#4ecdc4" stroke-width="1.3"/>
-  <text x="155" y="168" text-anchor="middle" fill="#4ecdc4" font-size="9.5" font-weight="600">PROPOSAL</text>
-
-  <!-- Intent synthesis loop box -->
-  <rect x="18" y="185" width="264" height="82" rx="8"
-        fill="#4ecdc4" fill-opacity="0.06" stroke="#4ecdc4"
-        stroke-width="1" stroke-dasharray="4,3" stroke-opacity="0.4"/>
-  <text x="150" y="197" text-anchor="middle" fill="#4ecdc4" font-size="8.5" opacity="0.55" letter-spacing="0.06em">synthesis loop</text>
-
-  <!-- INTENT_QUESTION -->
-  <rect x="24" y="197" width="112" height="24" rx="5" fill="#0f0f1e" stroke="#4ecdc4" stroke-width="1.1"/>
-  <text x="80" y="213" text-anchor="middle" fill="#4ecdc4" font-size="9" font-weight="600">INTENT_QUESTION</text>
-
-  <!-- INTENT_ESCALATE -->
-  <rect x="148" y="197" width="112" height="24" rx="5" fill="#0f0f1e" stroke="#4ecdc4" stroke-width="1.1"/>
-  <text x="204" y="213" text-anchor="middle" fill="#4ecdc4" font-size="9" font-weight="600">INTENT_ESCALATE</text>
-
-  <!-- INTENT_ASSERT -->
-  <rect x="24" y="233" width="100" height="24" rx="5" fill="#0f0f1e" stroke="#4ecdc4" stroke-width="1.1"/>
-  <text x="74" y="249" text-anchor="middle" fill="#4ecdc4" font-size="9" font-weight="600">INTENT_ASSERT</text>
-
-  <!-- INTENT_RESPONSE -->
-  <rect x="148" y="233" width="112" height="24" rx="5" fill="#0f0f1e" stroke="#4ecdc4" stroke-width="1.1"/>
-  <text x="204" y="249" text-anchor="middle" fill="#4ecdc4" font-size="9" font-weight="600">INTENT_RESPONSE</text>
-
-  <!-- INTENT (terminal — thicker border) -->
-  <rect x="122" y="277" width="66" height="24" rx="5" fill="#0f0f1e" stroke="#4ecdc4" stroke-width="2"/>
-  <text x="155" y="293" text-anchor="middle" fill="#4ecdc4" font-size="10" font-weight="700">INTENT</text>
-
-  <!-- WITHDRAWN (in intent phase, accessible from INTENT_ESCALATE/INTENT_ASSERT) -->
-  <!-- Placed in execution phase to avoid crowding; see execution section -->
-
-  <!-- Intent phase forward arrows -->
-  <!-- IDEA → PROPOSAL -->
-  <path d="M155,140 L155,152" stroke="#aaaacc" stroke-width="1.3" fill="none" stroke-opacity="0.5" marker-end="url(#arrowFwd)"/>
-  <!-- PROPOSAL → synthesis loop (INTENT_QUESTION entry) -->
-  <path d="M155,176 L155,185 L80,185 L80,197" stroke="#aaaacc" stroke-width="1.2" fill="none" stroke-opacity="0.45" marker-end="url(#arrowFwd)"/>
-  <!-- INTENT_QUESTION → INTENT_ASSERT (question leads to assert) -->
-  <path d="M80,221 L74,233" stroke="#4ecdc4" stroke-width="1" fill="none" stroke-opacity="0.4" marker-end="url(#arrowLoop)"/>
-  <!-- INTENT_ASSERT → INTENT_RESPONSE (correct/answer) -->
-  <path d="M124,245 L148,245" stroke="#4ecdc4" stroke-width="1" fill="none" stroke-opacity="0.4" marker-end="url(#arrowLoop)"/>
-  <!-- INTENT_RESPONSE → PROPOSAL (synthesize loop back) -->
-  <path d="M204,233 C204,178 155,178 155,176" stroke="#4ecdc4" stroke-width="1" fill="none" stroke-opacity="0.3" stroke-dasharray="3,2"/>
-  <!-- INTENT_ESCALATE connects up to loop label area -->
-  <path d="M204,197 C204,190 155,190 155,190" stroke="#4ecdc4" stroke-width="0.8" fill="none" stroke-opacity="0.25" stroke-dasharray="2,2"/>
-  <!-- synthesis loop → INTENT (approve path) -->
-  <path d="M155,267 L155,277" stroke="#4ecdc4" stroke-width="1.3" fill="none" stroke-opacity="0.6" marker-end="url(#arrowFwd)"/>
-
-  <!-- ─────────── PLANNING PHASE NODES ─────────── -->
-
-  <!-- DRAFT (entry) -->
-  <rect x="424" y="116" width="66" height="24" rx="5" fill="#0f0f1e" stroke="#f9c74f" stroke-width="1.3"/>
-  <text x="457" y="132" text-anchor="middle" fill="#f9c74f" font-size="10" font-weight="600">DRAFT</text>
-
-  <!-- Planning synthesis loop box -->
-  <rect x="322" y="185" width="270" height="82" rx="8"
-        fill="#f9c74f" fill-opacity="0.05" stroke="#f9c74f"
-        stroke-width="1" stroke-dasharray="4,3" stroke-opacity="0.4"/>
-  <text x="457" y="197" text-anchor="middle" fill="#f9c74f" font-size="8.5" opacity="0.55" letter-spacing="0.06em">synthesis loop</text>
-
-  <!-- PLANNING_QUESTION -->
-  <rect x="328" y="197" width="124" height="24" rx="5" fill="#0f0f1e" stroke="#f9c74f" stroke-width="1.1"/>
-  <text x="390" y="213" text-anchor="middle" fill="#f9c74f" font-size="9" font-weight="600">PLANNING_QUESTION</text>
-
-  <!-- PLANNING_ESCALATE -->
-  <rect x="462" y="197" width="122" height="24" rx="5" fill="#0f0f1e" stroke="#f9c74f" stroke-width="1.1"/>
-  <text x="523" y="213" text-anchor="middle" fill="#f9c74f" font-size="9" font-weight="600">PLANNING_ESCALATE</text>
-
-  <!-- PLAN_ASSERT -->
-  <rect x="328" y="233" width="98" height="24" rx="5" fill="#0f0f1e" stroke="#f9c74f" stroke-width="1.1"/>
-  <text x="377" y="249" text-anchor="middle" fill="#f9c74f" font-size="9" font-weight="600">PLAN_ASSERT</text>
-
-  <!-- PLANNING_RESPONSE -->
-  <rect x="462" y="233" width="122" height="24" rx="5" fill="#0f0f1e" stroke="#f9c74f" stroke-width="1.1"/>
-  <text x="523" y="249" text-anchor="middle" fill="#f9c74f" font-size="9" font-weight="600">PLANNING_RESPONSE</text>
-
-  <!-- PLAN (terminal — thicker border) -->
-  <rect x="428" y="277" width="58" height="24" rx="5" fill="#0f0f1e" stroke="#f9c74f" stroke-width="2"/>
-  <text x="457" y="293" text-anchor="middle" fill="#f9c74f" font-size="10" font-weight="700">PLAN</text>
-
-  <!-- Planning phase forward arrows -->
-  <!-- DRAFT → synthesis loop -->
-  <path d="M457,140 L457,185 L390,185 L390,197" stroke="#aaaacc" stroke-width="1.2" fill="none" stroke-opacity="0.45" marker-end="url(#arrowFwd)"/>
-  <!-- PLANNING_QUESTION → PLAN_ASSERT -->
-  <path d="M390,221 L377,233" stroke="#f9c74f" stroke-width="1" fill="none" stroke-opacity="0.4" marker-end="url(#arrowLoop)"/>
-  <!-- PLAN_ASSERT → PLANNING_RESPONSE (correct) -->
-  <path d="M426,245 L462,245" stroke="#f9c74f" stroke-width="1" fill="none" stroke-opacity="0.4" marker-end="url(#arrowLoop)"/>
-  <!-- PLANNING_RESPONSE → DRAFT (synthesize loop back) -->
-  <path d="M523,233 C523,178 457,178 457,140" stroke="#f9c74f" stroke-width="1" fill="none" stroke-opacity="0.3" stroke-dasharray="3,2"/>
-  <!-- synthesis loop → PLAN (approve) -->
-  <path d="M457,267 L457,277" stroke="#f9c74f" stroke-width="1.3" fill="none" stroke-opacity="0.6" marker-end="url(#arrowFwd)"/>
-
-  <!-- ─────────── EXECUTION PHASE NODES ─────────── -->
-
-  <!-- TASK (entry) -->
-  <rect x="620" y="116" width="58" height="24" rx="5" fill="#0f0f1e" stroke="#f07167" stroke-width="1.3"/>
-  <text x="649" y="132" text-anchor="middle" fill="#f07167" font-size="10" font-weight="600">TASK</text>
-
-  <!-- TASK_IN_PROGRESS -->
-  <rect x="692" y="116" width="116" height="24" rx="5" fill="#0f0f1e" stroke="#f07167" stroke-width="1.3"/>
-  <text x="750" y="132" text-anchor="middle" fill="#f07167" font-size="9" font-weight="600">TASK_IN_PROGRESS</text>
-
-  <!-- Task synthesis loop box -->
-  <rect x="618" y="185" width="340" height="82" rx="8"
-        fill="#f07167" fill-opacity="0.05" stroke="#f07167"
-        stroke-width="1" stroke-dasharray="4,3" stroke-opacity="0.4"/>
-  <text x="788" y="197" text-anchor="middle" fill="#f07167" font-size="8.5" opacity="0.55" letter-spacing="0.06em">task synthesis loop</text>
-
-  <!-- TASK_QUESTION -->
-  <rect x="624" y="197" width="106" height="24" rx="5" fill="#0f0f1e" stroke="#f07167" stroke-width="1.1"/>
-  <text x="677" y="213" text-anchor="middle" fill="#f07167" font-size="9" font-weight="600">TASK_QUESTION</text>
-
-  <!-- TASK_ESCALATE -->
-  <rect x="746" y="197" width="104" height="24" rx="5" fill="#0f0f1e" stroke="#f07167" stroke-width="1.1"/>
-  <text x="798" y="213" text-anchor="middle" fill="#f07167" font-size="9" font-weight="600">TASK_ESCALATE</text>
-
-  <!-- TASK_ASSERT -->
-  <rect x="624" y="233" width="96" height="24" rx="5" fill="#0f0f1e" stroke="#f07167" stroke-width="1.1"/>
-  <text x="672" y="249" text-anchor="middle" fill="#f07167" font-size="9" font-weight="600">TASK_ASSERT</text>
-
-  <!-- TASK_RESPONSE -->
-  <rect x="746" y="233" width="104" height="24" rx="5" fill="#0f0f1e" stroke="#f07167" stroke-width="1.1"/>
-  <text x="798" y="249" text-anchor="middle" fill="#f07167" font-size="9" font-weight="600">TASK_RESPONSE</text>
-
-  <!-- FAILED_TASK -->
-  <rect x="624" y="277" width="94" height="24" rx="5" fill="#0f0f1e" stroke="#f07167" stroke-width="1.3"/>
-  <text x="671" y="293" text-anchor="middle" fill="#f07167" font-size="9" font-weight="600">FAILED_TASK</text>
-
-  <!-- COMPLETED_TASK -->
-  <rect x="732" y="277" width="110" height="24" rx="5" fill="#0f0f1e" stroke="#f07167" stroke-width="1.3"/>
-  <text x="787" y="293" text-anchor="middle" fill="#f07167" font-size="9" font-weight="600">COMPLETED_TASK</text>
-
-  <!-- WORK_IN_PROGRESS -->
-  <rect x="872" y="277" width="118" height="24" rx="5" fill="#0f0f1e" stroke="#f07167" stroke-width="1.3"/>
-  <text x="931" y="293" text-anchor="middle" fill="#f07167" font-size="9" font-weight="600">WORK_IN_PROGRESS</text>
-
-  <!-- Work assembly loop box -->
-  <rect x="868" y="308" width="298" height="62" rx="8"
-        fill="#f07167" fill-opacity="0.04" stroke="#f07167"
-        stroke-width="0.8" stroke-dasharray="4,3" stroke-opacity="0.35"/>
-  <text x="1017" y="320" text-anchor="middle" fill="#f07167" font-size="8.5" opacity="0.5" letter-spacing="0.06em">work assembly</text>
-
-  <!-- WORK_ASSERT -->
-  <rect x="874" y="322" width="96" height="24" rx="5" fill="#0f0f1e" stroke="#f07167" stroke-width="1.3"/>
-  <text x="922" y="338" text-anchor="middle" fill="#f07167" font-size="9" font-weight="600">WORK_ASSERT</text>
-
-  <!-- COMPLETED_WORK (terminal — thicker border) -->
-  <rect x="990" y="322" width="114" height="24" rx="5" fill="#0f0f1e" stroke="#f07167" stroke-width="2"/>
-  <text x="1047" y="338" text-anchor="middle" fill="#f07167" font-size="9.5" font-weight="700">COMPLETED_WORK</text>
-
-  <!-- WITHDRAWN (accessible from multiple states) -->
-  <rect x="1080" y="277" width="90" height="24" rx="5" fill="#0f0f1e" stroke="#f07167" stroke-width="1.1" stroke-dasharray="4,2" stroke-opacity="0.7"/>
-  <text x="1125" y="293" text-anchor="middle" fill="#f07167" font-size="9" font-weight="500" opacity="0.75">WITHDRAWN</text>
-
-  <!-- Execution phase forward arrows -->
-  <!-- TASK → TASK_IN_PROGRESS -->
-  <path d="M678,128 L692,128" stroke="#aaaacc" stroke-width="1.3" fill="none" stroke-opacity="0.5" marker-end="url(#arrowFwd)"/>
-  <!-- TASK_IN_PROGRESS → task synthesis loop -->
-  <path d="M750,140 L750,185 L677,185 L677,197" stroke="#aaaacc" stroke-width="1.2" fill="none" stroke-opacity="0.45" marker-end="url(#arrowFwd)"/>
-  <!-- TASK_QUESTION → TASK_ASSERT -->
-  <path d="M677,221 L672,233" stroke="#f07167" stroke-width="1" fill="none" stroke-opacity="0.4" marker-end="url(#arrowLoop)"/>
-  <!-- TASK_ASSERT → TASK_RESPONSE (correct) -->
-  <path d="M720,245 L746,245" stroke="#f07167" stroke-width="1" fill="none" stroke-opacity="0.4" marker-end="url(#arrowLoop)"/>
-  <!-- TASK_RESPONSE → TASK_IN_PROGRESS (synthesize loop back) -->
-  <path d="M798,233 C798,168 750,160 750,140" stroke="#f07167" stroke-width="1" fill="none" stroke-opacity="0.3" stroke-dasharray="3,2"/>
-  <!-- TASK_ASSERT → COMPLETED_TASK (approve) -->
-  <path d="M720,245 C730,262 780,262 787,277" stroke="#f07167" stroke-width="1.2" fill="none" stroke-opacity="0.5" marker-end="url(#arrowFwd)"/>
-  <!-- task synth loop → FAILED_TASK (failed path) -->
-  <path d="M671,267 L671,277" stroke="#f07167" stroke-width="1.2" fill="none" stroke-opacity="0.5" marker-end="url(#arrowFwd)"/>
-  <!-- COMPLETED_TASK → WORK_IN_PROGRESS -->
-  <path d="M842,289 L872,289" stroke="#aaaacc" stroke-width="1.3" fill="none" stroke-opacity="0.5" marker-end="url(#arrowFwd)"/>
-  <!-- WORK_IN_PROGRESS → WORK_ASSERT -->
-  <path d="M931,301 L922,322" stroke="#aaaacc" stroke-width="1.3" fill="none" stroke-opacity="0.5" marker-end="url(#arrowFwd)"/>
-  <!-- WORK_ASSERT → COMPLETED_WORK -->
-  <path d="M970,334 L990,334" stroke="#aaaacc" stroke-width="1.3" fill="none" stroke-opacity="0.5" marker-end="url(#arrowFwd)"/>
-  <!-- FAILED_TASK retry → TASK (loop back up) -->
-  <path d="M624,285 C605,265 605,128 620,128" stroke="#f07167" stroke-width="1" fill="none" stroke-opacity="0.35" stroke-dasharray="3,2" marker-end="url(#arrowLoop)"/>
-  <!-- WORK_IN_PROGRESS → WITHDRAWN -->
-  <path d="M990,285 L1080,285" stroke="#f07167" stroke-width="0.9" fill="none" stroke-opacity="0.3" stroke-dasharray="3,2" marker-end="url(#arrowLoop)"/>
-
-  <!-- ═══════════════════════════ INTER-PHASE FORWARD ARROWS ═══════════════════════════ -->
-
-  <!-- INTENT → DRAFT (plan action) -->
-  <path d="M188,289 L300,289 L300,128 L424,128" stroke="#aaaacc" stroke-width="1.6" fill="none" stroke-opacity="0.55" marker-end="url(#arrowFwd)"/>
-
-  <!-- PLAN → TASK (delegate action) -->
-  <path d="M486,289 L600,289 L600,128 L620,128" stroke="#aaaacc" stroke-width="1.6" fill="none" stroke-opacity="0.55" marker-end="url(#arrowFwd)"/>
-
-  <!-- ═══════════════════════════ BACKTRACK ARROWS ═══════════════════════════ -->
-  <!--
-    All backtrack arrows:
-    - stroke #ff6b6b, dashed, with glow filter
-    - marker-end="url(#arrowBack)" (arrowhead at DESTINATION, which is to the LEFT)
-    - Paths arc ABOVE the panels (y < 65)
-    - Arc heights staggered to avoid overlap (higher arcs for longer-reach backtracks)
-
-    Arc height levels used:
-      y=58: DRAFT→INTENT_RESPONSE            (planning→intent, medium reach)
-      y=50: PLAN_ASSERT→INTENT_RESPONSE      (planning→intent, medium reach)
-      y=43: PLANNING_QUESTION→INTENT_QUESTION (planning→intent, short reach)
-      y=35: TASK_QUESTION→PLANNING_QUESTION   (execution→planning, medium reach)
-      y=27: TASK_ASSERT→PLANNING_RESPONSE    (execution→planning, medium reach)
-      y=20: FAILED_TASK→PLANNING_QUESTION    (execution→planning, medium reach)
-      y=13: TASK_ASSERT→INTENT_RESPONSE      (execution→intent, long reach)
-      y= 7: WORK_IN_PROGRESS→PLANNING_QUESTION (execution→planning, long reach)
-      y= 2: WORK_ASSERT→PLANNING_RESPONSE    (execution→planning, long reach)
-      y=-4: WORK_ASSERT→INTENT_RESPONSE      (execution→intent, longest reach)
-            (clipped at y=0 but bezier handles still work — path goes just above canvas)
-  -->
-
-  <g stroke="#ff6b6b" stroke-width="1.8" fill="none" stroke-dasharray="6,4" filter="url(#backtrackGlow)" opacity="0.92" marker-end="url(#arrowBack)">
-
-    <!-- 1. DRAFT → INTENT_RESPONSE (refine-intent) -->
-    <!-- Source: DRAFT top center (457, 116), Target: INTENT_RESPONSE top center (204, 233) -->
-    <path d="M457,116 C457,58 204,58 204,233"/>
-    <text x="330" y="53" text-anchor="middle" fill="#ff6b6b" font-size="8.5" font-weight="600" stroke="none" filter="none" opacity="0.92" letter-spacing="0.04em">refine-intent</text>
-
-    <!-- 2. PLANNING_QUESTION → INTENT_QUESTION (backtrack) -->
-    <!-- Source: PLANNING_QUESTION top center (390, 197), Target: INTENT_QUESTION top center (80, 197) -->
-    <path d="M390,197 C390,43 80,43 80,197"/>
-    <text x="235" y="38" text-anchor="middle" fill="#ff6b6b" font-size="8.5" font-weight="600" stroke="none" filter="none" opacity="0.92" letter-spacing="0.04em">backtrack</text>
-
-    <!-- 3. PLAN_ASSERT → INTENT_RESPONSE (refine-intent) -->
-    <!-- Source: PLAN_ASSERT top center (377, 233), Target: INTENT_RESPONSE top center (204, 233) -->
-    <path d="M377,233 C377,50 204,50 204,233"/>
-    <text x="290" y="45" text-anchor="middle" fill="#ff6b6b" font-size="8.5" font-weight="600" stroke="none" filter="none" opacity="0.92" letter-spacing="0.04em">refine-intent</text>
-
-    <!-- 4. TASK_QUESTION → PLANNING_QUESTION (backtrack) -->
-    <!-- Source: TASK_QUESTION top center (677, 197), Target: PLANNING_QUESTION top center (390, 197) -->
-    <path d="M677,197 C677,35 390,35 390,197"/>
-    <text x="533" y="30" text-anchor="middle" fill="#ff6b6b" font-size="8.5" font-weight="600" stroke="none" filter="none" opacity="0.92" letter-spacing="0.04em">backtrack</text>
-
-    <!-- 5. TASK_ASSERT → PLANNING_RESPONSE (revise-plan) -->
-    <!-- Source: TASK_ASSERT top center (672, 233), Target: PLANNING_RESPONSE top center (523, 233) -->
-    <path d="M672,233 C672,27 523,27 523,233"/>
-    <text x="597" y="22" text-anchor="middle" fill="#ff6b6b" font-size="8.5" font-weight="600" stroke="none" filter="none" opacity="0.92" letter-spacing="0.04em">revise-plan</text>
-
-    <!-- 6. TASK_ASSERT → INTENT_RESPONSE (refine-intent) -->
-    <!-- Source: TASK_ASSERT top center (672, 233), Target: INTENT_RESPONSE top center (204, 233) -->
-    <path d="M672,233 C672,13 204,13 204,233"/>
-    <text x="438" y="8" text-anchor="middle" fill="#ff6b6b" font-size="8.5" font-weight="600" stroke="none" filter="none" opacity="0.92" letter-spacing="0.04em">refine-intent</text>
-
-    <!-- 7. FAILED_TASK → PLANNING_QUESTION (backtrack) -->
-    <!-- Source: FAILED_TASK top center (671, 277), Target: PLANNING_QUESTION top center (390, 197) -->
-    <path d="M671,277 C671,20 390,20 390,197"/>
-    <text x="530" y="15" text-anchor="middle" fill="#ff6b6b" font-size="8.5" font-weight="600" stroke="none" filter="none" opacity="0.85" letter-spacing="0.04em">backtrack</text>
-
-    <!-- 8. WORK_IN_PROGRESS → PLANNING_QUESTION (backtrack) -->
-    <!-- Source: WORK_IN_PROGRESS top center (931, 277), Target: PLANNING_QUESTION top center (390, 197) -->
-    <path d="M931,277 C931,7 390,7 390,197"/>
-    <text x="660" y="3" text-anchor="middle" fill="#ff9b9b" font-size="8.5" font-weight="600" stroke="none" filter="none" opacity="0.85" letter-spacing="0.04em">backtrack</text>
-
-    <!-- 9. WORK_ASSERT → PLANNING_RESPONSE (revise-plan) -->
-    <!-- Source: WORK_ASSERT top center (922, 322), Target: PLANNING_RESPONSE top center (523, 233) -->
-    <path d="M922,322 C922,2 523,2 523,233"/>
-    <text x="722" y="-3" text-anchor="middle" fill="#ffbbbb" font-size="8.5" font-weight="600" stroke="none" filter="none" opacity="0.82" letter-spacing="0.04em">revise-plan</text>
-
-    <!-- 10. WORK_ASSERT → INTENT_RESPONSE (refine-intent) -->
-    <!-- Source: WORK_ASSERT top center (922, 322), Target: INTENT_RESPONSE top center (204, 233) -->
-    <path d="M922,322 C922,-6 204,-6 204,233"/>
-    <text x="563" y="-10" text-anchor="middle" fill="#ffcccc" font-size="8.5" font-weight="600" stroke="none" filter="none" opacity="0.78" letter-spacing="0.04em">refine-intent</text>
-
-  </g>
-
-  <!-- ═══════════════════════════ LEGEND ═══════════════════════════ -->
-  <rect x="10" y="438" width="1180" height="52" rx="8"
-        fill="#ffffff" fill-opacity="0.04" stroke="#ffffff" stroke-opacity="0.08" stroke-width="1"/>
-
-  <!-- Forward flow -->
-  <line x1="28" y1="464" x2="62" y2="464" stroke="#aaaacc" stroke-width="2" stroke-opacity="0.7" marker-end="url(#arrowFwd)"/>
-  <text x="70" y="468" fill="#aaaacc" font-size="10.5" opacity="0.85">forward flow</text>
-
-  <!-- Backtrack -->
-  <line x1="220" y1="464" x2="186" y2="464" stroke="#ff6b6b" stroke-width="2" stroke-dasharray="5,3" marker-end="url(#arrowBack)"/>
-  <text x="228" y="468" fill="#ff6b6b" font-size="10.5" opacity="0.9">cross-phase backtrack (right-to-left)</text>
-
-  <!-- Phase chips -->
-  <rect x="540" y="456" width="12" height="12" rx="2" fill="#4ecdc4" opacity="0.75"/>
-  <text x="558" y="467" fill="#aaaacc" font-size="10.5" opacity="0.8">Intent</text>
-  <rect x="620" y="456" width="12" height="12" rx="2" fill="#f9c74f" opacity="0.75"/>
-  <text x="638" y="467" fill="#aaaacc" font-size="10.5" opacity="0.8">Planning</text>
-  <rect x="718" y="456" width="12" height="12" rx="2" fill="#f07167" opacity="0.75"/>
-  <text x="736" y="467" fill="#aaaacc" font-size="10.5" opacity="0.8">Execution</text>
-
-  <!-- Terminal state note -->
-  <rect x="840" y="456" width="12" height="12" rx="2" fill="#0f0f1e" stroke="#4ecdc4" stroke-width="2" opacity="0.8"/>
-  <text x="858" y="467" fill="#aaaacc" font-size="10.5" opacity="0.7">terminal state (thick border)</text>
-
-  <!-- Caption -->
-  <text x="600" y="510" text-anchor="middle" fill="#555577" font-size="9.5" letter-spacing="0.04em">
-    Backtracks reflect protocol flexibility — any phase may re-enter an earlier phase when clarification, replanning, or re-scoping is needed.
-  </text>
-
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 13.1.2 (20250808.2320)
+ -->
+<!-- Title: CfA Pages: 1 -->
+<svg width="2189pt" height="909pt"
+ viewBox="0.00 0.00 2189.00 909.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 905)">
+<title>CfA</title>
+<polygon fill="white" stroke="none" points="-4,4 -4,-905 2185.04,-905 2185.04,4 -4,4"/>
+<!-- COMPLETED_WORK -->
+<g id="node1" class="node">
+<title>COMPLETED_WORK</title>
+<ellipse fill="palegreen" stroke="black" cx="1889.77" cy="-764" rx="71.77" ry="71.77"/>
+<ellipse fill="none" stroke="black" cx="1889.77" cy="-764" rx="75.77" ry="75.77"/>
+<text xml:space="preserve" text-anchor="middle" x="1889.77" y="-765.7" font-family="Helvetica,sans-Serif" font-size="14.00">COMPLETED</text>
+<text xml:space="preserve" text-anchor="middle" x="1889.77" y="-750.7" font-family="Helvetica,sans-Serif" font-size="14.00">WORK</text>
+</g>
+<!-- DRAFT -->
+<g id="node2" class="node">
+<title>DRAFT</title>
+<polygon fill="lightyellow" stroke="black" points="1068,-521 1007,-521 1007,-485 1068,-485 1068,-521"/>
+<text xml:space="preserve" text-anchor="middle" x="1037.5" y="-497.2" font-family="Helvetica,sans-Serif" font-size="14.00">DRAFT</text>
+</g>
+<!-- INTENT_RESPONSE -->
+<g id="node8" class="node">
+<title>INTENT_RESPONSE</title>
+<polygon fill="lightblue" stroke="black" points="283.25,-348 191.5,-348 191.5,-310 283.25,-310 283.25,-348"/>
+<text xml:space="preserve" text-anchor="middle" x="237.38" y="-330.7" font-family="Helvetica,sans-Serif" font-size="14.00">INTENT</text>
+<text xml:space="preserve" text-anchor="middle" x="237.38" y="-315.7" font-family="Helvetica,sans-Serif" font-size="14.00">RESPONSE</text>
+</g>
+<!-- DRAFT&#45;&gt;INTENT_RESPONSE -->
+<g id="edge21" class="edge">
+<title>DRAFT&#45;&gt;INTENT_RESPONSE</title>
+<path fill="none" stroke="red" stroke-dasharray="5,2" d="M1006.66,-502.77C966.03,-502.47 891.01,-502 827,-502 437.62,-502 437.62,-502 437.62,-502 368.88,-502 351.53,-475.89 301.25,-429 279.82,-409.02 262.73,-380.2 251.81,-358.62"/>
+<polygon fill="red" stroke="red" points="255,-357.2 247.47,-349.75 248.72,-360.27 255,-357.2"/>
+<text xml:space="preserve" text-anchor="middle" x="637.25" y="-521.7" font-family="Times,serif" font-size="14.00">refine&#45;intent</text>
+<text xml:space="preserve" text-anchor="middle" x="637.25" y="-505.2" font-family="Times,serif" font-size="14.00">(human)</text>
+</g>
+<!-- PLAN -->
+<g id="node9" class="node">
+<title>PLAN</title>
+<polygon fill="lightyellow" stroke="black" points="1454.5,-568 1400.5,-568 1400.5,-532 1454.5,-532 1454.5,-568"/>
+<text xml:space="preserve" text-anchor="middle" x="1427.5" y="-544.2" font-family="Helvetica,sans-Serif" font-size="14.00">PLAN</text>
+</g>
+<!-- DRAFT&#45;&gt;PLAN -->
+<g id="edge19" class="edge">
+<title>DRAFT&#45;&gt;PLAN</title>
+<path fill="none" stroke="black" d="M1062.23,-521.49C1072.72,-528.73 1085.54,-536.39 1098.25,-541 1189.26,-573.98 1217.65,-562.76 1314.25,-569 1336.54,-570.44 1342.41,-572.31 1364.5,-569 1372.6,-567.79 1381.1,-565.73 1389.12,-563.41"/>
+<polygon fill="black" stroke="black" points="1390.09,-566.77 1398.6,-560.45 1388.01,-560.08 1390.09,-566.77"/>
+<text xml:space="preserve" text-anchor="middle" x="1251.25" y="-587.67" font-family="Times,serif" font-size="14.00">auto&#45;approve</text>
+<text xml:space="preserve" text-anchor="middle" x="1251.25" y="-571.17" font-family="Times,serif" font-size="14.00">(planning_team)</text>
+</g>
+<!-- PLANNING_ESCALATE -->
+<g id="node10" class="node">
+<title>PLANNING_ESCALATE</title>
+<polygon fill="lightyellow" stroke="black" points="1294.5,-523 1208,-523 1208,-485 1294.5,-485 1294.5,-523"/>
+<text xml:space="preserve" text-anchor="middle" x="1251.25" y="-505.7" font-family="Helvetica,sans-Serif" font-size="14.00">PLANNING</text>
+<text xml:space="preserve" text-anchor="middle" x="1251.25" y="-490.7" font-family="Helvetica,sans-Serif" font-size="14.00">ESCALATE</text>
+</g>
+<!-- DRAFT&#45;&gt;PLANNING_ESCALATE -->
+<g id="edge17" class="edge">
+<title>DRAFT&#45;&gt;PLANNING_ESCALATE</title>
+<path fill="none" stroke="black" d="M1068.39,-503.14C1101.56,-503.3 1155.76,-503.55 1196.38,-503.75"/>
+<polygon fill="black" stroke="black" points="1196.18,-507.24 1206.2,-503.79 1196.21,-500.24 1196.18,-507.24"/>
+<text xml:space="preserve" text-anchor="middle" x="1143.25" y="-523.4" font-family="Times,serif" font-size="14.00">escalate</text>
+<text xml:space="preserve" text-anchor="middle" x="1143.25" y="-506.9" font-family="Times,serif" font-size="14.00">(planning_team)</text>
+</g>
+<!-- PLANNING_QUESTION -->
+<g id="node11" class="node">
+<title>PLANNING_QUESTION</title>
+<polygon fill="lightyellow" stroke="black" points="1933.77,-595 1845.77,-595 1845.77,-557 1933.77,-557 1933.77,-595"/>
+<text xml:space="preserve" text-anchor="middle" x="1889.77" y="-577.7" font-family="Helvetica,sans-Serif" font-size="14.00">PLANNING</text>
+<text xml:space="preserve" text-anchor="middle" x="1889.77" y="-562.7" font-family="Helvetica,sans-Serif" font-size="14.00">QUESTION</text>
+</g>
+<!-- DRAFT&#45;&gt;PLANNING_QUESTION -->
+<g id="edge16" class="edge">
+<title>DRAFT&#45;&gt;PLANNING_QUESTION</title>
+<path fill="none" stroke="black" d="M1064.78,-521.38C1074.83,-527.59 1086.67,-533.97 1098.25,-538 1182.18,-567.24 1208.41,-552.47 1296.25,-566 1304.27,-567.23 1306.22,-567.86 1314.25,-569 1344.49,-573.29 1352.01,-575.22 1382.5,-577 1546.58,-586.58 1741.09,-581.63 1834.02,-578.27"/>
+<polygon fill="black" stroke="black" points="1834,-581.77 1843.87,-577.9 1833.74,-574.78 1834,-581.77"/>
+<text xml:space="preserve" text-anchor="middle" x="1427.5" y="-600.51" font-family="Times,serif" font-size="14.00">question</text>
+<text xml:space="preserve" text-anchor="middle" x="1427.5" y="-584.01" font-family="Times,serif" font-size="14.00">(planning_team)</text>
+</g>
+<!-- PLAN_ASSERT -->
+<g id="node13" class="node">
+<title>PLAN_ASSERT</title>
+<polygon fill="lightyellow" stroke="black" points="1286.25,-434 1216.25,-434 1216.25,-396 1286.25,-396 1286.25,-434"/>
+<text xml:space="preserve" text-anchor="middle" x="1251.25" y="-416.7" font-family="Helvetica,sans-Serif" font-size="14.00">PLAN</text>
+<text xml:space="preserve" text-anchor="middle" x="1251.25" y="-401.7" font-family="Helvetica,sans-Serif" font-size="14.00">ASSERT</text>
+</g>
+<!-- DRAFT&#45;&gt;PLAN_ASSERT -->
+<g id="edge18" class="edge">
+<title>DRAFT&#45;&gt;PLAN_ASSERT</title>
+<path fill="none" stroke="black" d="M1065.12,-484.68C1075.21,-478.24 1086.99,-471.29 1098.25,-466 1132.92,-449.72 1174.23,-436.2 1205.03,-427.19"/>
+<polygon fill="black" stroke="black" points="1205.77,-430.62 1214.42,-424.49 1203.84,-423.89 1205.77,-430.62"/>
+<text xml:space="preserve" text-anchor="middle" x="1143.25" y="-485.7" font-family="Times,serif" font-size="14.00">assert</text>
+<text xml:space="preserve" text-anchor="middle" x="1143.25" y="-469.2" font-family="Times,serif" font-size="14.00">(planning_team)</text>
+</g>
+<!-- WITHDRAWN -->
+<g id="node15" class="node">
+<title>WITHDRAWN</title>
+<ellipse fill="lightsalmon" stroke="black" cx="1889.77" cy="-277" rx="66.46" ry="66.46"/>
+<ellipse fill="none" stroke="black" cx="1889.77" cy="-277" rx="70.46" ry="70.46"/>
+<text xml:space="preserve" text-anchor="middle" x="1889.77" y="-271.2" font-family="Helvetica,sans-Serif" font-size="14.00">WITHDRAWN</text>
+</g>
+<!-- DRAFT&#45;&gt;WITHDRAWN -->
+<g id="edge20" class="edge">
+<title>DRAFT&#45;&gt;WITHDRAWN</title>
+<path fill="none" stroke="black" d="M1046.64,-484.56C1066.73,-441.51 1123.1,-334.36 1206.25,-286 1398.8,-174.01 1676.55,-221.62 1810.58,-254.84"/>
+<polygon fill="black" stroke="black" points="1809.51,-258.18 1820.07,-257.23 1811.23,-251.39 1809.51,-258.18"/>
+<text xml:space="preserve" text-anchor="middle" x="1427.5" y="-245.3" font-family="Times,serif" font-size="14.00">withdraw</text>
+<text xml:space="preserve" text-anchor="middle" x="1427.5" y="-228.8" font-family="Times,serif" font-size="14.00">(human)</text>
+</g>
+<!-- IDEA -->
+<g id="node3" class="node">
+<title>IDEA</title>
+<polygon fill="lightblue" stroke="black" points="264.38,-162 210.38,-162 210.38,-126 264.38,-126 264.38,-162"/>
+<text xml:space="preserve" text-anchor="middle" x="237.38" y="-138.2" font-family="Helvetica,sans-Serif" font-size="14.00">IDEA</text>
+</g>
+<!-- PROPOSAL -->
+<g id="node14" class="node">
+<title>PROPOSAL</title>
+<polygon fill="lightblue" stroke="black" points="484.5,-212 392.75,-212 392.75,-176 484.5,-176 484.5,-212"/>
+<text xml:space="preserve" text-anchor="middle" x="438.62" y="-188.2" font-family="Helvetica,sans-Serif" font-size="14.00">PROPOSAL</text>
+</g>
+<!-- IDEA&#45;&gt;PROPOSAL -->
+<g id="edge1" class="edge">
+<title>IDEA&#45;&gt;PROPOSAL</title>
+<path fill="none" stroke="black" d="M264.86,-139.28C292.98,-135.38 338.3,-132.32 374.75,-145 388.54,-149.79 401.63,-158.95 412.27,-168.07"/>
+<polygon fill="black" stroke="black" points="409.71,-170.47 419.47,-174.6 414.42,-165.29 409.71,-170.47"/>
+<text xml:space="preserve" text-anchor="middle" x="338" y="-164.7" font-family="Times,serif" font-size="14.00">propose</text>
+<text xml:space="preserve" text-anchor="middle" x="338" y="-148.2" font-family="Times,serif" font-size="14.00">(human)</text>
+</g>
+<!-- INTENT -->
+<g id="node4" class="node">
+<title>INTENT</title>
+<polygon fill="lightblue" stroke="black" points="858.38,-369 793.62,-369 793.62,-333 858.38,-333 858.38,-369"/>
+<text xml:space="preserve" text-anchor="middle" x="826" y="-345.2" font-family="Helvetica,sans-Serif" font-size="14.00">INTENT</text>
+</g>
+<!-- INTENT&#45;&gt;DRAFT -->
+<g id="edge15" class="edge">
+<title>INTENT&#45;&gt;DRAFT</title>
+<path fill="none" stroke="black" d="M854.73,-369.41C885.1,-389.77 935.04,-423.83 976.75,-455 986.26,-462.11 996.4,-470.1 1005.58,-477.48"/>
+<polygon fill="black" stroke="black" points="1003.23,-480.08 1013.2,-483.66 1007.64,-474.65 1003.23,-480.08"/>
+<text xml:space="preserve" text-anchor="middle" x="931.75" y="-474.7" font-family="Times,serif" font-size="14.00">plan</text>
+<text xml:space="preserve" text-anchor="middle" x="931.75" y="-458.2" font-family="Times,serif" font-size="14.00">(planning_team)</text>
+</g>
+<!-- INTENT_ASSERT -->
+<g id="node5" class="node">
+<title>INTENT_ASSERT</title>
+<polygon fill="lightblue" stroke="black" points="672.25,-309 602.25,-309 602.25,-271 672.25,-271 672.25,-309"/>
+<text xml:space="preserve" text-anchor="middle" x="637.25" y="-291.7" font-family="Helvetica,sans-Serif" font-size="14.00">INTENT</text>
+<text xml:space="preserve" text-anchor="middle" x="637.25" y="-276.7" font-family="Helvetica,sans-Serif" font-size="14.00">ASSERT</text>
+</g>
+<!-- INTENT_ASSERT&#45;&gt;INTENT -->
+<g id="edge11" class="edge">
+<title>INTENT_ASSERT&#45;&gt;INTENT</title>
+<path fill="none" stroke="black" d="M672.6,-302.17C681.05,-305.11 690.09,-308.21 698.5,-311 726.36,-320.26 757.85,-330.22 782.43,-337.88"/>
+<polygon fill="black" stroke="black" points="781.17,-341.15 791.76,-340.78 783.25,-334.47 781.17,-341.15"/>
+<text xml:space="preserve" text-anchor="middle" x="731.88" y="-351.79" font-family="Times,serif" font-size="14.00">approve</text>
+<text xml:space="preserve" text-anchor="middle" x="731.88" y="-335.29" font-family="Times,serif" font-size="14.00">(human)</text>
+</g>
+<!-- INTENT_ASSERT&#45;&gt;INTENT_RESPONSE -->
+<g id="edge12" class="edge">
+<title>INTENT_ASSERT&#45;&gt;INTENT_RESPONSE</title>
+<path fill="none" stroke="black" d="M601.77,-300.37C593.4,-302.55 584.44,-304.61 576,-306 478.05,-322.19 362.31,-327.03 294.94,-328.45"/>
+<polygon fill="black" stroke="black" points="295.19,-324.94 285.26,-328.63 295.33,-331.94 295.19,-324.94"/>
+<text xml:space="preserve" text-anchor="middle" x="438.62" y="-344.39" font-family="Times,serif" font-size="14.00">correct</text>
+<text xml:space="preserve" text-anchor="middle" x="438.62" y="-327.89" font-family="Times,serif" font-size="14.00">(human)</text>
+</g>
+<!-- INTENT_ASSERT&#45;&gt;WITHDRAWN -->
+<g id="edge13" class="edge">
+<title>INTENT_ASSERT&#45;&gt;WITHDRAWN</title>
+<path fill="none" stroke="black" d="M668.04,-270.5C677.41,-265.4 688.04,-260.61 698.5,-258 727.29,-250.83 735.58,-257.75 765.25,-258 1155.81,-261.3 1622.65,-271.06 1807.59,-275.16"/>
+<polygon fill="black" stroke="black" points="1807.5,-278.66 1817.58,-275.38 1807.66,-271.66 1807.5,-278.66"/>
+<text xml:space="preserve" text-anchor="middle" x="1251.25" y="-284.77" font-family="Times,serif" font-size="14.00">withdraw</text>
+<text xml:space="preserve" text-anchor="middle" x="1251.25" y="-268.27" font-family="Times,serif" font-size="14.00">(human)</text>
+</g>
+<!-- INTENT_ESCALATE -->
+<g id="node6" class="node">
+<title>INTENT_ESCALATE</title>
+<polygon fill="lightblue" stroke="black" points="680.5,-234 594,-234 594,-196 680.5,-196 680.5,-234"/>
+<text xml:space="preserve" text-anchor="middle" x="637.25" y="-216.7" font-family="Helvetica,sans-Serif" font-size="14.00">INTENT</text>
+<text xml:space="preserve" text-anchor="middle" x="637.25" y="-201.7" font-family="Helvetica,sans-Serif" font-size="14.00">ESCALATE</text>
+</g>
+<!-- INTENT_ESCALATE&#45;&gt;INTENT -->
+<g id="edge9" class="edge">
+<title>INTENT_ESCALATE&#45;&gt;INTENT</title>
+<path fill="none" stroke="black" d="M680.81,-228.93C706.92,-238.82 740.06,-253.92 765.25,-274 782.45,-287.71 797.59,-307.36 808.33,-323.37"/>
+<polygon fill="black" stroke="black" points="805.23,-325.02 813.6,-331.52 811.11,-321.22 805.23,-325.02"/>
+<text xml:space="preserve" text-anchor="middle" x="731.88" y="-293.7" font-family="Times,serif" font-size="14.00">complete</text>
+<text xml:space="preserve" text-anchor="middle" x="731.88" y="-277.2" font-family="Times,serif" font-size="14.00">(human)</text>
+</g>
+<!-- INTENT_ESCALATE&#45;&gt;INTENT_RESPONSE -->
+<g id="edge8" class="edge">
+<title>INTENT_ESCALATE&#45;&gt;INTENT_RESPONSE</title>
+<path fill="none" stroke="black" d="M593.55,-228.78C587.67,-230.59 581.69,-232.37 576,-234 495.15,-257.1 473.64,-258.07 392.75,-281 359.95,-290.3 323.51,-301.58 294.28,-310.87"/>
+<polygon fill="black" stroke="black" points="293.36,-307.49 284.9,-313.87 295.49,-314.16 293.36,-307.49"/>
+<text xml:space="preserve" text-anchor="middle" x="438.62" y="-300.7" font-family="Times,serif" font-size="14.00">clarify</text>
+<text xml:space="preserve" text-anchor="middle" x="438.62" y="-284.2" font-family="Times,serif" font-size="14.00">(human)</text>
+</g>
+<!-- INTENT_ESCALATE&#45;&gt;WITHDRAWN -->
+<g id="edge10" class="edge">
+<title>INTENT_ESCALATE&#45;&gt;WITHDRAWN</title>
+<path fill="none" stroke="black" d="M680.86,-213.55C790.12,-209.98 1089.15,-201 1338.38,-201 1338.38,-201 1338.38,-201 1646.5,-201 1714.18,-201 1731.97,-208.05 1796,-230 1803.06,-232.42 1810.25,-235.28 1817.36,-238.38"/>
+<polygon fill="black" stroke="black" points="1815.75,-241.5 1826.3,-242.44 1818.64,-235.12 1815.75,-241.5"/>
+<text xml:space="preserve" text-anchor="middle" x="1251.25" y="-221.38" font-family="Times,serif" font-size="14.00">withdraw</text>
+<text xml:space="preserve" text-anchor="middle" x="1251.25" y="-204.88" font-family="Times,serif" font-size="14.00">(human)</text>
+</g>
+<!-- INTENT_QUESTION -->
+<g id="node7" class="node">
+<title>INTENT_QUESTION</title>
+<polygon fill="lightblue" stroke="black" points="2179.17,-98 2091.17,-98 2091.17,-60 2179.17,-60 2179.17,-98"/>
+<text xml:space="preserve" text-anchor="middle" x="2135.17" y="-80.7" font-family="Helvetica,sans-Serif" font-size="14.00">INTENT</text>
+<text xml:space="preserve" text-anchor="middle" x="2135.17" y="-65.7" font-family="Helvetica,sans-Serif" font-size="14.00">QUESTION</text>
+</g>
+<!-- INTENT_QUESTION&#45;&gt;INTENT_RESPONSE -->
+<g id="edge7" class="edge">
+<title>INTENT_QUESTION&#45;&gt;INTENT_RESPONSE</title>
+<path fill="none" stroke="black" d="M2098.64,-59.67C2052.25,-36.29 1967.85,0 1890.77,0 437.62,0 437.62,0 437.62,0 353.27,0 345.72,-60.32 301.25,-132 283.72,-160.25 258.64,-250.75 246.11,-298.63"/>
+<polygon fill="black" stroke="black" points="242.79,-297.53 243.66,-308.08 249.56,-299.28 242.79,-297.53"/>
+<text xml:space="preserve" text-anchor="middle" x="1143.25" y="-19.7" font-family="Times,serif" font-size="14.00">answer</text>
+<text xml:space="preserve" text-anchor="middle" x="1143.25" y="-3.2" font-family="Times,serif" font-size="14.00">(research_team)</text>
+</g>
+<!-- INTENT_RESPONSE&#45;&gt;PROPOSAL -->
+<g id="edge14" class="edge">
+<title>INTENT_RESPONSE&#45;&gt;PROPOSAL</title>
+<path fill="none" stroke="black" d="M241.57,-309.79C247.55,-280.63 263.42,-225.93 301.25,-201 324.36,-185.77 354.74,-182.97 380.97,-184.44"/>
+<polygon fill="black" stroke="black" points="380.55,-187.92 390.79,-185.22 381.1,-180.94 380.55,-187.92"/>
+<text xml:space="preserve" text-anchor="middle" x="338" y="-220.7" font-family="Times,serif" font-size="14.00">synthesize</text>
+<text xml:space="preserve" text-anchor="middle" x="338" y="-204.2" font-family="Times,serif" font-size="14.00">(intent_team)</text>
+</g>
+<!-- WORK_IN_PROGRESS -->
+<g id="node17" class="node">
+<title>WORK_IN_PROGRESS</title>
+<polygon fill="lightgreen" stroke="black" points="1692.5,-741.5 1598.5,-741.5 1598.5,-688.5 1692.5,-688.5 1692.5,-741.5"/>
+<text xml:space="preserve" text-anchor="middle" x="1645.5" y="-724.2" font-family="Helvetica,sans-Serif" font-size="14.00">WORK</text>
+<text xml:space="preserve" text-anchor="middle" x="1645.5" y="-709.2" font-family="Helvetica,sans-Serif" font-size="14.00">IN</text>
+<text xml:space="preserve" text-anchor="middle" x="1645.5" y="-694.2" font-family="Helvetica,sans-Serif" font-size="14.00">PROGRESS</text>
+</g>
+<!-- PLAN&#45;&gt;WORK_IN_PROGRESS -->
+<g id="edge32" class="edge">
+<title>PLAN&#45;&gt;WORK_IN_PROGRESS</title>
+<path fill="none" stroke="black" d="M1454.8,-554.99C1487.39,-562.29 1543.17,-578.58 1580.5,-610 1602.21,-628.28 1618.63,-655.89 1629.4,-678.21"/>
+<polygon fill="black" stroke="black" points="1626.09,-679.38 1633.46,-686.99 1632.44,-676.44 1626.09,-679.38"/>
+<text xml:space="preserve" text-anchor="middle" x="1535.5" y="-629.7" font-family="Times,serif" font-size="14.00">delegate</text>
+<text xml:space="preserve" text-anchor="middle" x="1535.5" y="-613.2" font-family="Times,serif" font-size="14.00">(project_lead)</text>
+</g>
+<!-- PLANNING_ESCALATE&#45;&gt;PLAN -->
+<g id="edge25" class="edge">
+<title>PLANNING_ESCALATE&#45;&gt;PLAN</title>
+<path fill="none" stroke="black" d="M1294.88,-515.25C1323.74,-522.87 1361.52,-532.85 1389.2,-540.15"/>
+<polygon fill="black" stroke="black" points="1387.99,-543.45 1398.55,-542.62 1389.77,-536.68 1387.99,-543.45"/>
+<text xml:space="preserve" text-anchor="middle" x="1339.38" y="-552.17" font-family="Times,serif" font-size="14.00">complete</text>
+<text xml:space="preserve" text-anchor="middle" x="1339.38" y="-535.67" font-family="Times,serif" font-size="14.00">(human)</text>
+</g>
+<!-- PLANNING_RESPONSE -->
+<g id="node12" class="node">
+<title>PLANNING_RESPONSE</title>
+<polygon fill="lightyellow" stroke="black" points="2181.04,-595 2089.29,-595 2089.29,-557 2181.04,-557 2181.04,-595"/>
+<text xml:space="preserve" text-anchor="middle" x="2135.17" y="-577.7" font-family="Helvetica,sans-Serif" font-size="14.00">PLANNING</text>
+<text xml:space="preserve" text-anchor="middle" x="2135.17" y="-562.7" font-family="Helvetica,sans-Serif" font-size="14.00">RESPONSE</text>
+</g>
+<!-- PLANNING_ESCALATE&#45;&gt;PLANNING_RESPONSE -->
+<g id="edge24" class="edge">
+<title>PLANNING_ESCALATE&#45;&gt;PLANNING_RESPONSE</title>
+<path fill="none" stroke="black" d="M1294.6,-504.98C1405.26,-507.88 1712.01,-518.2 1965.54,-548 2003.11,-552.42 2045.08,-559.38 2077.74,-565.25"/>
+<polygon fill="black" stroke="black" points="2076.93,-568.66 2087.4,-567.01 2078.19,-561.78 2076.93,-568.66"/>
+<text xml:space="preserve" text-anchor="middle" x="1645.5" y="-542.98" font-family="Times,serif" font-size="14.00">clarify</text>
+<text xml:space="preserve" text-anchor="middle" x="1645.5" y="-526.48" font-family="Times,serif" font-size="14.00">(human)</text>
+</g>
+<!-- PLANNING_ESCALATE&#45;&gt;WITHDRAWN -->
+<g id="edge26" class="edge">
+<title>PLANNING_ESCALATE&#45;&gt;WITHDRAWN</title>
+<path fill="none" stroke="black" d="M1268.79,-484.58C1280.31,-472.27 1296.71,-457.03 1314.25,-448 1509.15,-347.62 1595.28,-430.17 1796,-342 1805.62,-337.77 1815.27,-332.48 1824.51,-326.75"/>
+<polygon fill="black" stroke="black" points="1826.2,-329.82 1832.71,-321.46 1822.41,-323.94 1826.2,-329.82"/>
+<text xml:space="preserve" text-anchor="middle" x="1535.5" y="-413.85" font-family="Times,serif" font-size="14.00">withdraw</text>
+<text xml:space="preserve" text-anchor="middle" x="1535.5" y="-397.35" font-family="Times,serif" font-size="14.00">(human)</text>
+</g>
+<!-- PLANNING_QUESTION&#45;&gt;INTENT_QUESTION -->
+<g id="edge23" class="edge">
+<title>PLANNING_QUESTION&#45;&gt;INTENT_QUESTION</title>
+<path fill="none" stroke="red" stroke-dasharray="5,2" d="M1900.31,-556.52C1937.73,-480.12 2074.59,-200.66 2119.66,-108.62"/>
+<polygon fill="red" stroke="red" points="2122.77,-110.23 2124.03,-99.71 2116.48,-107.15 2122.77,-110.23"/>
+<text xml:space="preserve" text-anchor="middle" x="2027.42" y="-391.72" font-family="Times,serif" font-size="14.00">backtrack</text>
+<text xml:space="preserve" text-anchor="middle" x="2027.42" y="-375.22" font-family="Times,serif" font-size="14.00">(research_team)</text>
+</g>
+<!-- PLANNING_QUESTION&#45;&gt;PLANNING_RESPONSE -->
+<g id="edge22" class="edge">
+<title>PLANNING_QUESTION&#45;&gt;PLANNING_RESPONSE</title>
+<path fill="none" stroke="black" d="M1934.01,-576C1974.01,-576 2033.73,-576 2077.53,-576"/>
+<polygon fill="black" stroke="black" points="2077.35,-579.5 2087.35,-576 2077.35,-572.5 2077.35,-579.5"/>
+<text xml:space="preserve" text-anchor="middle" x="2027.42" y="-595.7" font-family="Times,serif" font-size="14.00">answer</text>
+<text xml:space="preserve" text-anchor="middle" x="2027.42" y="-579.2" font-family="Times,serif" font-size="14.00">(research_team)</text>
+</g>
+<!-- PLANNING_RESPONSE&#45;&gt;DRAFT -->
+<g id="edge31" class="edge">
+<title>PLANNING_RESPONSE&#45;&gt;DRAFT</title>
+<path fill="none" stroke="black" d="M2107.62,-595.38C2096.87,-602.19 2084.01,-609.11 2071.29,-613 1978.72,-641.28 1685.01,-655.94 1490.5,-643 1363.32,-634.54 1330.06,-635.26 1206.25,-605 1156.68,-592.88 1140.96,-593.93 1098.25,-566 1083.43,-556.31 1069.63,-542.24 1059.03,-529.86"/>
+<polygon fill="black" stroke="black" points="1061.94,-527.88 1052.88,-522.39 1056.54,-532.34 1061.94,-527.88"/>
+<text xml:space="preserve" text-anchor="middle" x="1535.5" y="-666.6" font-family="Times,serif" font-size="14.00">synthesize</text>
+<text xml:space="preserve" text-anchor="middle" x="1535.5" y="-650.1" font-family="Times,serif" font-size="14.00">(planning_team)</text>
+</g>
+<!-- PLAN_ASSERT&#45;&gt;INTENT_RESPONSE -->
+<g id="edge29" class="edge">
+<title>PLAN_ASSERT&#45;&gt;INTENT_RESPONSE</title>
+<path fill="none" stroke="red" stroke-dasharray="5,2" d="M1215.77,-415C1173.87,-415 1101,-415 1038.5,-415 437.62,-415 437.62,-415 437.62,-415 375.97,-415 311.73,-379.86 273.4,-354.51"/>
+<polygon fill="red" stroke="red" points="275.72,-351.86 265.48,-349.15 271.8,-357.65 275.72,-351.86"/>
+<text xml:space="preserve" text-anchor="middle" x="731.88" y="-434.7" font-family="Times,serif" font-size="14.00">refine&#45;intent</text>
+<text xml:space="preserve" text-anchor="middle" x="731.88" y="-418.2" font-family="Times,serif" font-size="14.00">(human)</text>
+</g>
+<!-- PLAN_ASSERT&#45;&gt;PLAN -->
+<g id="edge27" class="edge">
+<title>PLAN_ASSERT&#45;&gt;PLAN</title>
+<path fill="none" stroke="black" d="M1286.65,-433.44C1309.67,-446.48 1340.1,-465.13 1364.5,-485 1378.51,-496.41 1392.54,-510.81 1403.7,-523.15"/>
+<polygon fill="black" stroke="black" points="1401.03,-525.41 1410.28,-530.57 1406.27,-520.76 1401.03,-525.41"/>
+<text xml:space="preserve" text-anchor="middle" x="1339.38" y="-504.7" font-family="Times,serif" font-size="14.00">approve</text>
+<text xml:space="preserve" text-anchor="middle" x="1339.38" y="-488.2" font-family="Times,serif" font-size="14.00">(human)</text>
+</g>
+<!-- PLAN_ASSERT&#45;&gt;PLANNING_RESPONSE -->
+<g id="edge28" class="edge">
+<title>PLAN_ASSERT&#45;&gt;PLANNING_RESPONSE</title>
+<path fill="none" stroke="black" d="M1286.55,-417.4C1398.09,-425.25 1746.14,-450.27 1796,-460 1921.81,-484.55 1951.97,-499.17 2071.29,-546 2075.91,-547.81 2080.67,-549.82 2085.4,-551.9"/>
+<polygon fill="black" stroke="black" points="2083.71,-554.98 2094.26,-555.93 2086.61,-548.61 2083.71,-554.98"/>
+<text xml:space="preserve" text-anchor="middle" x="1645.5" y="-468.27" font-family="Times,serif" font-size="14.00">correct</text>
+<text xml:space="preserve" text-anchor="middle" x="1645.5" y="-451.77" font-family="Times,serif" font-size="14.00">(human)</text>
+</g>
+<!-- PLAN_ASSERT&#45;&gt;WITHDRAWN -->
+<g id="edge30" class="edge">
+<title>PLAN_ASSERT&#45;&gt;WITHDRAWN</title>
+<path fill="none" stroke="black" d="M1273.99,-395.71C1285.25,-386.77 1299.67,-376.85 1314.25,-371 1387.73,-341.5 1411.83,-354.01 1490.5,-345 1625.85,-329.5 1664.27,-354.74 1796,-320 1802.7,-318.23 1809.52,-316 1816.26,-313.5"/>
+<polygon fill="black" stroke="black" points="1817.33,-316.83 1825.35,-309.91 1814.76,-310.32 1817.33,-316.83"/>
+<text xml:space="preserve" text-anchor="middle" x="1535.5" y="-364.7" font-family="Times,serif" font-size="14.00">withdraw</text>
+<text xml:space="preserve" text-anchor="middle" x="1535.5" y="-348.2" font-family="Times,serif" font-size="14.00">(human)</text>
+</g>
+<!-- PROPOSAL&#45;&gt;INTENT -->
+<g id="edge5" class="edge">
+<title>PROPOSAL&#45;&gt;INTENT</title>
+<path fill="none" stroke="black" d="M455.78,-212.44C465.13,-223.82 476.58,-239.06 484.5,-254 495.96,-275.61 484.94,-288.98 502.5,-306 568.02,-369.49 608.3,-353.29 698.5,-367 727.83,-371.46 735.84,-370.87 765.25,-367 770.89,-366.26 776.76,-365.14 782.52,-363.82"/>
+<polygon fill="black" stroke="black" points="783.05,-367.3 791.9,-361.49 781.35,-360.51 783.05,-367.3"/>
+<text xml:space="preserve" text-anchor="middle" x="637.25" y="-383.99" font-family="Times,serif" font-size="14.00">auto&#45;approve</text>
+<text xml:space="preserve" text-anchor="middle" x="637.25" y="-367.49" font-family="Times,serif" font-size="14.00">(intent_team)</text>
+</g>
+<!-- PROPOSAL&#45;&gt;INTENT_ASSERT -->
+<g id="edge4" class="edge">
+<title>PROPOSAL&#45;&gt;INTENT_ASSERT</title>
+<path fill="none" stroke="black" d="M465.14,-212.29C480.75,-223.4 498.48,-235.85 502.5,-238 530.86,-253.15 564.62,-266.24 591.13,-275.5"/>
+<polygon fill="black" stroke="black" points="589.98,-278.81 600.57,-278.74 592.25,-272.18 589.98,-278.81"/>
+<text xml:space="preserve" text-anchor="middle" x="539.25" y="-288.99" font-family="Times,serif" font-size="14.00">assert</text>
+<text xml:space="preserve" text-anchor="middle" x="539.25" y="-272.49" font-family="Times,serif" font-size="14.00">(intent_team)</text>
+</g>
+<!-- PROPOSAL&#45;&gt;INTENT_ESCALATE -->
+<g id="edge3" class="edge">
+<title>PROPOSAL&#45;&gt;INTENT_ESCALATE</title>
+<path fill="none" stroke="black" d="M484.96,-194.32C511.59,-195.01 545.83,-196.76 576,-201 578.15,-201.3 580.34,-201.65 582.55,-202.02"/>
+<polygon fill="black" stroke="black" points="581.67,-205.42 592.15,-203.83 582.97,-198.54 581.67,-205.42"/>
+<text xml:space="preserve" text-anchor="middle" x="539.25" y="-220.7" font-family="Times,serif" font-size="14.00">escalate</text>
+<text xml:space="preserve" text-anchor="middle" x="539.25" y="-204.2" font-family="Times,serif" font-size="14.00">(intent_team)</text>
+</g>
+<!-- PROPOSAL&#45;&gt;INTENT_QUESTION -->
+<g id="edge2" class="edge">
+<title>PROPOSAL&#45;&gt;INTENT_QUESTION</title>
+<path fill="none" stroke="black" d="M464.99,-175.53C475.99,-168.49 489.34,-161.17 502.5,-157 585.82,-130.61 611.33,-147.39 698.5,-141 924.04,-124.47 980.37,-118.87 1206.25,-108 1537.82,-92.05 1936.49,-82.99 2079.67,-80.06"/>
+<polygon fill="black" stroke="black" points="2079.7,-83.56 2089.62,-79.86 2079.55,-76.56 2079.7,-83.56"/>
+<text xml:space="preserve" text-anchor="middle" x="1251.25" y="-127.7" font-family="Times,serif" font-size="14.00">question</text>
+<text xml:space="preserve" text-anchor="middle" x="1251.25" y="-111.2" font-family="Times,serif" font-size="14.00">(intent_team)</text>
+</g>
+<!-- PROPOSAL&#45;&gt;WITHDRAWN -->
+<g id="edge6" class="edge">
+<title>PROPOSAL&#45;&gt;WITHDRAWN</title>
+<path fill="none" stroke="black" d="M484.81,-179.81C524.34,-168.66 583.53,-155 636.25,-155 636.25,-155 636.25,-155 1646.5,-155 1716.02,-155 1734.74,-168.13 1796,-201 1807.21,-207.01 1818.35,-214.49 1828.82,-222.38"/>
+<polygon fill="black" stroke="black" points="1826.6,-225.09 1836.64,-228.47 1830.9,-219.56 1826.6,-225.09"/>
+<text xml:space="preserve" text-anchor="middle" x="1143.25" y="-174.7" font-family="Times,serif" font-size="14.00">withdraw</text>
+<text xml:space="preserve" text-anchor="middle" x="1143.25" y="-158.2" font-family="Times,serif" font-size="14.00">(human)</text>
+</g>
+<!-- WORK_ASSERT -->
+<g id="node16" class="node">
+<title>WORK_ASSERT</title>
+<polygon fill="lightgreen" stroke="black" points="70,-743 0,-743 0,-705 70,-705 70,-743"/>
+<text xml:space="preserve" text-anchor="middle" x="35" y="-725.7" font-family="Helvetica,sans-Serif" font-size="14.00">WORK</text>
+<text xml:space="preserve" text-anchor="middle" x="35" y="-710.7" font-family="Helvetica,sans-Serif" font-size="14.00">ASSERT</text>
+</g>
+<!-- WORK_ASSERT&#45;&gt;COMPLETED_WORK -->
+<g id="edge37" class="edge">
+<title>WORK_ASSERT&#45;&gt;COMPLETED_WORK</title>
+<path fill="none" stroke="black" d="M58.95,-743.43C94.51,-771.48 166.17,-820 236.38,-820 236.38,-820 236.38,-820 1646.5,-820 1700.95,-820 1760.56,-806.4 1807.03,-792.61"/>
+<polygon fill="black" stroke="black" points="1807.94,-795.99 1816.49,-789.74 1805.91,-789.29 1807.94,-795.99"/>
+<text xml:space="preserve" text-anchor="middle" x="931.75" y="-839.7" font-family="Times,serif" font-size="14.00">approve</text>
+<text xml:space="preserve" text-anchor="middle" x="931.75" y="-823.2" font-family="Times,serif" font-size="14.00">(approval_gate)</text>
+</g>
+<!-- WORK_ASSERT&#45;&gt;INTENT_RESPONSE -->
+<g id="edge40" class="edge">
+<title>WORK_ASSERT&#45;&gt;INTENT_RESPONSE</title>
+<path fill="none" stroke="red" stroke-dasharray="5,2" d="M45.8,-704.68C78.29,-640.63 182.63,-434.95 221.55,-358.22"/>
+<polygon fill="red" stroke="red" points="224.51,-360.13 225.91,-349.63 218.26,-356.97 224.51,-360.13"/>
+<text xml:space="preserve" text-anchor="middle" x="130.75" y="-637.76" font-family="Times,serif" font-size="14.00">refine&#45;intent</text>
+<text xml:space="preserve" text-anchor="middle" x="130.75" y="-621.26" font-family="Times,serif" font-size="14.00">(approval_gate)</text>
+</g>
+<!-- WORK_ASSERT&#45;&gt;PLANNING_RESPONSE -->
+<g id="edge39" class="edge">
+<title>WORK_ASSERT&#45;&gt;PLANNING_RESPONSE</title>
+<path fill="none" stroke="red" stroke-dasharray="5,2" d="M45.14,-743.3C54.05,-760.38 69.01,-784.99 88,-801 143.32,-847.64 164.02,-868 236.38,-868 236.38,-868 236.38,-868 1890.77,-868 1925.06,-868 1937.9,-869.29 1965.54,-849 2052.09,-785.47 2103.9,-662.88 2124.22,-606.15"/>
+<polygon fill="red" stroke="red" points="2127.48,-607.43 2127.47,-596.83 2120.87,-605.12 2127.48,-607.43"/>
+<text xml:space="preserve" text-anchor="middle" x="1037.5" y="-887.7" font-family="Times,serif" font-size="14.00">revise&#45;plan</text>
+<text xml:space="preserve" text-anchor="middle" x="1037.5" y="-871.2" font-family="Times,serif" font-size="14.00">(approval_gate)</text>
+</g>
+<!-- WORK_ASSERT&#45;&gt;WITHDRAWN -->
+<g id="edge41" class="edge">
+<title>WORK_ASSERT&#45;&gt;WITHDRAWN</title>
+<path fill="none" stroke="black" d="M37.4,-704.86C45.93,-594.85 95.45,-48 236.38,-48 236.38,-48 236.38,-48 1144.25,-48 1438.01,-48 1543.72,-7.49 1796,-158 1816.11,-170 1833.48,-188.12 1847.58,-206.63"/>
+<polygon fill="black" stroke="black" points="1844.61,-208.5 1853.34,-214.5 1850.26,-204.37 1844.61,-208.5"/>
+<text xml:space="preserve" text-anchor="middle" x="931.75" y="-67.7" font-family="Times,serif" font-size="14.00">withdraw</text>
+<text xml:space="preserve" text-anchor="middle" x="931.75" y="-51.2" font-family="Times,serif" font-size="14.00">(approval_gate)</text>
+</g>
+<!-- WORK_ASSERT&#45;&gt;WORK_IN_PROGRESS -->
+<g id="edge38" class="edge">
+<title>WORK_ASSERT&#45;&gt;WORK_IN_PROGRESS</title>
+<path fill="none" stroke="black" d="M70.43,-733.75C110.1,-744.11 177.4,-759 236.38,-759 236.38,-759 236.38,-759 1428.5,-759 1483.24,-759 1544.25,-745.26 1587.43,-733.14"/>
+<polygon fill="black" stroke="black" points="1588.18,-736.56 1596.83,-730.44 1586.25,-729.84 1588.18,-736.56"/>
+<text xml:space="preserve" text-anchor="middle" x="826" y="-778.7" font-family="Times,serif" font-size="14.00">correct</text>
+<text xml:space="preserve" text-anchor="middle" x="826" y="-762.2" font-family="Times,serif" font-size="14.00">(approval_gate)</text>
+</g>
+<!-- WORK_IN_PROGRESS&#45;&gt;COMPLETED_WORK -->
+<g id="edge34" class="edge">
+<title>WORK_IN_PROGRESS&#45;&gt;COMPLETED_WORK</title>
+<path fill="none" stroke="black" d="M1692.81,-729.47C1698.74,-731.11 1704.74,-732.67 1710.5,-734 1740.59,-740.97 1773.9,-747.02 1803.5,-751.82"/>
+<polygon fill="black" stroke="black" points="1802.73,-755.24 1813.15,-753.36 1803.83,-748.33 1802.73,-755.24"/>
+<text xml:space="preserve" text-anchor="middle" x="1753.25" y="-769.8" font-family="Times,serif" font-size="14.00">auto&#45;approve</text>
+<text xml:space="preserve" text-anchor="middle" x="1753.25" y="-753.3" font-family="Times,serif" font-size="14.00">(project_lead)</text>
+</g>
+<!-- WORK_IN_PROGRESS&#45;&gt;PLANNING_QUESTION -->
+<g id="edge35" class="edge">
+<title>WORK_IN_PROGRESS&#45;&gt;PLANNING_QUESTION</title>
+<path fill="none" stroke="red" stroke-dasharray="5,2" d="M1692.93,-688.36C1736.81,-663.19 1802.16,-625.69 1845.11,-601.05"/>
+<polygon fill="red" stroke="red" points="1846.74,-604.15 1853.67,-596.14 1843.26,-598.08 1846.74,-604.15"/>
+<text xml:space="preserve" text-anchor="middle" x="1753.25" y="-697.42" font-family="Times,serif" font-size="14.00">backtrack</text>
+<text xml:space="preserve" text-anchor="middle" x="1753.25" y="-680.92" font-family="Times,serif" font-size="14.00">(project_lead)</text>
+</g>
+<!-- WORK_IN_PROGRESS&#45;&gt;WITHDRAWN -->
+<g id="edge36" class="edge">
+<title>WORK_IN_PROGRESS&#45;&gt;WITHDRAWN</title>
+<path fill="none" stroke="black" d="M1660.61,-688.47C1673.5,-664.31 1693.13,-627.68 1710.5,-596 1757.43,-510.41 1812.34,-412.48 1848.69,-347.96"/>
+<polygon fill="black" stroke="black" points="1851.53,-350.04 1853.39,-339.61 1845.43,-346.6 1851.53,-350.04"/>
+<text xml:space="preserve" text-anchor="middle" x="1753.25" y="-615.7" font-family="Times,serif" font-size="14.00">withdraw</text>
+<text xml:space="preserve" text-anchor="middle" x="1753.25" y="-599.2" font-family="Times,serif" font-size="14.00">(approval_gate)</text>
+</g>
+<!-- WORK_IN_PROGRESS&#45;&gt;WORK_ASSERT -->
+<g id="edge33" class="edge">
+<title>WORK_IN_PROGRESS&#45;&gt;WORK_ASSERT</title>
+<path fill="none" stroke="black" d="M1598.03,-712.83C1463.9,-706.74 1064.57,-690 732.88,-690 236.38,-690 236.38,-690 236.38,-690 182.63,-690 121.9,-702.04 81.53,-711.79"/>
+<polygon fill="black" stroke="black" points="80.79,-708.37 71.92,-714.17 82.47,-715.16 80.79,-708.37"/>
+<text xml:space="preserve" text-anchor="middle" x="826" y="-710.47" font-family="Times,serif" font-size="14.00">assert</text>
+<text xml:space="preserve" text-anchor="middle" x="826" y="-693.97" font-family="Times,serif" font-size="14.00">(project_lead)</text>
+</g>
+</g>
 </svg>

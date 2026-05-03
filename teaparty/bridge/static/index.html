@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TeaParty</title>
+<link rel="stylesheet" href="styles.css">
+<script src="accordion-chat.js"></script>
+<script src="workflow-bar.js"></script>
+<script src="stats-bar.js"></script>
+<style>
+  .home { padding: 20px; overflow-y: auto; flex: 1; }
+  .home-title { font-size: 18px; font-weight: 600; color: var(--green); margin-bottom: 4px; }
+  .home-subtitle { font-size: 10px; color: var(--text-dim); margin-bottom: 16px; }
+
+  .org-row {
+    display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap;
+  }
+  .org-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 5px;
+    padding: 10px 14px; cursor: pointer; transition: border-color 0.15s;
+    display: flex; align-items: center; gap: 8px; min-width: 140px;
+    color: inherit; text-decoration: none;
+  }
+  .org-card:hover { border-color: var(--green); }
+  .org-card .oc-icon { font-size: 14px; }
+  .org-card .oc-label { font-size: 11px; font-weight: 600; }
+  .org-card .oc-meta { font-size: 9px; color: var(--text-dim); }
+
+  .project-grid { columns: 2 320px; column-gap: 12px; }
+  .project-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+    overflow: hidden; break-inside: avoid; margin-bottom: 12px;
+  }
+  .pc-header {
+    padding: 10px 14px; display: flex; justify-content: space-between; align-items: center;
+    border-bottom: 1px solid var(--border); cursor: pointer;
+    color: inherit; text-decoration: none;
+  }
+  .pc-name { font-size: 13px; font-weight: 600; }
+  .pc-status { }
+  .pc-description { padding: 6px 14px; font-size: 9px; color: var(--text-dim); font-style: italic; border-bottom: 1px solid var(--border); }
+  .pc-stats {
+    display: flex; gap: 0; border-bottom: 1px solid var(--border);
+  }
+  .pc-stat {
+    flex: 1; padding: 6px 10px; text-align: center; border-right: 1px solid var(--border);
+  }
+  .pc-stat:last-child { border-right: none; }
+  .pc-stat-value { font-size: 14px; font-weight: 700; }
+  .pc-stat-label { font-size: 7px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
+  .pc-escalations {
+    padding: 6px 14px; border-bottom: 1px solid var(--border);
+  }
+  .pc-esc-item {
+    display: flex; align-items: center; gap: 5px; padding: 3px 0;
+    font-size: 9px; color: var(--text-dim); cursor: pointer;
+  }
+  .pc-esc-item:hover { color: var(--text); }
+  .pc-actions {
+    display: flex; gap: 0;
+  }
+  .pc-action {
+    flex: 1; padding: 8px 10px; text-align: center; cursor: pointer;
+    font-size: 10px; font-family: inherit; color: var(--text-dim);
+    background: transparent; border: none; border-right: 1px solid var(--border);
+    transition: background 0.1s, color 0.1s;
+  }
+  .pc-action:last-child { border-right: none; }
+  .pc-action:hover { background: rgba(255,255,255,0.03); color: var(--text); }
+
+  .pc-action-icon { font-size: 12px; display: block; margin-bottom: 2px; }
+
+  .attention-badge {
+    display: inline-flex; align-items: center; gap: 3px;
+    font-size: 9px; color: var(--red); font-weight: 600;
+  }
+  .attention-dot {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--red);
+    animation: pulse 1.5s infinite; display: inline-block;
+  }
+</style>
+</head>
+<body>
+
+<div class="blade-layout">
+<div style="flex:1;min-width:0;display:flex;flex-direction:column">
+  <div id="stats-bar-slot"></div>
+  <div class="home" id="content" style="flex:1;min-width:0;overflow-y:auto"></div>
+</div>
+<div class="blade" id="blade"></div>
+</div>
+
+<script>
+function createJob(projectSlug) {
+  var task = prompt('Describe the job:');
+  if (!task) return;
+  fetch('/api/jobs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project: projectSlug, task: task }),
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.conversation_id) {
+      location.href = jobUrl(projectSlug, data.conversation_id, { request: task });
+    }
+  })
+  .catch(function(err) { alert('Failed to create job: ' + err); });
+}
+
+var _chatBlade = null;
+
+function seedBlade(message) {
+  if (_chatBlade) _chatBlade.seed(message);
+}
+
+function escHtml(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// Project pause / resume / remove — direct operational controls (issue #403).
+// These POST straight to the bridge; no OM interpretation step.
+function pauseProject(slug) {
+  fetch('/api/projects/' + encodeURIComponent(slug) + '/pause', {
+    method: 'POST',
+  }).then(function() { fetchAll(); });
+}
+function resumeProject(slug) {
+  fetch('/api/projects/' + encodeURIComponent(slug) + '/resume', {
+    method: 'POST',
+  }).then(function() { fetchAll(); });
+}
+function withdrawJob(sessionId, event) {
+  event.preventDefault();
+  event.stopPropagation();
+  if (!confirm('Are you certain? If you withdraw, all work in progress will be lost.')) return;
+  fetch('/api/withdraw/' + encodeURIComponent(sessionId), { method: 'POST' })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.error) { alert('Withdraw failed: ' + data.error); return; }
+      fetchAll();
+    })
+    .catch(function(e) { alert('Withdraw failed: ' + e.message); });
+}
+function removeProject(slug, name) {
+  if (!confirm('Remove project "' + name + '"?\n\nRunning jobs will be stopped. The project directory is not deleted.')) return;
+  fetch('/api/projects/' + encodeURIComponent(slug) + '/remove', {
+    method: 'POST',
+  }).then(function(r) {
+    return r.json();
+  }).then(function(data) {
+    if (data.error) { alert('Remove failed: ' + data.error); return; }
+    fetchAll();
+  }).catch(function(e) { alert('Remove failed: ' + e.message); });
+}
+
+// Show a modal dialog for project onboarding.
+// Tries /api/projects/add (existing directory) first; if the path does not
+// exist on disk, falls back to /api/projects/create (scaffold new directory).
+function showProjectModal() {
+  var overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;' +
+    'background:rgba(0,0,0,0.7);z-index:1000;display:flex;align-items:center;justify-content:center;';
+  overlay.innerHTML =
+    '<div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;' +
+      'padding:20px;width:380px;font-family:inherit;">' +
+      '<div style="font-size:13px;font-weight:600;color:var(--green);margin-bottom:16px;">Add Project</div>' +
+      '<label style="display:block;font-size:10px;color:var(--text-dim);margin-bottom:4px;">Directory path</label>' +
+      '<input id="om-path" type="text" placeholder="/path/to/project" ' +
+        'style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);' +
+        'padding:6px 8px;font-size:11px;font-family:inherit;border-radius:3px;margin-bottom:12px;box-sizing:border-box;" />' +
+      '<label style="display:block;font-size:10px;color:var(--text-dim);margin-bottom:4px;">Project name</label>' +
+      '<input id="om-name" type="text" placeholder="my-project" ' +
+        'style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);' +
+        'padding:6px 8px;font-size:11px;font-family:inherit;border-radius:3px;margin-bottom:6px;box-sizing:border-box;" />' +
+      '<div id="om-error" style="font-size:10px;color:var(--red);min-height:16px;margin-bottom:10px;"></div>' +
+      '<div style="display:flex;gap:8px;justify-content:flex-end;">' +
+        '<button id="om-cancel" style="background:transparent;border:1px solid var(--border);' +
+          'color:var(--text-dim);padding:6px 14px;border-radius:3px;font-size:11px;font-family:inherit;cursor:pointer;">' +
+          'Cancel</button>' +
+        '<button id="om-confirm" style="background:var(--accent2);border:none;color:var(--text);' +
+          'padding:6px 14px;border-radius:3px;font-size:11px;font-family:inherit;cursor:pointer;">' +
+          'Confirm</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(overlay);
+
+  var pathInput = document.getElementById('om-path');
+  var nameInput = document.getElementById('om-name');
+  var errorEl = document.getElementById('om-error');
+
+  // Auto-fill name from the last path segment as the user types.
+  pathInput.addEventListener('input', function() {
+    var parts = pathInput.value.split('/').filter(Boolean);
+    if (parts.length) nameInput.value = parts[parts.length - 1];
+  });
+
+  function close() { document.body.removeChild(overlay); }
+
+  document.getElementById('om-cancel').addEventListener('click', close);
+
+  document.getElementById('om-confirm').addEventListener('click', async function() {
+    var path = pathInput.value.trim();
+    var name = nameInput.value.trim();
+    errorEl.textContent = '';
+    if (!path) { errorEl.textContent = 'Directory path is required.'; return; }
+    if (!name) { errorEl.textContent = 'Project name is required.'; return; }
+    try {
+      // Try registering an existing directory first; if the server says it
+      // does not exist, scaffold a new one instead.
+      var payload = JSON.stringify({name: name, path: path});
+      var resp = await fetch('/api/projects/add', {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: payload,
+      });
+      var data = await resp.json();
+      if (!resp.ok && data.error && data.error.indexOf('does not exist') !== -1) {
+        resp = await fetch('/api/projects/create', {
+          method: 'POST', headers: {'Content-Type': 'application/json'}, body: payload,
+        });
+        data = await resp.json();
+      }
+      if (!resp.ok) { errorEl.textContent = data.error || 'Request failed (' + resp.status + ').'; return; }
+      close();
+      fetchAll();
+    } catch(e) { errorEl.textContent = e.message; }
+  });
+
+  pathInput.focus();
+}
+
+// PHASES, STATE_TO_PHASE_IDX, phaseIndex, renderWorkflow — provided by workflow-bar.js
+
+// Page state: updated by fetchAll() and WebSocket events.
+// escalationConvMap: session_id → conversation_id from input_requested events.
+var pageState = { projects: [], configs: {}, omConvId: 'om', omSessionId: 'office-manager', escalationConvMap: {}, pausedProjects: {}, escalationModes: {} };
+
+// Escalation gates and mode ordering shared with the backend.
+var ESCALATION_GATES = [
+  {state: 'INTENT',  label: 'Intent'},
+  {state: 'PLAN',    label: 'Plan'},
+  {state: 'EXECUTE', label: 'Work'},
+];
+var ESCALATION_MODES = ['always', 'when_unsure', 'never'];
+var ESCALATION_LABELS = {
+  'always':      'Always',
+  'when_unsure': 'When unsure',
+  'never':       'Never',
+};
+
+function renderEscalation(slug) {
+  var modes = (pageState.escalationModes || {})[slug] || {};
+  var rowsHtml = ESCALATION_GATES.map(function(g) {
+    var cur = modes[g.state] || 'when_unsure';
+    var stops = ESCALATION_MODES.map(function(m) {
+      return '<span class="escalation-slider-stop" onclick="event.stopPropagation();setEscalationMode(\'' + slug + '\',\'' + g.state + '\',\'' + m + '\')"></span>';
+    }).join('');
+    return '<div class="escalation-row">' +
+      '<span class="escalation-gate-label" style="flex:0 0 40px">' + g.label + '</span>' +
+      '<span class="escalation-slider" data-mode="' + cur + '">' + stops + '</span>' +
+      '<span class="escalation-pill" data-mode="' + cur + '">' + ESCALATION_LABELS[cur] + '</span>' +
+    '</div>';
+  }).join('');
+  return '<div style="padding:4px 10px 8px;border-top:1px solid var(--border)">' +
+    '<div style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px;padding:4px 0">Escalation mode</div>' +
+    rowsHtml +
+  '</div>';
+}
+
+function fetchEscalationModes(slug) {
+  return fetch('/api/projects/' + encodeURIComponent(slug) + '/escalation')
+    .then(function(r) { return r.ok ? r.json() : null; })
+    .then(function(data) {
+      if (!data) return;
+      pageState.escalationModes[slug] = data.modes || {};
+    })
+    .catch(function() {});
+}
+
+function setEscalationMode(slug, state, mode) {
+  fetch('/api/projects/' + encodeURIComponent(slug) + '/escalation', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ state: state, mode: mode }),
+  }).then(function(r) { return r.ok ? r.json() : null; })
+    .then(function(data) {
+      if (!data) return;
+      pageState.escalationModes[slug] = data.modes || {};
+      render();
+    });
+}
+
+function jobUrl(slug, convId, opts) {
+  opts = opts || {};
+  var url = 'job.html?project=' + encodeURIComponent(slug) + '&conv=' + encodeURIComponent(convId);
+  if (opts.lead) url += '&lead=' + encodeURIComponent(opts.lead);
+  if (opts.phase) url += '&phase=' + encodeURIComponent(opts.phase);
+  if (opts.state) url += '&state=' + encodeURIComponent(opts.state);
+  if (opts.needsInput) url += '&needs_input=1';
+  if (opts.request) url += '&request=' + encodeURIComponent(opts.request);
+  if (opts.worktree) url += '&worktree=' + encodeURIComponent(opts.worktree);
+  return url;
+}
+
+function fetchAll() {
+  Promise.all([
+    fetch('/api/state').then(function(r) { return r.json(); }),
+    fetch('/api/conversations?type=office_manager').then(function(r) { return r.json(); })
+  ]).then(function(results) {
+    pageState.projects = results[0] || [];
+    // Seed pausedProjects from REST so the status pills render
+    // correctly on first load (issue #403).
+    pageState.projects.forEach(function(p) {
+      if (p.paused) { pageState.pausedProjects[p.slug] = true; }
+    });
+    // omConvId is always 'om' — the OM is a singleton with no qualifier.
+    if (!_chatBlade) {
+      _chatBlade = AccordionChat.mount(
+        document.getElementById('blade'),
+        { convId: pageState.omConvId, title: 'Management Chat' }
+      );
+    }
+    var configFetches = pageState.projects.map(function(p) {
+      return fetch('/api/config/' + encodeURIComponent(p.slug))
+        .then(function(r) { return r.json(); })
+        .then(function(cfg) { pageState.configs[p.slug] = cfg; })
+        .catch(function() {});
+    });
+    var escalationFetches = pageState.projects.map(function(p) {
+      return fetchEscalationModes(p.slug);
+    });
+    return Promise.all(configFetches.concat(escalationFetches));
+  }).then(function() {
+    render();
+    // Merge escalation state from REST into escalationConvMap.
+    // Only ADD entries for sessions the server says need input — never remove
+    // entries established by WebSocket input_requested events. The map is
+    // the sticky source of truth; only onMessage() (human reply) clears it.
+    pageState.projects.forEach(function(p) {
+      (p.sessions || []).forEach(function(s) {
+        if (s.needs_input && s.input_conv_id && !pageState.escalationConvMap[s.session_id]) {
+          pageState.escalationConvMap[s.session_id] = s.input_conv_id;
+        }
+      });
+    });
+  }).catch(function() {
+    document.getElementById('content').innerHTML =
+      '<p style="color:var(--red);padding:20px">Bridge not reachable. Start the bridge server first.</p>';
+  });
+}
+
+function render() {
+  // Use escalationConvMap as the sticky source of truth for escalation count.
+  // REST attention_count may lag behind or clear prematurely; the map is only
+  // cleared when the human explicitly responds (onMessage).
+  var totalEsc = Object.keys(pageState.escalationConvMap).length;
+
+  // Org row
+  var orgHtml = '<div class="org-row">';
+  orgHtml += '<a class="org-card" href="config.html">';
+  orgHtml += '<span class="oc-icon">&#9881;</span>';
+  orgHtml += '<div><div class="oc-label">Management Team</div><div class="oc-meta">Organization catalog</div></div>';
+  orgHtml += '</a>';
+
+  if (totalEsc > 0) {
+    orgHtml += '<div class="org-card" style="border-color:var(--red)">';
+    orgHtml += '<span class="attention-dot"></span>';
+    orgHtml += '<div><div class="oc-label" style="color:var(--red)">' + totalEsc + ' Escalations</div><div class="oc-meta">Across all projects</div></div>';
+    orgHtml += '</div>';
+  }
+
+  orgHtml += '</div>';
+
+  // Project cards
+  var projectsHtml = '<div class="project-grid">';
+
+  pageState.projects.forEach(function(p) {
+    var cfg = pageState.configs[p.slug] || {};
+    var team = cfg.team || {};
+    var description = team.description || '';
+    var workgroupCount = (cfg.workgroups || []).length;
+    var activeSessions = (p.sessions || []).filter(function(s) { return s.status === 'active'; });
+    var status = p.active_count > 0 ? 'active' : 'idle';
+
+    projectsHtml += '<div class="project-card">';
+
+    // Header — click navigates to project config
+    projectsHtml += '<a class="pc-header" href="config.html?project=' + encodeURIComponent(p.slug) + '">';
+    projectsHtml += '<div class="pc-name">' + p.slug + '</div>';
+    projectsHtml += '</a>';
+
+    // Description (only shown when config provides one)
+    if (description) {
+      projectsHtml += '<div class="pc-description">' + description + '</div>';
+    }
+
+    // Stats
+    projectsHtml += '<div class="pc-stats">';
+    projectsHtml += '<div class="pc-stat"><div class="pc-stat-value" style="color:var(--green)">' + p.active_count + '</div><div class="pc-stat-label">Active Jobs</div></div>';
+    // Count sticky escalations for this project from escalationConvMap
+    var projEsc = (p.sessions || []).filter(function(s) {
+      return s.needs_input || !!pageState.escalationConvMap[s.session_id];
+    }).length;
+    var escStyle = projEsc > 0 ? ' style="color:var(--red)"' : '';
+    projectsHtml += '<div class="pc-stat"><div class="pc-stat-value"' + escStyle + '>' + projEsc + '</div><div class="pc-stat-label">Escalations</div></div>';
+    projectsHtml += '<div class="pc-stat"><div class="pc-stat-value">' + workgroupCount + '</div><div class="pc-stat-label">Workgroups</div></div>';
+    projectsHtml += '</div>';
+
+    // Active session rows (job rows) — omitted when idle (zero active sessions)
+    if (activeSessions.length > 0) {
+      projectsHtml += '<div style="border-bottom:1px solid var(--border)">';
+      activeSessions.forEach(function(s) {
+        var convId = 'job:' + p.slug + ':' + s.session_id;
+        var pIdx = phaseIndex(s.cfa_phase, s.cfa_state);
+        var jobName = s.task || s.session_id;
+        projectsHtml += '<div class="pc-esc-item" style="padding:5px 14px;gap:6px" data-session="' + s.session_id + '">';
+        // Show badge from escalationConvMap (sticky) OR REST needs_input (initial load).
+        var stickyConvId = pageState.escalationConvMap[s.session_id];
+        if (s.needs_input || stickyConvId) {
+          // Build task-specific escalation URL from sticky map or REST input_conv_id.
+          // task: conv → job:…&task=…  |  job: conv → job:…  |  fallback → job: (no task)
+          var rawConvId = stickyConvId || s.input_conv_id || '';
+          var escParts = rawConvId.split(':');
+          var escConv = (escParts[0] === 'task' && escParts.length === 4)
+            ? ('job:' + escParts[1] + ':' + escParts[2])
+            : convId;
+          var escUrl = jobUrl(p.slug, escConv, {lead: cfg.lead, phase: s.cfa_phase, state: s.cfa_state, needsInput: true, request: s.task, worktree: s.worktree_path});
+          projectsHtml += '<a class="attention-dot" href="' + escUrl + '"></a>';
+        } else {
+          projectsHtml += '<a style="width:6px;display:inline-block"></a>';
+        }
+        var jobHref = jobUrl(p.slug, convId, {lead: cfg.lead, phase: s.cfa_phase, state: s.cfa_state, needsInput: s.needs_input, request: s.task, worktree: s.worktree_path});
+        projectsHtml += '<a href="' + jobHref + '" style="flex:1;display:flex;align-items:center;gap:6px;color:inherit;text-decoration:none;min-width:0">';
+        projectsHtml += '<span style="flex-shrink:0;width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;color:var(--text)">' + jobName + '</span>';
+        projectsHtml += '<span style="flex:1">' + renderWorkflow(pIdx, false, s.needs_input || !!stickyConvId, s.cfa_state) + '</span>';
+        projectsHtml += '</a>';
+        projectsHtml += '<button onclick="withdrawJob(\'' + s.session_id + '\',event)" title="Withdraw job" style="flex-shrink:0;background:transparent;border:none;color:var(--text-dim);font-size:13px;cursor:pointer;padding:0 2px;line-height:1" onmouseover="this.style.color=\'var(--text)\'" onmouseout="this.style.color=\'var(--text-dim)\'">&#10005;</button>';
+        projectsHtml += '</div>';
+      });
+      projectsHtml += '</div>';
+    }
+
+    // Escalation mode controls (per-gate three-way slider)
+    projectsHtml += renderEscalation(p.slug);
+
+    // Action buttons
+    var pName = p.name || p.slug;
+    projectsHtml += '<div class="pc-actions">';
+    projectsHtml += '<button class="pc-action" onclick="createJob(\'' + p.slug + '\')"><span class="pc-action-icon">&#9654;</span>New Job</button>';
+    projectsHtml += '<button class="pc-action" onclick="pauseProject(\'' + p.slug + '\')"><span class="pc-action-icon">&#9646;&#9646;</span>Pause All</button>';
+    projectsHtml += '<button class="pc-action" onclick="resumeProject(\'' + p.slug + '\')"><span class="pc-action-icon">&#9654;</span>Resume All</button>';
+    projectsHtml += '<button class="pc-action" onclick="removeProject(\'' + p.slug + '\',\'' + escHtml(pName) + '\')"><span class="pc-action-icon">&#10005;</span>Remove</button>';
+    projectsHtml += '</div>';
+
+    projectsHtml += '</div>';
+  });
+
+  projectsHtml += '</div>';
+
+  document.getElementById('content').innerHTML =
+    '<div class="home-title">TeaParty</div>' +
+    '<div class="home-subtitle">Agent coordination platform</div>' +
+    orgHtml +
+    '<div style="display:flex;align-items:center;margin-bottom:8px"><span style="font-size:11px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px">Projects</span><span style="flex:1"></span><button style="background:var(--accent2);color:var(--text);border:none;padding:4px 10px;border-radius:3px;font-size:9px;font-family:inherit;cursor:pointer" onclick="showProjectModal()">+ Project</button></div>' +
+    projectsHtml;
+}
+
+// WebSocket for real-time updates. Reconnects on disconnect with 3s delay.
+function connectWS() {
+  var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  var ws = new WebSocket(proto + '//' + location.host + '/ws');
+  window._teapartyWS = ws;
+
+  ws.onmessage = function(e) {
+    try {
+      var event = JSON.parse(e.data);
+      if (event.type === 'state_changed') {
+        onStateChanged(event.session_id, event.phase, event.state);
+      } else if (event.type === 'input_requested') {
+        onInputRequested(event.session_id, event.conversation_id);
+      } else if (event.type === 'escalation_cleared') {
+        // Issue #398: dedicated server event for awaiting_input True→False
+        // transitions. Replaces the prior side channel that inferred clearance
+        // from human-sender 'message' broadcasts — index.html no longer
+        // subscribes to or inspects chat messages.
+        onEscalationCleared(event.session_id);
+      } else if (event.type === 'session_completed') {
+        // Session is done — its escalation no longer requires a response.
+        // Accordion updates (session removal) are handled by accordion-chat.js.
+        delete pageState.escalationConvMap[event.session_id];
+        fetchAll();
+      } else if (event.type === 'project_paused') {
+        pageState.pausedProjects[event.project] = true;
+        fetchAll();
+      } else if (event.type === 'project_resumed') {
+        delete pageState.pausedProjects[event.project];
+        fetchAll();
+      } else if (event.type === 'dispatch_started' || event.type === 'dispatch_completed') {
+        // Accordion updates are handled by accordion-chat.js, but the
+        // home page also surfaces escalations via the workflow-bar
+        // red dot (needs_input + input_conv_id on each session).
+        // Refetch so the bar reflects the new state immediately — a
+        // proxy child appearing/disappearing under a session is the
+        // /escalation-skill path's equivalent of the old
+        // awaiting_input flag flipping.
+        fetchAll();
+      }
+    } catch (err) {}
+  };
+
+  ws.onclose = function() {
+    window._teapartyWS = null;
+    setTimeout(connectWS, 3000);
+  };
+}
+
+// Update a session row's workflow bar and status badge in-place on state_changed.
+function onStateChanged(sessionId, phase, cfaState) {
+  var row = document.querySelector('[data-session="' + sessionId + '"]');
+  if (!row) { fetchAll(); return; }
+  // Update workflow bar in-place
+  var barEl = row.querySelector('.workflow-bar');
+  if (barEl) {
+    var tmp = document.createElement('div');
+    var hasEsc = !!pageState.escalationConvMap[sessionId];
+    tmp.innerHTML = renderWorkflow(phaseIndex(phase, cfaState), false, hasEsc, cfaState);
+    var newBar = tmp.firstChild;
+    if (newBar) barEl.parentNode.replaceChild(newBar, barEl);
+  }
+  // Keep page state in sync
+  pageState.projects.forEach(function(p) {
+    (p.sessions || []).forEach(function(s) {
+      if (s.session_id === sessionId) {
+        s.cfa_phase = phase;
+        s.cfa_state = cfaState;
+      }
+    });
+  });
+}
+
+// Add escalation dot to a session row on input_requested.
+// convId is the conversation_id from the event (e.g. task:poc:job-001:task-a).
+function onInputRequested(sessionId, convId) {
+  pageState.escalationConvMap[sessionId] = convId || ('session:' + sessionId);
+  // Derive click target: all escalations navigate in job: format per spec.
+  // task: conv → job:{project}:{job_id}&task={task_id}
+  // job: conv → use as-is
+  // session: conv (uberteam requesting input directly) → rewrite as job:{slug}:{sessionId}
+  var parts = convId ? convId.split(':') : [];
+  var dotSlug = '';
+  var dotConv = convId;
+  var dotWorktree = '';
+  if (parts[0] === 'task' && parts.length === 4) {
+    dotSlug = parts[1];
+    dotConv = 'job:' + parts[1] + ':' + parts[2];
+  } else if (parts[0] === 'job' && parts.length >= 3) {
+    dotSlug = parts[1];
+  } else {
+    pageState.projects.forEach(function(proj) {
+      (proj.sessions || []).forEach(function(s) {
+        if (s.session_id === sessionId) { dotSlug = proj.slug; dotWorktree = s.worktree_path || ''; }
+      });
+    });
+    if (dotSlug) {
+      dotConv = 'job:' + dotSlug + ':' + sessionId;
+    }
+  }
+  var dotUrl = dotSlug
+    ? jobUrl(dotSlug, dotConv, {needsInput: true, worktree: dotWorktree})
+    : 'chat.html?conv=session:' + sessionId;
+  var row = document.querySelector('[data-session="' + sessionId + '"]');
+  if (row) {
+    var dotSlot = row.firstElementChild;
+    if (dotSlot && !dotSlot.classList.contains('attention-dot')) {
+      dotSlot.className = 'attention-dot';
+    }
+    if (dotSlot) {
+      dotSlot.setAttribute('href', dotUrl);
+      dotSlot.style.width = '';
+    }
+  }
+  // Keep page state in sync so re-renders preserve the escalation dot
+  pageState.projects.forEach(function(p) {
+    (p.sessions || []).forEach(function(s) {
+      if (s.session_id === sessionId && !s.needs_input) {
+        s.needs_input = true;
+        p.attention_count = (p.attention_count || 0) + 1;
+      }
+    });
+  });
+}
+
+// Clear the escalation dot and decrement the project attention badge in
+// response to a server-emitted ``escalation_cleared`` event (issue #398).
+// The relay fires this exactly once when a conversation's awaiting_input
+// flag transitions True → False.
+function onEscalationCleared(sessionId) {
+  if (!sessionId || !pageState.escalationConvMap[sessionId]) return;
+  delete pageState.escalationConvMap[sessionId];
+  var row = document.querySelector('[data-session="' + sessionId + '"]');
+  if (row) {
+    var dotSlot = row.firstElementChild;
+    if (dotSlot && dotSlot.classList.contains('attention-dot')) {
+      dotSlot.className = '';
+      dotSlot.style.width = '6px';
+      dotSlot.removeAttribute('href');
+    }
+  }
+  pageState.projects.forEach(function(p) {
+    (p.sessions || []).forEach(function(s) {
+      if (s.session_id === sessionId && s.needs_input) {
+        s.needs_input = false;
+        p.attention_count = Math.max(0, (p.attention_count || 1) - 1);
+      }
+    });
+  });
+}
+
+fetchAll();
+connectWS();
+StatsBar.mount(document.getElementById('stats-bar-slot'), {
+  scope: null,
+  label: 'Organization',
+});
+</script>
+</body>
+</html>

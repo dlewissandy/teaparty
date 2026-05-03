@@ -5,18 +5,27 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "aiohttp>=3.9.0",
+    "croniter>=6.0.0",
     "feedparser>=6.0.12",
     "filelock>=3.0",
     "mcp>=1.26.0",
     "psutil>=7.2.2",
+    "pydantic>=2.0",
     "python-statemachine>=3.0.0",
     "pyyaml>=6.0",
-    "textual>=3.0.0",
     "youtube-transcript-api>=1.2.4",
 ]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+
+[tool.uv]
+dev-dependencies = [
+    "playwright>=1.58.0",
+    "pytest-playwright>=0.7.2",
+    "pytest>=9.0.2",
+]
 
 [dependency-groups]
 dev = [

@@ -36,35 +36,81 @@ extra_css:
 nav:
   - Introduction:
     - What is TeaParty: index.md
-    - Overview: overview.md
-  - Background:
-    - Conversation Patterns for Agents: background/conversation-patterns.md
-    - Agent Memory and Learning: background/agent-memory.md
-    - Human-AI Collaboration and Oversight: background/human-ai-collaboration.md
+    - Organizational Model: overview.md
+  - Architecture:
+    - Overview: systems/index.md
+    - CfA Orchestration: cfa-engineering.md
+    - Messaging:
+      - Overview: systems/messaging/index.md
+      - Bus & Conversations: systems/messaging/bus-and-conversations.md
+      - Dispatch: systems/messaging/dispatch.md
+      - Chat Delivery: systems/messaging/chat-delivery.md
+    - Workspace:
+      - Overview: systems/workspace/index.md
+      - Unified Launch: systems/workspace/unified-launch.md
+      - Agent Runtime: systems/workspace/agent-runtime.md
+    - Human Proxy:
+      - Overview: systems/human-proxy/index.md
+      - Approval Gate: systems/human-proxy/approval-gate.md
+      - ACT-R Overview: systems/human-proxy/act-r/overview.md
+      - ACT-R Mapping: systems/human-proxy/act-r/mapping.md
+      - ACT-R Memory: systems/human-proxy/act-r/memory.md
+      - ACT-R Sensorium: systems/human-proxy/act-r/sensorium.md
+    - Learning & Memory:
+      - Overview: systems/learning/index.md
+      - Episodic: systems/learning/episodic.md
+      - Procedural: systems/learning/procedural.md
+      - Promotion Chain: systems/learning/promotion-chain.md
+      - Research Pipeline: systems/learning/research-pipeline.md
+    - Bridge (Dashboard):
+      - Overview: systems/bridge/index.md
+      - Navigation: systems/bridge/navigation.md
+      - Chat UX: systems/bridge/chat-ux.md
+      - Artifact Page: systems/bridge/artifact-page.md
+      - Heartbeat: systems/bridge/heartbeat.md
+      - Stats Bar: systems/bridge/stats-bar.md
+      - Telemetry: systems/bridge/telemetry.md
+  - Guides:
+    - Overview: guides/index.md
+    - Quickstart: guides/quickstart.md
+    - Steering a Session: guides/steering-sessions.md
+    - Configuring Teams: guides/configuring-teams.md
+    - Project Onboarding: guides/project-onboarding.md
+  - Case Study:
+    - Overview: case-study/index.md
+    - v2 — Hierarchical Dispatch (May 2026):
+      - Overview: case-study/v2/index.md
+      - Dispatch Tree: case-study/v2/dispatch.md
+      - Proxy & ACT-R Memory: case-study/v2/proxy-and-memory.md
+      - Artifacts: case-study/v2/results.md
+      - Takeaways: case-study/v2/takeaways.md
+    - v1 — End-to-End Manuscript (March 2026):
+      - Overview: case-study/v1/index.md
+      - Intent & Planning: case-study/v1/dialog.md
+      - Execution: case-study/v1/execution.md
+      - The Manuscript: case-study/v1/results.md
+      - Obstacles: case-study/v1/obstacles.md
+      - Learnings: case-study/v1/learnings.md
+      - Key Takeaways: case-study/v1/takeaways.md
+  - Reference:
+    - Folder Structure: reference/folder-structure.md
+    - Team Configuration: reference/team-configuration.md
+    - Built-in Teams: reference/built-in-teams/index.md
+    - Dashboard: reference/dashboard.md
+    - UX Design: reference/UX.md
+    - Autodiscovery: reference/autodiscovery.md
+  - Research:
     - Research Library: research/INDEX.md
+    - Conversation Patterns for Agents: research/conversation-patterns.md
+    - Agent Memory and Learning: research/agent-memory.md
+    - Human-AI Collaboration and Oversight: research/human-ai-collaboration.md
+    - ACT-R Declarative Memory: research/act-r.md
+    - Soar Cognitive Architecture: research/soar.md
     - Cognitive Architectures Supplement: research/cognitive-architectures-supplement.md
     - Human Proxy Agent Design: research/human-proxy-agent-design.md
     - Proxy Prediction & Active Learning: research/proxy-prediction-and-active-learning.md
-  - Conceptual Design:
-    - Agentic Conversation for Action: conceptual-design/cfa-state-machine.md
-    - Intent Engineering: conceptual-design/intent-engineering.md
-    - Strategic Planning: conceptual-design/strategic-planning.md
-    - Hierarchical Memory & Learning: conceptual-design/learning-system.md
-    - Hierarchical Teams: conceptual-design/hierarchical-teams.md
-    - Human Proxy Agents: conceptual-design/human-proxies.md
-    - Agent Dispatch: conceptual-design/agent-dispatch.md
-  - Detailed Design:
-    - Overview: detailed-design/index.md
-    - Agent Runtime: detailed-design/agent-runtime.md
-    - CfA State Machine: detailed-design/cfa-state-machine.md
-    - Approval Gate: detailed-design/approval-gate.md
-    - Learning System: detailed-design/learning-system.md
-    - ACT-R Adaptations: detailed-design/act-r.md
-    - ACT-R Proxy Memory: detailed-design/act-r-proxy-memory.md
-    - ACT-R Proxy Mapping: detailed-design/act-r-proxy-mapping.md
-    - ACT-R Proxy Sensorium: detailed-design/act-r-proxy-sensorium.md
-    - Folder Structure: reference/folder-structure.md
-  - Evaluation:
+    - Self-Compacting Memory: research/self-compacting-memory.md
+  - Planned Validation:
     - Overview: experimental-results/index.md
     - CfA Backtrack Effectiveness: experimental-results/cfa-backtrack-effectiveness.md
     - Hierarchical vs. Flat Coordination: experimental-results/hierarchical-vs-flat-coordination.md
@@ -73,23 +119,3 @@ nav:
     - Asymmetric Regret Calibration: experimental-results/asymmetric-regret-calibration.md
     - Scoped vs. Flat Retrieval: experimental-results/scoped-vs-flat-retrieval.md
     - Cost-Quality Frontier: experimental-results/cost-quality-frontier.md
-  - Discussion:
-    - UX Design: reference/UX.md
-    - Autodiscovery: reference/autodiscovery.md
-  - Building Blocks:
-    - ACT-R Declarative Memory: research/act-r.md
-    - Soar Cognitive Architecture: research/soar.md
-  - End-to-End Walkthrough:
-    - Overview: e2e/e2e-walkthrough.md
-    - Intent & Planning: e2e/dialog.md
-    - Execution: e2e/execution.md
-    - The Manuscript: e2e/results.md
-    - Obstacles: e2e/obstacles.md
-    - Learnings: e2e/learnings.md
-    - Key Takeaways: e2e/takeaways.md
-  - Future Work:
-    - Research Directions: reference/research-directions.md
-    - Office Manager: proposals/office-manager.md
-    - Human Participation: proposals/human-participation.md
-    - Messaging: proposals/messaging.md
-    - Cognitive Architecture: proposals/cognitive-architecture.md

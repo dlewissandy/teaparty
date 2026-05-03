@@ -1,12 +1,11 @@
-"""ExperimentRunner — wraps Session with event collection and experiment overrides.
+"""ExperimentRunner — wraps Session with event collection.
 
 Orchestrates a single experiment run:
   1. Creates the results directory
   2. Sets up EventBus with EventCollector
   3. Selects the InputProvider based on config
-  4. Applies experiment overrides (regret_weight, suppress_backtracks)
-  5. Runs the Session
-  6. Writes summary metrics
+  4. Runs the Session
+  5. Writes summary metrics
 """
 from __future__ import annotations
 
@@ -21,8 +20,8 @@ from typing import Any
 from experiments.collector import EventCollector
 from experiments.config import ExperimentConfig
 from experiments.input_providers import make_provider
-from projects.POC.orchestrator.events import EventBus
-from projects.POC.orchestrator.session import Session, SessionResult
+from teaparty.messaging.bus import EventBus
+from teaparty.cfa.session import Session, SessionResult
 
 _log = logging.getLogger('experiments.runner')
 
@@ -46,7 +45,6 @@ class ExperimentRunner:
         self.config = config
         self.verbose = verbose
         self.collect_ratings = collect_ratings
-        self._original_regret_weight: int | None = None
         self._collector: EventCollector | None = None
 
     async def run(self) -> dict[str, Any]:
@@ -73,7 +71,7 @@ class ExperimentRunner:
 
         # 3. Optional: verbose event printer for debugging
         if self.verbose:
-            from projects.POC.orchestrator.__main__ import CLIEventPrinter
+            from teaparty.__main__ import CLIEventPrinter
             printer = CLIEventPrinter(verbose=True)
             event_bus.subscribe(printer)
 
@@ -87,24 +85,18 @@ class ExperimentRunner:
             default_rate=config.default_rate,
         )
 
-        # 5. Apply overrides
-        self._apply_overrides()
-
-        # 6. Find POC root
+        # 5. Find POC root
         poc_root = self._find_poc_root()
 
-        # 7. Create and run Session
+        # 6. Create and run Session
         start_time = time.time()
         try:
             session = Session(
                 task=config.task,
                 poc_root=poc_root,
                 project_override=config.project,
-                skip_intent=config.skip_intent,
                 skip_learnings=config.skip_learnings,
-                execute_only=config.execute_only,
                 flat=config.flat,
-                suppress_backtracks=not config.backtracks_enabled,
                 proxy_enabled=config.proxy_enabled,
                 event_bus=event_bus,
                 input_provider=provider,
@@ -119,8 +111,6 @@ class ExperimentRunner:
                 session_id='',
                 backtrack_count=0,
             )
-        finally:
-            self._restore_overrides()
 
         elapsed = time.time() - start_time
 
@@ -144,11 +134,6 @@ class ExperimentRunner:
 
         # Include cumulative proxy state from the model file (for corpus runs)
         proxy_path = config.proxy_model_path
-        if not proxy_path:
-            poc_root = self._find_poc_root()
-            projects_dir = os.path.join(os.path.dirname(poc_root), 'projects')
-            project_dir = os.path.join(projects_dir, config.project)
-            proxy_path = os.path.join(project_dir, '.proxy-confidence.json')
         if os.path.isfile(proxy_path):
             try:
                 with open(proxy_path) as f:
@@ -194,45 +179,16 @@ class ExperimentRunner:
 
         return metrics
 
-    def _apply_overrides(self) -> None:
-        """Apply experiment overrides via monkey-patching."""
-        config = self.config
-
-        # Override REGRET_WEIGHT in approval_gate module
-        if config.regret_weight is not None:
-            import projects.POC.scripts.approval_gate as ag
-            self._original_regret_weight = ag.REGRET_WEIGHT
-            ag.REGRET_WEIGHT = config.regret_weight
-            _log.info('Override REGRET_WEIGHT: %d → %d',
-                       self._original_regret_weight, config.regret_weight)
-
-    def _restore_overrides(self) -> None:
-        """Restore original values after the run."""
-        if self._original_regret_weight is not None:
-            import projects.POC.scripts.approval_gate as ag
-            ag.REGRET_WEIGHT = self._original_regret_weight
-            self._original_regret_weight = None
-
     @staticmethod
     def _find_poc_root() -> str:
-        """Locate the POC project root (contains cfa-state-machine.json)."""
-        # Walk up from experiments/ to find the repo root, then into projects/POC
-        experiments_dir = os.path.dirname(os.path.abspath(__file__))
-        repo_root = os.path.dirname(experiments_dir)
-
-        # Try projects/POC first
-        poc = os.path.join(repo_root, 'projects', 'POC')
-        if os.path.exists(os.path.join(poc, 'cfa-state-machine.json')):
-            return poc
-
-        # Fallback: walk up from current file
-        d = experiments_dir
+        """Locate the repo root (contains pyproject.toml)."""
+        d = os.path.dirname(os.path.abspath(__file__))
         while d != '/':
-            if os.path.exists(os.path.join(d, 'cfa-state-machine.json')):
+            if os.path.exists(os.path.join(d, 'pyproject.toml')):
                 return d
             d = os.path.dirname(d)
 
-        raise RuntimeError('Could not find POC root (cfa-state-machine.json)')
+        raise RuntimeError('Could not find repo root (pyproject.toml)')
 
 
 async def run_corpus(

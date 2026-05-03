@@ -1,0 +1,4 @@
+- path: agent.md
+  label: Prompt & Identity
+- path: settings.yaml
+  label: Tool & File Permissions

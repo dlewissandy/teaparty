@@ -1,1 +1,0 @@
-"""TeaParty POC TUI Dashboard."""

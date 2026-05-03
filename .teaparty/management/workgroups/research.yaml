@@ -1,0 +1,19 @@
+name: Research
+description: Web, academic literature, patent, and video research. Retrieves and
+  summarizes source material; does not produce original content or perform deep analysis.
+lead: research-lead
+humans:
+  decider: primus
+members:
+  agents:
+  - web-researcher
+  - literature-researcher
+  - patent-researcher
+  - video-researcher
+  - image-analyst
+  hooks: []
+artifacts:
+- path: .teaparty/workgroups/NORMS-research.md
+  label: Norms
+stats:
+  storage: .teaparty/stats/research.json

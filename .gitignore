@@ -16,15 +16,73 @@ teaparty.db-shm
 teaparty.db-wal
 
 # SQLite temporary files (WAL, shared memory) at any level
+*.db
 *.db-shm
 *.db-wal
 *.db-journal
+
+# Log files
+*.log
 
 # OS files
 .DS_Store
 
 # Claude Code
 .claude/worktrees/
+
+# TeaParty — machine-specific external project registry
+.teaparty/management/external-projects.yaml
+
+# TeaParty — per-machine Claude Code auth + config jail
+# Created by teaparty.sh; the OAuth token here is bound to this user's
+# Keychain entry for this path and must never be checked in.
+.teaparty/claude-home/
+
+# TeaParty — runtime sessions (ephemeral, not config)
+.teaparty/**/sessions/
+
+# TeaParty — agent runtime state (session files, message databases, proxy memory)
+.teaparty/om/
+.teaparty/pm/
+.teaparty/proxy/
+.teaparty/config/
+
+# TeaParty — agent workspaces (contain their own .git repos, not submodules)
+.teaparty/management/agents/*/**-workspace
+.teaparty/management/agents/*/agents/
+
+# TeaParty — per-qualifier instance configs (runtime, regenerated on each launch)
+.teaparty/management/agents/*/*/config/
+.teaparty/project/agents/*/*/config/
+
+# TeaParty — agent runtime state (message databases, session files, memory)
+.teaparty/management/agents/*/om-messages.db
+.teaparty/management/agents/*/pm-messages.db
+.teaparty/management/agents/*/proxy-messages.db
+.teaparty/management/agents/*/config-messages.db
+.teaparty/management/agents/*/.om-session-*
+.teaparty/management/agents/*/.pm-session-*
+.teaparty/management/agents/*/.proxy-session-*
+.teaparty/management/agents/*/.proxy-confidence*
+.teaparty/management/agents/*/.proxy-memory*
+.teaparty/management/agents/*/.om-agents-*
+
+# TeaParty — proxy interaction logs (human conversation data)
+**/.proxy-interactions.jsonl
+
+# TeaParty — proxy task learnings (personal behavioral data, not config)
+**/proxy-tasks/
+
+# TeaParty — job runtime data (session state, intent streams, heartbeats)
+.teaparty/jobs/
+
+# TeaParty — agent conversation session files
+**/*-session*.json
+
+# TeaParty — migrated database snapshots
+*.db.migrated
+*.db.migrated-shm
+*.db.migrated-wal
 
 # Generated Documents
 output/
@@ -56,3 +114,240 @@ refinement/
 
 # Audit pipeline — scratch findings
 /audit/
+/audit-issue/
+
+# Triage scratch
+/triage/
+# Worktrees
+.worktrees/
+
+# Per-launch infrastructure — not agent work product
+.mcp.json
+.claude/
+stream.jsonl
+
+# Process artifacts — planning scaffolding, not deliverables
+IDEA.md
+INTENT.md
+PLAN.md
+WORK_SUMMARY.md
+.phase-outcome.json
+
+# Inter-agent scratch — copied at spawn, never committed
+.scratch/
+# Per-launch infrastructure — not agent work product
+.mcp.json
+.claude/
+stream.jsonl
+# Inter-agent scratch — copied at spawn, never committed
+.scratch/
+# Per-launch infrastructure — not agent work product
+.mcp.json
+.claude/
+stream.jsonl
+# Inter-agent scratch — copied at spawn, never committed
+.scratch/
+# Per-launch infrastructure — not agent work product
+.mcp.json
+.claude/
+stream.jsonl
+# Inter-agent scratch — copied at spawn, never committed
+.scratch/
+# Per-launch infrastructure — not agent work product
+.mcp.json
+.claude/
+stream.jsonl
+# Inter-agent scratch — copied at spawn, never committed
+.scratch/
+# Per-launch infrastructure — not agent work product
+.mcp.json
+.claude/
+stream.jsonl
+# Inter-agent scratch — copied at spawn, never committed
+.scratch/
+# Per-launch infrastructure — not agent work product
+.mcp.json
+.claude/
+stream.jsonl
+# Inter-agent scratch — copied at spawn, never committed
+.scratch/
+# Per-launch infrastructure — not agent work product
+.mcp.json
+.claude/
+stream.jsonl
+# Inter-agent scratch — copied at spawn, never committed
+.scratch/
+# Per-launch infrastructure — not agent work product
+.mcp.json
+.claude/
+stream.jsonl
+# Inter-agent scratch — copied at spawn, never committed
+.scratch/
+# Per-launch infrastructure — not agent work product
+.mcp.json
+.claude/
+stream.jsonl
+# Inter-agent scratch — copied at spawn, never committed
+.scratch/
+# Per-launch infrastructure — not agent work product
+.mcp.json
+.claude/
+stream.jsonl
+# Inter-agent scratch — copied at spawn, never committed
+.scratch/
+# Per-launch infrastructure — not agent work product
+.mcp.json
+.claude/
+stream.jsonl
+# Inter-agent scratch — copied at spawn, never committed
+.scratch/
+# Per-launch infrastructure — not agent work product
+.mcp.json
+.claude/
+stream.jsonl
+# Inter-agent scratch — copied at spawn, never committed
+.scratch/
+# Per-launch infrastructure — not agent work product
+.mcp.json
+.claude/
+stream.jsonl
+# Inter-agent scratch — copied at spawn, never committed
+.scratch/
+# Per-launch infrastructure — not agent work product
+.mcp.json
+.claude/
+stream.jsonl
+# Inter-agent scratch — copied at spawn, never committed
+.scratch/
+# Per-launch infrastructure — not agent work product
+.mcp.json
+.claude/
+stream.jsonl
+# Inter-agent scratch — copied at spawn, never committed
+.scratch/
+# Per-launch infrastructure — not agent work product
+.mcp.json
+.claude/
+stream.jsonl
+# Inter-agent scratch — copied at spawn, never committed
+.scratch/
+# Per-launch infrastructure — not agent work product
+.mcp.json
+.claude/
+stream.jsonl
+# Inter-agent scratch — copied at spawn, never committed
+.scratch/
+# Per-launch infrastructure — not agent work product
+.mcp.json
+.claude/
+stream.jsonl
+# Inter-agent scratch — copied at spawn, never committed
+.scratch/
+# Per-launch infrastructure — not agent work product
+.mcp.json
+.claude/
+stream.jsonl
+# Inter-agent scratch — copied at spawn, never committed
+.scratch/
+# Per-launch infrastructure — not agent work product
+.mcp.json
+.claude/
+stream.jsonl
+# Inter-agent scratch — copied at spawn, never committed
+.scratch/
+# Per-launch infrastructure — not agent work product
+.mcp.json
+.claude/
+stream.jsonl
+# Inter-agent scratch — copied at spawn, never committed
+.scratch/
+# Per-launch infrastructure — not agent work product
+.mcp.json
+.claude/
+stream.jsonl
+# Inter-agent scratch — copied at spawn, never committed
+.scratch/
+# Per-launch infrastructure — not agent work product
+.mcp.json
+.claude/
+stream.jsonl
+# Inter-agent scratch — copied at spawn, never committed
+.scratch/
+# Per-launch infrastructure — not agent work product
+.mcp.json
+.claude/
+stream.jsonl
+# Inter-agent scratch — copied at spawn, never committed
+.scratch/
+# Per-launch infrastructure — not agent work product
+.mcp.json
+.claude/
+stream.jsonl
+# Inter-agent scratch — copied at spawn, never committed
+.scratch/
+# Per-launch infrastructure — not agent work product
+.mcp.json
+.claude/
+stream.jsonl
+# Inter-agent scratch — copied at spawn, never committed
+.scratch/
+# Per-launch infrastructure — not agent work product
+.mcp.json
+.claude/
+stream.jsonl
+# Inter-agent scratch — copied at spawn, never committed
+.scratch/
+# Per-launch infrastructure — not agent work product
+.mcp.json
+.claude/
+stream.jsonl
+# Inter-agent scratch — copied at spawn, never committed
+.scratch/
+# Per-launch infrastructure — not agent work product
+.mcp.json
+.claude/
+stream.jsonl
+# Inter-agent scratch — copied at spawn, never committed
+.scratch/
+# Per-launch infrastructure — not agent work product
+.mcp.json
+.claude/
+stream.jsonl
+# Inter-agent scratch — copied at spawn, never committed
+.scratch/
+# Per-launch infrastructure — not agent work product
+.mcp.json
+.claude/
+stream.jsonl
+# Inter-agent scratch — copied at spawn, never committed
+.scratch/
+# Per-launch infrastructure — not agent work product
+.mcp.json
+.claude/
+stream.jsonl
+# Inter-agent scratch — copied at spawn, never committed
+.scratch/
+# Per-launch infrastructure — not agent work product
+.mcp.json
+.claude/
+stream.jsonl
+# Inter-agent scratch — copied at spawn, never committed
+.scratch/
+# Per-launch infrastructure — not agent work product
+.mcp.json
+.claude/
+stream.jsonl
+# Inter-agent scratch — copied at spawn, never committed
+.scratch/
+# Per-launch infrastructure — not agent work product
+.mcp.json
+.claude/
+stream.jsonl
+# Inter-agent scratch — copied at spawn, never committed
+.scratch/
+# Per-launch infrastructure — not agent work product
+.mcp.json
+.claude/
+stream.jsonl
+# Inter-agent scratch — copied at spawn, never committed
+.scratch/

@@ -5,7 +5,7 @@ human approval decisions at CfA gates so experiments can test all
 combinations automatically.
 
 Each provider implements the InputProvider protocol from
-projects.POC.orchestrator.actors — an async callable that takes an
+projects.POC.teaparty.cfa.actors — an async callable that takes an
 InputRequest and returns a response string.
 """
 from __future__ import annotations
@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import random
 
-from projects.POC.orchestrator.events import InputRequest
+from teaparty.messaging.bus import InputRequest
 
 _log = logging.getLogger('experiments.input_providers')
 

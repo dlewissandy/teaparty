@@ -1,0 +1,20 @@
+name: Quality Control
+description: Verification of completed work against requirements — functional correctness,
+  test coverage, regression, performance, and AI detection. Dispatch after implementation.
+lead: quality-control-lead
+humans:
+  decider: primus
+members:
+  agents:
+  - qa-reviewer
+  - test-reviewer
+  - regression-tester
+  - acceptance-tester
+  - performance-analyst
+  - ai-smell
+  hooks: []
+artifacts:
+- path: .teaparty/workgroups/NORMS-quality-control.md
+  label: Norms
+stats:
+  storage: .teaparty/stats/quality-control.json

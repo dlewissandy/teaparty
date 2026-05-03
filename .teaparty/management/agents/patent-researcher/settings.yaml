@@ -1,0 +1,9 @@
+permissions:
+  allow:
+  - Read
+  - Write
+  - Glob
+  - WebSearch
+  - WebFetch
+  - mcp__teaparty-config__patent_search_uspto
+  - mcp__teaparty-config__patent_search_epo

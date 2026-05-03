@@ -1,0 +1,997 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TeaParty — Chat</title>
+<link rel="stylesheet" href="styles.css">
+<script src="breadcrumb.js"></script>
+<script src="accordion-chat.js"></script>
+<style>
+  /* Markdown rendering in chat messages */
+  .msg-text h1,.msg-text h2,.msg-text h3 { color: var(--text); margin: 8px 0 4px 0; }
+  .msg-text h1 { font-size: 13px; } .msg-text h2 { font-size: 12px; } .msg-text h3 { font-size: 11px; }
+  .msg-text p { margin: 4px 0; }
+  .msg-text ul,.msg-text ol { padding-left: 16px; margin: 4px 0; }
+  .msg-text li { margin: 2px 0; }
+  .msg-text code { background: var(--surface2); padding: 1px 4px; border-radius: 2px; font-size: 10px; color: var(--green); }
+  .msg-text pre { background: var(--surface2); padding: 8px; border-radius: 4px; margin: 6px 0; overflow-x: auto; }
+  .msg-text pre code { background: none; padding: 0; }
+  .msg-text a { color: var(--green); text-decoration: underline; }
+  .msg-text img { max-width: 100%; border-radius: 4px; margin: 6px 0; border: 1px solid var(--border); }
+  .msg-text blockquote { border-left: 2px solid var(--purple); padding-left: 8px; margin: 6px 0; color: var(--text-dim); }
+  .msg-text table { border-collapse: collapse; margin: 6px 0; font-size: 10px; }
+  .msg-text th,.msg-text td { border: 1px solid var(--border); padding: 3px 6px; }
+  .msg-text th { background: var(--surface2); color: var(--text); }
+  .msg-text hr { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
+</style>
+</head>
+<body>
+
+<div class="blade-layout">
+<div style="flex:1;min-width:0;display:flex;flex-direction:column">
+<div id="breadcrumb-slot" style="padding:6px 12px"></div>
+<div id="content" class="app-pane active"></div>
+</div>
+<div class="blade" id="blade" style="display:none"></div>
+</div>
+
+<div id="withdraw-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:100;justify-content:center;align-items:center">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;width:360px;padding:16px">
+    <div style="font-size:13px;font-weight:600;margin-bottom:10px;color:var(--text)">Withdraw Job?</div>
+    <div style="font-size:11px;color:var(--text-dim);line-height:1.5;margin-bottom:14px">This will cancel the job and all running tasks. Completed work will be preserved in the worktree but not merged. This action cannot be undone.</div>
+    <div style="display:flex;gap:6px;justify-content:flex-end">
+      <button onclick="closeWithdrawModal()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:4px 12px;border-radius:3px;cursor:pointer;font-family:inherit;font-size:10px">Cancel</button>
+      <button onclick="confirmWithdraw()" style="background:transparent;border:1px solid var(--red);color:var(--red);padding:4px 12px;border-radius:3px;cursor:pointer;font-family:inherit;font-size:10px;font-weight:600">Withdraw</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── URL params ────────────────────────────────────────────────────────────────
+var params = new URLSearchParams(window.location.search);
+var convId = params.get('conv') || '';
+var convProjectName = params.get('name') || '';
+var selectedItem = params.get('task') || params.get('session') || null;
+var seedMessage = params.get('seed') || '';
+var entityContext = params.get('context') || '';
+var minimal = params.get('minimal') === '1';
+
+// ── Determine chat type from conv ID prefix ───────────────────────────────────
+// job:{project}:{session_id}               → job chat (task sidebar)
+// om, proxy:{decider}, etc.               → participant chat (conversation history)
+var convPrefix = convId.split(':')[0];
+var isJobChat = (convPrefix === 'job');
+
+// Parse project and session_id from job conv ID: job:{project}:{session_id}
+var convProject = '';
+var session_id = '';
+if (isJobChat) {
+  var jobParts = convId.split(':');
+  convProject = jobParts[1] || '';
+  session_id  = jobParts[2] || '';
+}
+
+// Map conv ID prefix to the API ?type= parameter for participant chat.
+var CONV_TYPE_MAP = {
+  'om':       'office_manager',
+  'pm':       'project_manager',
+  'proxy':    'proxy',
+  'session':  'project_session',
+  'team':     'subteam',
+  'liaison':  'liaison',
+  'lead':     'project_lead',
+  'dispatch': 'office_manager',
+};
+
+// Map conv ID prefix to a human-readable participant name for the header.
+var PARTICIPANT_NAMES = {
+  'om':      'Office Manager',
+  'pm':      'Project Manager',   // overridden below with project name when available
+  'proxy':   'Proxy',
+  'session': 'Session Manager',
+  'team':    'Team',
+  'liaison': 'Liaison',
+  'lead':    convId.split(':')[1] || 'Project Lead',
+};
+
+// ── Page state ────────────────────────────────────────────────────────────────
+var pageState = {
+  messages: [],          // messages for the currently displayed conversation
+  cursor: '',            // atomic watermark returned by GET /api/conversations/{id} (issue #398)
+  taskConvs: [],         // job chat: conversation objects filtered to this job
+  participantConvs: [],  // participant chat: conversation objects from ?type={type}
+  cfaState: null,        // job chat: CfA state string from GET /api/cfa/{session_id}
+  worktreePath: '',      // absolute path to session worktree (for artifact links)
+};
+
+// Return the conversation ID that is currently active (job conv or selected task/session).
+function activeConvId() {
+  if (isJobChat && selectedItem) {
+    return 'task:' + convProject + ':' + session_id + ':' + selectedItem;
+  }
+  if (!isJobChat && selectedItem) {
+    return selectedItem;
+  }
+  return convId;
+}
+
+// ── Task tree helpers (issue #389) ────────────────────────────────────────────
+// Flatten the recursive task tree into a list for the sidebar.
+// Each entry gets: dispatch_id, team, task, status, depth (nesting level).
+function _flattenTasks(tasks, parentId, depth) {
+  depth = depth || 0;
+  var result = [];
+  tasks.forEach(function(t) {
+    result.push({
+      id: 'task:' + convProject + ':' + session_id + ':' + t.dispatch_id,
+      dispatch_id: t.dispatch_id,
+      team: t.team,
+      task: t.task,
+      status: t.status,
+      depth: depth,
+    });
+    if (t.subtasks && t.subtasks.length > 0) {
+      result = result.concat(_flattenTasks(t.subtasks, t.dispatch_id, depth + 1));
+    }
+  });
+  return result;
+}
+
+// ── Fetch all data and render ─────────────────────────────────────────────────
+// Parse the {messages, cursor} response shape from GET /api/conversations/{id}.
+// Issue #398: cursor is the atomic watermark captured inside the same read as
+// the message rows. The client carries it in the WebSocket subscribe frame.
+function _parseConvResponse(body) {
+  if (body && typeof body === 'object' && Array.isArray(body.messages)) {
+    return { messages: body.messages, cursor: body.cursor || '' };
+  }
+  return { messages: [], cursor: '' };
+}
+
+function fetchAll() {
+  var fetches = [
+    fetch('/api/conversations/' + encodeURIComponent(activeConvId()))
+      .then(function(r) { return r.json(); })
+      .then(function(body) {
+        var parsed = _parseConvResponse(body);
+        pageState.messages = parsed.messages;
+        pageState.cursor = parsed.cursor;
+      }),
+  ];
+
+  if (isJobChat) {
+    // Discover dispatched subtasks for this job's sidebar (issue #389).
+    fetches.push(
+      fetch('/api/sessions/' + encodeURIComponent(session_id) + '/tasks?project=' + encodeURIComponent(convProject))
+        .then(function(r) { return r.json(); })
+        .then(function(tasks) {
+          pageState.taskTree = tasks || [];
+          // Flatten into taskConvs for backward compat with nav item rendering
+          pageState.taskConvs = _flattenTasks(tasks || [], '');
+        })
+        .catch(function() { pageState.taskTree = []; pageState.taskConvs = []; })
+    );
+
+    // Load CfA state to determine whether the Review button should be shown.
+    fetches.push(
+      fetch('/api/cfa/' + encodeURIComponent(session_id))
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(cfa) {
+          pageState.cfaState = cfa ? cfa.state : null;
+          pageState.worktreePath = (cfa && cfa.worktree_path) ? cfa.worktree_path : '';
+        })
+        .catch(function() { pageState.cfaState = null; })
+    );
+  } else {
+    // Participant chat: load conversation list for the sidebar.
+    var convType = CONV_TYPE_MAP[convPrefix] || null;
+    if (convType) {
+      fetches.push(
+        fetch('/api/conversations?type=' + convType)
+          .then(function(r) { return r.json(); })
+          .then(function(convs) {
+            var all = convs || [];
+            // When opened from a project card (convProjectName set), show only
+            // conversations scoped to this project's conv ID, not all org-level ones.
+            pageState.participantConvs = convProjectName
+              ? all.filter(function(c) { return c.id === convId; })
+              : all;
+            // Auto-select only if convId from the URL is already in the list.
+            // If convId is a new/unseeded conversation (not yet in the DB),
+            // leave selectedItem null so messages go to convId, not a different conv.
+            if (!selectedItem) {
+              var match = pageState.participantConvs.filter(function(c) { return c.id === convId; })[0];
+              if (match) {
+                selectedItem = match.id;
+                return fetch('/api/conversations/' + encodeURIComponent(selectedItem))
+                  .then(function(r) { return r.json(); })
+                  .then(function(body) {
+                    var parsed = _parseConvResponse(body);
+                    pageState.messages = parsed.messages;
+                    pageState.cursor = parsed.cursor;
+                  });
+              }
+            }
+          })
+          .catch(function() { pageState.participantConvs = []; })
+      );
+    }
+  }
+
+  return Promise.all(fetches)
+    .then(function() {
+      // If a seed message was provided and the conversation is empty, post it once.
+      if (seedMessage && !isJobChat && pageState.messages.length === 0) {
+        var target = activeConvId();
+        return fetch('/api/conversations/' + encodeURIComponent(target), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: seedMessage }),
+        }).then(function() {
+          pageState.messages.push({ sender: 'human', content: seedMessage });
+          render();
+        }).catch(function() { render(); });
+      }
+      render();
+    })
+    .catch(function() {
+      document.getElementById('content').innerHTML =
+        '<p style="color:var(--red);padding:20px">Bridge not reachable. Start the bridge server first.</p>';
+    });
+}
+
+// ── Markdown to HTML ──────────────────────────────────────────────────────────
+// Strip [Viewing: ...] prefix from human messages for display.
+function stripViewingPrefix(text) {
+  return text.replace(/^\[Viewing: [^\]]*\]\n?/, '');
+}
+
+function renderMarkdown(text) {
+  var html = text
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/```(\w*)\n([\s\S]*?)```/g, function(m, lang, code) {
+      return '<pre><code>' + code.trim() + '</code></pre>';
+    })
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1">')
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, function(m, label, href) {
+      // For job chats, rewrite relative file paths to the session file API.
+      if (isJobChat && session_id && href && !href.match(/^https?:\/\//)) {
+        return '<a href="/api/session/' + session_id + '/file?path=' + encodeURIComponent(href) + '">' + label + '</a>';
+      }
+      return '<a href="' + href + '" target="_blank">' + label + '</a>';
+    })
+    .replace(/\*\*([^*]+)\*\*/g, '<strong style="color:var(--text)">$1</strong>')
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+    .replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>')
+    .replace(/^- (.+)$/gm, '<li>$1</li>')
+    .replace(/^\d+\. (.+)$/gm, '<li>$1</li>')
+    .replace(/^---$/gm, '<hr>')
+    .replace(/\n\n/g, '</p><p>')
+    .replace(/\n/g, '<br>');
+  html = html.replace(/((?:<li>.*<\/li>\s*)+)/g, '<ul>$1</ul>');
+  return '<p>' + html + '</p>';
+}
+
+// ── Message filters ───────────────────────────────────────────────────────────
+// Predicate per filter name, applied to message objects {sender, content}.
+var FILTER_TESTS = {
+  'agent':    function(m) { var s = m.sender || ''; return s !== 'human' && s !== 'system' && s !== 'thinking' && s !== 'state' && s !== 'cost' && s !== 'log' && s.indexOf('tool') < 0; },
+  'human':    function(m) { return (m.sender || '') === 'human'; },
+  'thinking': function(m) { var s = m.sender || ''; return s === 'thinking' || s.indexOf('thinking') >= 0; },
+  'tools':    function(m) { var s = m.sender || ''; return s === 'tool_use' || (s.indexOf('tool') >= 0 && s !== 'tool_result'); },
+  'results':  function(m) { return (m.sender || '') === 'tool_result'; },
+  'system':   function(m) { return (m.sender || '') === 'system'; },
+  'state':    function(m) { return (m.sender || '') === 'state'; },
+  'cost':     function(m) { return (m.sender || '') === 'cost'; },
+  'log':      function(m) { return (m.sender || '') === 'log'; },
+};
+
+var activeFilters = { agent: true, human: true };
+
+// Listen for filter state from parent blade (when embedded as minimal iframe)
+if (minimal) {
+  window.addEventListener('message', function(e) {
+    if (e.data && e.data.type === 'setFilters') {
+      activeFilters = e.data.filters;
+      refilter();
+    }
+  });
+}
+
+function filterMessages(messages) {
+  return messages.filter(function(m) {
+    for (var f in FILTER_TESTS) {
+      if (activeFilters[f] && FILTER_TESTS[f](m)) return true;
+    }
+    return false;
+  });
+}
+
+function senderClass(sender) {
+  var s = sender || '';
+  if (s === 'human') return 'msg-sender-human';
+  if (s === 'proxy' || s.indexOf('proxy') === 0) return 'msg-sender-proxy';
+  if (s === 'gate') return 'msg-sender-gate';
+  return 'msg-sender-agent';
+}
+
+function renderMessages(messages) {
+  var filtered = filterMessages(messages);
+  return filtered.map(function(m) {
+    var sender = m.sender || '';
+    var isHuman = sender === 'human';
+    var raw = m.content || m.text || '';
+    if (isHuman) raw = stripViewingPrefix(raw);
+    var rendered = renderMarkdown(raw);
+    return '<div class="msg">' +
+      '<div class="msg-sender ' + senderClass(sender) + '">' + sender + '</div>' +
+      '<div class="msg-text">' + rendered + '</div>' +
+    '</div>';
+  }).join('');
+}
+
+// Re-apply filters to the already-loaded message list without a fetch.
+function refilter() {
+  var msgsEl = document.querySelector('.chat-messages');
+  if (!msgsEl) return;
+  msgsEl.innerHTML = pageState.messages.length > 0
+    ? renderMessages(pageState.messages)
+    : '<div class="empty">No messages in this conversation</div>';
+  msgsEl.scrollTop = msgsEl.scrollHeight;
+}
+
+// Optimistic entries awaiting reconciliation with the server's authoritative
+// echo. Keyed by the local optimistic id; resolved when the server returns a
+// real message id via the POST response, then matched by id against the WS
+// echo so the optimistic DOM entry is replaced rather than duplicated.
+// Issue #398: this is the only place the chat client dedups, and it is
+// reconciliation — match-then-replace — not a filter.
+var _optimisticById = {};  // real_id -> {optId, entry}
+
+// ── Send message ──────────────────────────────────────────────────────────────
+function sendMessage(ta) {
+  // Empty textarea + sleeping session → the button is in Wake mode; click
+  // should wake the session without posting a message.
+  if (!ta.value.trim()) {
+    if (_sessionStatus === 'sleeping') wakeSession();
+    return;
+  }
+  var displayText = ta.value;
+  var wireText = entityContext ? '[Viewing: ' + entityContext + ']\n' + displayText : displayText;
+  ta.value = '';
+  ta.style.height = '24px';
+
+  var optId = 'opt-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+  var optimistic = { id: optId, sender: 'human', content: displayText, _optimistic: true };
+  pageState.messages.push(optimistic);
+  var msgsEl = document.querySelector('.chat-messages');
+  if (msgsEl) {
+    var empty = msgsEl.querySelector('.empty');
+    if (empty) empty.remove();
+    var rendered = renderMessages([optimistic]);
+    if (rendered) {
+      var wrap = document.createElement('div');
+      wrap.innerHTML = rendered;
+      var node = wrap.firstChild;
+      if (node) {
+        node.setAttribute('data-opt-id', optId);
+        msgsEl.appendChild(node);
+        msgsEl.scrollTop = msgsEl.scrollHeight;
+      }
+    }
+  }
+
+  fetch('/api/conversations/' + encodeURIComponent(activeConvId()), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content: wireText }),
+  }).then(function(r) {
+    return r.ok ? r.json() : null;
+  }).then(function(body) {
+    if (body && body.id) {
+      // Bind the real message id to the optimistic entry so the WS echo
+      // reconciles against it instead of appending a duplicate.
+      optimistic.id = body.id;
+      _optimisticById[body.id] = optimistic;
+    }
+    // Post to a job conv always kicks _resume_job_session server-side —
+    // refresh button state after a short delay so the label flips from
+    // Wake to Send once the session task is back up.
+    if (isJobChat) {
+      setTimeout(refreshSessionStatus, 300);
+    }
+    // If this is a participant chat, ensure the conversation appears in the nav and is selected.
+    if (!isJobChat) {
+      var cid = activeConvId();
+      var alreadyListed = pageState.participantConvs.some(function(c) { return c.id === cid; });
+      if (!alreadyListed) {
+        pageState.participantConvs.push({ id: cid, created_at: Math.floor(Date.now() / 1000) });
+      }
+      // Select this conv so the nav highlights it and subsequent WS messages route correctly.
+      if (selectedItem !== cid) {
+        selectedItem = cid;
+      }
+      var navEl = document.querySelector('.chat-nav');
+      if (navEl) navEl.outerHTML = buildParticipantNavHtml();
+    }
+  }).catch(function() { ta.value = text; });
+}
+
+// ── Copy conversation ─────────────────────────────────────────────────────────
+function copyConversation() {
+  var btn = document.querySelector('.copy-btn');
+  var filtered = filterMessages(pageState.messages);
+  var text = filtered.map(function(m) {
+    return (m.sender || '') + ': ' + (m.content || m.text || '');
+  }).join('\n\n');
+  navigator.clipboard.writeText(text).then(function() {
+    if (btn) {
+      btn.textContent = 'Copied';
+      setTimeout(function() { btn.textContent = 'Copy'; }, 1500);
+    }
+  }).catch(function() {});
+}
+
+// ── Withdraw ──────────────────────────────────────────────────────────────────
+function showWithdrawModal() {
+  document.getElementById('withdraw-modal').style.display = 'flex';
+}
+function closeWithdrawModal() {
+  document.getElementById('withdraw-modal').style.display = 'none';
+}
+function confirmWithdraw() {
+  closeWithdrawModal();
+  if (!session_id) return;
+  fetch('/api/withdraw/' + encodeURIComponent(session_id), { method: 'POST' })
+    .then(function(r) {
+      return r.json().then(function(body) { return {ok: r.ok, body: body}; });
+    })
+    .then(function(resp) {
+      var msgsEl = document.querySelector('.chat-messages');
+      if (!msgsEl) return;
+      var text, color;
+      if (resp.ok) {
+        text = 'Job withdrawn — processes killed, worktrees removed.';
+        color = 'var(--red)';
+      } else if (resp.body && resp.body.status === 'already_terminal') {
+        text = 'Job already ' + (resp.body.state || 'terminal') + '.';
+        color = 'var(--text-dim)';
+      } else {
+        text = 'Withdrawal failed: ' + (resp.body && resp.body.error || 'unknown error');
+        color = 'var(--text-dim)';
+      }
+      msgsEl.innerHTML += '<div class="msg"><div class="msg-sender" style="color:var(--red)">SYSTEM</div>' +
+        '<div class="msg-text" style="color:' + color + '"><p>' + text + '</p></div></div>';
+      msgsEl.scrollTop = msgsEl.scrollHeight;
+    });
+}
+
+// ── Phase artifact review button ──────────────────────────────────────────────
+var GATE_ARTIFACTS = {
+  'INTENT':  { label: 'Review INTENT', file: 'INTENT.md' },
+  'PLAN':    { label: 'Review PLAN',   file: 'PLAN.md'   },
+};
+
+function gateReviewButtonHtml() {
+  if (!pageState.cfaState || !GATE_ARTIFACTS[pageState.cfaState]) return '';
+  if (!pageState.worktreePath) return '';
+  var ga = GATE_ARTIFACTS[pageState.cfaState];
+  var artifactUrl = 'artifacts.html?project=' + encodeURIComponent(convProject) +
+    '&file=' + encodeURIComponent(pageState.worktreePath + '/' + ga.file);
+  return '<a href="' + artifactUrl + '" ' +
+    'style="background:rgba(78,204,163,0.15);border:1px solid var(--green);color:var(--green);' +
+    'padding:3px 10px;border-radius:3px;cursor:pointer;font-family:inherit;font-size:9px;text-decoration:none;display:inline-block">' +
+    ga.label + '</a>';
+}
+
+// ── Select sidebar item ───────────────────────────────────────────────────────
+function selectItem(id) {
+  var prevCid = _subscribedCid;
+  selectedItem = id;
+  var convTarget = isJobChat
+    ? 'task:' + convProject + ':' + session_id + ':' + id
+    : id;
+  fetch('/api/conversations/' + encodeURIComponent(convTarget))
+    .then(function(r) { return r.json(); })
+    .then(function(body) {
+      var parsed = _parseConvResponse(body);
+      pageState.messages = parsed.messages;
+      pageState.cursor = parsed.cursor;
+      _rotateSubscription(prevCid, activeConvId(), parsed.cursor);
+      render();
+    })
+    .catch(function() { pageState.messages = []; pageState.cursor = ''; render(); });
+}
+
+function selectJobConv() {
+  var prevCid = _subscribedCid;
+  selectedItem = null;
+  fetch('/api/conversations/' + encodeURIComponent(convId))
+    .then(function(r) { return r.json(); })
+    .then(function(body) {
+      var parsed = _parseConvResponse(body);
+      pageState.messages = parsed.messages;
+      pageState.cursor = parsed.cursor;
+      _rotateSubscription(prevCid, activeConvId(), parsed.cursor);
+      render();
+    })
+    .catch(function() { pageState.messages = []; pageState.cursor = ''; render(); });
+}
+
+function selectNewConv() {
+  // Generate a unique ID for this new conversation so it is distinct from any existing one.
+  // Clearing selectedItem would route to convId (from the URL), which already exists.
+  var prefix = convId.split(':')[0];
+  var qualifier = convId.split(':').slice(1).join(':') || 'user';
+  var newConvId = prefix + ':' + qualifier + '-' + Date.now().toString(36);
+  pageState.participantConvs.push({ id: newConvId, created_at: Math.floor(Date.now() / 1000) });
+  selectedItem = newConvId;
+  pageState.messages = [];
+  render();
+}
+
+// ── Auto-grow textarea ────────────────────────────────────────────────────────
+function autoGrow(ta) {
+  ta.style.height = '24px';
+  var lineH = parseInt(getComputedStyle(ta).lineHeight) || 18;
+  ta.style.height = Math.min(ta.scrollHeight, lineH * 10) + 'px';
+}
+
+function chatKeydown(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage(e.target);
+  }
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function render() {
+  if (isJobChat) {
+    renderJobLayout();
+  } else {
+    renderParticipantLayout();
+  }
+}
+
+function renderJobLayout() {
+  var headerTitle = convId;
+  var headerScope = 'job';
+  if (selectedItem) {
+    // Find the selected task in the flat list for metadata
+    var selTask = pageState.taskConvs.filter(function(tc) {
+      return tc.dispatch_id === selectedItem;
+    })[0];
+    var teamLabel = selTask && selTask.team ? selTask.team + ' → ' : '';
+    headerTitle = teamLabel + selectedItem;
+    headerScope = selTask && selTask.task ? selTask.task.slice(0, 80) : (convId + ' > task');
+  }
+  document.title = 'TeaParty — ' + headerTitle;
+
+  var navHtml = '<div class="chat-nav"><div class="chat-nav-header">Subtasks</div>' +
+    '<div class="chat-nav-item ' + (!selectedItem ? 'active' : '') + '" onclick="selectJobConv()">' +
+    '<span>Job conversation</span></div>';
+
+  pageState.taskConvs.forEach(function(tc) {
+    var taskId = tc.dispatch_id || tc.id.split(':').slice(3).join(':');
+    var indent = (tc.depth || 0) * 12;
+    // Status dot — reflects the bus state column directly (#422).
+    // active    → green (live subprocess / heartbeat)
+    // paused    → yellow (was live, user can resume)
+    // pending   → yellow (committed but never reached active)
+    // closed    → dim (terminal, merged cleanly)
+    // withdrawn → dim (terminal, user withdrew)
+    var _dotColor = (
+      tc.status === 'active' ? 'var(--green)' :
+      (tc.status === 'paused' || tc.status === 'pending') ? 'var(--yellow)' :
+      'var(--text-dim)'
+    );
+    var statusDot = '<span title="' + tc.status + '" style="color:' +
+      _dotColor + ';font-size:7px;margin-right:3px">●</span>';
+    var teamLabel = tc.team ? '<span style="color:var(--purple);font-size:8px">' + tc.team + '</span> ' : '';
+    var taskDesc = tc.task
+      ? '<span style="font-size:8px;color:var(--text-dim);display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + tc.task.slice(0, 60) + '</span>'
+      : '';
+    navHtml += '<div class="chat-nav-item ' + (selectedItem === taskId ? 'active' : '') +
+      '" onclick="selectItem(\'' + taskId + '\')" style="padding-left:' + (8 + indent) + 'px">' +
+      '<div style="overflow:hidden">' + statusDot + teamLabel +
+      '<span style="font-size:9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + taskId + '</span>' +
+      taskDesc + '</div>' +
+      (tc.awaiting_input ? '<span class="nav-badge"></span>' : '') +
+      '</div>';
+  });
+  navHtml += '</div>';
+
+  var headerActions = '<div class="chat-header-actions" style="display:flex;gap:6px;align-items:center">' +
+    gateReviewButtonHtml() +
+    '<button onclick="showWithdrawModal()" style="background:transparent;border:1px solid var(--red);' +
+    'color:var(--red);padding:3px 10px;border-radius:3px;cursor:pointer;font-family:inherit;font-size:9px">Withdraw</button>' +
+    '</div>';
+
+  renderMainArea(minimal ? '' : navHtml, headerTitle, headerScope, headerActions);
+}
+
+function buildParticipantNavHtml() {
+  var navHtml = '<div class="chat-nav"><div class="chat-nav-header">Conversations</div>' +
+    '<div class="chat-nav-item' + (!selectedItem ? ' active' : '') +
+    '" onclick="selectNewConv()" style="color:var(--green);font-size:9px">+ New</div>';
+  pageState.participantConvs.forEach(function(c) {
+    var date = c.created_at ? new Date(c.created_at * 1000).toLocaleDateString() : '';
+    // Use Claude's auto-generated conversation slug if available, otherwise fall
+    // back to the qualifier portion of the ID (e.g. 'om:primus' → 'primus').
+    var idParts = c.id.split(':');
+    var label = c.title || (idParts.length > 1 ? idParts.slice(1).join(':') : c.id);
+    navHtml += '<div class="chat-nav-item ' + (selectedItem === c.id ? 'active' : '') +
+      '" onclick="selectItem(\'' + c.id + '\')">' +
+      '<span style="font-size:9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + label + '</span>' +
+      '<span style="font-size:8px;color:var(--text-dim);flex-shrink:0">' + date + '</span></div>';
+  });
+  navHtml += '</div>';
+  return navHtml;
+}
+
+function renderParticipantLayout() {
+  var headerTitle;
+  if (convPrefix === 'pm') {
+    // pm:{slug}:{user} — derive project label from URL name param or slug
+    var pmParts = convId.split(':');
+    var pmSlug = pmParts[1] || '';
+    var pmLabel = convProjectName || (pmSlug.charAt(0).toUpperCase() + pmSlug.slice(1));
+    headerTitle = pmLabel + ' Project Manager';
+  } else {
+    headerTitle = PARTICIPANT_NAMES[convPrefix] || convId;
+  }
+  // Derive a human-readable scope from the selected session ID (strip prefix).
+  var headerScope = 'All conversations';
+  if (selectedItem) {
+    var sParts = selectedItem.split(':');
+    headerScope = sParts.length > 1 ? sParts.slice(1).join(':') : selectedItem;
+  }
+  document.title = 'TeaParty — ' + headerTitle;
+  renderMainArea(minimal ? '' : buildParticipantNavHtml(), headerTitle, headerScope, '');
+}
+
+function renderMainArea(navHtml, headerTitle, headerScope, headerActions) {
+  var filterRow = ['agent', 'human', 'thinking', 'tools', 'results', 'system', 'state', 'cost', 'log'].map(function(f) {
+    var on = activeFilters[f] ? ' on' : '';
+    return '<button class="filter-btn' + on + '" data-f="' + f +
+      '" onclick="activeFilters[this.dataset.f]=!activeFilters[this.dataset.f];this.classList.toggle(\'on\');refilter()">' + f + '</button>';
+  }).join('');
+
+  var copyBtn = '<button class="copy-btn" onclick="copyConversation()" ' +
+    'style="background:transparent;border:1px solid var(--border);color:var(--text-dim);' +
+    'padding:3px 10px;border-radius:3px;cursor:pointer;font-family:inherit;font-size:9px">Copy</button>';
+
+  if (minimal) {
+    document.getElementById('content').style.padding = '0';
+    document.getElementById('breadcrumb-slot').style.display = 'none';
+  } else {
+    document.getElementById('breadcrumb-slot').innerHTML = breadcrumbBar([
+      { label: 'Home', href: 'index.html' },
+      { label: headerTitle },
+    ]);
+  }
+  document.getElementById('content').innerHTML =
+    '<div class="chat-layout">' + navHtml +
+    '<div class="chat-main">' +
+    '<div class="chat-header" style="' + (minimal ? 'display:none' : 'display:flex;justify-content:space-between;align-items:center') + '">' +
+    '<div><div class="chat-header-title">' + headerTitle +
+    '<span class="session-status" style="display:none;font-size:8px;margin-left:6px;padding:1px 4px;border-radius:2px;border:1px solid currentColor"></span>' +
+    '</div>' +
+    '<div class="chat-header-scope">' + headerScope + '</div></div>' +
+    '<div style="display:flex;gap:6px;align-items:center">' + copyBtn + headerActions + '</div>' +
+    '</div>' +
+    (minimal ? '' : '<div class="chat-filters">' + filterRow + '</div>') +
+    '<div class="chat-messages"></div>' +
+    '<div class="chat-input-area">' +
+    '<textarea rows="1" placeholder="Type a message..." onkeydown="chatKeydown(event)" oninput="autoGrow(this)"></textarea>' +
+    '<button id="chatSendBtn" onclick="sendMessage(this.parentElement.querySelector(\'textarea\'))">Send</button>' +
+    '</div></div></div>';
+
+  refilter();
+  // Kick off session status polling for job chats so the Send button
+  // can morph into a Wake button when the session is sleeping.
+  refreshSessionStatus();
+}
+
+// ── WebSocket (fetch-and-subscribe, issue #398) ─────────────────────────────
+// The chat client follows a handshake-ordered state machine: the WS opens
+// only after fetchAll() has captured an atomic (messages, cursor) snapshot.
+// The cursor is then carried in a subscribe frame, and the server delivers
+// every subsequent message exactly once. The client does not filter.
+var _ws = null;
+var _wsReady = false;
+var _subscribedCid = null;
+
+function _bladeBusConvId(cid) {
+  // The bus stores task conversations under job:{project}:{dispatch_id}
+  // while the UI addresses them as task:{project}:{session_id}:{dispatch_id}
+  // (issue #389). The subscribe frame must use the bus-side id so the server
+  // can find the right bus row.
+  if (cid && cid.indexOf('task:') === 0) {
+    var parts = cid.split(':');
+    if (parts.length >= 4) {
+      return 'job:' + parts[1] + ':' + parts.slice(3).join(':');
+    }
+  }
+  return cid;
+}
+
+function _sendSubscribe(cid, cursor) {
+  if (!_ws || !_wsReady || !cid) return;
+  _ws.send(JSON.stringify({
+    type: 'subscribe',
+    conversation_id: _bladeBusConvId(cid),
+    since_cursor: cursor || '',
+  }));
+  _subscribedCid = cid;
+}
+
+function _sendUnsubscribe(cid) {
+  if (!_ws || !_wsReady || !cid) return;
+  _ws.send(JSON.stringify({
+    type: 'unsubscribe',
+    conversation_id: _bladeBusConvId(cid),
+  }));
+  if (_subscribedCid === cid) _subscribedCid = null;
+}
+
+function _rotateSubscription(prevCid, nextCid, cursor) {
+  if (prevCid && prevCid !== nextCid) _sendUnsubscribe(prevCid);
+  if (nextCid) _sendSubscribe(nextCid, cursor);
+}
+
+function connectWS() {
+  var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  _ws = new WebSocket(proto + '//' + location.host + '/ws');
+  _wsReady = false;
+  _subscribedCid = null;
+
+  _ws.onopen = function() {
+    _wsReady = true;
+    // If fetchAll has already populated the cursor, subscribe immediately.
+    if (pageState.cursor !== undefined) {
+      _sendSubscribe(activeConvId(), pageState.cursor);
+    }
+  };
+
+  _ws.onmessage = function(e) {
+    try {
+      var ev = JSON.parse(e.data);
+      if (ev.type === 'message') {
+        onWsMessage(ev);
+      } else if (ev.type === 'input_requested') {
+        onInputRequested(ev);
+      } else if (ev.type === 'state_changed') {
+        onStateChanged(ev);
+      } else if (ev.type === 'session_completed') {
+        onSessionCompleted(ev);
+      } else if (ev.type === 'heartbeat') {
+        onHeartbeat(ev);
+      } else if (ev.type === 'session_status') {
+        onSessionStatus(ev);
+      }
+    } catch (err) {}
+  };
+
+  _ws.onclose = function() {
+    _wsReady = false;
+    _subscribedCid = null;
+    setTimeout(connectWS, 3000);
+  };
+}
+
+function onWsMessage(ev) {
+  var active = activeConvId();
+  var bus_active = _bladeBusConvId(active);
+  if (ev.conversation_id !== active && ev.conversation_id !== bus_active) return;
+
+  // Fast-path reconciliation: POST response already bound a real id to the
+  // optimistic entry before the WS echo arrived. Replace in place, no append.
+  // This is the sole permitted client-side dedup under issue #398.
+  if (ev.id && _optimisticById[ev.id]) {
+    var opt = _optimisticById[ev.id];
+    opt.timestamp = ev.timestamp;
+    delete opt._optimistic;
+    delete _optimisticById[ev.id];
+    return;
+  }
+
+  // Race-path reconciliation: the WS echo arrived before the POST response
+  // so the optimistic entry still carries its placeholder id. Find the oldest
+  // pending human entry and reconcile it in place so the POST-response handler
+  // sees _optimisticById already populated and skips creating a duplicate.
+  if (ev.id && ev.sender === 'human') {
+    for (var i = 0; i < pageState.messages.length; i++) {
+      var pending = pageState.messages[i];
+      if (pending._optimistic && pending.sender === 'human') {
+        pending.id = ev.id;
+        pending.timestamp = ev.timestamp;
+        delete pending._optimistic;
+        _optimisticById[ev.id] = pending;
+        return;
+      }
+    }
+  }
+
+  var m = { id: ev.id, sender: ev.sender, content: ev.content, timestamp: ev.timestamp };
+  pageState.messages.push(m);
+  var msgsEl = document.querySelector('.chat-messages');
+  if (!msgsEl) return;
+  var empty = msgsEl.querySelector('.empty');
+  if (empty) empty.remove();
+  var rendered = renderMessages([m]);
+  if (rendered) { msgsEl.innerHTML += rendered; msgsEl.scrollTop = msgsEl.scrollHeight; }
+}
+
+function onInputRequested(ev) {
+  // Show escalation dot on the relevant task nav item.
+  if (session_id && ev.session_id !== session_id) return;
+  var parts = (ev.conversation_id || '').split(':');
+  if (parts[0] === 'task' && parts.length >= 4) {
+    var taskId = parts.slice(3).join(':');
+    pageState.taskConvs.forEach(function(tc) {
+      if (tc.id.endsWith(':' + taskId)) tc.awaiting_input = true;
+    });
+    document.querySelectorAll('.chat-nav-item').forEach(function(item) {
+      if (item.textContent.trim().startsWith(taskId) && !item.querySelector('.nav-badge')) {
+        item.innerHTML += '<span class="nav-badge"></span>';
+      }
+    });
+  }
+}
+
+function onStateChanged(ev) {
+  if (!isJobChat) return;
+  if (session_id && ev.session_id !== session_id) return;
+  // State changed → session is running; refresh button status immediately
+  // and also re-fetch CfA state for the header actions.
+  refreshSessionStatus();
+  fetch('/api/cfa/' + encodeURIComponent(session_id))
+    .then(function(r) { return r.ok ? r.json() : null; })
+    .then(function(cfa) {
+      pageState.cfaState = cfa ? cfa.state : null;
+      if (cfa && cfa.worktree_path) pageState.worktreePath = cfa.worktree_path;
+      var actionsEl = document.querySelector('.chat-header-actions');
+      if (actionsEl) {
+        actionsEl.innerHTML = gateReviewButtonHtml() +
+          '<button onclick="showWithdrawModal()" style="background:transparent;border:1px solid var(--red);' +
+          'color:var(--red);padding:3px 10px;border-radius:3px;cursor:pointer;font-family:inherit;font-size:9px">Withdraw</button>';
+      } else {
+        render();
+      }
+    })
+    .catch(function() {});
+}
+
+function onHeartbeat(ev) {
+  var indicator = document.querySelector('.session-status');
+  if (!indicator) return;
+  var status = ev.status || 'alive';
+  if (status === 'alive') {
+    indicator.style.display = 'none';
+  } else {
+    indicator.textContent = status;
+    indicator.style.color = status === 'dead' ? 'var(--red)' : 'var(--yellow)';
+    indicator.style.display = 'inline';
+  }
+  // Heartbeat change is a signal the run state may have changed.
+  if (isJobChat && session_id && ev.session_id === session_id) {
+    refreshSessionStatus();
+  }
+}
+
+// ── Session status (running / sleeping / terminal) ─────────────────────────
+// Drives the Send button's label and color so the user can tell whether
+// their message will reach a running orchestrator or is being used to
+// wake a sleeping one.
+var _sessionStatus = 'running';  // optimistic default
+
+function refreshSessionStatus() {
+  if (!isJobChat || !convProject || !session_id) return;
+  fetch('/api/jobs/' + encodeURIComponent(convProject) + '/' +
+        encodeURIComponent(session_id) + '/status')
+    .then(function(r) { return r.ok ? r.json() : null; })
+    .then(function(data) {
+      if (!data) return;
+      _sessionStatus = data.status || 'running';
+      updateSendButton();
+    })
+    .catch(function() {});
+}
+
+function updateSendButton() {
+  var btn = document.getElementById('chatSendBtn');
+  if (!btn) return;
+  if (_sessionStatus === 'sleeping') {
+    btn.textContent = 'Wake';
+    btn.style.background = 'var(--orange)';
+    btn.style.color = '#1a1a2e';
+    btn.title = 'Session is sleeping. Click to wake it.';
+  } else if (_sessionStatus === 'terminal') {
+    btn.textContent = 'Done';
+    btn.style.background = 'var(--text-dim)';
+    btn.style.color = '#1a1a2e';
+    btn.disabled = true;
+    btn.title = 'Session is complete.';
+  } else {
+    btn.textContent = 'Send';
+    btn.style.background = '';
+    btn.style.color = '';
+    btn.disabled = false;
+    btn.title = '';
+  }
+}
+
+function wakeSession() {
+  if (!convProject || !session_id) return;
+  fetch('/api/jobs/' + encodeURIComponent(convProject) + '/' +
+        encodeURIComponent(session_id) + '/wake', { method: 'POST' })
+    .then(function() {
+      _sessionStatus = 'running';
+      updateSendButton();
+    })
+    .catch(function() {});
+}
+
+function onSessionStatus(ev) {
+  // Backend emits this whenever the session task in _active_job_tasks
+  // is created (status=running) or exits without the session reaching a
+  // terminal CfA state (status=sleeping).  Terminal transitions are
+  // reported via 'session_completed' separately.  Listening here keeps
+  // the Send/Wake button in sync without heartbeat TTLs or state-change
+  // round-trips.
+  if (!isJobChat || !session_id) return;
+  if (ev.session_id && ev.session_id !== session_id) return;
+  if (_sessionStatus === 'terminal') return;  // don't un-terminal
+  _sessionStatus = ev.status || 'running';
+  updateSendButton();
+}
+
+function onSessionCompleted(ev) {
+  if (session_id && ev.session_id !== session_id) return;
+  var msgsEl = document.querySelector('.chat-messages');
+  if (!msgsEl) return;
+  var label = ev.terminal_state || 'DONE';
+  msgsEl.innerHTML += '<div class="msg"><div class="msg-sender" style="color:var(--text-dim)">SYSTEM</div>' +
+    '<div class="msg-text" style="color:var(--text-dim)"><p>Session ' +
+    (label === 'WITHDRAWN' ? 'withdrawn' : 'completed: ' + label) +
+    '</p></div></div>';
+  msgsEl.scrollTop = msgsEl.scrollHeight;
+
+  // Disable input and actions for terminal sessions
+  var inputEl = document.querySelector('.chat-input textarea');
+  if (inputEl) inputEl.disabled = true;
+  var actionsEl = document.querySelector('.chat-header-actions');
+  if (actionsEl) actionsEl.innerHTML = '<span style="color:var(--text-dim);font-size:9px">' + label + '</span>';
+  _sessionStatus = 'terminal';
+  updateSendButton();
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+// Issue #398: open the WS only after fetchAll resolves so the first subscribe
+// frame carries the same cursor that was captured by the HTTP fetch.
+fetchAll().then(function() {
+  connectWS();
+  // Job chats get the accordion blade so AskQuestion escalations from the
+  // project lead render as nested proxy child sessions (the same
+  // /escalation skill path chat-tier uses).  Non-job chats (participant
+  // and minimal iframes) don't dispatch, so no blade.
+  if (isJobChat && !minimal) {
+    var blade = document.getElementById('blade');
+    if (blade) {
+      blade.style.display = '';
+      AccordionChat.mount(blade, {
+        convId: convId,
+        title: 'Job Escalations',
+      });
+    }
+  }
+});
+</script>
+</body>
+</html>

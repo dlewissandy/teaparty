@@ -1,0 +1,53 @@
+# Key Takeaways
+
+What the session demonstrates about the four pillars, where the opportunities lie, and what it all adds up to.
+
+---
+
+## What This Demonstrates
+
+### CfA Protocol
+
+The state machine guided the session through intent → plan → execution without prescriptive prompts. The agents chose their own transitions: the intent agent decided when it had enough information to write the intent, the planning agent decided how to decompose open questions, the project lead decided how to phase and sequence execution. The protocol provided *structure* (you must have an approved intent before you plan, you must have an approved plan before you execute) without providing *scripts* (what to ask, what to write, how to organize the work).
+
+### Hierarchical Teams — *partial*
+
+This is the pillar where the session's evidence is weakest. Per-task worktrees *were* created for each unit of work across the five phases; context-compressed briefs *were* composed at each boundary; the workspace layer's session-per-worktree invariant held. What this session did *not* cleanly demonstrate is independent sub-agents running their own CfA cycles in parallel — the substantive work at each phase was driven primarily by the project lead rather than by a proper three-tier OM → project-lead → workgroup-agent chain. Recursive multi-tier dispatch is tracked in the [recursive-dispatch proposal](../../proposals/recursive-dispatch/proposal.md) and remains the subject of a future case study. Treat this session as evidence for the workspace-isolation and context-compression *mechanisms*, not for the hierarchical-teams *pattern* operating at full scale.
+
+### Human Proxy
+
+The proxy handled all sub-team assert gates autonomously (`never_escalate=True`), while the top-level gates involved the human. At the intent-assert and plan-assert gates, the proxy approved cleanly. At the task-assert gate — where the editorial and verification findings surfaced real issues — the proxy produced substantive, specific revision notes (own the Camus substitution, add an *Abol Tabol* example, fix the Gottfried overlap).
+
+The proxy's dialog handling at the task-assert gates was the session's most visible failure — but this was a cold start with no prior interaction history. The proxy was already improving within the session, and the learning infrastructure (confidence model, behavioral patterns, interaction history) is in place to support improvement across sessions.
+
+### Learning System
+
+The learning system extracted seven procedural observations, built a per-gate-type confidence model, and recorded behavioral patterns — all automatically, as part of session execution. The observations identified real gaps (missing quality gates, implicit phase-boundary semantics, rate-limit blindness) and converted them into explicit questions for the next session's intent-gathering phase. The system is designed to get smarter with each session; this session is the baseline.
+
+---
+
+## Opportunities for Improvement
+
+**Proxy dialog at approval gates.** The repeated deflections at task-assert gates need attention. The proxy should handle null/empty input gracefully. That said, this was a cold start — the [proxy-confidence.json](./artifacts/proxy-confidence.json) data shows the proxy building a model over the course of the session. Whether this improves with accumulated experience remains to be seen. The current EMA + Laplace confidence model may need to be replaced with an ACT-R activation model (see [autodiscovery.md](../../reference/autodiscovery.md#memory-model-act-r-activation)) — the same memory model that would power the proxy's discovery mode. ACT-R's power-law decay with reinforcement-based persistence would let the proxy naturally distinguish habitual patterns (this human always approves clean intents) from one-off events (the proxy timed out on a specific gate) without ad-hoc parameters.
+
+**Phase boundary semantics.** The plan defined strict sequential phases but reality required overlapping them. The orchestrator should support explicit flexibility semantics: "all-but-one complete" as a valid phase transition trigger.
+
+**Rate-limit-aware scheduling.** Dispatching eight research tracks simultaneously into a rate-limited provider was predictable and avoidable. The dispatch layer should support staggered launch or automatic retry with backoff.
+
+**Cross-chapter consistency.** The editorial reports identified redundancies (Gottfried in Ch4+5, Davila Ross in Ch1+2) that are natural consequences of parallel chapter drafting. A cross-chapter consistency pass would catch these earlier than the editorial phase.
+
+**Word count targets vs. editorial cuts.** Ch2 and Ch4 were already below the 7,000-word floor before editorial cuts were applied. Targets should either flex explicitly or account for expected cuts.
+
+---
+
+## Assessment
+
+The session demonstrated that the TeaParty orchestrator can take a short natural-language prompt and produce a complex, multi-phase creative artifact with genuine intellectual substance — not a summary, not a skeleton, but a manuscript that editorial reviewers engaged with as a manuscript. The CfA protocol maintained coherence from a four-sentence prompt through five execution phases without losing the thread. The revision loop from editorial finding to gate feedback to targeted revision to verification worked end to end.
+
+The weaknesses are real but tractable: proxy dialog handling at gates, phase-boundary flexibility, rate-limit-aware scheduling, and cross-chapter consistency enforcement. None of these are architectural — they are refinements to a pipeline that functionally worked.
+
+What this session did *not* demonstrate: the hierarchical-dispatch pattern at full scale. The project lead carried the substantive authorship across phases rather than delegating to independent workgroup-level sub-agents. The artifacts are real and the per-phase volume is real, but the "eight independent parallel teams" claim that earlier versions of this writeup made does not hold up. Recursive multi-tier dispatch is the next demonstration to pursue — see the [recursive-dispatch proposal](../../proposals/recursive-dispatch/proposal.md).
+
+The manuscript itself is not a published book. It is a first draft that two independent editorial passes rated as ready for final edits, with specific, actionable revision notes. For a system that started with four sentences and no human involvement beyond six brief dialog turns and a handful of gate approvals, that is a meaningful result.
+
+The places where it stumbled — the proxy deflection loops, the restart friction, the rate-limit collisions, the gap between dispatch *mechanism* and dispatch *pattern* — are the places where the design meets the real world. Those are the next things to fix.

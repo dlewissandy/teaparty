@@ -1,0 +1,684 @@
+"""Specification tests for the unified agent launcher (Issue #394).
+
+Every agent in TeaParty must launch through a single function that reads
+.teaparty/ config and produces the correct `claude -p` invocation.  These
+tests encode the design doc requirements from
+docs/systems/workspace/unified-launch.md.
+"""
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import tempfile
+import unittest
+
+import yaml
+
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+def _make_teaparty_tree(root: str, scope: str = 'management') -> str:
+    """Create a minimal .teaparty/{scope}/ tree with one agent and return teaparty_home."""
+    tp = os.path.join(root, '.teaparty')
+    scope_dir = os.path.join(tp, scope)
+    agents_dir = os.path.join(scope_dir, 'agents', 'test-agent')
+    skills_dir = os.path.join(scope_dir, 'skills', 'test-skill')
+    os.makedirs(agents_dir)
+    os.makedirs(skills_dir)
+
+    # Agent definition with skills allowlist
+    with open(os.path.join(agents_dir, 'agent.md'), 'w') as f:
+        f.write('---\n')
+        f.write('description: Test agent\n')
+        f.write('tools: Read,Write,Grep\n')
+        f.write('skills:\n')
+        f.write('  - test-skill\n')
+        f.write('---\n')
+        f.write('You are a test agent.\n')
+
+    # Agent-level settings override
+    with open(os.path.join(agents_dir, 'settings.yaml'), 'w') as f:
+        yaml.dump({'agent_override': True, 'permissions': {'allow': ['Read']}}, f)
+
+    # Skill
+    os.makedirs(os.path.join(skills_dir), exist_ok=True)
+    with open(os.path.join(skills_dir, 'SKILL.md'), 'w') as f:
+        f.write('# Test Skill\nDo the thing.\n')
+
+    # Base settings
+    with open(os.path.join(scope_dir, 'settings.yaml'), 'w') as f:
+        yaml.dump({'base_setting': True}, f)
+
+    return tp
+
+
+def _make_workgroup(tp: str, scope: str, name: str, lead: str, members: list[str]) -> None:
+    """Create a workgroup YAML file."""
+    wg_dir = os.path.join(tp, scope, 'workgroups')
+    os.makedirs(wg_dir, exist_ok=True)
+    with open(os.path.join(wg_dir, f'{name}.yaml'), 'w') as f:
+        yaml.dump({
+            'name': name,
+            'lead': lead,
+            'members': {'agents': members},
+        }, f)
+
+
+class _TempDirMixin:
+    """Mixin that creates a temp directory and cleans it up."""
+
+    def setUp(self):
+        self._tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+
+# ── 1. Single launch function exists ────────────────────────────────────────
+
+class TestLaunchFunctionExists(unittest.TestCase):
+    """The unified launcher must be importable as a single public function."""
+
+    def test_launch_is_importable(self):
+        """launch() must be importable from teaparty.runners.launcher."""
+        from teaparty.runners.launcher import launch
+        self.assertTrue(callable(launch))
+
+    def test_launch_signature_accepts_agent_name_message_scope(self):
+        """launch() must accept agent_name, message, and scope as parameters."""
+        import inspect
+        from teaparty.runners.launcher import launch
+        sig = inspect.signature(launch)
+        params = list(sig.parameters.keys())
+        self.assertIn('agent_name', params)
+        self.assertIn('message', params)
+        self.assertIn('scope', params)
+
+
+# ── 2. Production command via launch() ───────────────────────────────────────
+
+class TestProductionCommand(_TempDirMixin, unittest.TestCase):
+    """launch() must produce a claude -p subprocess with the correct flags,
+    derived entirely from .teaparty/ config. Tests the ACTUAL production path
+    by mocking create_subprocess_exec and inspecting the args it receives."""
+
+    def setUp(self):
+        super().setUp()
+        self._tp = _make_teaparty_tree(self._tmpdir)
+        self._worktree = os.path.join(self._tmpdir, 'worktree')
+        os.makedirs(os.path.join(self._worktree, '.claude'), exist_ok=True)
+        with open(os.path.join(self._worktree, '.claude', 'CLAUDE.md'), 'w') as f:
+            f.write('# Repo\n')
+
+    def _capture_subprocess_args(self):
+        """Run launch() with a mocked subprocess, return the captured args."""
+        import asyncio
+        from unittest.mock import patch
+        from tests.runners.test_dispatch_chain import _make_mock_process, _stream_json_events
+
+        captured = {}
+
+        async def mock_create(*args, **kwargs):
+            captured['args'] = list(args)
+            captured['env'] = kwargs.get('env', {})
+            return await _make_mock_process(_stream_json_events('sess-1', 'ok'))
+
+        async def run(resume='', mcp_port=0):
+            from teaparty.runners.launcher import launch
+            with patch('asyncio.create_subprocess_exec', side_effect=mock_create):
+                await launch(
+                    agent_name='test-agent',
+                    message='hello',
+                    scope='management',
+                    teaparty_home=self._tp,
+                    worktree=self._worktree,
+                    resume_session=resume,
+                    mcp_port=mcp_port,
+                )
+            return captured
+
+        return run
+
+    def test_always_present_flags(self):
+        """Every launch must include --agent, --output-format stream-json,
+        --verbose, --setting-sources user."""
+        import asyncio
+        run = self._capture_subprocess_args()
+        captured = asyncio.run(run())
+        cmd = captured['args']
+        self.assertIn('claude', cmd)
+        self.assertIn('-p', cmd)
+        idx = cmd.index('--output-format')
+        self.assertEqual(cmd[idx + 1], 'stream-json')
+        self.assertIn('--verbose', cmd)
+        idx = cmd.index('--setting-sources')
+        self.assertEqual(cmd[idx + 1], 'user')
+        idx = cmd.index('--agent')
+        self.assertEqual(cmd[idx + 1], 'test-agent')
+
+    def test_resume_flag_when_session_provided(self):
+        """--resume must be included when a session_id is provided."""
+        import asyncio
+        run = self._capture_subprocess_args()
+        captured = asyncio.run(run(resume='abc-123'))
+        cmd = captured['args']
+        idx = cmd.index('--resume')
+        self.assertEqual(cmd[idx + 1], 'abc-123')
+
+    def test_no_resume_when_cold_start(self):
+        """--resume must NOT be included when no session_id is provided."""
+        import asyncio
+        run = self._capture_subprocess_args()
+        captured = asyncio.run(run())
+        cmd = captured['args']
+        self.assertNotIn('--resume', cmd)
+
+    def test_no_input_format_flag(self):
+        """--input-format must NOT be present (no persistent NDJSON stdin)."""
+        import asyncio
+        run = self._capture_subprocess_args()
+        captured = asyncio.run(run())
+        cmd = captured['args']
+        self.assertNotIn('--input-format', cmd)
+
+    def test_env_strips_secrets(self):
+        """Agent subprocess env must not inherit orchestrator secrets."""
+        import asyncio
+        os.environ['SUPER_SECRET_TOKEN'] = 'leaked'
+        try:
+            run = self._capture_subprocess_args()
+            captured = asyncio.run(run())
+            env = captured['env']
+            self.assertNotIn('SUPER_SECRET_TOKEN', env)
+            self.assertIn('PATH', env)
+        finally:
+            del os.environ['SUPER_SECRET_TOKEN']
+
+    def test_agent_teams_env_var_removed(self):
+        """CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS must never be in agent env."""
+        import asyncio
+        os.environ['CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS'] = '1'
+        try:
+            run = self._capture_subprocess_args()
+            captured = asyncio.run(run())
+            env = captured['env']
+            self.assertNotIn('CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS', env)
+        finally:
+            del os.environ['CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS']
+
+    def test_mcp_config_passed_via_cli_flag(self):
+        """--mcp-config must point to the composed .mcp.json in the worktree.
+
+        --setting-sources user prevents Claude Code from reading project-level
+        .mcp.json automatically, so it must be passed explicitly."""
+        import asyncio
+        run = self._capture_subprocess_args()
+        captured = asyncio.run(run(mcp_port=9000))
+        cmd = captured['args']
+        # .mcp.json should exist in worktree
+        mcp_path = os.path.join(self._worktree, '.mcp.json')
+        self.assertTrue(os.path.exists(mcp_path))
+        with open(mcp_path) as f:
+            mcp = json.load(f)
+        self.assertIn('/mcp/management/test-agent',
+                       mcp['mcpServers']['teaparty-config']['url'])
+        # --mcp-config must be in the CLI args (--setting-sources user blocks
+        # project-level discovery, so we must pass it explicitly)
+        idx = cmd.index('--mcp-config')
+        self.assertEqual(cmd[idx + 1], mcp_path)
+
+
+# ── 3. Worktree composition ─────────────────────────────────────────────────
+
+class TestWorktreeComposition(_TempDirMixin, unittest.TestCase):
+    """The launcher must compose the worktree .claude/ directory from
+    .teaparty/ config: agent def, filtered skills, merged settings, MCP config.
+    The repo CLAUDE.md must NOT be overwritten."""
+
+    def setUp(self):
+        super().setUp()
+        self._tp = _make_teaparty_tree(self._tmpdir)
+        self._worktree = os.path.join(self._tmpdir, 'worktree')
+        os.makedirs(self._worktree)
+        # Simulate repo CLAUDE.md in worktree
+        claude_dir = os.path.join(self._worktree, '.claude')
+        os.makedirs(claude_dir)
+        with open(os.path.join(claude_dir, 'CLAUDE.md'), 'w') as f:
+            f.write('# Repo CLAUDE.md\nThis is the repo-level instruction file.\n')
+
+    def test_repo_claude_md_not_overwritten(self):
+        """compose_claude_md must be deleted. The repo's CLAUDE.md must never
+        be overwritten by the launcher."""
+        from teaparty.runners.launcher import compose_launch_worktree
+        compose_launch_worktree(
+            worktree=self._worktree,
+            agent_name='test-agent',
+            scope='management',
+            teaparty_home=self._tp,
+        )
+        claude_md = os.path.join(self._worktree, '.claude', 'CLAUDE.md')
+        with open(claude_md) as f:
+            content = f.read()
+        self.assertIn('Repo CLAUDE.md', content,
+                       'Repo CLAUDE.md was overwritten by the launcher')
+
+    def test_agent_definition_copied(self):
+        """The agent definition must be copied into .claude/agents/{name}.md."""
+        from teaparty.runners.launcher import compose_launch_worktree
+        compose_launch_worktree(
+            worktree=self._worktree,
+            agent_name='test-agent',
+            scope='management',
+            teaparty_home=self._tp,
+        )
+        agent_md = os.path.join(self._worktree, '.claude', 'agents', 'test-agent.md')
+        self.assertTrue(os.path.exists(agent_md),
+                        f'Agent definition not found at {agent_md}')
+        with open(agent_md) as f:
+            content = f.read()
+        self.assertIn('Test agent', content)
+
+    def test_skills_filtered_by_agent_allowlist(self):
+        """Only skills named in the agent's skills: frontmatter must be included."""
+        # Add a second skill NOT in the allowlist
+        extra_skill = os.path.join(self._tp, 'management', 'skills', 'forbidden-skill')
+        os.makedirs(extra_skill)
+        with open(os.path.join(extra_skill, 'SKILL.md'), 'w') as f:
+            f.write('# Forbidden\n')
+
+        from teaparty.runners.launcher import compose_launch_worktree
+        compose_launch_worktree(
+            worktree=self._worktree,
+            agent_name='test-agent',
+            scope='management',
+            teaparty_home=self._tp,
+        )
+        skills_dir = os.path.join(self._worktree, '.claude', 'skills')
+        if os.path.isdir(skills_dir):
+            present = set(os.listdir(skills_dir))
+        else:
+            present = set()
+        self.assertIn('test-skill', present)
+        self.assertNotIn('forbidden-skill', present,
+                         'Skill not in agent allowlist was included')
+
+    def test_settings_json_is_merged(self):
+        """settings.json must be the merge of scope + agent settings."""
+        from teaparty.runners.launcher import compose_launch_worktree
+        compose_launch_worktree(
+            worktree=self._worktree,
+            agent_name='test-agent',
+            scope='management',
+            teaparty_home=self._tp,
+        )
+        settings_path = os.path.join(self._worktree, '.claude', 'settings.json')
+        self.assertTrue(os.path.exists(settings_path))
+        with open(settings_path) as f:
+            settings = json.load(f)
+        self.assertTrue(settings.get('base_setting'))
+        self.assertTrue(settings.get('agent_override'))
+
+    def test_mcp_json_points_to_http_server(self):
+        """The worktree must contain .mcp.json pointing to the scoped HTTP endpoint."""
+        from teaparty.runners.launcher import compose_launch_worktree
+        compose_launch_worktree(
+            worktree=self._worktree,
+            agent_name='test-agent',
+            scope='management',
+            teaparty_home=self._tp,
+            mcp_port=9000,
+        )
+        mcp_path = os.path.join(self._worktree, '.mcp.json')
+        self.assertTrue(os.path.exists(mcp_path))
+        with open(mcp_path) as f:
+            mcp = json.load(f)
+        url = mcp['mcpServers']['teaparty-config']['url']
+        self.assertIn('/mcp/management/test-agent', url)
+
+    def test_jail_hook_staged_for_external_project(self):
+        """The CfA jail hook must be staged into every worktree.
+
+        External-project worktrees (anything but the teaparty repo itself)
+        do not contain teaparty source, so the jail hook script must be
+        copied out of the installed package into .claude/hooks/. Without
+        this the runtime-injected PreToolUse hook in AgentRunner has no
+        script to invoke and agents launch unrestricted.
+        """
+        from teaparty.runners.launcher import compose_launch_worktree
+        compose_launch_worktree(
+            worktree=self._worktree,
+            agent_name='test-agent',
+            scope='management',
+            teaparty_home=self._tp,
+        )
+        staged = os.path.join(
+            self._worktree, '.claude', 'hooks', 'worktree_hook.py',
+        )
+        self.assertTrue(
+            os.path.isfile(staged),
+            f'Jail hook not staged at {staged} — external-project CfA launches '
+            f'will fail _check_jail_hook and die before first turn.',
+        )
+
+    def test_declared_hook_script_staged_from_source_repo(self):
+        """Hook scripts referenced by merged settings must be copied into the worktree.
+
+        Scripts like .claude/hooks/enforce-ownership.sh live in the
+        config-source repo (next to .teaparty/) and are referenced from
+        settings.yaml by relative path. For worktrees that aren't
+        checkouts of that repo, the script must be copied in or the
+        hook silently fails when Claude tries to invoke it.
+        """
+        # Add a hook declaration to the scope settings pointing at a real
+        # script file in the source repo (where .teaparty/ lives).
+        source_repo = os.path.dirname(self._tp.rstrip('/'))
+        hooks_src_dir = os.path.join(source_repo, '.claude', 'hooks')
+        os.makedirs(hooks_src_dir, exist_ok=True)
+        script_path = os.path.join(hooks_src_dir, 'example-hook.sh')
+        with open(script_path, 'w') as f:
+            f.write('#!/bin/sh\nexit 0\n')
+
+        settings_path = os.path.join(self._tp, 'management', 'settings.yaml')
+        with open(settings_path, 'w') as f:
+            yaml.dump({
+                'base_setting': True,
+                'hooks': {
+                    'PreToolUse': [
+                        {
+                            'matcher': 'Edit|Write',
+                            'hooks': [
+                                {
+                                    'type': 'command',
+                                    'command': '.claude/hooks/example-hook.sh',
+                                },
+                            ],
+                        },
+                    ],
+                },
+            }, f)
+
+        from teaparty.runners.launcher import compose_launch_worktree
+        compose_launch_worktree(
+            worktree=self._worktree,
+            agent_name='test-agent',
+            scope='management',
+            teaparty_home=self._tp,
+        )
+        staged = os.path.join(
+            self._worktree, '.claude', 'hooks', 'example-hook.sh',
+        )
+        self.assertTrue(
+            os.path.isfile(staged),
+            f'Declared hook script not staged at {staged} — hook declarations '
+            f'that reference a script by path must copy the script into the worktree.',
+        )
+        with open(staged) as f:
+            self.assertIn('exit 0', f.read())
+
+
+# ── 4. Agent definition resolution ──────────────────────────────────────────
+
+class TestAgentDefinitionResolution(_TempDirMixin, unittest.TestCase):
+    """Agent definitions resolve project-first, fall back to management."""
+
+    def setUp(self):
+        super().setUp()
+        self._tp = _make_teaparty_tree(self._tmpdir)
+        # Also create a project-scope agent with the same name
+        proj_agents = os.path.join(self._tp, 'project', 'agents', 'test-agent')
+        os.makedirs(proj_agents)
+        with open(os.path.join(proj_agents, 'agent.md'), 'w') as f:
+            f.write('---\ndescription: Project override agent\n---\n')
+
+    def test_project_scope_overrides_management(self):
+        """When both scopes have an agent, project scope wins."""
+        from teaparty.runners.launcher import resolve_agent_definition
+        path = resolve_agent_definition('test-agent', 'project', self._tp)
+        with open(path) as f:
+            content = f.read()
+        self.assertIn('Project override', content)
+
+    def test_management_fallback_when_no_project_def(self):
+        """When project scope lacks an agent, management scope is used."""
+        from teaparty.runners.launcher import resolve_agent_definition
+        path = resolve_agent_definition('test-agent', 'management', self._tp)
+        with open(path) as f:
+            content = f.read()
+        self.assertIn('Test agent', content)
+
+
+# ── 5. compose_claude_md is deleted ─────────────────────────────────────────
+
+class TestComposeCLAUDEMdDeleted(unittest.TestCase):
+    """compose_claude_md must no longer exist in agent_spawner.py."""
+
+    def test_compose_claude_md_not_callable_from_launcher(self):
+        """The launcher module must not export or use compose_claude_md."""
+        from teaparty.runners import launcher
+        self.assertFalse(
+            hasattr(launcher, 'compose_claude_md'),
+            'compose_claude_md should not exist in the launcher module',
+        )
+
+
+
+
+# ── 8. Directory structure: config vs runtime separation ─────────────────────
+
+class TestDirectoryStructure(_TempDirMixin, unittest.TestCase):
+    """Sessions must live in {scope}/sessions/, separate from config."""
+
+    def setUp(self):
+        super().setUp()
+        self._tp = _make_teaparty_tree(self._tmpdir)
+
+    def test_session_directory_created_under_scope(self):
+        """create_session must place session data under {scope}/sessions/{session-id}/."""
+        from teaparty.runners.launcher import create_session
+        session = create_session(
+            agent_name='test-agent',
+            scope='management',
+            teaparty_home=self._tp,
+        )
+        # Session path must be under .teaparty/management/sessions/
+        self.assertIn(
+            os.path.join(self._tp, 'management', 'sessions'),
+            session.path,
+        )
+
+    def test_session_has_metadata_json(self):
+        """Each session must have a metadata.json tracking state."""
+        from teaparty.runners.launcher import create_session
+        session = create_session(
+            agent_name='test-agent',
+            scope='management',
+            teaparty_home=self._tp,
+        )
+        meta_path = os.path.join(session.path, 'metadata.json')
+        self.assertTrue(os.path.exists(meta_path))
+        with open(meta_path) as f:
+            meta = json.load(f)
+        self.assertEqual(meta['agent_name'], 'test-agent')
+
+    def test_session_not_in_agent_config_dir(self):
+        """Session state must NOT live in the agent config directory."""
+        from teaparty.runners.launcher import create_session
+        session = create_session(
+            agent_name='test-agent',
+            scope='management',
+            teaparty_home=self._tp,
+        )
+        agent_config_dir = os.path.join(self._tp, 'management', 'agents', 'test-agent')
+        self.assertFalse(
+            session.path.startswith(agent_config_dir),
+            'Session must not live in the agent config directory',
+        )
+
+
+# ── 9. Concurrency constraints ──────────────────────────────────────────────
+
+class TestConcurrencyConstraints(_TempDirMixin, unittest.TestCase):
+    """Per-agent conversation limit and system-wide ceiling."""
+
+    def setUp(self):
+        super().setUp()
+        self._tp = _make_teaparty_tree(self._tmpdir)
+
+    def test_per_agent_limit_of_three(self):
+        """A fourth child dispatch must not be allowed (#422 — bus-backed).
+
+        ``check_slot_available`` queries the bus for live DISPATCH
+        conversations under the dispatcher's conv_id.  The single source
+        of truth for slot count — no disk conversation_map.
+        """
+        from teaparty.runners.launcher import (
+            create_session,
+            check_slot_available,
+        )
+        from teaparty.messaging.conversations import (
+            ConversationState, ConversationType, SqliteMessageBus,
+        )
+        import tempfile
+        session = create_session(
+            agent_name='test-agent',
+            scope='management',
+            teaparty_home=self._tp,
+        )
+        bus_path = os.path.join(tempfile.mkdtemp(), 'bus.db')
+        bus = SqliteMessageBus(bus_path)
+        parent_conv = 'lead:test-agent:q'
+        for i in range(3):
+            bus.create_conversation(
+                ConversationType.DISPATCH, f'child-{i}',
+                parent_conversation_id=parent_conv,
+                state=ConversationState.ACTIVE,
+            )
+        self.assertFalse(
+            check_slot_available(session, bus=bus, conv_id=parent_conv),
+            'Fourth slot should not be available (per-agent limit of 3)',
+        )
+
+
+# ── 10. Session health detection ────────────────────────────────────────────
+
+class TestSessionHealthDetection(unittest.TestCase):
+    """The launcher must detect poisoned sessions and empty responses."""
+
+    def test_poisoned_session_detected_from_system_events(self):
+        """When system events show MCP 'failed', session is poisoned."""
+        from teaparty.runners.launcher import detect_poisoned_session
+        events = [
+            {'type': 'system', 'subtype': 'init', 'session_id': 'abc',
+             'mcp_servers': [{'name': 'teaparty-config', 'status': 'failed'}]},
+        ]
+        self.assertTrue(detect_poisoned_session(events))
+
+    def test_healthy_session_not_flagged(self):
+        """Normal system events must not trigger poisoned detection."""
+        from teaparty.runners.launcher import detect_poisoned_session
+        events = [
+            {'type': 'system', 'subtype': 'init', 'session_id': 'abc',
+             'mcp_servers': [{'name': 'teaparty-config', 'status': 'connected'}]},
+        ]
+        self.assertFalse(detect_poisoned_session(events))
+
+    def test_empty_response_clears_session(self):
+        """When no assistant text is produced, session ID must be cleared."""
+        from teaparty.runners.launcher import should_clear_session
+        self.assertTrue(should_clear_session(response_text='', session_id='abc'))
+        self.assertFalse(should_clear_session(response_text='Hello', session_id='abc'))
+
+
+# ── 11. Telemetry events (Issue #405) ───────────────────────────────────────
+
+class TestTelemetry(_TempDirMixin, unittest.TestCase):
+    """Per-turn telemetry must be written to the unified event store.
+
+    Issue #405: the legacy per-scope metrics.db was replaced with a
+    single event-sourced store at {teaparty_home}/telemetry.db. Every
+    launch emits turn_start before the subprocess runs and turn_complete
+    after it returns.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self._tp = _make_teaparty_tree(self._tmpdir)
+        from teaparty import telemetry
+        telemetry.reset_for_tests()
+        telemetry.set_teaparty_home(self._tp)
+
+    def tearDown(self):
+        from teaparty import telemetry
+        telemetry.reset_for_tests()
+        super().tearDown()
+
+    def test_launch_emits_turn_start_and_turn_complete(self):
+        """launch() must emit TURN_START before the subprocess and
+        TURN_COMPLETE after it returns — through the real launch() path,
+        not through record_event called directly."""
+        import asyncio
+        from teaparty import telemetry
+        from teaparty.telemetry import events as E
+        from teaparty.runners.launcher import launch
+        from teaparty.runners.claude import ClaudeResult
+
+        wt = os.path.join(self._tmpdir, 'wt')
+        os.makedirs(os.path.join(wt, '.claude'), exist_ok=True)
+        with open(os.path.join(wt, '.claude', 'CLAUDE.md'), 'w') as f:
+            f.write('# stub\n')
+
+        async def stub_caller(**kwargs):
+            return ClaudeResult(
+                exit_code=0, cost_usd=0.05,
+                input_tokens=1000, output_tokens=500, duration_ms=3000,
+            )
+
+        async def run():
+            return await launch(
+                agent_name='test-agent', message='hello',
+                scope='management', teaparty_home=self._tp,
+                worktree=wt, llm_caller=stub_caller,
+            )
+
+        asyncio.run(run())
+
+        starts = telemetry.query_events(event_type=E.TURN_START)
+        completes = telemetry.query_events(event_type=E.TURN_COMPLETE)
+        self.assertEqual(
+            len(starts), 1,
+            'launch() must emit exactly one TURN_START',
+        )
+        self.assertEqual(
+            len(completes), 1,
+            'launch() must emit exactly one TURN_COMPLETE',
+        )
+        ev = completes[0]
+        self.assertEqual(ev.agent_name, 'test-agent')
+        self.assertEqual(ev.scope, 'management')
+        self.assertAlmostEqual(ev.data['cost_usd'], 0.05)
+        self.assertEqual(ev.data['input_tokens'], 1000)
+        self.assertEqual(ev.data['output_tokens'], 500)
+        self.assertEqual(ev.data['duration_ms'], 3000)
+
+        # No legacy metrics.db created.
+        self.assertFalse(
+            os.path.exists(os.path.join(self._tp, 'management', 'metrics.db')),
+            'launch() must not create legacy metrics.db',
+        )
+        self.assertTrue(
+            os.path.exists(os.path.join(self._tp, 'telemetry.db')),
+            'telemetry.db must be at teaparty_home root',
+        )
+
+    def test_legacy_record_metrics_is_removed(self):
+        """The legacy _record_metrics function must not exist."""
+        from teaparty.runners import launcher
+        self.assertFalse(
+            hasattr(launcher, '_record_metrics'),
+            'Issue #405: _record_metrics was replaced by record_event',
+        )
+
+
+if __name__ == '__main__':
+    unittest.main()

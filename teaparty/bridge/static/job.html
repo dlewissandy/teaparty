@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TeaParty — Job</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.9.0/styles/atom-one-dark.min.css">
+<script src="breadcrumb.js"></script>
+<script src="accordion-chat.js"></script>
+<script src="workflow-bar.js"></script>
+<script src="artifact-page.js"></script>
+<script src="stats-bar.js"></script>
+</head>
+<body>
+
+<div class="blade-layout">
+<div class="content-wrap">
+<div id="breadcrumb-slot" style="padding:6px 12px"></div>
+<div id="stats-bar-slot"></div>
+<div id="artifact-content" style="display:flex;flex-direction:column;flex:1;min-height:0"></div>
+</div>
+<div class="blade" id="blade"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.9.0/highlight.min.js"></script>
+<script>
+// WebSocket for real-time updates (stats bar). Reconnects on disconnect.
+(function connectWS() {
+  var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  var ws = new WebSocket(proto + '//' + location.host + '/ws');
+  window._teapartyWS = ws;
+  ws.onclose = function() {
+    window._teapartyWS = null;
+    setTimeout(connectWS, 3000);
+  };
+}());
+
+var params = new URLSearchParams(window.location.search);
+var project = params.get('project') || '';
+var conv = params.get('conv') || '';
+var leadName = params.get('lead') || project + '-lead';
+if (project) {
+  var _cp = conv.split(':');
+  var _sessionFilter = (_cp[0] === 'job' && _cp.length >= 3) ? _cp.slice(2).join(':') : undefined;
+  StatsBar.mount(document.getElementById('stats-bar-slot'), {scope: project, session_filter: _sessionFilter});
+}
+ArtifactPage.mount({
+  contentEl: document.getElementById('artifact-content'),
+  breadcrumbEl: document.getElementById('breadcrumb-slot'),
+  bladeEl: document.getElementById('blade'),
+  mode: 'job',
+  projectSlug: project,
+  chatConversationId: conv,
+  chatAgentName: leadName,
+  chatLaunchRepo: params.get('worktree') || '',
+  chatTitle: (leadName.replace(/-/g, ' ')),
+  jobId: params.get('job') || '',
+  originalRequest: params.get('request') || '',
+  workflowPhase: params.get('phase') || '',
+  workflowState: params.get('state') || '',
+  needsInput: params.get('needs_input') === '1',
+});
+</script>
+</body>
+</html>

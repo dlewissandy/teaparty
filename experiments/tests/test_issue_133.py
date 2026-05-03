@@ -158,7 +158,7 @@ class TestDispatchWritesChildEvents(unittest.TestCase):
         """dispatch_cli should attach an EventCollector to the child
         EventBus so events are written to the child's infra_dir.
         """
-        from projects.POC.orchestrator.dispatch_cli import dispatch
+        from teaparty.cfa.dispatch import dispatch
         import inspect
         source = inspect.getsource(dispatch)
 

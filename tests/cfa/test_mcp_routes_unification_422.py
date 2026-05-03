@@ -1,0 +1,234 @@
+"""Source-level regression tests for issue #422.
+
+Invariants:
+
+- ``launch()`` is the only site that calls ``register_agent_mcp_routes``.
+- ``Orchestrator`` builds an ``MCPRoutes`` bundle in ``run()`` right
+  after ``BusEventListener.start()``.
+- The CfA close-path special case is gone: no ``_handle_bus_close``,
+  no ``_cleanup_bus_agent_worktree``, no ``close_conversation``
+  branch in ``_poll_dispatch_bus``, no dispatch-bus fallback for
+  close in ``mcp/tools/messaging.py``.
+- The per-phase ``register_spawn_fn`` / ``register_ask_question_runner``
+  block in ``Orchestrator._run_state`` is gone.
+"""
+from __future__ import annotations
+
+import os
+import re
+import unittest
+
+
+_REPO_ROOT = os.path.dirname(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_ENGINE = os.path.join(_REPO_ROOT, 'teaparty', 'cfa', 'engine.py')
+_SESSION = os.path.join(_REPO_ROOT, 'teaparty', 'teams', 'session.py')
+_LAUNCHER = os.path.join(_REPO_ROOT, 'teaparty', 'runners', 'launcher.py')
+_MCP_MSG = os.path.join(_REPO_ROOT, 'teaparty', 'mcp', 'tools', 'messaging.py')
+
+
+def _read(path: str) -> str:
+    with open(path) as f:
+        return f.read()
+
+
+class TestLaunchIsSoleRegistrationSite(unittest.TestCase):
+    """Every path that makes an agent subprocess registers routes via launch()."""
+
+    def test_launch_calls_register_agent_mcp_routes(self) -> None:
+        content = _read(_LAUNCHER)
+        self.assertIn(
+            'register_agent_mcp_routes(', content,
+            'launch() must install MCP routes via register_agent_mcp_routes — '
+            'issue #422 makes launch() the single registration site.',
+        )
+
+    def test_no_scattered_register_spawn_fn_outside_launcher(self) -> None:
+        """Only launcher.py may call register_spawn_fn (via register_agent_mcp_routes)."""
+        for path, label in (
+            (_ENGINE, 'cfa/engine.py'),
+            (_SESSION, 'teams/session.py'),
+        ):
+            content = _read(path)
+            self.assertNotIn(
+                'register_spawn_fn(', content,
+                f'{label} must not call register_spawn_fn directly — '
+                'MCP routes are installed at launch() time (#422).',
+            )
+
+    def test_no_scattered_register_close_fn_outside_launcher(self) -> None:
+        for path, label in (
+            (_ENGINE, 'cfa/engine.py'),
+            (_SESSION, 'teams/session.py'),
+        ):
+            content = _read(path)
+            self.assertNotIn(
+                'register_close_fn(', content,
+                f'{label} must not call register_close_fn directly — '
+                'MCP routes are installed at launch() time (#422).',
+            )
+
+    def test_no_scattered_register_ask_question_runner_outside_launcher(self) -> None:
+        for path, label in (
+            (_ENGINE, 'cfa/engine.py'),
+            (_SESSION, 'teams/session.py'),
+        ):
+            content = _read(path)
+            self.assertNotIn(
+                'register_ask_question_runner(', content,
+                f'{label} must not call register_ask_question_runner directly — '
+                'MCP routes are installed at launch() time (#422).',
+            )
+
+
+class TestOrchestratorBuildsMCPRoutes(unittest.TestCase):
+    """The CfA engine builds an MCPRoutes bundle in Orchestrator.run()."""
+
+    def test_orchestrator_builds_mcp_routes(self) -> None:
+        content = _read(_ENGINE)
+        self.assertIn(
+            'MCPRoutes(', content,
+            'Orchestrator.run must construct an MCPRoutes bundle (#422).',
+        )
+        self.assertIn(
+            'self._mcp_routes', content,
+            'Orchestrator must store the built MCPRoutes on self for the '
+            'actor and spawn paths to thread through launch() calls.',
+        )
+
+    def test_cfa_spawn_threads_mcp_routes_to_child_lifecycle(self) -> None:
+        """The shared dispatch path threads ``mcp_routes`` through.
+
+        Cut 24 unified the spawn prelude into
+        ``messaging/child_dispatch.py``; the CfA engine no longer has
+        its own ``_run_child`` closure.  The invariant moved with the
+        code: ``schedule_child_dispatch`` must pass ``mcp_routes=``
+        into every ``run_child_lifecycle`` call so dispatched children
+        (and grandchildren) install routes at launch time.  Engine
+        populates the bundle on its ``ChildDispatchContext`` for the
+        shared function to consume.
+        """
+        # Engine still owns building the routes and stamping them on
+        # the dispatch context.
+        engine = _read(_ENGINE)
+        self.assertIn(
+            'self._mcp_routes', engine,
+            'Orchestrator must build and store the MCPRoutes bundle',
+        )
+        self.assertIn(
+            '_dispatch_ctx.mcp_routes = self._mcp_routes', engine,
+            'Engine must hand the bundle to the shared dispatch context '
+            'so the unified spawn_fn threads it through.',
+        )
+
+        # The shared dispatch module is now where run_child_lifecycle
+        # is called.  Verify it threads mcp_routes through.
+        child_dispatch_path = os.path.join(
+            _REPO_ROOT, 'teaparty', 'messaging', 'child_dispatch.py',
+        )
+        child_dispatch = _read(child_dispatch_path)
+        self.assertIn(
+            'run_child_lifecycle(', child_dispatch,
+            'shared dispatch must call run_child_lifecycle',
+        )
+        pattern = re.compile(
+            r'await run_child_lifecycle\(\s*(?P<body>.*?)\)\s*\n',
+            re.DOTALL,
+        )
+        calls = pattern.findall(child_dispatch)
+        self.assertGreater(
+            len(calls), 0,
+            'expected at least one run_child_lifecycle invocation '
+            'in the shared dispatch module',
+        )
+        for body in calls:
+            self.assertIn(
+                'mcp_routes=', body,
+                'every run_child_lifecycle call must pass mcp_routes=',
+            )
+
+class TestPerPhaseRegistrationRemoved(unittest.TestCase):
+    """_run_state no longer contains scattered MCP route registrations."""
+
+    def test_run_state_has_no_register_calls(self) -> None:
+        engine = _read(_ENGINE)
+        m = re.search(
+            r'async def _run_state\b.*?(?=\n    (?:async )?def )',
+            engine, re.DOTALL,
+        )
+        self.assertIsNotNone(
+            m, 'could not locate _run_state in cfa/engine.py',
+        )
+        body = m.group(0)
+        for symbol in (
+            'register_spawn_fn',
+            'register_close_fn',
+            'register_ask_question_runner',
+        ):
+            self.assertNotIn(
+                symbol, body,
+                f'_run_state must not call {symbol} — routes are now '
+                'installed by launch() via the top-level MCPRoutes bundle '
+                '(#422).',
+            )
+
+
+class TestCfaCloseSpecialCaseRemoved(unittest.TestCase):
+    """The CfA close-path special case is gone — one codepath."""
+
+    def test_handle_bus_close_is_gone(self) -> None:
+        engine = _read(_ENGINE)
+        self.assertNotIn(
+            'async def _handle_bus_close', engine,
+            '_handle_bus_close must be deleted — CloseConversation goes '
+            'through the in-process registry (#422).',
+        )
+
+    def test_cleanup_bus_agent_worktree_is_gone(self) -> None:
+        engine = _read(_ENGINE)
+        self.assertNotIn(
+            'async def _cleanup_bus_agent_worktree', engine,
+            '_cleanup_bus_agent_worktree must be deleted — the shared '
+            'close_fn handles merge + rmtree via close_conversation() '
+            '(#422).',
+        )
+
+    def test_poll_dispatch_bus_is_gone(self) -> None:
+        """The bus-transport dispatch poller is deleted entirely (#422).
+
+        With MCPRoutes installed by ``launch()`` for every spawned
+        agent, Send/CloseConversation always reach the in-process
+        registry; nothing writes to the dispatch bus.  Both the
+        poller and its handlers (``_handle_bus_send``,
+        ``_handle_bus_close``) are dead code and must be gone.
+        """
+        engine = _read(_ENGINE)
+        self.assertNotIn(
+            'async def _poll_dispatch_bus', engine,
+            '_poll_dispatch_bus must be deleted — nothing writes to the '
+            'dispatch bus now that MCPRoutes installs in-process routes '
+            'for every agent at launch() time (#422).',
+        )
+        self.assertNotIn(
+            'async def _handle_bus_send', engine,
+            '_handle_bus_send must be deleted along with the poller (#422).',
+        )
+
+    def test_no_dispatch_bus_fallback_for_close(self) -> None:
+        msg = _read(_MCP_MSG)
+        m = re.search(
+            r"async def _default_close_conv_post\b.*?(?=\n(?:async )?def |\Z)",
+            msg, re.DOTALL,
+        )
+        self.assertIsNotNone(m, 'could not locate _default_close_conv_post')
+        body = m.group(0)
+        self.assertNotIn(
+            "'type': 'close_conversation'", body,
+            'close_conversation_handler must not have a dispatch-bus fallback '
+            '— both tiers register close_fn in the in-process registry '
+            '(#422).',
+        )
+
+
+if __name__ == '__main__':
+    unittest.main()

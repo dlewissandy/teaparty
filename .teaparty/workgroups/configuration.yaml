@@ -1,0 +1,19 @@
+name: Configuration
+description: "Creates and modifies Claude Code configuration artifacts \u2014 agents,\
+  \ skills, hooks, MCP servers, and scheduled tasks."
+lead: configuration-lead
+humans:
+  decider: primus
+members:
+  agents:
+  - project-specialist
+  - workgroup-specialist
+  - systems-engineer
+  - skills-specialist
+  - agent-specialist
+  hooks: []
+artifacts:
+- path: .teaparty/workgroups/NORMS-configuration.md
+  label: Norms
+stats:
+  storage: .teaparty/stats/configuration.json

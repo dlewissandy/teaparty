@@ -1,0 +1,17 @@
+name: Intake
+description: Requirements gathering and intent alignment. Clarifies what is wanted
+  and produces an artifact planning and execution teams can act on. Upstream of planning.
+lead: intake-lead
+humans:
+  decider: primus
+members:
+  agents:
+  - intent-specialist
+  - scope-analyst
+  - stakeholder-interviewer
+  hooks: []
+artifacts:
+- path: .teaparty/workgroups/NORMS-intake.md
+  label: Norms
+stats:
+  storage: .teaparty/stats/intake.json

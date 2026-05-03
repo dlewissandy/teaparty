@@ -1,0 +1,22 @@
+name: Management Team
+description: Cross-project coordination, human interaction, organizational strategy,
+  and configuration management.
+lead: office-manager
+humans:
+  decider: primus
+projects:
+- name: TeaParty
+  path: .
+  config: .teaparty/project.yaml
+members:
+  projects:
+  - TeaParty
+  agents: []
+  skills: []
+  workgroups:
+  - Configuration
+workgroups:
+- name: Configuration
+  config: workgroups/configuration.yaml
+stats:
+  storage: .teaparty/stats/management.json

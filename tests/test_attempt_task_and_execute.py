@@ -1,0 +1,348 @@
+"""Specification tests for the `attempt-task` skill and the `execute`
+skill's directive update (issue #423).
+
+These pin three things at the source-content level:
+
+1. `attempt-task` exists at the canonical path with the state graph
+   `START → EXECUTE → (ASK ↔ EXECUTE) → DELIVER`.
+
+2. `attempt-task`'s EXECUTE step prescribes `Send(...)` for
+   dispatching to specialists (workgroup-leads do not have
+   `Delegate` in their tool catalog), and prescribes
+   `ListTeamMembers` as the team-discovery mechanism — within the
+   EXECUTE prose, not merely incidentally in the YAML frontmatter.
+
+3. The project-lead's `execute` skill EXECUTE step prescribes
+   `mcp__teaparty-config__Delegate(member, task, skill='attempt-task')`
+   for workgroup-lead dispatch with directive language. The old
+   wording (*"Delegate work to team members using
+   mcp__teaparty-config__Send"*) is removed — without this, project-
+   lead dispatch falls back to Send and the workgroup-lead never
+   invokes its workflow skill.
+
+Section-scoped assertions (`_section_of`) prevent frontmatter or
+incidental prose elsewhere in the file from satisfying a content
+check that the issue spec actually targets at a specific step.
+"""
+from __future__ import annotations
+
+import sys
+import unittest
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(REPO_ROOT))
+
+
+def _section_of(body: str, heading: str) -> str:
+    """Return the body of the section opened by ``## {heading}``.
+
+    Slices from the heading line to the next ``## `` heading (or end
+    of file).  The frontmatter block is implicitly excluded because
+    it is opened by ``---``, not ``##``.  Used to scope content
+    assertions to a specific step of a skill rather than to the whole
+    file — without scoping, tokens that legitimately appear in the
+    YAML ``allowed-tools`` list or the description satisfy assertions
+    the issue spec actually targets at one specific section.
+    """
+    needle = f'## {heading}\n'
+    start = body.find(needle)
+    if start == -1:
+        return ''
+    after = start + len(needle)
+    next_heading = body.find('\n## ', after)
+    if next_heading == -1:
+        return body[after:]
+    return body[after:next_heading]
+
+
+class AttemptTaskSkillExistsTest(unittest.TestCase):
+    """The skill file must exist at the canonical path."""
+
+    SKILL_PATH = REPO_ROOT / '.teaparty/management/skills/attempt-task/SKILL.md'
+
+    def test_skill_file_exists(self) -> None:
+        self.assertTrue(
+            self.SKILL_PATH.is_file(),
+            f'attempt-task skill must exist at {self.SKILL_PATH}. '
+            f'Without it, compose-time staging has nothing to copy '
+            f'and `/attempt-task` invocations on workgroup-leads fail.',
+        )
+
+    def test_state_graph_present(self) -> None:
+        """The four states must appear as headings AND in the
+        START → EXECUTE → ASK → DELIVER source order. Section
+        reordering breaks the procedural rail even when all four
+        names still appear somewhere in the body.
+        """
+        body = self.SKILL_PATH.read_text()
+        for state in ('START', 'EXECUTE', 'ASK', 'DELIVER'):
+            self.assertIn(
+                f'## {state}', body,
+                f'State {state!r} must appear as a `## {state}` '
+                f'heading — the skill encodes the state graph '
+                f'START → EXECUTE → (ASK ↔ EXECUTE) → DELIVER. '
+                f'Missing heading collapses the workflow.',
+            )
+        # Order: START first, then EXECUTE, then ASK, then DELIVER.
+        # ASK ↔ EXECUTE bidirectionality is documented inside the
+        # sections (transition arrows in prose) — pinned separately
+        # via the existing per-section assertions.
+        positions = {
+            state: body.find(f'## {state}')
+            for state in ('START', 'EXECUTE', 'ASK', 'DELIVER')
+        }
+        self.assertLess(
+            positions['START'], positions['EXECUTE'],
+            f'## START must precede ## EXECUTE; got positions {positions}',
+        )
+        self.assertLess(
+            positions['EXECUTE'], positions['ASK'],
+            f'## EXECUTE must precede ## ASK; got positions {positions}',
+        )
+        self.assertLess(
+            positions['ASK'], positions['DELIVER'],
+            f'## ASK must precede ## DELIVER; got positions {positions}',
+        )
+
+    def test_execute_step_prescribes_send_for_specialist_dispatch(self) -> None:
+        """The EXECUTE step must direct the lead to use ``Send`` to
+        dispatch work to its members.  Workgroup-leads dispatch to
+        specialists, who run no workflow skill on receipt — ``Send``
+        is the right verb.  ``Delegate`` is for opening with a
+        workflow rail at the recipient; the workgroup-lead does not
+        have it (only project-lead-shaped agents do).
+        """
+        execute = _section_of(self.SKILL_PATH.read_text(), 'EXECUTE')
+        self.assertNotEqual(
+            execute, '',
+            f'attempt-task must have an `## EXECUTE` section — that '
+            f'is the procedural rail for dispatching work.',
+        )
+        self.assertIn(
+            'Send(', execute,
+            f'attempt-task EXECUTE must contain the ``Send(`` call '
+            f'form for dispatching to specialists. A workgroup-lead '
+            f'does not hold ``Delegate`` (it has no lead members); '
+            f'using ``Delegate`` produces a permission denial at '
+            f'runtime. Got EXECUTE section head: {execute[:400]!r}',
+        )
+        # And must NOT prescribe Delegate, since the workgroup-lead
+        # cannot invoke it.
+        self.assertNotIn(
+            'Delegate(', execute,
+            f'attempt-task EXECUTE must NOT prescribe ``Delegate(`` '
+            f'as the dispatch verb — workgroup-leads do not have '
+            f'Delegate in their tool catalog. Got EXECUTE section '
+            f'head: {execute[:400]!r}',
+        )
+
+    def test_execute_step_names_listteammembers(self) -> None:
+        """ListTeamMembers must be the prescribed team-discovery step
+        within EXECUTE prose, not merely listed in frontmatter."""
+        execute = _section_of(self.SKILL_PATH.read_text(), 'EXECUTE')
+        self.assertIn(
+            'ListTeamMembers', execute,
+            f'attempt-task EXECUTE must direct the lead to '
+            f'`ListTeamMembers` as the procedural step that supplies '
+            f'the roster. Without this in the EXECUTE body, the model '
+            f'defers to its training and may skip the roster lookup, '
+            f'then write content directly. Got EXECUTE section head: '
+            f'{execute[:300]!r}',
+        )
+
+    def test_deliver_step_prescribes_reply_and_commit(self) -> None:
+        """DELIVER must name both Reply (the deliverable signal) and a
+        commit step (so the work merges through CloseConversation).
+
+        Section-scoped: assertions live within the DELIVER body so
+        deleting DELIVER while leaving incidental ``Reply`` / ``commit``
+        usage elsewhere in the file would still flip the test.
+        """
+        deliver = _section_of(self.SKILL_PATH.read_text(), 'DELIVER')
+        self.assertNotEqual(
+            deliver, '',
+            f'attempt-task must have a `## DELIVER` section — that '
+            f'is the terminal step that propagates work upward.',
+        )
+        self.assertIn(
+            'Reply', deliver,
+            f'attempt-task DELIVER must name `Reply` — the dispatcher '
+            f'is signaled by Reply, and without it the workflow has '
+            f'no terminal output. Got DELIVER section head: '
+            f'{deliver[:300]!r}',
+        )
+        self.assertIn(
+            'git commit', deliver,
+            f'attempt-task DELIVER must instruct `git commit` '
+            f'before the final Reply. Without commit, the merge '
+            f'through CloseConversation propagates an empty session '
+            f'branch and the deliverables are stranded. Got DELIVER '
+            f'section head: {deliver[:300]!r}',
+        )
+
+
+class ExecuteSkillDirectiveTest(unittest.TestCase):
+    """The project-lead's `execute` skill must prescribe `Delegate`."""
+
+    EXECUTE_PATH = REPO_ROOT / '.teaparty/management/skills/execute/SKILL.md'
+
+    def test_execute_skill_exists(self) -> None:
+        self.assertTrue(
+            self.EXECUTE_PATH.is_file(),
+            f'execute skill must exist at {self.EXECUTE_PATH}',
+        )
+
+    def test_delegate_step_names_delegate_tool(self) -> None:
+        """The DELEGATE step must name `Delegate` as the dispatch *tool*,
+        not merely use `delegate` as an English verb. The qualified
+        tool name `mcp__teaparty-config__Delegate` (or a `Delegate(`
+        call form) distinguishes the directive from the section heading
+        and surrounding prose.
+
+        Section-scoped to DELEGATE so that frontmatter ``allowed-tools``
+        listing the name does not satisfy the procedural directive
+        requirement.  The DELEGATE step replaced the old EXECUTE step
+        when the skill was restructured into the
+        ASSESS / DELEGATE / REVIEW / FINAL_REVIEW cycle so that
+        terminal outcomes only fire from ASSERT.
+        """
+        delegate = _section_of(self.EXECUTE_PATH.read_text(), 'DELEGATE')
+        self.assertNotEqual(
+            delegate, '',
+            f'execute skill must have a `## DELEGATE` section.',
+        )
+        names_tool = (
+            'mcp__teaparty-config__Delegate' in delegate
+            or 'Delegate(' in delegate
+        )
+        self.assertTrue(
+            names_tool,
+            f'execute DELEGATE must name the `Delegate` tool by its '
+            f'qualified MCP name or a call-form (`Delegate(...)`) — '
+            f'the bare word "Delegate" already appears as an English '
+            f'verb and does not constitute a directive to use the '
+            f'new tool. DELEGATE section head: {delegate[:400]!r}',
+        )
+
+    def test_delegate_step_names_attempt_task_skill(self) -> None:
+        """The Delegate call in DELEGATE must name `attempt-task` as the
+        workflow skill prescribed for workgroup-leads."""
+        delegate = _section_of(self.EXECUTE_PATH.read_text(), 'DELEGATE')
+        self.assertIn(
+            'attempt-task', delegate,
+            f'execute DELEGATE must name `attempt-task` as the workflow '
+            f'skill for workgroup-lead dispatch. The Delegate call '
+            f'shape is Delegate(member, task, skill="attempt-task"). '
+            f'DELEGATE section head: {delegate[:400]!r}',
+        )
+
+    def test_old_send_dispatch_wording_removed(self) -> None:
+        """The previous *"Delegate work to team members using
+        mcp__teaparty-config__Send"* wording must be gone, AND the
+        replacement directive must be present. Pinning both halves
+        catches an equivalent re-introduction in different prose
+        ("Delegate to team members via mcp__teaparty-config__Send")
+        that the exact-phrase check alone would miss.
+        """
+        body = self.EXECUTE_PATH.read_text()
+        self.assertNotIn(
+            'Delegate work to team members using `mcp__teaparty-config__Send`',
+            body,
+            f'execute skill still contains the old `Send`-named '
+            f'dispatch directive. The fix replaces it with a Delegate '
+            f'directive; leaving both produces contradictory '
+            f'instructions in the same skill body.',
+        )
+        # Replacement directive must be present in DELEGATE — without
+        # this, a regression that drops the old wording without
+        # supplying the new one (a partial revert) passes the negative
+        # check vacuously.
+        delegate = _section_of(body, 'DELEGATE')
+        self.assertIn(
+            "Delegate(member, task, skill='attempt-task')", delegate,
+            f'execute DELEGATE must contain the explicit replacement '
+            f'directive `Delegate(member, task, skill=\'attempt-task\')`. '
+            f'A regression that strips the old Send wording without '
+            f'supplying the new directive leaves the DELEGATE step '
+            f'without dispatch guidance.',
+        )
+
+    def test_only_assert_writes_phase_outcome(self) -> None:
+        """Terminal authority is concentrated at ASSERT — the lead
+        cannot write `.phase-outcome.json` from any other lead-internal
+        step (ASSESS, DELEGATE, REVIEW, FINAL_REVIEW, ASK).  This is the
+        invariant that prevents the failure mode where a lead deems a
+        sub-phase complete and emits APPROVED_WORK after the first
+        chunk of a multi-phase plan.
+
+        Implementation: every step that should NOT terminate has no
+        `.phase-outcome.json` directive in its body.  ASSERT and the
+        four terminal steps (APPROVE / REALIGN / REPLAN / WITHDRAW) are
+        the only places the file is written.
+        """
+        body = self.EXECUTE_PATH.read_text()
+        # Look for the actual write directive, not any mention of the
+        # filename — the lead-internal steps may legitimately reference
+        # `.phase-outcome.json` in a negative ("you do not write …")
+        # framing without being a directive to write it.  The terminal
+        # steps use the canonical phrasing "Write `./.phase-outcome.json`
+        # and halt"; that's what we forbid in lead-internal steps.
+        for step in ('ASSESS', 'DELEGATE', 'REVIEW', 'FINAL_REVIEW', 'ASK'):
+            section = _section_of(body, step)
+            self.assertNotEqual(
+                section, '',
+                f'execute skill must have a `## {step}` section.',
+            )
+            self.assertNotIn(
+                'Write `./.phase-outcome.json`', section,
+                f'execute {step} must NOT direct the lead to write '
+                f'`.phase-outcome.json` — terminal outcomes are '
+                f'ASSERT\'s authority alone.  A directive in {step} '
+                f'reintroduces the failure mode where the lead emits '
+                f'APPROVED_WORK after a sub-phase rather than after the '
+                f'whole PLAN.  {step} section head: {section[:300]!r}',
+            )
+
+    def test_final_review_routes_to_assert(self) -> None:
+        """The only path to ASSERT goes through FINAL_REVIEW — that
+        guarantees both the intent-met and plan-faithfully-executed
+        checks fire before the human is engaged for ratification.
+        """
+        body = self.EXECUTE_PATH.read_text()
+        final_review = _section_of(body, 'FINAL_REVIEW')
+        self.assertNotEqual(
+            final_review, '',
+            f'execute skill must have a `## FINAL_REVIEW` section — '
+            f'the gate before ASSERT.',
+        )
+        self.assertIn(
+            'ASSERT', final_review,
+            f'execute FINAL_REVIEW must route to ASSERT on success — '
+            f'otherwise there is no path from the cycle to terminal '
+            f'authority.  FINAL_REVIEW head: {final_review[:300]!r}',
+        )
+
+    def test_assess_rereads_intent_and_plan(self) -> None:
+        """ASSESS must direct the lead to re-read INTENT.md and PLAN.md
+        from disk every cycle.  Without an explicit re-read, the lead
+        routes from a stale snapshot — the same failure mode the
+        escalation skills address with their first-action re-read.
+        """
+        body = self.EXECUTE_PATH.read_text()
+        assess = _section_of(body, 'ASSESS')
+        self.assertNotEqual(
+            assess, '',
+            f'execute skill must have a `## ASSESS` section.',
+        )
+        for artifact in ('INTENT.md', 'PLAN.md'):
+            self.assertIn(
+                artifact, assess,
+                f'execute ASSESS must reference `./{artifact}` so the '
+                f'lead re-reads it before routing.  ASSESS head: '
+                f'{assess[:400]!r}',
+            )
+
+
+if __name__ == '__main__':
+    unittest.main()

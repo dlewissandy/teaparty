@@ -1,0 +1,9 @@
+permissions:
+  allow:
+  - Read
+  - Glob
+  - Grep
+  - Skill
+  - mcp__teaparty-config__Send
+  - mcp__teaparty-config__ListTeamMembers
+  - mcp__teaparty-config__CloseConversation

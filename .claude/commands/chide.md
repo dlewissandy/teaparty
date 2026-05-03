@@ -1,1 +1,0 @@
-Are you sure you have completed this work? Would I recognize it as the given issue, operationalized well and completely? Consider that if you are incorrect, this creates a permanent record of your failure.

@@ -1,0 +1,1314 @@
+"""Config CRUD handlers — project, agent, skill, workgroup, hook, scheduled task management."""
+from __future__ import annotations
+
+import json
+import logging
+import os
+import shutil
+import subprocess
+
+import yaml
+
+
+def _emit_config_event(event_type: str, **data) -> None:
+    """Record a config_* or pin/unpin telemetry event (Issue #405).
+
+    Best-effort — swallows all failures so config CRUD never breaks
+    because of a telemetry hiccup. ``event_type`` is looked up against
+    ``teaparty.telemetry.events`` by upper-cased name; if the constant
+    does not exist, an AssertionError is raised to surface the typo
+    at development time (no silent fallbacks).
+    """
+    try:
+        from teaparty import telemetry
+        from teaparty.telemetry import events as _telem_events
+        const_name = event_type.upper()
+        et = getattr(_telem_events, const_name, None)
+        if et is None:
+            raise AssertionError(
+                f'_emit_config_event: unknown event type {event_type!r} '
+                f'(no constant {const_name} in teaparty.telemetry.events)'
+            )
+        scope = data.get('project') or 'management'
+        telemetry.record_event(et, scope=scope, data=dict(data))
+    except AssertionError:
+        raise
+    except Exception:
+        pass
+
+from teaparty.mcp.tools.config_helpers import (
+    _err,
+    _load_settings,
+    _load_teaparty_yaml,
+    _mgmt_agents_dir,
+    _mgmt_settings_yaml,
+    _mgmt_skills_dir,
+    _mgmt_workgroups_dir,
+    _ok,
+    _parse_agent_file,
+    _parse_skill_file,
+    _project_root,
+    _resolve_repo_root,
+    _resolve_scope,
+    _save_settings,
+    _save_teaparty_yaml,
+    _scoped_agents_dir,
+    _scoped_settings_yaml,
+    _scoped_skills_dir,
+    _scoped_workgroups_dir,
+    _teaparty_home,
+    _write_agent_file,
+    _write_skill_file,
+)
+
+
+# ── Project tools ─────────────────────────────────────────────────────────────
+
+def add_project_handler(
+    name: str,
+    path: str,
+    description: str = '',
+    decider: str = '',
+    teaparty_home: str = '',
+) -> str:
+    """Add an existing directory as a TeaParty project.
+
+    Thin MCP wrapper around ``config_reader.add_project``, which performs the
+    full onboarding sequence (normalization, scaffolding, lead creation,
+    initial commit, telemetry).
+    """
+    if not name or not name.strip():
+        return _err('AddProject requires a non-empty name')
+    if not path or not path.strip():
+        return _err('AddProject requires a non-empty path')
+
+    home = _teaparty_home(teaparty_home)
+    from teaparty.config.config_reader import add_project, normalize_project_name
+    normalized = normalize_project_name(name)
+    try:
+        add_project(
+            name=name,
+            path=path,
+            teaparty_home=home,
+            description=description,
+            decider=decider,
+        )
+    except ValueError as e:
+        return _err(str(e))
+    return _ok(f"Project '{normalized}' added at {path}")
+
+
+def create_project_handler(
+    name: str,
+    path: str,
+    description: str = '',
+    decider: str = '',
+    teaparty_home: str = '',
+) -> str:
+    """Create a new project directory with full scaffolding.
+
+    Thin MCP wrapper around ``config_reader.create_project``, which performs
+    the full onboarding sequence.
+    """
+    if not name or not name.strip():
+        return _err('CreateProject requires a non-empty name')
+    if not path or not path.strip():
+        return _err('CreateProject requires a non-empty path')
+
+    home = _teaparty_home(teaparty_home)
+    from teaparty.config.config_reader import create_project, normalize_project_name
+    normalized = normalize_project_name(name)
+    try:
+        create_project(
+            name=name,
+            path=path,
+            teaparty_home=home,
+            description=description,
+            decider=decider,
+        )
+    except ValueError as e:
+        return _err(str(e))
+    return _ok(f"Project '{normalized}' created at {path}")
+
+
+def remove_project_handler(name: str, teaparty_home: str = '') -> str:
+    """Remove a project from teaparty.yaml (directory untouched)."""
+    if not name or not name.strip():
+        return _err('RemoveProject requires a non-empty name')
+
+    home = _teaparty_home(teaparty_home)
+    from teaparty.config.config_reader import remove_project
+    try:
+        remove_project(name=name, teaparty_home=home)
+    except ValueError as e:
+        return _err(str(e))
+    _emit_config_event('config_project_removed', project=name)
+    return _ok(f"Project '{name}' removed from registry")
+
+
+def scaffold_project_yaml_handler(
+    project_path: str,
+    name: str,
+    description: str = '',
+    lead: str = '',
+    decider: str = '',
+    agents: list | None = None,
+    humans: list | None = None,
+    workgroups: list | None = None,
+    skills: list | None = None,
+) -> str:
+    """Create or overwrite .teaparty/project/project.yaml for an existing project.
+
+    Unlike _scaffold_project_yaml, this always writes (retroactive fix for
+    projects with missing or empty fields).
+    """
+    if not project_path or not project_path.strip():
+        return _err('ScaffoldProjectYaml requires a non-empty project_path')
+    if not name or not name.strip():
+        return _err('ScaffoldProjectYaml requires a non-empty name')
+
+    tp_dir = os.path.join(project_path, '.teaparty', 'project')
+    os.makedirs(tp_dir, exist_ok=True)
+    data = {
+        'name': name,
+        'description': description,
+        'lead': lead,
+        'decider': decider,
+        'agents': agents or [],
+        'humans': humans or [],
+        'workgroups': workgroups or [],
+        'skills': skills or [],
+    }
+    yaml_path = os.path.join(tp_dir, 'project.yaml')
+    with open(yaml_path, 'w') as f:
+        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+    return _ok(f'Scaffolded {yaml_path}', path=yaml_path)
+
+
+# ── Artifact pin tools ────────────────────────────────────────────────────────
+
+def _load_project_registry(teaparty_home: str) -> dict:
+    """Load the management team's canonical registry.
+
+    The management team config at ``{teaparty_home}/management/teaparty.yaml``
+    is the sole source of truth for the project catalog (same file the
+    home page reads via ``load_management_team``).  External/gitignored
+    projects recorded in ``.teaparty.local/external_projects.yaml`` are
+    merged in so machine-local additions show up here too.
+    """
+    from teaparty.config.config_reader import (
+        load_management_team as _load_team,
+    )
+    team = _load_team(teaparty_home=teaparty_home)
+    return {
+        'name': team.name,
+        'description': team.description,
+        'lead': team.lead,
+        'projects': [
+            {'name': p['name'], 'path': p['path']}
+            for p in team.projects
+        ],
+    }
+
+
+def _find_project_path(name: str, teaparty_home: str) -> str | None:
+    """Return the project directory for a given project name, or None if not found."""
+    data = _load_project_registry(teaparty_home)
+    for team in data.get('projects', []):
+        if team.get('name') == name:
+            return team.get('path')
+    return None
+
+
+def _load_project_yaml(project_dir: str) -> dict:
+    """Load .teaparty/project/project.yaml, returning an empty dict if missing."""
+    path = os.path.join(project_dir, '.teaparty', 'project', 'project.yaml')
+    if not os.path.exists(path):
+        # Legacy fallback
+        legacy = os.path.join(project_dir, '.teaparty.local', 'project.yaml')
+        if os.path.exists(legacy):
+            with open(legacy) as f:
+                return yaml.safe_load(f) or {}
+        return {}
+    with open(path) as f:
+        return yaml.safe_load(f) or {}
+
+
+def _save_project_yaml(project_dir: str, data: dict) -> None:
+    """Write data to .teaparty/project/project.yaml."""
+    tp_dir = os.path.join(project_dir, '.teaparty', 'project')
+    os.makedirs(tp_dir, exist_ok=True)
+    path = os.path.join(tp_dir, 'project.yaml')
+    with open(path, 'w') as f:
+        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+
+
+def pin_artifact_handler(
+    project: str,
+    path: str,
+    label: str = '',
+    teaparty_home: str = '',
+) -> str:
+    """Add or update an artifact pin in a project's artifact_pins list.
+
+    If a pin with the same path already exists, its label is updated.
+    Path is relative to the project root.
+    """
+    if not project or not project.strip():
+        return _err('PinArtifact requires a non-empty project')
+    if not path or not path.strip():
+        return _err('PinArtifact requires a non-empty path')
+
+    home = _teaparty_home(teaparty_home)
+    project_dir = _find_project_path(project, home)
+    if project_dir is None:
+        return _err(f"Project '{project}' not found in registry")
+
+    data = _load_project_yaml(project_dir)
+    pins = data.get('artifact_pins', [])
+
+    # Update existing or append new
+    for pin in pins:
+        if pin.get('path') == path:
+            if label:
+                pin['label'] = label
+            data['artifact_pins'] = pins
+            _save_project_yaml(project_dir, data)
+            return _ok(f"Updated pin '{path}' in project '{project}'")
+
+    entry: dict[str, str] = {'path': path}
+    if label:
+        entry['label'] = label
+    pins.append(entry)
+    data['artifact_pins'] = pins
+    _save_project_yaml(project_dir, data)
+    _emit_config_event('pin_artifact', project=project, path=path, label=label)
+    return _ok(f"Pinned '{path}' in project '{project}'")
+
+
+def unpin_artifact_handler(
+    project: str,
+    path: str,
+    teaparty_home: str = '',
+) -> str:
+    """Remove an artifact pin from a project's artifact_pins list by path."""
+    if not project or not project.strip():
+        return _err('UnpinArtifact requires a non-empty project')
+    if not path or not path.strip():
+        return _err('UnpinArtifact requires a non-empty path')
+
+    home = _teaparty_home(teaparty_home)
+    project_dir = _find_project_path(project, home)
+    if project_dir is None:
+        return _err(f"Project '{project}' not found in registry")
+
+    data = _load_project_yaml(project_dir)
+    pins = data.get('artifact_pins', [])
+    original_len = len(pins)
+    pins = [p for p in pins if p.get('path') != path]
+
+    if len(pins) == original_len:
+        return _err(f"Pin '{path}' not found in project '{project}'")
+
+    data['artifact_pins'] = pins
+    _save_project_yaml(project_dir, data)
+    _emit_config_event('unpin_artifact', project=project, path=path)
+    return _ok(f"Unpinned '{path}' from project '{project}'")
+
+
+# ── Read/list tools ──────────────────────────────────────────────────────────
+
+
+def list_projects_handler(teaparty_home: str = '') -> str:
+    """List all registered projects from the root teaparty.yaml."""
+    home = _teaparty_home(teaparty_home)
+    try:
+        data = _load_project_registry(home)
+    except FileNotFoundError as e:
+        return _err(str(e))
+    projects = data.get('projects', [])
+    items = [{'name': p.get('name', ''), 'path': p.get('path', '')}
+             for p in projects]
+    return json.dumps({'success': True, 'projects': items})
+
+
+def get_project_handler(name: str, teaparty_home: str = '') -> str:
+    """Get full details for a single project."""
+    if not name or not name.strip():
+        return _err('GetProject requires a non-empty name')
+    home = _teaparty_home(teaparty_home)
+    project_dir = _find_project_path(name, home)
+    if project_dir is None:
+        return _err(f"Project '{name}' not found in registry")
+    data = _load_project_yaml(project_dir)
+    data['path'] = project_dir
+    return json.dumps({'success': True, 'project': data})
+
+
+def project_status_handler(name: str, days: int = 7, teaparty_home: str = '') -> str:
+    """Generate a status summary for a project.
+
+    Returns recent git commits and in-progress sessions/jobs.
+    """
+    import logging
+    import subprocess
+    _ps_log = logging.getLogger('teaparty.mcp.server.main.project_status')
+    _ps_log.info('ProjectStatus called: name=%r days=%d', name, days)
+
+    if not name or not name.strip():
+        return _err('ProjectStatus requires a non-empty project name')
+    home = _teaparty_home(teaparty_home)
+    project_dir = _find_project_path(name, home)
+    if project_dir is None:
+        return _err(f"Project '{name}' not found in registry")
+
+    # Git commits from the last N days
+    commits = []
+    git_error = ''
+    try:
+        result = subprocess.run(
+            ['git', 'log', '--oneline', '--all', f'--since={days} days ago',
+             '--format=%h %ai %s'],
+            cwd=project_dir, capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode == 0:
+            for line in result.stdout.strip().splitlines():
+                if line:
+                    commits.append(line)
+        else:
+            git_error = result.stderr.strip() or f'git log exited with code {result.returncode}'
+    except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
+        git_error = str(exc)
+
+    # If no commits in the requested window, include the latest commit
+    # so the report shows when the project was last active.
+    latest_commit = ''
+    if not commits and not git_error:
+        try:
+            result = subprocess.run(
+                ['git', 'log', '-1', '--format=%h %ai %s'],
+                cwd=project_dir, capture_output=True, text=True, timeout=10,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                latest_commit = result.stdout.strip()
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
+
+    # In-progress sessions (scan .teaparty/jobs/)
+    jobs_dir = os.path.join(project_dir, '.teaparty', 'jobs')
+    active_sessions = []
+    if os.path.isdir(jobs_dir):
+        from teaparty.cfa.statemachine.cfa_state import is_globally_terminal
+        for entry in sorted(os.listdir(jobs_dir), reverse=True):
+            sess_path = os.path.join(jobs_dir, entry)
+            if not os.path.isdir(sess_path) or not os.path.isfile(os.path.join(sess_path, 'job.json')):
+                continue
+            cfa_path = os.path.join(sess_path, '.cfa-state.json')
+            cfa = {}
+            if os.path.isfile(cfa_path):
+                try:
+                    with open(cfa_path) as f:
+                        cfa = json.load(f)
+                except (json.JSONDecodeError, OSError):
+                    pass
+            state = cfa.get('state', '')
+            if state and is_globally_terminal(state):
+                continue
+            task_path = os.path.join(sess_path, 'INTENT.md')
+            task = ''
+            if os.path.isfile(task_path):
+                try:
+                    with open(task_path) as f:
+                        task = f.read(200).strip()
+                except OSError:
+                    pass
+            # Extract session_id from job.json
+            try:
+                with open(os.path.join(sess_path, 'job.json')) as f:
+                    job_state = json.load(f)
+                job_id = job_state.get('job_id', entry)
+                session_id = job_id[4:] if job_id.startswith('job-') else job_id
+            except (json.JSONDecodeError, OSError):
+                session_id = entry
+            active_sessions.append({
+                'session_id': session_id,
+                'phase': cfa.get('phase', ''),
+                'state': state or 'unknown',
+                'task': task,
+            })
+
+    result_data: dict[str, object] = {
+        'success': True,
+        'project': name,
+        'period_days': days,
+        'commits': commits,
+        'commit_count': len(commits),
+        'active_sessions': active_sessions,
+        'active_session_count': len(active_sessions),
+    }
+    if git_error:
+        result_data['git_error'] = git_error
+    if latest_commit:
+        result_data['latest_commit'] = latest_commit
+    _ps_log.info(
+        'ProjectStatus result: project=%r commits=%d git_error=%r latest_commit=%r',
+        name, len(commits), git_error, latest_commit,
+    )
+    return json.dumps(result_data)
+
+
+def list_team_members_handler(teaparty_home: str = '') -> str:
+    """List the team members for the calling lead's team.
+
+    Thin serialization shim over :func:`derive_team_roster` — the
+    single public entry point for "who is on the team this lead
+    heads?"  Same function the routing layer uses to build the
+    dispatcher; reporting and routing cannot disagree because they
+    walk the same code path.
+
+    The caller is identified by ``current_agent_name`` (set by the
+    MCP middleware) and must be a lead — OM, a project lead, or a
+    workgroup lead — because leads are in 1:1 correspondence with
+    their team.  Non-lead workgroup members can belong to several
+    workgroups; "their team" is ambiguous and this tool refuses
+    rather than guessing.
+
+    The agent's frontmatter ``description`` overrides the roster's
+    default description when an ``agent.md`` exists.
+    """
+    from teaparty.config.roster import derive_team_roster
+    from teaparty.config.config_reader import load_management_team
+    from teaparty.mcp.registry import current_agent_name
+
+    home = _teaparty_home(teaparty_home)
+
+    caller = current_agent_name.get('') if current_agent_name else ''
+    if not caller:
+        # No caller context — fall back to the OM roster.
+        try:
+            mgmt_team = load_management_team(teaparty_home=home)
+        except FileNotFoundError as e:
+            return _err(str(e))
+        caller = mgmt_team.lead
+
+    try:
+        roster = derive_team_roster(caller, home)
+    except FileNotFoundError as e:
+        return _err(str(e))
+
+    if roster is None or not roster.lead:
+        return _err(
+            f'{caller!r} is not a team lead.  ListTeamMembers is '
+            f'defined for leads (OM, project lead, workgroup lead); '
+            f'a workgroup member can belong to several workgroups, '
+            f'so "their team" is ambiguous.'
+        )
+
+    mgmt_agents_dir = os.path.join(home, 'management', 'agents')
+
+    def _read_desc(agent_name: str) -> str:
+        candidate = os.path.join(mgmt_agents_dir, agent_name, 'agent.md')
+        if os.path.isfile(candidate):
+            fm, _ = _parse_agent_file(candidate)
+            return fm.get('description', '')
+        return ''
+
+    members: list[dict] = []
+    for m in roster.members:
+        entry: dict = {
+            'name': m.name,
+            'role': m.role,
+            'description': m.description,
+        }
+        if m.project:
+            entry['project'] = m.project
+        if m.workgroup:
+            entry['workgroup'] = m.workgroup
+        if m.human:
+            entry['human'] = m.human
+        fm_desc = _read_desc(m.name)
+        if fm_desc:
+            entry['description'] = fm_desc
+        members.append(entry)
+
+    return json.dumps({'success': True, 'members': members})
+
+
+def list_agents_handler(project_root: str = '', scope: str = '') -> str:
+    """List all agent definitions with summary info."""
+    agents_dir = _scoped_agents_dir(scope) if scope else _mgmt_agents_dir(
+        os.path.join(_project_root(project_root), '.teaparty'))
+    items = []
+    if os.path.isdir(agents_dir):
+        for name in sorted(os.listdir(agents_dir)):
+            path = os.path.join(agents_dir, name, 'agent.md')
+            if os.path.isfile(path):
+                fm, _ = _parse_agent_file(path)
+                items.append({
+                    'name': name,
+                    'description': fm.get('description', ''),
+                    'model': fm.get('model', ''),
+                })
+    return json.dumps({'success': True, 'agents': items})
+
+
+def get_agent_handler(name: str, project_root: str = '', scope: str = '') -> str:
+    """Get full details for a single agent definition."""
+    if not name or not name.strip():
+        return _err('GetAgent requires a non-empty name')
+    agents_dir = _scoped_agents_dir(scope) if scope else _mgmt_agents_dir(
+        os.path.join(_project_root(project_root), '.teaparty'))
+    path = os.path.join(agents_dir, name, 'agent.md')
+    if not os.path.isfile(path):
+        return _err(f"Agent '{name}' not found at {path}")
+    fm, body = _parse_agent_file(path)
+    return json.dumps({'success': True, 'agent': {
+        'name': name, 'path': path, **fm, 'body': body,
+    }})
+
+
+def list_skills_handler(project_root: str = '', scope: str = '') -> str:
+    """List all skill definitions with summary info."""
+    skills_dir = _scoped_skills_dir(scope) if scope else _mgmt_skills_dir(
+        os.path.join(_project_root(project_root), '.teaparty'))
+    items = []
+    if os.path.isdir(skills_dir):
+        for name in sorted(os.listdir(skills_dir)):
+            path = os.path.join(skills_dir, name, 'SKILL.md')
+            if os.path.isfile(path):
+                fm, _ = _parse_skill_file(path)
+                items.append({
+                    'name': name,
+                    'description': fm.get('description', ''),
+                    'user-invocable': fm.get('user-invocable', False),
+                })
+    return json.dumps({'success': True, 'skills': items})
+
+
+def get_skill_handler(name: str, project_root: str = '', scope: str = '') -> str:
+    """Get full details for a single skill definition."""
+    if not name or not name.strip():
+        return _err('GetSkill requires a non-empty name')
+    skills_dir = _scoped_skills_dir(scope) if scope else _mgmt_skills_dir(
+        os.path.join(_project_root(project_root), '.teaparty'))
+    path = os.path.join(skills_dir, name, 'SKILL.md')
+    if not os.path.isfile(path):
+        return _err(f"Skill '{name}' not found at {path}")
+    fm, body = _parse_skill_file(path)
+    return json.dumps({'success': True, 'skill': {
+        'name': name, 'path': path, **fm, 'body': body,
+    }})
+
+
+def list_workgroups_handler(teaparty_home: str = '', project: str = '') -> str:
+    """List workgroup definitions, optionally scoped to a project's active members."""
+    home = _teaparty_home(teaparty_home)
+    wg_dir = _mgmt_workgroups_dir(home)
+
+    active_lower: set[str] | None = None
+    if project:
+        project_dir = _find_project_path(project, home)
+        if project_dir:
+            try:
+                from teaparty.config.config_reader import load_project_team
+                pt = load_project_team(project_dir)
+                active_lower = {m.lower() for m in pt.members_workgroups}
+            except Exception:
+                pass
+
+    items = []
+    if os.path.isdir(wg_dir):
+        for fname in sorted(os.listdir(wg_dir)):
+            if fname.endswith('.yaml'):
+                path = os.path.join(wg_dir, fname)
+                with open(path) as f:
+                    data = yaml.safe_load(f) or {}
+                name = data.get('name', fname[:-5])
+                if active_lower is not None and name.lower() not in active_lower:
+                    continue
+                items.append({
+                    'name': name,
+                    'description': data.get('description', ''),
+                    'lead': data.get('lead', ''),
+                })
+    return json.dumps({'success': True, 'workgroups': items})
+
+
+def get_workgroup_handler(name: str, teaparty_home: str = '') -> str:
+    """Get full details for a single workgroup."""
+    if not name or not name.strip():
+        return _err('GetWorkgroup requires a non-empty name')
+    home = _teaparty_home(teaparty_home)
+    path = os.path.join(_mgmt_workgroups_dir(home), f'{name}.yaml')
+    if not os.path.exists(path):
+        return _err(f"Workgroup '{name}' not found at {path}")
+    with open(path) as f:
+        data = yaml.safe_load(f) or {}
+    return json.dumps({'success': True, 'workgroup': data})
+
+
+def list_hooks_handler(project_root: str = '') -> str:
+    """List all hooks grouped by event."""
+    root = _project_root(project_root)
+    settings_path = _mgmt_settings_yaml(os.path.join(root, '.teaparty'))
+    data = _load_settings(settings_path)
+    hooks = data.get('hooks', {})
+    items = []
+    for event, entries in hooks.items():
+        for entry in entries:
+            items.append({
+                'event': event,
+                'matcher': entry.get('matcher', ''),
+                'hooks': entry.get('hooks', []),
+            })
+    return json.dumps({'success': True, 'hooks': items})
+
+
+def list_scheduled_tasks_handler(teaparty_home: str = '') -> str:
+    """List all scheduled tasks."""
+    home = _teaparty_home(teaparty_home)
+    try:
+        data = _load_teaparty_yaml(home)
+    except FileNotFoundError as e:
+        return _err(str(e))
+    scheduled = data.get('scheduled', [])
+    return json.dumps({'success': True, 'scheduled_tasks': scheduled})
+
+
+def list_pins_handler(project: str, teaparty_home: str = '') -> str:
+    """List all artifact pins for a project."""
+    if not project or not project.strip():
+        return _err('ListPins requires a non-empty project')
+    home = _teaparty_home(teaparty_home)
+    project_dir = _find_project_path(project, home)
+    if project_dir is None:
+        return _err(f"Project '{project}' not found in registry")
+    data = _load_project_yaml(project_dir)
+    pins = data.get('artifact_pins', [])
+    return json.dumps({'success': True, 'pins': pins})
+
+
+# ── Agent tools ───────────────────────────────────────────────────────────────
+
+def create_agent_handler(
+    name: str,
+    description: str,
+    model: str,
+    tools: str,
+    body: str,
+    skills: str = '',
+    max_turns: int = 20,
+    project_root: str = '',
+    scope: str = '',
+) -> str:
+    """Create agents/{name}/agent.md with validated frontmatter."""
+    if not name or not name.strip():
+        return _err('CreateAgent requires a non-empty name')
+    if not description or not description.strip():
+        return _err('CreateAgent requires a non-empty description')
+    if not model or not model.strip():
+        return _err('CreateAgent requires a non-empty model')
+
+    agents_dir = _scoped_agents_dir(scope) if scope else _mgmt_agents_dir(
+        os.path.join(_project_root(project_root), '.teaparty'))
+    path = os.path.join(agents_dir, name, 'agent.md')
+
+    fm: dict[str, Any] = {
+        'name': name,
+        'description': description,
+        'model': model,
+        'maxTurns': max_turns,
+    }
+    if skills and skills.strip():
+        skill_list = [s.strip() for s in skills.split(',') if s.strip()]
+        if skill_list:
+            fm['skills'] = skill_list
+
+    body_text = body if body.startswith('\n') else f'\n{body}'
+    _write_agent_file(path, fm, body_text)
+
+    agent_dir = os.path.dirname(path)
+
+    # settings.yaml's ``permissions.allow`` is the source of truth for
+    # tool assignments — it's what Claude Code honors to auto-approve
+    # MCP tool calls in ``claude -p`` (tools listed in frontmatter alone
+    # are still prompted for). The UI reads and writes this file; the
+    # launcher passes it through ``--settings`` so the subprocess sees
+    # the same allow list the UI displays.
+    tool_list = [t.strip() for t in (tools or '').split(',') if t.strip()]
+    if tool_list:
+        settings_path = os.path.join(agent_dir, 'settings.yaml')
+        if not os.path.exists(settings_path):
+            import yaml as _yaml
+            with open(settings_path, 'w') as _f:
+                _yaml.dump(
+                    {'permissions': {'allow': tool_list}},
+                    _f, default_flow_style=False, sort_keys=False,
+                )
+
+    # Write default pins.yaml so every agent has its prompt pinned.
+    from teaparty.config.config_reader import write_pins
+    pins_dir = agent_dir
+    pins_path = os.path.join(pins_dir, 'pins.yaml')
+    if not os.path.exists(pins_path):
+        write_pins(pins_dir, [
+            {'path': 'agent.md', 'label': 'Prompt & Identity'},
+        ])
+
+    _emit_config_event('config_agent_created', name=name, path=path)
+    return _ok(f"Agent '{name}' created at {path}", path=path)
+
+
+def edit_agent_handler(
+    name: str,
+    field: str,
+    value: str,
+    project_root: str = '',
+    scope: str = '',
+) -> str:
+    """Edit a single frontmatter field (or body) in an existing agent definition."""
+    if not name or not name.strip():
+        return _err('EditAgent requires a non-empty name')
+
+    agents_dir = _scoped_agents_dir(scope) if scope else _mgmt_agents_dir(
+        os.path.join(_project_root(project_root), '.teaparty'))
+    path = os.path.join(agents_dir, name, 'agent.md')
+    if not os.path.exists(path):
+        return _err(f"Agent '{name}' not found at {path}")
+
+    fm, body = _parse_agent_file(path)
+    if field == 'body':
+        body = value if value.startswith('\n') else f'\n{value}'
+    elif field == 'maxTurns':
+        try:
+            fm['maxTurns'] = int(value)
+        except ValueError:
+            return _err(f'maxTurns must be an integer, got: {value!r}')
+    elif field == 'skills':
+        fm['skills'] = [s.strip() for s in value.split(',') if s.strip()]
+    else:
+        fm[field] = value
+
+    _write_agent_file(path, fm, body)
+    _emit_config_event('config_agent_edited', name=name, field=field)
+    return _ok(f"Agent '{name}' field '{field}' updated")
+
+
+def remove_agent_handler(name: str, project_root: str = '', scope: str = '') -> str:
+    """Delete agents/{name}/ directory."""
+    if not name or not name.strip():
+        return _err('RemoveAgent requires a non-empty name')
+
+    agents_dir = _scoped_agents_dir(scope) if scope else _mgmt_agents_dir(
+        os.path.join(_project_root(project_root), '.teaparty'))
+    agent_dir = os.path.join(agents_dir, name)
+    if not os.path.isdir(agent_dir):
+        return _err(f"Agent '{name}' not found at {agent_dir}")
+
+    shutil.rmtree(agent_dir)
+    _emit_config_event('config_agent_removed', name=name)
+    return _ok(f"Agent '{name}' removed")
+
+
+# ── Skill tools ───────────────────────────────────────────────────────────────
+
+def create_skill_handler(
+    name: str,
+    description: str,
+    body: str,
+    allowed_tools: str = '',
+    argument_hint: str = '',
+    user_invocable: bool = False,
+    project_root: str = '',
+    scope: str = '',
+) -> str:
+    """Create skills/{name}/SKILL.md with validated frontmatter."""
+    if not name or not name.strip():
+        return _err('CreateSkill requires a non-empty name')
+    if not description or not description.strip():
+        return _err('CreateSkill requires a non-empty description')
+
+    skills_dir = _scoped_skills_dir(scope) if scope else _mgmt_skills_dir(
+        os.path.join(_project_root(project_root), '.teaparty'))
+    skill_dir = os.path.join(skills_dir, name)
+    path = os.path.join(skill_dir, 'SKILL.md')
+
+    fm: dict[str, Any] = {
+        'name': name,
+        'description': description,
+    }
+    if argument_hint:
+        fm['argument-hint'] = argument_hint
+    fm['user-invocable'] = user_invocable
+    if allowed_tools:
+        fm['allowed-tools'] = allowed_tools
+
+    body_text = body if body.startswith('\n') else f'\n{body}'
+    _write_skill_file(path, fm, body_text)
+    _emit_config_event('config_skill_created', name=name, path=path)
+    return _ok(f"Skill '{name}' created at {path}", path=path)
+
+
+def edit_skill_handler(
+    name: str,
+    field: str,
+    value: str,
+    project_root: str = '',
+    scope: str = '',
+) -> str:
+    """Edit a single frontmatter field (or body) in an existing skill's SKILL.md.
+
+    field may be 'body', 'description', 'allowed-tools', 'argument-hint',
+    'user-invocable', or any other frontmatter key.
+    """
+    if not name or not name.strip():
+        return _err('EditSkill requires a non-empty name')
+
+    skills_dir = _scoped_skills_dir(scope) if scope else _mgmt_skills_dir(
+        os.path.join(_project_root(project_root), '.teaparty'))
+    path = os.path.join(skills_dir, name, 'SKILL.md')
+    if not os.path.exists(path):
+        return _err(f"Skill '{name}' not found at {path}")
+
+    fm, body = _parse_skill_file(path)
+    if field == 'body':
+        body = value if value.startswith('\n') else f'\n{value}'
+    elif field == 'allowed-tools':
+        fm['allowed-tools'] = value
+    else:
+        fm[field] = value
+
+    _write_skill_file(path, fm, body)
+    _emit_config_event('config_skill_edited', name=name, field=field)
+    return _ok(f"Skill '{name}' field '{field}' updated")
+
+
+def remove_skill_handler(name: str, project_root: str = '', scope: str = '') -> str:
+    """Remove skills/{name}/ directory."""
+    if not name or not name.strip():
+        return _err('RemoveSkill requires a non-empty name')
+
+    skills_dir = _scoped_skills_dir(scope) if scope else _mgmt_skills_dir(
+        os.path.join(_project_root(project_root), '.teaparty'))
+    skill_dir = os.path.join(skills_dir, name)
+    if not os.path.isdir(skill_dir):
+        return _err(f"Skill '{name}' not found at {skill_dir}")
+
+    shutil.rmtree(skill_dir)
+    _emit_config_event('config_skill_removed', name=name)
+    return _ok(f"Skill '{name}' removed")
+
+
+# ── Workgroup tools ───────────────────────────────────────────────────────────
+
+# The unified workgroup-lead toolset. Every lead has the same function
+# (decompose, delegate, consolidate, reconcile, relay, decide done) and
+# therefore the same tool whitelist. Specialization lives in the
+# description and team-scope blurb, not in the tool set.
+_WORKGROUP_LEAD_TOOLS = (
+    'Read, Glob, Grep, Write, Edit, '
+    'mcp__teaparty-config__Send, '
+    'mcp__teaparty-config__CloseConversation, '
+    'mcp__teaparty-config__AskQuestion, '
+    'mcp__teaparty-config__ListTeamMembers'
+)
+
+
+def _workgroup_lead_body(team_name: str, team_description: str) -> str:
+    """Return the canonical lead prompt body for *team_name*.
+
+    The body is identical across all workgroup leads except for the
+    Team scope blurb. This mirrors the project-lead template — same
+    six-step coordination pattern, substituting "workgroup" for
+    "project" and naming the dispatching lead as the originator.
+    """
+    team_title = team_name.replace('-', ' ').title() if team_name else 'workgroup'
+    scope_section = (
+        f'\n## Team scope\n\n{team_description.strip()}\n'
+        if team_description and team_description.strip() else ''
+    )
+    return (
+        f"\nYou are the lead of the **{team_title}** workgroup — root of your "
+        "team tree. Lead; don't execute. Delegate whenever you could.\n"
+        f"{scope_section}"
+        "\n## What you do\n\n"
+        "**0. Strategic plan.** Decide the steps, owners, and invariants; "
+        "drive the plan through completion.\n\n"
+        "**1. Delegate.** `Send` a task: reference the spec, define done.\n\n"
+        "**2. Consolidate.** Members `Reply` to signal done. Verify against "
+        "plan and spec; accept, or `Send` a correction.\n\n"
+        "**3. Mediate.** The team is a tree — members don't address each "
+        "other. When A Asks for B, route through you: shape, forward, relay "
+        "the Reply.\n\n"
+        "**4. Reconcile.** Members share one worktree. When outputs disagree, "
+        "an invariant breaks, or an error spans members, untangle and "
+        "re-dispatch.\n\n"
+        "**5. Decide done.** When a step's outputs are complete and coherent, "
+        "advance — next step, or delivery.\n\n"
+        "**6. Interface externally.** Originators (the dispatching lead or "
+        "human) — all via you. Members `Send` to you to route when they need "
+        "external reach.\n\n"
+        "## Tools\n\n"
+        "`Send` and `Reply` are the team-comm primitives — see tool docstrings "
+        "for thread semantics. Four intents ride on them: Request, Ask, "
+        "Answer, Deliver — in the message content, not the tool. `AskQuestion` "
+        "routes to proxy or human. `CloseConversation` tears down a thread "
+        "you opened.\n\n"
+        "Independent tracks: `Send` to each in the same turn; threads run in "
+        "parallel.\n\n"
+        "## Escalation\n\n"
+        "Escalate upward by `Send`ing an Ask to the originator when:\n"
+        "- only the originator can decide,\n"
+        "- the intent is inadequate,\n"
+        "- an interpretation change is non-trivial or irreversible,\n"
+        "- a blocker can't be untangled.\n\n"
+        "Silent adaptation is wrong when the originator might want to decide.\n"
+    )
+
+
+def _stamp_workgroup_lead(
+    workgroup_name: str,
+    workgroup_description: str,
+    lead_name: str,
+    project_root: str,
+    scope: str,
+) -> None:
+    """Stamp ``{lead_name}`` with the unified workgroup-lead template.
+
+    Idempotent: if ``{lead_name}/agent.md`` already exists, returns without
+    overwriting — the user's customizations win after creation.
+    """
+    agents_dir = _scoped_agents_dir(scope) if scope else _mgmt_agents_dir(
+        os.path.join(_project_root(project_root), '.teaparty'))
+    lead_path = os.path.join(agents_dir, lead_name, 'agent.md')
+    if os.path.exists(lead_path):
+        return
+
+    team_title = workgroup_name.replace('-', ' ').title() or 'Workgroup'
+    description = (
+        f"{team_title} workgroup lead — decomposes the request, delegates to "
+        f"members, consolidates results, and declares completion."
+    )
+    if workgroup_description and workgroup_description.strip():
+        description += f' Dispatch here when: {workgroup_description.strip()}'
+
+    create_agent_handler(
+        name=lead_name,
+        description=description,
+        model='sonnet',
+        tools=_WORKGROUP_LEAD_TOOLS,
+        body=_workgroup_lead_body(workgroup_name, workgroup_description),
+        skills='digest',
+        max_turns=20,
+        project_root=project_root,
+        scope=scope,
+    )
+
+
+def create_workgroup_handler(
+    name: str,
+    description: str = '',
+    lead: str = '',
+    agents_yaml: str = '',
+    skills: str = '',
+    norms_yaml: str = '',
+    teaparty_home: str = '',
+    scope: str = '',
+    project_root: str = '',
+) -> str:
+    """Create a workgroup YAML in workgroups/{name}.yaml and stamp its lead.
+
+    If *lead* is the conventional ``{name}-lead`` and that agent does not
+    yet exist, the lead is created from the unified workgroup-lead
+    template (same six-step coordination body, same tool whitelist).
+    Callers that specify a non-default lead, or whose default lead has
+    already been customized, get the legacy behaviour: YAML only, no
+    stamping.
+    """
+    if not name or not name.strip():
+        return _err('CreateWorkgroup requires a non-empty name')
+
+    wg_dir = _scoped_workgroups_dir(scope) if scope else _mgmt_workgroups_dir(
+        _teaparty_home(teaparty_home))
+    os.makedirs(wg_dir, exist_ok=True)
+    path = os.path.join(wg_dir, f'{name}.yaml')
+
+    agents_list: list = []
+    if agents_yaml:
+        try:
+            agents_list = yaml.safe_load(agents_yaml) or []
+        except yaml.YAMLError:
+            agents_list = []
+
+    skills_list: list = []
+    if skills:
+        skills_list = [s.strip() for s in skills.split(',') if s.strip()]
+
+    norms_dict: dict = {}
+    if norms_yaml:
+        try:
+            norms_dict = yaml.safe_load(norms_yaml) or {}
+        except yaml.YAMLError:
+            norms_dict = {}
+
+    effective_lead = lead.strip() if lead else f'{name}-lead'
+    data = {
+        'name': name,
+        'description': description,
+        'lead': effective_lead,
+        'agents': agents_list,
+        'skills': skills_list,
+        'norms': norms_dict,
+    }
+    with open(path, 'w') as f:
+        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+    _emit_config_event('config_workgroup_created', name=name, path=path)
+
+    if effective_lead == f'{name}-lead':
+        _stamp_workgroup_lead(
+            workgroup_name=name,
+            workgroup_description=description,
+            lead_name=effective_lead,
+            project_root=project_root,
+            scope=scope,
+        )
+
+    return _ok(f"Workgroup '{name}' created at {path}", path=path)
+
+
+def edit_workgroup_handler(
+    name: str,
+    field: str,
+    value: str,
+    teaparty_home: str = '',
+    scope: str = '',
+) -> str:
+    """Edit a single field in an existing workgroup YAML."""
+    wg_dir = _scoped_workgroups_dir(scope) if scope else _mgmt_workgroups_dir(
+        _teaparty_home(teaparty_home))
+    path = os.path.join(wg_dir, f'{name}.yaml')
+    if not os.path.exists(path):
+        return _err(f"Workgroup '{name}' not found at {path}")
+
+    with open(path) as f:
+        data = yaml.safe_load(f) or {}
+
+    # For list/dict fields, try to parse as YAML; fall back to plain string
+    if field in ('agents', 'skills', 'norms'):
+        try:
+            data[field] = yaml.safe_load(value)
+        except yaml.YAMLError:
+            data[field] = value
+    else:
+        data[field] = value
+
+    with open(path, 'w') as f:
+        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+    _emit_config_event('config_workgroup_edited', name=name, field=field)
+    return _ok(f"Workgroup '{name}' field '{field}' updated")
+
+
+def remove_workgroup_handler(name: str, teaparty_home: str = '', scope: str = '') -> str:
+    """Remove workgroups/{name}.yaml."""
+    wg_dir = _scoped_workgroups_dir(scope) if scope else _mgmt_workgroups_dir(
+        _teaparty_home(teaparty_home))
+    path = os.path.join(wg_dir, f'{name}.yaml')
+    if not os.path.exists(path):
+        return _err(f"Workgroup '{name}' not found at {path}")
+
+    os.remove(path)
+    _emit_config_event('config_workgroup_removed', name=name)
+    return _ok(f"Workgroup '{name}' removed")
+
+
+# ── Hook tools ────────────────────────────────────────────────────────────────
+
+def create_hook_handler(
+    event: str,
+    matcher: str,
+    handler_type: str,
+    command: str,
+    project_root: str = '',
+    scope: str = '',
+) -> str:
+    """Add a hook entry to settings.yaml."""
+    if not event or not event.strip():
+        return _err('CreateHook requires a non-empty event')
+    if not command or not command.strip():
+        return _err('CreateHook requires a non-empty command')
+
+    settings_path = _scoped_settings_yaml(scope) if scope else _mgmt_settings_yaml(
+        os.path.join(_project_root(project_root), '.teaparty'))
+    data = _load_settings(settings_path)
+    hooks = data.setdefault('hooks', {})
+    event_hooks = hooks.setdefault(event, [])
+
+    new_entry = {
+        'matcher': matcher,
+        'hooks': [{'type': handler_type, 'command': command}],
+    }
+    event_hooks.append(new_entry)
+    _save_settings(settings_path, data)
+    _emit_config_event('config_hook_created', event=event, matcher=matcher)
+    return _ok(f"Hook added: {event}/{matcher}")
+
+
+def edit_hook_handler(
+    event: str,
+    matcher: str,
+    field: str,
+    value: str,
+    project_root: str = '',
+    scope: str = '',
+) -> str:
+    """Edit a field in an existing hook entry."""
+    settings_path = _scoped_settings_yaml(scope) if scope else _mgmt_settings_yaml(
+        os.path.join(_project_root(project_root), '.teaparty'))
+    data = _load_settings(settings_path)
+    event_hooks = data.get('hooks', {}).get(event, [])
+
+    for entry in event_hooks:
+        if entry.get('matcher') == matcher:
+            if field == 'matcher':
+                entry['matcher'] = value
+            elif field in ('command', 'type'):
+                for h in entry.get('hooks', []):
+                    h[field] = value
+            else:
+                entry[field] = value
+            _save_settings(settings_path, data)
+            return _ok(f"Hook {event}/{matcher} field '{field}' updated")
+
+    return _err(f"Hook not found: {event}/{matcher}")
+
+
+def remove_hook_handler(event: str, matcher: str, project_root: str = '', scope: str = '') -> str:
+    """Remove a hook entry from settings.yaml."""
+    settings_path = _scoped_settings_yaml(scope) if scope else _mgmt_settings_yaml(
+        os.path.join(_project_root(project_root), '.teaparty'))
+    data = _load_settings(settings_path)
+    event_hooks = data.get('hooks', {}).get(event, [])
+
+    original_len = len(event_hooks)
+    data['hooks'][event] = [
+        e for e in event_hooks if e.get('matcher') != matcher
+    ]
+
+    if len(data['hooks'][event]) == original_len:
+        return _err(f"Hook not found: {event}/{matcher}")
+
+    _save_settings(settings_path, data)
+    _emit_config_event('config_hook_removed', event=event, matcher=matcher)
+    return _ok(f"Hook removed: {event}/{matcher}")
+
+
+# ── Scheduled task tools ──────────────────────────────────────────────────────
+
+def create_scheduled_task_handler(
+    name: str,
+    schedule: str,
+    skill: str,
+    args: str = '',
+    teaparty_home: str = '',
+) -> str:
+    """Add a scheduled task entry to teaparty.yaml."""
+    if not name or not name.strip():
+        return _err('CreateScheduledTask requires a non-empty name')
+    if not schedule or not schedule.strip():
+        return _err('CreateScheduledTask requires a non-empty schedule')
+    if not skill or not skill.strip():
+        return _err('CreateScheduledTask requires a non-empty skill')
+
+    home = _teaparty_home(teaparty_home)
+    try:
+        data = _load_teaparty_yaml(home)
+    except FileNotFoundError as e:
+        return _err(str(e))
+
+    scheduled = data.setdefault('scheduled', [])
+    entry = {'name': name, 'schedule': schedule, 'skill': skill,
+             'args': args, 'enabled': True}
+    scheduled.append(entry)
+    _save_teaparty_yaml(home, data)
+    return _ok(f"Scheduled task '{name}' created")
+
+
+def edit_scheduled_task_handler(
+    name: str,
+    field: str,
+    value: str,
+    teaparty_home: str = '',
+) -> str:
+    """Edit a field in an existing scheduled task entry."""
+    home = _teaparty_home(teaparty_home)
+    try:
+        data = _load_teaparty_yaml(home)
+    except FileNotFoundError as e:
+        return _err(str(e))
+
+    scheduled = data.get('scheduled', [])
+    for entry in scheduled:
+        if entry.get('name') == name:
+            if field == 'enabled':
+                entry[field] = value.lower() in ('true', '1', 'yes')
+            else:
+                entry[field] = value
+            _save_teaparty_yaml(home, data)
+            return _ok(f"Scheduled task '{name}' field '{field}' updated")
+
+    return _err(f"Scheduled task '{name}' not found")
+
+
+def remove_scheduled_task_handler(name: str, teaparty_home: str = '') -> str:
+    """Remove a scheduled task entry from teaparty.yaml."""
+    home = _teaparty_home(teaparty_home)
+    try:
+        data = _load_teaparty_yaml(home)
+    except FileNotFoundError as e:
+        return _err(str(e))
+
+    scheduled = data.get('scheduled', [])
+    original_len = len(scheduled)
+    data['scheduled'] = [e for e in scheduled if e.get('name') != name]
+
+    if len(data['scheduled']) == original_len:
+        return _err(f"Scheduled task '{name}' not found")
+
+    _save_teaparty_yaml(home, data)
+    return _ok(f"Scheduled task '{name}' removed")
+
+
+MCP_SERVER_NAME = 'teaparty-config'
+
+
+def list_mcp_tool_names() -> list[str]:
+    """Return the namespaced tool names exposed by the teaparty-config MCP server.
+
+    Used by the bridge catalog API so the config UI can display all
+    available tools without hardcoding them.  The names use Claude Code's
+    ``mcp__{server}__{tool}`` convention.
+    """
+    server = create_server()
+    prefix = f'mcp__{MCP_SERVER_NAME}__'
+    return [prefix + name for name in sorted(server._tool_manager._tools)]
+
+
+def _agent_tool_scope() -> str:
+    """Determine tool scope for this MCP server instance.
+
+    Checked in order:
+    1. AGENT_TOOL_SCOPE env var (set by mcp_server_dispatch entry point)
+    2. .tool-scope file in cwd (written by compose_worktree)
+    3. '' (full tool set — interactive session)
+    """
+    scope = os.environ.get('AGENT_TOOL_SCOPE', '')
+    if scope:
+        return scope
+    scope_file = os.path.join(os.getcwd(), '.tool-scope')
+    try:
+        with open(scope_file) as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return ''
+
+

@@ -1,0 +1,6 @@
+name: writing
+lead: writing-lead
+members:
+  agents:
+  - markdown-writer
+  - latex-writer

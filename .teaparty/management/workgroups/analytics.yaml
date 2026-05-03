@@ -1,0 +1,16 @@
+name: Analytics
+description: Data analysis and visualization — statistical summaries, models, and
+  charts. Does not collect or move data; analyzes what it receives.
+lead: analytics-lead
+humans:
+  decider: primus
+members:
+  agents:
+  - data-scientist
+  - data-visualizer
+  hooks: []
+artifacts:
+- path: .teaparty/workgroups/NORMS-analytics.md
+  label: Norms
+stats:
+  storage: .teaparty/stats/analytics.json

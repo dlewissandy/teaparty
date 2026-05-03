@@ -1,0 +1,4 @@
+- path: docs/
+  label: docs
+- path: docs/contributing.md
+  label: contributing.md

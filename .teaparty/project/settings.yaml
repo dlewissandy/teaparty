@@ -1,0 +1,111 @@
+permissions:
+  allow:
+    # ── Folder/path permissions.  Read/Edit/Write/Glob/Grep are already
+    #    confined to the worktree by .claude/hooks/worktree_hook.py;
+    #    these patterns cover Bash. ────────────────────────────────────
+
+    # Repo-local git
+    - "Bash(git status)"
+    - "Bash(git diff:*)"
+    - "Bash(git log:*)"
+    - "Bash(git show:*)"
+    - "Bash(git branch:*)"
+    - "Bash(git add:*)"
+    - "Bash(git commit:*)"
+    - "Bash(git checkout:*)"
+    - "Bash(git stash:*)"
+    - "Bash(git fetch:*)"
+    - "Bash(git rebase:*)"
+    - "Bash(git merge:*)"
+    - "Bash(git restore:*)"
+    - "Bash(git switch:*)"
+    - "Bash(git worktree list)"
+
+    # Build / test tooling
+    - "Bash(uv:*)"
+    - "Bash(python:*)"
+    - "Bash(python3:*)"
+    - "Bash(pytest:*)"
+    - "Bash(npm run:*)"
+    - "Bash(npm test:*)"
+    - "Bash(node:*)"
+    - "Bash(go:*)"
+    - "Bash(cargo:*)"
+    - "Bash(make:*)"
+
+    # Read-only inspection inside the worktree
+    - "Bash(ls:*)"
+    - "Bash(pwd)"
+    - "Bash(which:*)"
+    - "Bash(env)"
+    - "Bash(echo:*)"
+    - "Bash(cat:*)"
+    - "Bash(head:*)"
+    - "Bash(tail:*)"
+    - "Bash(wc:*)"
+    - "Bash(grep:*)"
+    - "Bash(find:*)"
+
+  deny:
+    # Privilege escalation — never.
+    - "Bash(sudo:*)"
+    - "Bash(su:*)"
+    - "Bash(doas:*)"
+
+    # Irrecoverable destruction.
+    - "Bash(rm -rf /:*)"
+    - "Bash(rm -rf ~:*)"
+    - "Bash(mkfs:*)"
+    - "Bash(dd:*)"
+    - "Bash(shutdown:*)"
+    - "Bash(reboot:*)"
+
+    # Git danger zone.
+    - "Bash(git push --force:*)"
+    - "Bash(git push -f:*)"
+    - "Bash(git reset --hard:*)"
+    - "Bash(git config --global:*)"
+    - "Bash(git config --system:*)"
+
+    # Repo internals — no writes.  (Reads are allowed: `git log` etc.)
+    - "Write(.git/**)"
+    - "Edit(.git/**)"
+    - "MultiEdit(.git/**)"
+    - "Write(.claude/**)"
+    - "Edit(.claude/**)"
+    - "MultiEdit(.claude/**)"
+    - "Bash(rm .git:*)"
+    - "Bash(rm -rf .git:*)"
+    - "Bash(rm .claude:*)"
+    - "Bash(rm -rf .claude:*)"
+
+    # Credential-adjacent paths (worktree_hook already jails these for
+    # Read/Edit/Write; this is belt-and-suspenders).
+    - "Read(~/.ssh/**)"
+    - "Read(~/.aws/**)"
+    - "Read(~/.config/gh/**)"
+    - "Read(~/.netrc)"
+    - "Read(~/.gnupg/**)"
+    - "Read(/etc/passwd)"
+    - "Read(/etc/shadow)"
+
+  ask:
+    # Environment mutation — human gate.
+    - "Bash(pip install:*)"
+    - "Bash(npm install:*)"
+    - "Bash(uv add:*)"
+    - "Bash(uv pip install:*)"
+
+    # Network beyond git.
+    - "Bash(curl:*)"
+    - "Bash(wget:*)"
+    - "Bash(ssh:*)"
+    - "Bash(scp:*)"
+    - "Bash(rsync:*)"
+
+hooks:
+  PreToolUse:
+    - matcher: "Bash"
+      hooks:
+        - type: command
+          command: "python3 .claude/hooks/bash_jail_hook.py"

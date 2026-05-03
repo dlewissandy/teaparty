@@ -1,0 +1,152 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash",
+      "WebSearch",
+      "WebFetch",
+      "mcp__teaparty-config__Send",
+      "mcp__teaparty-config__Delegate",
+      "mcp__teaparty-config__AskQuestion",
+      "mcp__teaparty-config__CloseConversation",
+      "mcp__teaparty-config__WithdrawSession",
+      "mcp__teaparty-config__PauseDispatch",
+      "mcp__teaparty-config__ResumeDispatch",
+      "mcp__teaparty-config__ReprioritizeDispatch",
+      "mcp__teaparty-config__PinArtifact",
+      "mcp__teaparty-config__ListProjects",
+      "mcp__teaparty-config__GetProject",
+      "mcp__teaparty-config__ListTeamMembers",
+      "mcp__teaparty-config__ListAgents",
+      "mcp__teaparty-config__GetAgent",
+      "mcp__teaparty-config__ListSkills",
+      "mcp__teaparty-config__GetSkill",
+      "mcp__teaparty-config__ListWorkgroups",
+      "mcp__teaparty-config__GetWorkgroup",
+      "mcp__teaparty-config__ListHooks",
+      "mcp__teaparty-config__ListScheduledTasks",
+      "mcp__teaparty-config__ListPins",
+      "mcp__teaparty-config__ProjectStatus",
+      "Read(*/.claude/**)",
+      "Read(*/.claude/skills/**)",
+      "Skill"
+    ],
+    "deny": [
+      "Bash(sudo:*)",
+      "Bash(su:*)",
+      "Bash(doas:*)",
+      "Bash(rm -rf /:*)",
+      "Bash(rm -rf ~:*)",
+      "Bash(mkfs:*)",
+      "Bash(dd:*)",
+      "Bash(shutdown:*)",
+      "Bash(reboot:*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git config --global:*)",
+      "Bash(git config --system:*)",
+      "Write(.git/**)",
+      "Edit(.git/**)",
+      "MultiEdit(.git/**)",
+      "Write(.claude/**)",
+      "Edit(.claude/**)",
+      "MultiEdit(.claude/**)",
+      "Bash(rm .git:*)",
+      "Bash(rm -rf .git:*)",
+      "Bash(rm .claude:*)",
+      "Bash(rm -rf .claude:*)",
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/**)",
+      "Read(~/.config/gh/**)",
+      "Read(~/.netrc)",
+      "Read(~/.gnupg/**)",
+      "Read(/etc/passwd)",
+      "Read(/etc/shadow)",
+      "Bash(rm -rf *)",
+      "Bash(rm -fr *)",
+      "Bash(sudo *)",
+      "Bash(chmod -R *)",
+      "Bash(curl * | *sh*)",
+      "Bash(curl * | bash*)",
+      "Bash(wget * | *sh*)",
+      "Bash(wget * | bash*)",
+      "Edit(*/.claude/settings.json)",
+      "Edit(*/.claude/settings.local.json)",
+      "Edit(*/.claude/agents/**)",
+      "Edit(*/.claude/hooks/**)",
+      "Edit(*/.claude/mcp.json)",
+      "Write(*/.claude/settings.json)",
+      "Write(*/.claude/settings.local.json)",
+      "Write(*/.claude/agents/**)",
+      "Write(*/.claude/hooks/**)",
+      "Write(*/.claude/mcp.json)",
+      "Edit(*/.teaparty/management/agents/**)",
+      "Edit(*/.teaparty/management/skills/**)",
+      "Edit(*/.teaparty/management/workgroups/**)",
+      "Edit(*/.teaparty/management/teaparty.yaml)",
+      "Edit(*/.teaparty/management/settings.yaml)",
+      "Edit(*/.teaparty/management/external-projects.yaml)",
+      "Edit(*/.teaparty/project/agents/**)",
+      "Edit(*/.teaparty/project/skills/**)",
+      "Edit(*/.teaparty/project/workgroups/**)",
+      "Edit(*/.teaparty/project/project.yaml)",
+      "Edit(*/.teaparty/project/settings.yaml)",
+      "Edit(*/.teaparty/teaparty.yaml)",
+      "Write(*/.teaparty/management/agents/**)",
+      "Write(*/.teaparty/management/skills/**)",
+      "Write(*/.teaparty/management/workgroups/**)",
+      "Write(*/.teaparty/management/teaparty.yaml)",
+      "Write(*/.teaparty/management/settings.yaml)",
+      "Write(*/.teaparty/management/external-projects.yaml)",
+      "Write(*/.teaparty/project/agents/**)",
+      "Write(*/.teaparty/project/skills/**)",
+      "Write(*/.teaparty/project/workgroups/**)",
+      "Write(*/.teaparty/project/project.yaml)",
+      "Write(*/.teaparty/project/settings.yaml)",
+      "Write(*/.teaparty/teaparty.yaml)"
+    ],
+    "ask": [
+      "Bash(pip install:*)",
+      "Bash(npm install:*)",
+      "Bash(uv add:*)",
+      "Bash(uv pip install:*)",
+      "Bash(curl:*)",
+      "Bash(wget:*)",
+      "Bash(ssh:*)",
+      "Bash(scp:*)",
+      "Bash(rsync:*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/enforce-ownership.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 .claude/hooks/bash_jail_hook.py"
+          }
+        ]
+      },
+      {
+        "matcher": "Read|Edit|Write|Glob|Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /Users/darrell/git/teaparty/teaparty/workspace/worktree_hook.py"
+          }
+        ]
+      }
+    ]
+  },
+  "autoMemoryEnabled": false
+}

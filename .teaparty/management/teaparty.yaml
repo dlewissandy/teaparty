@@ -1,0 +1,39 @@
+name: Management Team
+description: Cross-project coordination, human interaction, organizational strategy,
+  and configuration management.
+lead: office-manager
+humans:
+  decider: primus
+projects:
+- name: TeaParty
+  path: .
+  config: .teaparty/project/project.yaml
+members:
+  projects:
+  - TeaParty
+  - pybayes
+  - Jainai
+  - comics
+  workgroups:
+  - Configuration
+workgroups:
+- name: Analytics
+  config: workgroups/analytics.yaml
+- name: Art
+  config: workgroups/art.yaml
+- name: Coding
+  config: workgroups/coding.yaml
+- name: Configuration
+  config: workgroups/configuration.yaml
+- name: Editorial
+  config: workgroups/editorial.yaml
+- name: Intake
+  config: workgroups/intake.yaml
+- name: Quality Control
+  config: workgroups/quality-control.yaml
+- name: Research
+  config: workgroups/research.yaml
+- name: Writing
+  config: workgroups/writing.yaml
+stats:
+  storage: .teaparty/stats/management.json
