@@ -114,7 +114,7 @@ def proxy_build_prompt(session: AgentSession, latest_human: str) -> str:
         base_level_activation,
         get_interaction_counter,
         open_proxy_db,
-        query_chunks,
+        retrieve_chunks,
     )
     from teaparty.teams.stream import NON_CONVERSATIONAL_SENDERS
 
@@ -125,7 +125,7 @@ def proxy_build_prompt(session: AgentSession, latest_human: str) -> str:
         conn = open_proxy_db(mem_path)
         try:
             current = get_interaction_counter(conn)
-            chunks = query_chunks(conn)
+            chunks = retrieve_chunks(conn, current_interaction=current, top_k=10)
             entries = []
             for chunk in chunks:
                 activation = base_level_activation(chunk.traces, current)
