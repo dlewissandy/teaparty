@@ -39,7 +39,7 @@ _log = logging.getLogger('teaparty.teams.session')
 
 # Type for optional hooks
 PostInvokeHook = Callable[[str, 'AgentSession'], None]  # (response_text, session)
-BuildPromptHook = Callable[['AgentSession', str], str]   # (session, latest_human) -> prompt
+BuildPromptHook = Callable[['AgentSession', str, str], str]   # (session, latest_human, cwd) -> prompt
 
 
 class AgentSession:
@@ -1063,7 +1063,7 @@ class AgentSession:
         # On resume, deliver only the latest incoming message (sender
         # prefixed). On fresh start, deliver the full conversation.
         if self._build_prompt_hook:
-            prompt = self._build_prompt_hook(self, latest)
+            prompt = self._build_prompt_hook(self, latest, cwd)
         elif resume_message:
             prompt = resume_message
         elif self.claude_session_id:

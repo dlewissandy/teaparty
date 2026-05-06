@@ -608,19 +608,14 @@ class Session:
             except OSError:
                 pass
 
-        # Proxy preferences
-        proxy_path = os.path.join(project_dir, 'proxy.md')
-        if os.path.exists(proxy_path):
-            try:
-                with open(proxy_path) as f:
-                    content = f.read().strip()
-                if content:
-                    parts.append(f'--- Human Preferences ---\n{content}\n--- end ---')
-            except OSError:
-                pass
+        # proxy.md is intentionally NOT loaded here.  It is the proxy's
+        # private preference store and must only enter the proxy's own
+        # prompt (via teaparty/proxy/hooks.py:proxy_build_prompt).  CFA
+        # agents (lead/exec/reviewer) consume institutional norms and
+        # task learnings; proxy preferences would be a memory leak.
 
         # Fuzzy memory retrieval via importable retrieve()
-        # institutional.md and proxy.md are already loaded unconditionally above.
+        # institutional.md is already loaded unconditionally above.
         # Only task-based and proxy-task learnings are fuzzy-retrieved here,
         # each with its own type and budget allocation.
         db_path = os.path.join(project_dir, '.memory.db')
@@ -994,9 +989,11 @@ class Session:
 
         parts = []
 
+        # proxy.md is intentionally NOT loaded here.  It is the proxy's
+        # private preference store; only the proxy itself reads it (via
+        # teaparty/proxy/hooks.py:proxy_build_prompt).
         for filename, label in [
             ('institutional.md', 'Institutional Memory'),
-            ('proxy.md', 'Human Preferences'),
         ]:
             path = os.path.join(project_dir, filename)
             if os.path.exists(path):
@@ -1009,7 +1006,7 @@ class Session:
                     pass
 
         # Fuzzy memory retrieval via importable retrieve()
-        # institutional.md and proxy.md already loaded unconditionally above.
+        # institutional.md is already loaded unconditionally above.
         # Task-based and proxy-task learnings are fuzzy-retrieved with type budgets.
         db_path = os.path.join(project_dir, '.memory.db')
         if os.path.exists(db_path):

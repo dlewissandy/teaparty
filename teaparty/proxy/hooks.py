@@ -104,11 +104,18 @@ def proxy_post_invoke(response_text: str, session: AgentSession) -> None:
         conn.close()
 
 
-def proxy_build_prompt(session: AgentSession, latest_human: str) -> str:
-    """Build the proxy prompt with ACT-R memory context.
+def proxy_build_prompt(session: AgentSession, latest_human: str, cwd: str) -> str:
+    """Build the proxy prompt with ACT-R memory context and proxy.md.
 
     Fresh session: full conversation history + memory + accuracy.
     Resumed session: fresh memory context + latest human message.
+
+    Two memory sources are composed here, both proxy-private:
+      1. ``proxy.md`` at ``cwd/proxy.md`` — the project's consolidated
+         human-preferences store.  The proxy is the only agent that
+         reads this; CFA agents do not see it (issue: proxy-md-leak).
+      2. The ACT-R chunk DB at ``proxy_memory_path(teaparty_home)`` —
+         per-interaction episodic chunks, retrieved by activation.
     """
     from teaparty.proxy.memory import (
         base_level_activation,
@@ -120,7 +127,7 @@ def proxy_build_prompt(session: AgentSession, latest_human: str) -> str:
 
     mem_path = proxy_memory_path(session.teaparty_home)
 
-    # Build memory context
+    # Build chunk-DB memory context
     if os.path.exists(mem_path):
         conn = open_proxy_db(mem_path)
         try:
@@ -135,6 +142,21 @@ def proxy_build_prompt(session: AgentSession, latest_human: str) -> str:
             conn.close()
     else:
         memory_context = 'No memories yet.'
+
+    # Prepend proxy.md (human preferences) — proxy-private store
+    if cwd:
+        proxy_md_path = os.path.join(cwd, 'proxy.md')
+        if os.path.exists(proxy_md_path):
+            try:
+                with open(proxy_md_path) as f:
+                    prefs = f.read().strip()
+                if prefs:
+                    memory_context = (
+                        f'--- Human Preferences ---\n{prefs}\n--- end ---\n\n'
+                        f'{memory_context}'
+                    )
+            except OSError:
+                pass
 
     if session.claude_session_id:
         # Resumed: provide fresh memory context
