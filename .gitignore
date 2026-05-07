@@ -133,6 +133,12 @@ PLAN.md
 WORK_SUMMARY.md
 .phase-outcome.json
 
+# Exception: case-study artifacts are documentation, not run scaffolding
+!docs/case-study/**/IDEA.md
+!docs/case-study/**/INTENT.md
+!docs/case-study/**/PLAN.md
+!docs/case-study/**/WORK_SUMMARY.md
+
 # Inter-agent scratch — copied at spawn, never committed
 .scratch/
 # Per-launch infrastructure — not agent work product
