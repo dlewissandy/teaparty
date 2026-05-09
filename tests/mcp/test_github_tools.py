@@ -348,7 +348,9 @@ class TestListMilestoneIssues(unittest.TestCase):
 class TestReadIssue(unittest.TestCase):
 
     def test_returns_body_labels_state_milestone_assignees(self):
-        """AC 3: read_issue returns these fields."""
+        """AC 3: read_issue returns these fields, all derived from the
+        REST issue endpoint (lowercase ``state``, matching the rest of
+        the tool layer)."""
         canned = json.dumps({
             'number': 427,
             'title': 'MCP tool layer for GitHub Projects V2 and Issues',
@@ -373,25 +375,44 @@ class TestReadIssue(unittest.TestCase):
         self.assertEqual(result['number'], 427)
         self.assertEqual(result['state'], 'open')
 
-        # The handler must request these fields explicitly via --json;
-        # without it, ``gh issue view`` returns human-readable text and
-        # the JSON parse would fail in production.  The fake replays
-        # canned JSON regardless of argv, so this assertion is the only
-        # thing that pins the actual gh contract.
+        # The handler must hit the REST issues endpoint; ``gh issue
+        # view --json state`` would return ``OPEN``/``CLOSED`` and
+        # break parity with ``list_milestones`` / ``list_milestone_issues``
+        # which are REST-based.
         argv = fake.calls[0]
+        joined = ' '.join(argv)
         self.assertIn(
-            '--json', argv,
-            f'read_issue must request structured output via --json; '
-            f'argv={argv!r}',
+            '/repos/dlewissandy/teaparty/issues/427', joined,
+            f'read_issue must hit the REST issues endpoint for case '
+            f'consistency with other tools; argv={argv!r}',
         )
-        json_idx = argv.index('--json')
-        json_fields = argv[json_idx + 1].split(',')
-        for required in ('body', 'labels', 'state', 'milestone', 'assignees'):
-            self.assertIn(
-                required, json_fields,
-                f'--json field selector must include AC-3 field {required!r}; '
-                f'got fields {json_fields!r}',
-            )
+
+    def test_state_is_lowercase_matching_other_tools(self):
+        """Cross-tool contract: ``state`` is always lowercase
+        (``open``/``closed``).  A regression that read state from
+        ``gh issue view --json state`` (uppercase OPEN/CLOSED) would
+        break callers doing ``if issue['state'] == 'open'``."""
+        canned = json.dumps({
+            'number': 427, 'title': 'X', 'body': '', 'state': 'closed',
+            'labels': [], 'milestone': None, 'assignees': [],
+        })
+        fake = _FakeGh([canned])
+
+        out = gh.read_issue_handler(
+            number=427, gh_runner=fake, repo_resolver=_fake_resolver(),
+        )
+
+        result = json.loads(out)
+        self.assertEqual(
+            result['state'], 'closed',
+            f'state must be lowercase to match list_milestones / '
+            f'list_milestone_issues; got {result["state"]!r}',
+        )
+        self.assertNotIn(
+            result['state'], ('OPEN', 'CLOSED'),
+            'state must NOT be the GraphQL-style uppercase form; '
+            f'got {result["state"]!r}',
+        )
 
 
 class TestCreateIssue(unittest.TestCase):

@@ -230,14 +230,28 @@ def read_issue_handler(
     gh_runner: GhRunner = _run_gh,
     repo_resolver: RepoResolver = _resolve_repo,
 ) -> str:
-    """Return the issue's number, title, body, state, labels, milestone, assignees."""
+    """Return the issue's number, title, body, state, labels, milestone, assignees.
+
+    Goes through the REST endpoint so the ``state`` value is lowercase
+    (``open``/``closed``) and matches the convention of every other
+    tool in this layer.  ``gh issue view --json state`` would return
+    ``OPEN``/``CLOSED`` and split the contract across tools.
+    """
     owner, repo = repo_resolver()
-    out = gh_runner(
-        'issue', 'view', str(number),
-        '--repo', f'{owner}/{repo}',
-        '--json', 'number,title,body,state,labels,milestone,assignees',
+    out = _gh_api(
+        f'/repos/{owner}/{repo}/issues/{number}',
+        gh_runner=gh_runner,
     )
-    return out.strip()
+    raw = json.loads(out) if out.strip() else {}
+    return json.dumps({
+        'number': raw.get('number'),
+        'title': raw.get('title'),
+        'body': raw.get('body'),
+        'state': raw.get('state'),
+        'labels': raw.get('labels', []),
+        'milestone': raw.get('milestone'),
+        'assignees': raw.get('assignees', []),
+    })
 
 
 def create_issue_handler(
