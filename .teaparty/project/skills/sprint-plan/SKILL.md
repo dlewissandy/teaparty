@@ -65,7 +65,7 @@ sprint:
 
 ### 5. Write `index.md`
 
-The fast-lookup table. Columns are fixed: **issue #**, **title**, **status**, **tier**, **wave**. Status comes from each issue's current board state (call `read_board_status(number)` for each, or use the data already returned by step 3 if the listing included it). Tier and wave are blank at planning time — they're filled in by `prioritize`.
+The fast-lookup table. Columns are fixed: **issue #**, **title**, **status**, **tier**, **wave**. For each issue, call `read_board_status(number)` to get its current board status; if the issue is not on the board the call returns an `error` field, in which case the status column is blank for now (the project lead's first `prioritize` call will place it). Tier and wave are blank at planning time — they're filled in by `prioritize`.
 
 ```markdown
 # {milestone title} — Sprint Index

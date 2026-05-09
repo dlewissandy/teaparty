@@ -4,13 +4,17 @@ Layered:
   1. Agent definition — agent.md frontmatter + settings.yaml shape
   2. Skill definitions — SKILL.md files for each of the seven skills
   3. Wiring — the agent's ``skills:`` frontmatter matches the on-disk
-     skill directory exactly (no orphans, no missing)
+     skill directory exactly (no orphans, no missing) AND each skill's
+     ``allowed-tools`` is a subset of the agent's allow list
   4. Body content — the agent.md and skill bodies encode the scope
      discipline and sync model the issue specifies (mechanics only,
      GitHub-first then cache, no tier judgment)
   5. State schema — ``sprint-plan`` documents the cache layout
-     (``sprint.yaml``, ``index.md``, ``issues/{N}.md``) the issue
-     requires
+     (``sprint.yaml``, ``index.md`` columns parsed from the table
+     header, per-issue file frontmatter schema and section headers)
+  6. Per-skill contracts — tier→status mapping in prioritize,
+     read-mostly nature of sprint-plan, archive-sprint forbids
+     milestone closure
 
 Each test maps to one or more acceptance criteria from issue #429.
 The tests inspect the static files on disk; they do not invoke the
@@ -54,7 +58,25 @@ STATE_CHANGE_SKILLS = (
     'mark-in-progress',
     'mark-done',
     'add-to-backlog',
+    'refresh-board',
 )
+
+# MCP tools any skill body or allowed-tools list may reference.  The
+# expected union of all skills' allowed-tools is the agent's MCP
+# allow list — we enumerate it here so the permission test covers
+# every tool, not just two of them.
+ALL_BOARD_MCP_TOOLS = (
+    'mcp__teaparty-config__list_milestones',
+    'mcp__teaparty-config__list_milestone_issues',
+    'mcp__teaparty-config__read_issue',
+    'mcp__teaparty-config__list_project_boards',
+    'mcp__teaparty-config__add_issue_to_board',
+    'mcp__teaparty-config__set_board_status',
+    'mcp__teaparty-config__read_board_status',
+)
+
+# Built-in tools the agent and its skills may legitimately use.
+BUILTIN_TOOLS = ('Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash')
 
 
 _FRONTMATTER_RE = re.compile(r'^---\s*\n(.*?)\n---\s*\n?(.*)\Z', re.DOTALL)
@@ -80,6 +102,28 @@ def _read_frontmatter_and_body(path: str) -> tuple[dict, str]:
 
 def _skill_path(name: str) -> str:
     return os.path.join(PROJECT_SKILLS, name, 'SKILL.md')
+
+
+def _skill_allowed_tools(name: str) -> list[str]:
+    """Parse a skill's ``allowed-tools`` frontmatter into a list."""
+    fm, _ = _read_frontmatter_and_body(_skill_path(name))
+    raw = fm.get('allowed-tools') or ''
+    if isinstance(raw, list):
+        return [str(s).strip() for s in raw]
+    return [s.strip() for s in str(raw).split(',') if s.strip()]
+
+
+def _agent_bare_allow() -> set[str]:
+    """The agent's allow list with permission patterns stripped."""
+    with open(AGENT_SETTINGS) as fh:
+        settings = yaml.safe_load(fh) or {}
+    allow = (settings.get('permissions') or {}).get('allow') or []
+    return {entry.split('(', 1)[0].strip() for entry in allow}
+
+
+def _normalize_apostrophes(s: str) -> str:
+    """Replace fancy apostrophes with ASCII so substring checks work."""
+    return s.replace('’', "'").replace('‘', "'")
 
 
 # ── 1. Agent definition ────────────────────────────────────────────────────
@@ -161,17 +205,33 @@ class TestScrumMasterAgentDefinition(unittest.TestCase):
             f'{list(EXPECTED_SKILLS)}; got {skills!r}',
         )
 
-    def test_agent_settings_permits_required_io(self):
-        """AC1: the agent needs file I/O for the cache and the github
-        MCP tools for board/issue writes.  A missing entry here means
-        the skill aborts with a permission error at runtime."""
-        with open(AGENT_SETTINGS) as fh:
-            settings = yaml.safe_load(fh) or {}
-        allow = (settings.get('permissions') or {}).get('allow') or []
-        # Strip permission patterns so ``Write(/path/**)`` matches "Write".
-        bare = {entry.split('(', 1)[0].strip() for entry in allow}
+    def test_agent_operational_frontmatter(self):
+        """AC: ``model`` and ``maxTurns`` are operational contracts.
+        Bumping the agent to opus changes cost; removing ``maxTurns``
+        removes the runaway-loop guard.  Both must be pinned."""
+        fm, _ = _read_frontmatter_and_body(AGENT_MD)
+        self.assertEqual(
+            fm.get('model'), 'sonnet',
+            f'agent.md must declare ``model: sonnet`` (cost discipline); '
+            f'got {fm.get("model")!r}',
+        )
+        self.assertIsInstance(
+            fm.get('maxTurns'), int,
+            f'agent.md must declare an integer ``maxTurns`` to bound '
+            f'runaway loops; got {fm.get("maxTurns")!r}',
+        )
+        self.assertGreaterEqual(
+            fm.get('maxTurns', 0), 1,
+            f'agent.md ``maxTurns`` must be >= 1; got {fm.get("maxTurns")!r}',
+        )
 
-        for tool in ('Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash'):
+    def test_agent_settings_permits_every_required_tool(self):
+        """AC1: every MCP tool referenced by any skill — and the file
+        I/O tools the cache needs — must appear in the agent's allow
+        list.  A missing entry aborts the relevant skill at runtime."""
+        bare = _agent_bare_allow()
+
+        for tool in BUILTIN_TOOLS:
             self.assertIn(
                 tool, bare,
                 f'scrum-master settings.yaml must allow {tool}; '
@@ -179,21 +239,37 @@ class TestScrumMasterAgentDefinition(unittest.TestCase):
                 f'``mv`` to move the cache to the archive directory).  '
                 f'Got allow list: {sorted(bare)}',
             )
-        # MCP tools the seven skills call: list_milestones,
-        # list_milestone_issues, list_project_boards, add_issue_to_board,
-        # set_board_status, read_board_status, read_issue, create_comment.
-        # Verify at least the board-mutating ones are allowed (all four
-        # state-change skills go through one of these).
-        for mcp_tool in (
-            'mcp__teaparty-config__add_issue_to_board',
-            'mcp__teaparty-config__set_board_status',
-        ):
+        # Every github MCP tool the skills can call.  Stripping any one
+        # of these silently breaks at least one skill at runtime; the
+        # tests must reject that.
+        for mcp_tool in ALL_BOARD_MCP_TOOLS:
             self.assertIn(
                 mcp_tool, bare,
                 f'scrum-master settings.yaml must allow {mcp_tool}; '
-                f'mark-* / add-to-backlog cannot mutate the board without it. '
+                f'at least one of the seven skills calls it.  '
                 f'Got allow list: {sorted(bare)}',
             )
+
+    def test_agent_settings_has_no_unused_permissions(self):
+        """AC: the allow list must not include MCP tools that no skill
+        uses.  Over-broad permissions invite a future skill author to
+        reach for a tool the agent has no documented reason to invoke,
+        which is scope-broadening through the back door."""
+        bare = _agent_bare_allow()
+        agent_mcp = {p for p in bare if p.startswith('mcp__')}
+        skill_mcp: set[str] = set()
+        for name in EXPECTED_SKILLS:
+            for tool in _skill_allowed_tools(name):
+                if tool.startswith('mcp__'):
+                    skill_mcp.add(tool)
+        unused = agent_mcp - skill_mcp
+        self.assertEqual(
+            unused, set(),
+            f'scrum-master settings.yaml allows MCP tools no skill '
+            f'declares in its ``allowed-tools``: {sorted(unused)}.  '
+            f'Either a skill should call it or the permission should '
+            f'be removed (mechanics-only discipline).',
+        )
 
 
 # ── 2. Skill definitions ───────────────────────────────────────────────────
@@ -223,16 +299,41 @@ class TestScrumMasterSkills(unittest.TestCase):
                     f'got {fm.get("name")!r}',
                 )
 
-    def test_each_skill_has_description(self):
-        """A skill without a description can't be matched by the
-        planning step — it becomes invisible to the agent."""
+    def test_each_skill_description_is_substantive(self):
+        """A skill description is what the planning step matches against
+        to decide whether to invoke the skill.  A one-character or
+        single-word description satisfies a length-greater-than-zero
+        check but is useless for matching, so we require a substantive
+        description (>= 40 chars).  Skill descriptions describe what
+        the skill does using semantic verbs ("Bootstrap", "Apply",
+        "Move"); requiring the literal skill-name token would be
+        overreach — dispatchers match on capability, not on echoing
+        the name back."""
         for name in EXPECTED_SKILLS:
             with self.subTest(skill=name):
                 fm, _ = _read_frontmatter_and_body(_skill_path(name))
-                desc = fm.get('description') or ''
-                self.assertGreater(
-                    len(desc.strip()), 0,
-                    f'{name}/SKILL.md must declare a non-empty description',
+                desc = (fm.get('description') or '').strip()
+                self.assertGreaterEqual(
+                    len(desc), 40,
+                    f'{name}/SKILL.md description must be substantive '
+                    f'(>= 40 chars); got {len(desc)} chars: {desc!r}',
+                )
+
+    def test_each_skill_is_not_user_invocable(self):
+        """AC: every scrum-master skill is reached via the agent, not
+        by typing ``/<name>`` at a user prompt.  Flipping
+        ``user-invocable: true`` makes the skill discoverable to any
+        caller and breaks the agent's ownership of its mechanics."""
+        for name in EXPECTED_SKILLS:
+            with self.subTest(skill=name):
+                fm, _ = _read_frontmatter_and_body(_skill_path(name))
+                self.assertEqual(
+                    fm.get('user-invocable'), False,
+                    f'{name}/SKILL.md frontmatter must declare '
+                    f'``user-invocable: false``; this is the routing '
+                    f'contract that says the skill is reached only via '
+                    f'the scrum-master agent.  Got '
+                    f'{fm.get("user-invocable")!r}.',
                 )
 
 
@@ -278,6 +379,25 @@ class TestSkillsWiring(unittest.TestCase):
             f'is either unreachable or missing',
         )
 
+    def test_each_skill_allowed_tools_is_subset_of_agent_allow(self):
+        """AC: at runtime every skill executes under the agent's
+        permissions.  Any tool a skill declares in ``allowed-tools``
+        must appear in the agent's allow list, or the skill aborts
+        the first time it reaches that tool."""
+        agent_allow = _agent_bare_allow()
+        for name in EXPECTED_SKILLS:
+            with self.subTest(skill=name):
+                tools = _skill_allowed_tools(name)
+                missing = [t for t in tools if t not in agent_allow]
+                self.assertEqual(
+                    missing, [],
+                    f'{name}/SKILL.md declares {missing!r} in '
+                    f'allowed-tools, but the agent does not permit '
+                    f'them.  Either add the tool to '
+                    f'.teaparty/project/agents/scrum-master/settings.yaml '
+                    f'or remove it from the skill.',
+                )
+
 
 # ── 4. Body content: scope discipline + sync model ─────────────────────────
 
@@ -286,85 +406,83 @@ class TestSkillsContent(unittest.TestCase):
 
     def test_state_change_skills_specify_github_first_then_cache(self):
         """AC4 (sync model): for every state-change skill, the body
-        must order writes as ``GitHub first, then cache``.  The reverse
-        order means a GitHub failure leaves cache and board diverged."""
-        # We grep for ordered phrasing.  Either "github" appears before
-        # "cache" in a sentence containing both, or the body explicitly
-        # names the rule.  We accept either of two phrasings:
-        #   - the literal phrase "GitHub first" (case-insensitive)
-        #   - both "github" and "cache" mentioned, with "github"
-        #     appearing before "cache" in the body
+        must contain the literal phrase ``GitHub first`` (case-
+        insensitive).  Requiring the canonical phrase is a documentation
+        contract; positional substring checks are too permissive — they
+        can be satisfied by an incidental mention of GitHub above the
+        first ``cache`` mention even when the procedure itself reverses
+        the order."""
         for name in STATE_CHANGE_SKILLS:
             with self.subTest(skill=name):
                 _, body = _read_frontmatter_and_body(_skill_path(name))
                 low = body.lower()
                 self.assertIn(
-                    'github', low,
-                    f'{name}/SKILL.md must reference GitHub writes; '
-                    f'a state-change skill that never says github is '
-                    f'unmoored from the sync model',
+                    'github first', low,
+                    f'{name}/SKILL.md must contain the literal phrase '
+                    f'"GitHub first" (case-insensitive) so the sync '
+                    f'rule is encoded as a documentation contract.  '
+                    f'Reversed write order leaves cache and board '
+                    f'diverged on a transient GitHub failure.',
                 )
                 self.assertIn(
                     'cache', low,
                     f'{name}/SKILL.md must reference the cache; '
                     f'state-change skills update both halves',
                 )
-                gh_first = (
-                    'github first' in low
-                    or low.find('github') < low.find('cache')
-                )
-                self.assertTrue(
-                    gh_first,
-                    f'{name}/SKILL.md must order writes GitHub-first '
-                    f'then cache; reversed order can leave cache and '
-                    f'board diverged on GitHub failure',
-                )
 
-    def test_archive_sprint_does_not_close_milestone(self):
-        """AC: ``archive-sprint`` archives the local cache only — it
-        must explicitly NOT close the GitHub milestone (per issue:
-        "do not close the milestone — that's a human decision")."""
+    def test_archive_sprint_milestone_rule_is_co_located(self):
+        """AC: ``archive-sprint`` must explicitly forbid milestone
+        closure.  We require the negative phrase to co-occur with
+        ``milestone`` in the same paragraph — independent presence
+        of the two is too loose."""
         _, body = _read_frontmatter_and_body(_skill_path('archive-sprint'))
-        low = body.lower()
-        # Negative-space assertion: closing the milestone is forbidden.
-        # The body must say so explicitly so a reviewer (or an agent
-        # editing the skill) sees the rule.
-        self.assertTrue(
-            'do not close' in low or "don't close" in low or 'not close' in low,
-            'archive-sprint/SKILL.md must explicitly forbid closing the '
-            'milestone (the issue calls this out as a human decision)',
+        low = _normalize_apostrophes(body.lower())
+        # Split on blank lines (paragraph boundary).
+        paragraphs = [p.strip() for p in re.split(r'\n\s*\n', low) if p.strip()]
+        co_located = any(
+            'milestone' in p
+            and ('do not close' in p or "don't close" in p or 'not close' in p)
+            for p in paragraphs
         )
-        self.assertIn(
-            'milestone', low,
-            'archive-sprint/SKILL.md must mention the milestone in the '
-            'context of the do-not-close rule',
+        self.assertTrue(
+            co_located,
+            'archive-sprint/SKILL.md must contain a paragraph that '
+            'states "do not close the milestone" (or equivalent) — '
+            'the negative phrase and "milestone" must appear in the '
+            'same paragraph so a reader sees the rule together.  '
+            'Independent presence of the two words across the body '
+            'is too loose; the rule could be deleted while the words '
+            'still occur incidentally.',
         )
 
-    def test_agent_body_states_mechanics_only_scope(self):
-        """AC5: the agent body must spell out that tier analysis,
-        dependency reasoning, and design judgment are NOT in scope.
-        Without this, future skill authors will quietly broaden scope."""
+    def test_agent_body_co_locates_each_exclusion_with_negative_framing(self):
+        """AC5 (mechanics-only scope): each forbidden topic — tier,
+        dependency, design — must appear in a paragraph that contains
+        a negative framing.  Independent presence of the topic word
+        and a negative phrase is too loose: ``tier`` appears in
+        positive contexts (Tier 1 → Approved) and the negative phrase
+        could refer to something else entirely."""
         _, body = _read_frontmatter_and_body(AGENT_MD)
-        low = body.lower()
-        # The agent body must explicitly disclaim at least the three
-        # exclusions the issue calls out.  We check for the keywords
-        # plus a "do not" / "not" / "out of scope" framing nearby.
+        low = _normalize_apostrophes(body.lower())
+        paragraphs = [p.strip() for p in re.split(r'\n\s*\n', low) if p.strip()]
+        negative_phrases = ('do not', 'does not', 'not in scope', 'out of scope')
         for forbidden in ('tier', 'dependency', 'design'):
-            self.assertIn(
-                forbidden, low,
-                f'agent.md must address the "{forbidden}" exclusion '
-                f'(scope discipline is the whole point of this agent)',
-            )
-        # Negative framing: at least one "do not" / "not" / "no" near
-        # the scope discussion.  We grep for the literal phrasing the
-        # issue uses ("does NOT") and accept lower-case variants.
-        self.assertTrue(
-            'do not' in low or 'does not' in low or 'not in scope' in low
-            or 'out of scope' in low,
-            'agent.md must explicitly negate the out-of-scope items '
-            '(tier analysis, dependency reasoning, design judgment); '
-            'positive description alone leaves scope ambiguous',
-        )
+            with self.subTest(exclusion=forbidden):
+                neg_paragraphs = [
+                    p for p in paragraphs
+                    if any(neg in p for neg in negative_phrases)
+                    and forbidden in p
+                ]
+                self.assertGreater(
+                    len(neg_paragraphs), 0,
+                    f'agent.md must have at least one paragraph that '
+                    f'co-locates "{forbidden}" with a negative framing '
+                    f'(do not / does not / not in scope / out of scope).  '
+                    f'Without co-location, the rule is undefended: the '
+                    f'exclusion bullet could be rewritten in the '
+                    f'affirmative or deleted while the keywords still '
+                    f'occur elsewhere.',
+                )
 
     def test_agent_body_states_when_to_use(self):
         """User-explicit requirement: the body must give the agent
@@ -378,6 +496,32 @@ class TestSkillsContent(unittest.TestCase):
             'explicitly required unambiguous when-to-engage guidance',
         )
 
+    def test_agent_body_states_cache_is_read_source_of_truth(self):
+        """AC4 (sync model — read half): the issue specifies that
+        ``cached reads (the cache is the source of truth for everyone
+        reading sprint state)``.  The agent body must encode this so
+        a future skill author knows not to bypass the cache by
+        re-querying GitHub on every status question."""
+        _, body = _read_frontmatter_and_body(AGENT_MD)
+        low = body.lower()
+        # The body must have a paragraph that states reads come from
+        # the cache and that the cache is the source of truth.
+        paragraphs = [p.strip() for p in re.split(r'\n\s*\n', low) if p.strip()]
+        read_paragraphs = [
+            p for p in paragraphs
+            if 'read' in p and 'cache' in p and 'source of truth' in p
+        ]
+        self.assertGreater(
+            len(read_paragraphs), 0,
+            'agent.md must contain a paragraph that names reads, the '
+            'cache, and "source of truth" together — the read half of '
+            'the sync model.  Without this, a future skill author can '
+            'silently flip status reports to re-query GitHub on every '
+            'question, undoing the design rationale of "centralizing '
+            'reads against a local cache keeps GitHub API traffic flat '
+            'as the team scales".',
+        )
+
 
 # ── 5. State schema ────────────────────────────────────────────────────────
 
@@ -388,8 +532,7 @@ class TestStateSchema(unittest.TestCase):
     def test_sprint_plan_documents_cache_layout(self):
         """AC3: ``sprint-plan`` writes the three artifacts the issue
         names: ``sprint.yaml``, ``index.md``, ``issues/{N}.md``.  Each
-        must be named in the body so a reader (human or agent) knows
-        the schema."""
+        must be named in the body."""
         _, body = _read_frontmatter_and_body(_skill_path('sprint-plan'))
         for required_artifact in ('sprint.yaml', 'index.md', 'issues/'):
             self.assertIn(
@@ -399,21 +542,145 @@ class TestStateSchema(unittest.TestCase):
                 f'is the contract for every reader of the cache',
             )
 
-    def test_sprint_plan_documents_index_columns(self):
-        """``index.md`` is the fast-lookup file; the issue specifies
-        its columns as ``issue # | title | status | tier | wave``.  Drift
-        in column set means status reports built on top read different
-        fields than refresh-board writes."""
+    def test_sprint_plan_documents_index_columns_in_table_header(self):
+        """AC3: the issue pins the index.md columns by name and order:
+        ``issue # | title | status | tier | wave``.  We parse the
+        markdown table inside the body and assert the header cells
+        exactly — substring checks pass on incidental prose mentions
+        of these words and don't catch reordering or renaming."""
+        _, body = _read_frontmatter_and_body(_skill_path('sprint-plan'))
+        # Find the first markdown table whose header row contains
+        # ``tier`` and ``wave`` — that's the index.md schema example.
+        # A markdown table is a header line, a separator (|---|), and
+        # one or more data rows.
+        header_re = re.compile(r'^\|(.+)\|\s*$', re.MULTILINE)
+        headers = header_re.findall(body)
+        index_header = None
+        for h in headers:
+            cells = [c.strip().lower() for c in h.split('|')]
+            if 'tier' in cells and 'wave' in cells:
+                index_header = cells
+                break
+        self.assertIsNotNone(
+            index_header,
+            'sprint-plan/SKILL.md must include a markdown table whose '
+            'header documents the index.md columns (it must contain '
+            '``tier`` and ``wave``).  Found no such table in the body.',
+        )
+        expected = ['issue #', 'title', 'status', 'tier', 'wave']
+        self.assertEqual(
+            index_header, expected,
+            f'sprint-plan/SKILL.md index.md table header must be '
+            f'exactly {expected} in this order; got {index_header}.  '
+            f'Drift in the column set means status reports built on '
+            f'top read different fields than refresh-board writes.',
+        )
+
+    def test_sprint_plan_documents_per_issue_file_schema(self):
+        """AC3 (per-issue file schema): ``issues/{N}.md`` carries
+        frontmatter the mark-* and prioritize skills read and write,
+        plus the two sections the self-review tightening pinned
+        (``Issue body`` snapshot + ``Triage notes``).  Drift here
+        means refresh-board reads diverge from add-to-backlog writes."""
         _, body = _read_frontmatter_and_body(_skill_path('sprint-plan'))
         low = body.lower()
-        # The five required columns must all be named in the body.
-        for column in ('issue', 'title', 'status', 'tier', 'wave'):
+        # Required frontmatter keys for the per-issue file.  Each must
+        # appear in the schema example in the body.
+        for key in ('number', 'title', 'state', 'labels', 'status', 'tier', 'wave'):
             self.assertIn(
-                column, low,
-                f'sprint-plan/SKILL.md must document the index.md '
-                f'``{column}`` column (the issue pins these five '
-                f'columns by name)',
+                f'{key}:', low,
+                f'sprint-plan/SKILL.md must document the per-issue file '
+                f'frontmatter key ``{key}`` (other skills read and write '
+                f'this field).',
             )
+        # The two body section headers from the self-review tightening.
+        self.assertIn(
+            'issue body', low,
+            'sprint-plan/SKILL.md must document the "Issue body '
+            '(planning-time snapshot)" section header in the per-issue '
+            'file schema (refresh-board contract: the snapshot is frozen).',
+        )
+        self.assertIn(
+            'triage notes', low,
+            'sprint-plan/SKILL.md must document the "Triage notes" '
+            'section header in the per-issue file schema (refresh-board '
+            'contract: the notes are human-owned, never overwritten).',
+        )
+
+
+# ── 6. Per-skill contracts ─────────────────────────────────────────────────
+
+class TestPerSkillContracts(unittest.TestCase):
+    """The logical contracts of individual skills the issue pins."""
+
+    def test_prioritize_documents_tier_to_status_mapping(self):
+        """AC: ``prioritize`` applies the issue's mapping:
+        Tier 1 → Approved, others → Backlog, Won't-Do → Won't Do.
+        This is the load-bearing logical contract of the skill;
+        rewriting the mapping is exactly the kind of mistake a
+        sprint-mechanics agent must not silently introduce."""
+        _, body = _read_frontmatter_and_body(_skill_path('prioritize'))
+        low = _normalize_apostrophes(body.lower())
+        # Tier 1 must map to Approved.  We require both tokens to
+        # co-occur in the same paragraph or the same line to defend
+        # against re-mapping that keeps both words in the body.
+        paragraphs = [p.strip() for p in re.split(r'\n\s*\n', low) if p.strip()]
+
+        def _has_co(word_a: str, word_b: str) -> bool:
+            return any(word_a in p and word_b in p for p in paragraphs)
+
+        self.assertTrue(
+            _has_co('tier 1', 'approved'),
+            'prioritize/SKILL.md must document Tier 1 → Approved in '
+            'a paragraph that co-locates "tier 1" with "approved".  '
+            'This is the load-bearing logical contract of prioritize.',
+        )
+        self.assertTrue(
+            _has_co('backlog', 'tier'),
+            'prioritize/SKILL.md must document tier ≥ 2 → Backlog '
+            '(a paragraph co-locating "backlog" with "tier").',
+        )
+        self.assertIn(
+            "won't do", low,
+            'prioritize/SKILL.md must name "Won\'t Do" as the third '
+            'mapping option (the issue specifies it as a tier-override).',
+        )
+
+    def test_sprint_plan_is_read_mostly(self):
+        """AC: ``sprint-plan`` is read-mostly — it must not mutate the
+        GitHub board.  Adding ``set_board_status`` or ``add_issue_to_board``
+        to its allowed-tools is exactly the kind of regression that
+        would conflate planning with prioritization (out of scope)."""
+        tools = set(_skill_allowed_tools('sprint-plan'))
+        for forbidden in (
+            'mcp__teaparty-config__set_board_status',
+            'mcp__teaparty-config__add_issue_to_board',
+        ):
+            self.assertNotIn(
+                forbidden, tools,
+                f'sprint-plan/SKILL.md allowed-tools must NOT include '
+                f'{forbidden!r}; sprint-plan is read-mostly and must '
+                f'not mutate the GitHub board.  Tier and status writes '
+                f'belong to prioritize, mark-*, and add-to-backlog.',
+            )
+
+    def test_archive_sprint_does_not_close_milestone(self):
+        """AC: ``archive-sprint`` archives the local cache only — it
+        must explicitly NOT close the GitHub milestone.  This is
+        retained as a stand-alone test for visibility; the stricter
+        co-location check lives in TestSkillsContent."""
+        _, body = _read_frontmatter_and_body(_skill_path('archive-sprint'))
+        low = _normalize_apostrophes(body.lower())
+        self.assertTrue(
+            'do not close' in low or "don't close" in low or 'not close' in low,
+            'archive-sprint/SKILL.md must explicitly forbid closing the '
+            'milestone (the issue calls this out as a human decision)',
+        )
+        self.assertIn(
+            'milestone', low,
+            'archive-sprint/SKILL.md must mention the milestone in the '
+            'context of the do-not-close rule',
+        )
 
 
 if __name__ == '__main__':

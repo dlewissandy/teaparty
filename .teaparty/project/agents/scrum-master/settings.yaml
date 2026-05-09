@@ -13,4 +13,3 @@ permissions:
   - mcp__teaparty-config__add_issue_to_board
   - mcp__teaparty-config__set_board_status
   - mcp__teaparty-config__read_board_status
-  - mcp__teaparty-config__create_comment
