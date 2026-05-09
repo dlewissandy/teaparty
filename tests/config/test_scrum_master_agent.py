@@ -577,6 +577,23 @@ class TestStateSchema(unittest.TestCase):
             f'top read different fields than refresh-board writes.',
         )
 
+    def test_sprint_plan_documents_two_ended_sprint_window(self):
+        """AC3 (cache schema): the issue specifies ``sprint.yaml`` carries
+        ``milestone, board ids, sprint window``.  A window has two
+        ends.  The schema example must show both ``started`` and
+        ``ends`` so a reader-of-the-cache (status reports, archive-sprint)
+        can summarize the sprint window without fetching milestone
+        metadata at every read."""
+        _, body = _read_frontmatter_and_body(_skill_path('sprint-plan'))
+        low = body.lower()
+        for window_end in ('started:', 'ends:'):
+            self.assertIn(
+                window_end, low,
+                f'sprint-plan/SKILL.md sprint.yaml schema must declare '
+                f'``{window_end}`` — the issue specifies "sprint window" '
+                f'(two-ended) and a single endpoint is a half-window.',
+            )
+
     def test_sprint_plan_documents_per_issue_file_schema(self):
         """AC3 (per-issue file schema): ``issues/{N}.md`` carries
         frontmatter the mark-* and prioritize skills read and write,
@@ -719,6 +736,33 @@ class TestPerSkillContracts(unittest.TestCase):
             '``or use the data already returned`` fallback — '
             '``list_milestone_issues`` does not return Projects V2 '
             'Status, so the fallback is unmoored from the data path.',
+        )
+
+
+# ── 7. Project routing wiring ──────────────────────────────────────────────
+
+class TestProjectWiring(unittest.TestCase):
+    """The teaparty project itself must list scrum-master in
+    ``members.agents`` so the project lead can ``Send`` to it.
+    Without this entry the agent + skills land but the project lead
+    cannot reach them — exactly the "scaffolding without integration"
+    anti-pattern the issue's "called by project lead" language
+    forbids."""
+
+    def test_scrum_master_in_project_members_agents(self):
+        project_yaml = os.path.join(
+            REPO_ROOT, '.teaparty', 'project', 'project.yaml',
+        )
+        with open(project_yaml) as fh:
+            data = yaml.safe_load(fh) or {}
+        members = data.get('members') or {}
+        agents = members.get('agents') or []
+        self.assertIn(
+            'scrum-master', agents,
+            f'.teaparty/project/project.yaml ``members.agents`` must '
+            f'include "scrum-master" so the project lead can Send to '
+            f'it.  Without this the agent is unreachable.  '
+            f'Got members.agents = {agents!r}.',
         )
 
 

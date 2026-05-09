@@ -60,7 +60,12 @@ board:
     Done: 42fb9610
     "Won't Do": e4544388
 sprint:
-  started: 2026-05-09  # date sprint-plan ran
+  # The sprint window — both ends.  ``started`` is the date sprint-plan
+  # ran; ``ends`` is the milestone's ``due_on`` date if set, otherwise
+  # null.  ``archive-sprint`` reads these to summarize the sprint at
+  # phase end.
+  started: 2026-05-09
+  ends: 2026-05-31  # from milestone.due_on; null if the milestone has no due date
 ```
 
 ### 5. Write `index.md`

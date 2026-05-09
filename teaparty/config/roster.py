@@ -31,6 +31,7 @@ from teaparty.config.config_reader import (
     load_project_team,
     load_workgroup,
     member_workgroups,
+    read_agent_frontmatter,
     resolve_workgroups,
 )
 
@@ -47,7 +48,7 @@ class Member:
     ``name``.
     """
     name: str
-    role: str                  # 'project-lead' | 'workgroup-lead' | 'workgroup-agent' | 'proxy'
+    role: str                  # 'project-lead' | 'project-specialist' | 'workgroup-lead' | 'workgroup-agent' | 'proxy'
     description: str = ''
     project: str = ''          # populated for project-lead
     workgroup: str = ''        # populated for workgroup-lead / workgroup-agent
@@ -120,12 +121,14 @@ def _team_to_roster(
             teaparty_home=teaparty_home,
         )
         # Project members: workgroup leads (one per resolved workgroup
-        # whose name is also declared via ``members.workgroups``).
-        # No sub-roster nesting: a workgroup loaned to multiple projects
-        # is one team, not many.  Each workgroup-lead's own session
-        # builds the workgroup's roster (with mesh) via its own
-        # ``derive_team_roster`` call; the project session only needs
-        # the lead↔workgroup-lead member pairs.
+        # whose name is also declared via ``members.workgroups``) plus
+        # any direct project-team specialists declared in
+        # ``members.agents``.  No sub-roster nesting: a workgroup loaned
+        # to multiple projects is one team, not many.  Each workgroup-
+        # lead's own session builds the workgroup's roster (with mesh)
+        # via its own ``derive_team_roster`` call; the project session
+        # only needs the lead↔workgroup-lead and lead↔specialist member
+        # pairs.
         members_lower = {m.lower() for m in proj.members_workgroups}
         members: list[Member] = []
         for wg in workgroups:
@@ -138,6 +141,27 @@ def _team_to_roster(
                 role='workgroup-lead',
                 workgroup=wg.name,
                 description=wg.description or wg.name,
+            ))
+        # Direct project-team specialists.  Read each agent's
+        # description from its agent.md frontmatter so the lead's
+        # ``ListTeamMembers`` shows the same description the agent
+        # itself declares.
+        for agent_name in proj.members_agents:
+            agent_md = os.path.join(
+                project_dir, '.teaparty', 'project',
+                'agents', agent_name, 'agent.md',
+            )
+            description = ''
+            if os.path.isfile(agent_md):
+                try:
+                    fm = read_agent_frontmatter(agent_md)
+                    description = fm.get('description', '') or ''
+                except (OSError, Exception):
+                    description = ''
+            members.append(Member(
+                name=agent_name,
+                role='project-specialist',
+                description=description,
             ))
         return Roster(
             lead=proj.lead,
@@ -452,7 +476,8 @@ def resolve_launch_placement(
         if member in (wg.members_agents or []):
             return repo_root, 'management'
 
-    # 4. Each project: lead, workgroup leads, workgroup members
+    # 4. Each project: lead, project-direct specialists, workgroup
+    #    leads, workgroup members
     for project_name in team.members_projects:
         project_entry = None
         for p in team.projects:
@@ -479,6 +504,11 @@ def resolve_launch_placement(
             continue
 
         if project_team.lead == member:
+            return project_path, 'project'
+
+        # Project-direct specialists declared via members.agents.
+        # Mirrors the management-tier members.agents path above.
+        if member in (project_team.members_agents or []):
             return project_path, 'project'
 
         try:
