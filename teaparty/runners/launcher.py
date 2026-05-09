@@ -405,6 +405,13 @@ def compose_launch_worktree(
     mcp_port: int = 0,
     session_id: str = '',
     caller_conversation_id: str = '',
+    # Issue #431 — propagate dispatch-tree linkage into the MCP URL
+    # so in-process tool handlers running in separate ASGI request
+    # tasks read consistent contextvar values. Empty / None falls
+    # through; the middleware leaves the contextvar at its default.
+    job_id: str = '',
+    parent_session_id: str = '',
+    dispatch_depth: int | None = None,
 ) -> None:
     """Compose the .claude/ directory in a worktree for an agent launch.
 
@@ -510,11 +517,22 @@ def compose_launch_worktree(
         # ``parent_conversation_id`` on new dispatches — the single
         # codepath that replaces three independent ``f'dispatch:{sid}'``
         # derivations (chat tier, CfA engine, escalation).
+        # Build the URL query string. Each param threads a launch-time
+        # value into the MCP middleware's contextvar set so in-process
+        # tool handlers (which run in a separate ASGI request task)
+        # see the same job/parent/depth as the agent's TURN_*.
+        from urllib.parse import quote, urlencode
+        _qs_pairs: list[tuple[str, str]] = []
         if caller_conversation_id:
-            from urllib.parse import quote
-            mcp_url = (
-                f'{mcp_url}?conv={quote(caller_conversation_id, safe="")}'
-            )
+            _qs_pairs.append(('conv', caller_conversation_id))
+        if job_id:
+            _qs_pairs.append(('job', job_id))
+        if parent_session_id:
+            _qs_pairs.append(('parent', parent_session_id))
+        if dispatch_depth is not None:
+            _qs_pairs.append(('depth', str(dispatch_depth)))
+        if _qs_pairs:
+            mcp_url = f'{mcp_url}?{urlencode(_qs_pairs, quote_via=quote)}'
         mcp_data = {
             'mcpServers': {
                 'teaparty-config': {
@@ -706,6 +724,10 @@ def compose_launch_config(
     mcp_port: int = 0,
     session_id: str = '',
     caller_conversation_id: str = '',
+    # Issue #431 — propagate dispatch-tree linkage into the MCP URL.
+    job_id: str = '',
+    parent_session_id: str = '',
+    dispatch_depth: int | None = None,
 ) -> dict[str, str]:
     """Compose per-launch config files for a chat-tier agent launch.
 
@@ -781,11 +803,18 @@ def compose_launch_config(
             mcp_url = f'http://localhost:{mcp_port}/mcp/{scope}/{agent_name}/{session_id}'
         else:
             mcp_url = f'http://localhost:{mcp_port}/mcp/{scope}/{agent_name}'
+        from urllib.parse import quote, urlencode
+        _qs_pairs: list[tuple[str, str]] = []
         if caller_conversation_id:
-            from urllib.parse import quote
-            mcp_url = (
-                f'{mcp_url}?conv={quote(caller_conversation_id, safe="")}'
-            )
+            _qs_pairs.append(('conv', caller_conversation_id))
+        if job_id:
+            _qs_pairs.append(('job', job_id))
+        if parent_session_id:
+            _qs_pairs.append(('parent', parent_session_id))
+        if dispatch_depth is not None:
+            _qs_pairs.append(('depth', str(dispatch_depth)))
+        if _qs_pairs:
+            mcp_url = f'{mcp_url}?{urlencode(_qs_pairs, quote_via=quote)}'
         mcp_data = {
             'mcpServers': {
                 'teaparty-config': {
@@ -1437,6 +1466,9 @@ async def launch(
             mcp_port=mcp_port,
             session_id=session_id,
             caller_conversation_id=caller_conversation_id,
+            job_id=job_id,
+            parent_session_id=parent_session_id,
+            dispatch_depth=dispatch_depth,
         )
         chat_settings_path = cfg['settings_path']
         chat_mcp_path = cfg['mcp_path']
@@ -1452,6 +1484,9 @@ async def launch(
             mcp_port=mcp_port,
             session_id=session_id,
             caller_conversation_id=caller_conversation_id,
+            job_id=job_id,
+            parent_session_id=parent_session_id,
+            dispatch_depth=dispatch_depth,
         )
 
     # Read agent frontmatter for tools and permission mode

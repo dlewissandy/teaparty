@@ -10,6 +10,7 @@ one of these fail.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import shutil
 import sqlite3
@@ -884,6 +885,54 @@ class DelegateJobIdLinkageTests(unittest.TestCase):
             f'_default_delegate_post must read job_id from the contextvar '
             f'and pass it to record_dispatch_edge — got {row!r}',
         )
+
+
+# ── MCP URL plumbing ─────────────────────────────────────────────────────────
+
+
+class McpUrlLinkagePlumbingTests(unittest.TestCase):
+    """The MCP URL the launcher composes must carry job_id /
+    parent_session_id / dispatch_depth as query params, so the MCP
+    middleware (running in a separate ASGI request task) can set
+    contextvars to the same values the agent's TURN_* uses. Without
+    this, the in-process Delegate handler reads NULL job_id even
+    though the launcher set the contextvar in its own task."""
+
+    def setUp(self) -> None:
+        telemetry.reset_for_tests()
+        self._tmp = tempfile.mkdtemp(prefix='mcp-url-431-')
+
+    def tearDown(self) -> None:
+        telemetry.reset_for_tests()
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def test_compose_launch_worktree_writes_full_query_string(self) -> None:
+        from teaparty.runners.launcher import compose_launch_worktree
+        wt = os.path.join(self._tmp, 'wt')
+        os.makedirs(wt)
+        compose_launch_worktree(
+            worktree=wt,
+            agent_name='dev',
+            scope='comics',
+            teaparty_home=os.path.join(self._tmp, '.teaparty'),
+            mcp_port=9000,
+            session_id='child-sid',
+            caller_conversation_id='dispatch:abc',
+            job_id='job-J',
+            parent_session_id='sess-parent',
+            dispatch_depth=2,
+        )
+        with open(os.path.join(wt, '.mcp.json')) as f:
+            cfg = json.load(f)
+        url = cfg['mcpServers']['teaparty-config']['url']
+        self.assertIn('conv=dispatch%3Aabc', url,
+                      f'caller_conversation_id missing from MCP URL: {url}')
+        self.assertIn('job=job-J', url,
+                      f'job_id missing from MCP URL: {url}')
+        self.assertIn('parent=sess-parent', url,
+                      f'parent_session_id missing from MCP URL: {url}')
+        self.assertIn('depth=2', url,
+                      f'dispatch_depth missing from MCP URL: {url}')
 
 
 if __name__ == '__main__':

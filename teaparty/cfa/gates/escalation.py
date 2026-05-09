@@ -314,6 +314,21 @@ class AskQuestionRunner:
         )
         child_session.parent_session_id = self._dispatcher_session.id
         child_session.initial_message = question
+        # Issue #431 — propagate the asking session's job_id and
+        # dispatch_depth onto the proxy session so its TURN_* events
+        # roll up under the right job in cost queries. Reading the
+        # contextvars matches what the asking session's launch set.
+        try:
+            from teaparty.mcp.registry import (
+                current_job_id as _ctx_job,
+                current_dispatch_depth as _ctx_depth,
+            )
+            child_session.job_id = _ctx_job.get('') or ''
+            ask_depth = _ctx_depth.get(0)
+            child_session.dispatch_depth = ask_depth + 1
+        except Exception:
+            child_session.job_id = ''
+            child_session.dispatch_depth = None
         # Materialize the caller's worktree into the proxy's cwd (#425).
         # The proxy's cwd IS the clone of the caller's worktree; the
         # diligence rail walks it directly.  The question reaches the
@@ -380,6 +395,7 @@ class AskQuestionRunner:
             import hashlib
             from teaparty.telemetry import record_event as _rec_evt
             from teaparty.telemetry.events import PROXY_INVOKED
+            from teaparty.mcp.registry import current_job_id as _ctx_job
             asking_sid = self.session_id
             asking_agent = self._dispatcher_session.agent_name or ''
             q_hash = hashlib.sha1(question.encode('utf-8')).hexdigest()
@@ -396,6 +412,7 @@ class AskQuestionRunner:
                     'question_first_500': question[:500],
                 },
                 parent_session_id=asking_sid,
+                job_id=_ctx_job.get('') or None,
             )
         except Exception:
             _log.debug('PROXY_INVOKED emit failed', exc_info=True)

@@ -1134,6 +1134,15 @@ class AgentSession:
         # project leads, config-lead) and we MUST NOT pollute it with
         # composed .claude/ files — chat-tier travels via a separate
         # config_dir under .teaparty/{scope}/agents/{name}/.../config/.
+        # Issue #431 — propagate dispatch-tree linkage so this session's
+        # TURN_* events carry the right indexed columns. Top-level
+        # chats (OM, PM, config-lead) have no parent and no job; a
+        # proxy launched via AskQuestion inherits the asking session's
+        # parent_session_id and (when present) the asking session's
+        # job_id via Session.parent_session_id / .job_id.
+        _parent_sid = getattr(session, 'parent_session_id', '') or ''
+        _job_id = getattr(session, 'job_id', '') or ''
+        _depth = getattr(session, 'dispatch_depth', None)
         common_kwargs = dict(
             agent_name=self.agent_name,
             scope=self.scope,
@@ -1149,6 +1158,9 @@ class AgentSession:
             # lead, proxy, config-lead without per-role special-
             # casing: each AgentSession knows its own conversation_id.
             caller_conversation_id=self.conversation_id,
+            parent_session_id=_parent_sid,
+            job_id=_job_id,
+            dispatch_depth=_depth,
         )
         if launch_cwd_override:
             launch_kwargs_base = dict(
