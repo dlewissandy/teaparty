@@ -317,6 +317,7 @@ async def _default_delegate_post(
         from teaparty.telemetry import record_dispatch_edge
         from teaparty.mcp.registry import (
             current_session_id as _curr_sid,
+            current_job_id as _curr_job,
         )
         record_dispatch_edge(
             parent_session_id=_curr_sid.get('') or '',
@@ -324,6 +325,7 @@ async def _default_delegate_post(
             member=member,
             skill=skill,
             task_summary=composite[:300],
+            job_id=_curr_job.get('') or None,
         )
     except Exception:
         _delegate_log.debug(

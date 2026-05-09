@@ -296,6 +296,19 @@ class JobStoreJobCreatedTests(unittest.TestCase):
             'prompt_hash must be sha1 of the prompt for byte-identical '
             'grouping',
         )
+        # Production emits status='active' for newly-created jobs;
+        # asserting the value gates regressions that drop the field
+        # or invent an unexpected lifecycle string.
+        self.assertEqual(
+            d['status'], 'active',
+            f'JOB_CREATED.status must be the production value '
+            f'\'active\' — got {d["status"]!r}',
+        )
+        self.assertEqual(
+            d['classification'], '',
+            'JOB_CREATED.classification is empty by design; downstream '
+            "analysis derives it from slug. Got " + repr(d['classification']),
+        )
 
 
 # ── Stream parser wiring ─────────────────────────────────────────────────────
@@ -488,6 +501,388 @@ class DelegateDispatchEdgeWiringTests(unittest.TestCase):
             row,
             ('parent-sid', 'child-sid-123', 'developer', 'attempt-task'),
             f'delegate_handler must record dispatch_edges row — got {row!r}',
+        )
+
+
+# ── Conversation bus wiring ──────────────────────────────────────────────────
+
+
+class ConversationBusTelemetryWiringTests(unittest.TestCase):
+    """SqliteMessageBus.create_conversation / close_conversation must
+    emit CONVERSATION_OPENED / CONVERSATION_CLOSED — without this
+    wiring the conversation span is invisible to telemetry."""
+
+    def setUp(self) -> None:
+        telemetry.reset_for_tests()
+        self._home = _make_home()
+
+    def tearDown(self) -> None:
+        telemetry.reset_for_tests()
+
+    def test_bus_create_conversation_emits_conversation_opened(self) -> None:
+        from teaparty.messaging.conversations import (
+            ConversationType, SqliteMessageBus,
+        )
+        bus_db = os.path.join(self._home, 'bus.db')
+        bus = SqliteMessageBus(bus_db)
+        try:
+            bus.create_conversation(
+                ConversationType.DISPATCH, 'abc',
+                agent_name='dev', project_slug='comics',
+            )
+        finally:
+            bus.close()
+        evs = telemetry.query_events(event_type=E.CONVERSATION_OPENED)
+        self.assertEqual(
+            len(evs), 1,
+            f'create_conversation must emit exactly one CONVERSATION_OPENED — '
+            f'got {len(evs)}',
+        )
+        ev = evs[0]
+        self.assertEqual(
+            ev.scope, 'comics',
+            'CONVERSATION_OPENED must inherit project_slug, not default to '
+            f"'management' — got scope={ev.scope!r}",
+        )
+        self.assertEqual(
+            ev.data.get('conversation_id'), 'dispatch:abc',
+            f'data.conversation_id must match the bus row — '
+            f'got {ev.data.get("conversation_id")!r}',
+        )
+
+    def test_bus_close_conversation_emits_conversation_closed(self) -> None:
+        from teaparty.messaging.conversations import (
+            ConversationType, SqliteMessageBus,
+        )
+        bus_db = os.path.join(self._home, 'bus.db')
+        bus = SqliteMessageBus(bus_db)
+        try:
+            bus.create_conversation(
+                ConversationType.DISPATCH, 'xyz',
+                agent_name='qa', project_slug='comics',
+            )
+            bus.close_conversation('dispatch:xyz')
+        finally:
+            bus.close()
+        opened = telemetry.query_events(event_type=E.CONVERSATION_OPENED)
+        closed = telemetry.query_events(event_type=E.CONVERSATION_CLOSED)
+        self.assertEqual(len(opened), 1)
+        self.assertEqual(
+            len(closed), 1,
+            f'close_conversation must emit one CONVERSATION_CLOSED — '
+            f'got {len(closed)}',
+        )
+        self.assertEqual(
+            closed[0].scope, 'comics',
+            'CONVERSATION_CLOSED must inherit the bus row\'s project_slug',
+        )
+
+
+# ── Child-dispatch trigger override wiring ───────────────────────────────────
+
+
+class ChildDispatchTriggerOverrideTests(unittest.TestCase):
+    """child_dispatch.run_agent_loop must override trigger='dispatch'
+    on the first launch of a freshly-spawned session and 'resume' on
+    re-entries. Without this, the launcher's default heuristic labels
+    every dispatched child's first turn as 'new' (no resume_session
+    is set on the first call), conflating it with top-level chats."""
+
+    def setUp(self) -> None:
+        telemetry.reset_for_tests()
+        self._home = _make_home()
+
+    def tearDown(self) -> None:
+        telemetry.reset_for_tests()
+
+    def test_first_launch_is_dispatch_subsequent_is_resume(self) -> None:
+        # Drive the in-loop trigger-selection block from
+        # child_dispatch.run_agent_loop directly via a mini script that
+        # mirrors lines 511-525 of that file. Going through the full
+        # loop requires the bus, MCP routes, and a launch_fn — heavier
+        # than this test needs. The contract under test is the
+        # if/else around current_claude_session.
+        captured = []
+
+        def fake_launch(**kwargs):
+            captured.append(kwargs.get('trigger'))
+            return None
+
+        def emulate_iteration(current_claude_session: str) -> None:
+            launch_kwargs = {}
+            if current_claude_session:
+                launch_kwargs['resume_session'] = current_claude_session
+                launch_kwargs['trigger'] = 'resume'
+            else:
+                launch_kwargs['trigger'] = 'dispatch'
+            fake_launch(**launch_kwargs)
+
+        emulate_iteration('')
+        emulate_iteration('claude-uuid-1')
+        emulate_iteration('claude-uuid-1')
+
+        self.assertEqual(
+            captured, ['dispatch', 'resume', 'resume'],
+            f'child_dispatch.run_agent_loop must label first launch '
+            f"'dispatch' and re-entries 'resume' — got {captured}",
+        )
+        # And the contract is enforced by source: the literal block
+        # above must appear in the production code.
+        import inspect
+        from teaparty.messaging import child_dispatch as _cd
+        src = inspect.getsource(_cd.run_agent_loop)
+        self.assertIn(
+            "launch_kwargs['trigger'] = 'dispatch'", src,
+            "run_agent_loop must set trigger='dispatch' on the no-resume "
+            'branch — without this the launcher labels every dispatched '
+            "child's first turn as 'new'",
+        )
+        self.assertIn(
+            "launch_kwargs['trigger'] = 'resume'", src,
+            "run_agent_loop must set trigger='resume' on the resume "
+            'branch (overriding the launcher default in case the '
+            'caller upstream set a different trigger via contextvar)',
+        )
+
+
+# ── Scheduler wake-trigger wiring ────────────────────────────────────────────
+
+
+class SchedulerWakeTriggerTests(unittest.TestCase):
+    """Scheduler.run_task must set trigger='wake' so cron-fired turns
+    are distinguishable from interactive dispatches in telemetry. The
+    contextvar approach lets every nested launch under the scheduler
+    inherit the wake trigger without threading a kwarg through every
+    Session / engine / spawn frame."""
+
+    def setUp(self) -> None:
+        telemetry.reset_for_tests()
+        self._home = _make_home()
+
+    def tearDown(self) -> None:
+        telemetry.reset_for_tests()
+
+    def test_scheduler_sets_wake_trigger_on_contextvar(self) -> None:
+        # Reading from the source guarantees the wiring exists; the
+        # full scheduler.run_task path requires a teaparty project
+        # tree, a CFA engine, and a real launch — heavier than this
+        # contract needs. Confirm here that the scheduler is the
+        # writer of the contextvar value.
+        import inspect
+        from teaparty.scheduling import scheduler as _sched
+        src = inspect.getsource(_sched.CronScheduler.run_task)
+        self.assertIn(
+            'current_trigger', src,
+            'Scheduler.run_task must reference current_trigger — '
+            'without this, scheduled-wake launches cannot be '
+            "distinguished from resume / new in telemetry",
+        )
+        self.assertIn(
+            "'wake'", src,
+            "Scheduler.run_task must set the trigger contextvar to 'wake'",
+        )
+
+
+# ── PROXY_INVOKED escalation wiring ──────────────────────────────────────────
+
+
+class ProxyInvokedEscalationWiringTests(unittest.TestCase):
+    """AskQuestionRunner._route must emit PROXY_INVOKED with the
+    correct dispatch-edge metadata. Without this, proxy cost cannot
+    be rolled up under the right job in pure SQL."""
+
+    def setUp(self) -> None:
+        telemetry.reset_for_tests()
+        self._home = _make_home()
+
+    def tearDown(self) -> None:
+        telemetry.reset_for_tests()
+
+    def test_route_emits_proxy_invoked_in_source(self) -> None:
+        """The wiring is verified via source inspection — actually
+        driving _route requires a proxy invoker, dispatcher session,
+        bus, and proxy bus, which all live behind heavy setup. The
+        emission block, the question_hash via sha1, and the
+        parent_session_id linkage must be present."""
+        import inspect
+        from teaparty.cfa.gates import escalation as _esc
+        src = inspect.getsource(_esc.AskQuestionRunner._route)
+        self.assertIn(
+            'PROXY_INVOKED', src,
+            '_route must emit PROXY_INVOKED at the moment the proxy '
+            'session is created',
+        )
+        self.assertIn(
+            'sha1', src,
+            'PROXY_INVOKED.data.question_hash must be the sha1 of the '
+            'question text, matching the byte-identical-question grouping '
+            'contract',
+        )
+        self.assertIn(
+            "'asking_session_id'", src,
+            'PROXY_INVOKED.data must include asking_session_id so SQL '
+            'can roll up proxy cost under the asking job',
+        )
+        self.assertIn(
+            "'proxy_session_id'", src,
+            'PROXY_INVOKED.data must include proxy_session_id',
+        )
+        self.assertIn(
+            'parent_session_id=asking_sid', src,
+            'PROXY_INVOKED indexed parent_session_id column must be '
+            'set to the asking session — without this, proxy turns '
+            "don't roll up under the asking session in tree queries",
+        )
+
+
+# ── Dispatch-tree linkage end-to-end ─────────────────────────────────────────
+
+
+class DispatchTreeLinkageE2ETests(unittest.TestCase):
+    """End-to-end: a child launched via run_child_lifecycle's
+    launch_kwargs_base path must produce TURN_COMPLETE rows whose
+    indexed parent_session_id, job_id, and dispatch_depth columns
+    are populated, not NULL. Without this the spec's primary
+    dispatch-tree queries return empty."""
+
+    def setUp(self) -> None:
+        telemetry.reset_for_tests()
+        self._tmp = tempfile.mkdtemp(prefix='dispatch-tree-431-')
+        self._tp = _make_teaparty_tree(self._tmp)
+        telemetry.set_teaparty_home(self._tp)
+
+    def tearDown(self) -> None:
+        telemetry.reset_for_tests()
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def test_launch_with_linkage_kwargs_persists_to_indexed_columns(
+        self,
+    ) -> None:
+        """Mirrors the kwargs-pattern run_child_lifecycle now passes
+        into launch_kwargs_base after fix-issue-431 audit-round-2."""
+        from teaparty.runners.launcher import launch
+        from teaparty.runners.claude import ClaudeResult
+        wt = os.path.join(self._tmp, 'wt-link')
+        os.makedirs(os.path.join(wt, '.claude'), exist_ok=True)
+        with open(os.path.join(wt, '.claude', 'CLAUDE.md'), 'w') as f:
+            f.write('# stub\n')
+
+        async def stub_caller(**kwargs):
+            return ClaudeResult(exit_code=0)
+
+        async def run() -> None:
+            await launch(
+                agent_name='test-agent', message='hi',
+                scope='management', teaparty_home=self._tp,
+                worktree=wt, llm_caller=stub_caller,
+                # The actual kwargs run_child_lifecycle now sets:
+                parent_session_id='sess-parent-X',
+                job_id='job-2026-05-09-Y',
+                dispatch_depth=2,
+            )
+        asyncio.run(run())
+
+        db = os.path.join(self._tp, 'telemetry.db')
+        conn = sqlite3.connect(db)
+        try:
+            rows = conn.execute(
+                'SELECT event_type, parent_session_id, job_id, '
+                'dispatch_depth FROM events '
+                "WHERE event_type IN ('turn_start','turn_complete') "
+                'ORDER BY ts, id'
+            ).fetchall()
+        finally:
+            conn.close()
+        self.assertEqual(len(rows), 2)
+        for et, parent_sid, j, d in rows:
+            self.assertEqual(
+                parent_sid, 'sess-parent-X',
+                f'{et}.parent_session_id must be populated, not NULL — '
+                f'without this the call-tree walk cannot proceed in SQL',
+            )
+            self.assertEqual(
+                j, 'job-2026-05-09-Y',
+                f'{et}.job_id must be populated for cost-per-job rollup',
+            )
+            self.assertEqual(d, 2, f'{et}.dispatch_depth must be 2')
+
+    def test_run_child_lifecycle_sets_linkage_in_launch_kwargs(self) -> None:
+        """Source-level wiring assertion that run_child_lifecycle
+        installs parent_session_id, job_id, and dispatch_depth into
+        launch_kwargs_base. Reverting the relevant block would flip
+        this test."""
+        import inspect
+        from teaparty.messaging import child_dispatch as _cd
+        src = inspect.getsource(_cd.run_child_lifecycle)
+        for required in (
+            "parent_session_id=parent_sid",
+            "job_id=job_id",
+            "dispatch_depth=child_depth",
+        ):
+            self.assertIn(
+                required, src,
+                f'run_child_lifecycle must set {required!r} in '
+                f'launch_kwargs_base — without this the indexed '
+                f'columns are NULL on every child TURN_* event',
+            )
+
+
+# ── Delegate edge job_id linkage ─────────────────────────────────────────────
+
+
+class DelegateJobIdLinkageTests(unittest.TestCase):
+    """The dispatch_edges.job_id column must be populated by
+    _default_delegate_post — the motivating tree query
+    ``WHERE job_id=?`` returns nothing without it."""
+
+    def setUp(self) -> None:
+        telemetry.reset_for_tests()
+        self._home = _make_home()
+
+    def tearDown(self) -> None:
+        telemetry.reset_for_tests()
+
+    def test_delegate_records_job_id_from_contextvar(self) -> None:
+        from teaparty.mcp.tools.messaging import _default_delegate_post
+        from teaparty.mcp import registry as _reg
+
+        async def fake_spawn(member, composite, ctx_id):
+            return ('child-J', '/tmp/wt', 'ok')
+
+        _reg._spawn_fns.clear()
+        _reg._spawn_fns['parent-agent'] = fake_spawn
+        _reg.current_agent_name.set('parent-agent')
+        _reg.current_session_id.set('parent-J')
+        _reg.current_job_id.set('job-J-2026')
+
+        async def run() -> str:
+            return await _default_delegate_post(
+                member='developer', composite='do',
+                skill='attempt-task',
+            )
+
+        try:
+            asyncio.run(run())
+        finally:
+            _reg._spawn_fns.clear()
+            _reg.current_agent_name.set('')
+            _reg.current_session_id.set('')
+            _reg.current_job_id.set('')
+
+        db = os.path.join(self._home, 'telemetry.db')
+        conn = sqlite3.connect(db)
+        try:
+            row = conn.execute(
+                'SELECT parent_session_id, child_session_id, member, '
+                'skill, job_id FROM dispatch_edges'
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertEqual(
+            row,
+            ('parent-J', 'child-J', 'developer', 'attempt-task', 'job-J-2026'),
+            f'_default_delegate_post must read job_id from the contextvar '
+            f'and pass it to record_dispatch_edge — got {row!r}',
         )
 
 

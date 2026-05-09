@@ -559,11 +559,34 @@ class SqliteMessageBus:
         self, conversation_id: str, state: ConversationState,
     ) -> None:
         """Transition a conversation to *state*."""
+        existing = self.get_conversation(conversation_id)
         self._conn.execute(
             'UPDATE conversations SET state = ? WHERE id = ?',
             (state.value, conversation_id),
         )
         self._conn.commit()
+        # Issue #431 — emit the close-side bookend when this update is
+        # what closes the conversation. update_conversation_state is
+        # also used to enter PAUSED / WITHDRAWN / TIMED_OUT, which are
+        # different lifecycle endpoints; only CLOSED gets the
+        # CONVERSATION_CLOSED span event.
+        if state == ConversationState.CLOSED and existing is not None:
+            try:
+                from teaparty.telemetry import (
+                    record_event as _rec, events as _evts,
+                )
+                _rec(
+                    _evts.CONVERSATION_CLOSED,
+                    scope=existing.project_slug or 'management',
+                    ts=time.time(),
+                    data={
+                        'conversation_id': conversation_id,
+                        'agent_name': existing.agent_name,
+                    },
+                    conversation_id=conversation_id,
+                )
+            except Exception:
+                pass
 
     def pause_live_conversations(self) -> int:
         """Mark every pending/active conversation as paused (#422).
@@ -589,6 +612,13 @@ class SqliteMessageBus:
 
     def close_conversation(self, conversation_id: str) -> None:
         """Transition a conversation to CLOSED state."""
+        # Capture the project_slug before the state update so the
+        # close-side telemetry event lands in the same scope as the
+        # open-side. After the state change is the wrong moment — the
+        # conversation row still exists, but reading it after the
+        # commit confuses the row's lifetime with the event's.
+        existing = self.get_conversation(conversation_id)
+        scope = (existing.project_slug if existing else '') or 'management'
         self._conn.execute(
             'UPDATE conversations SET state = ? WHERE id = ?',
             (ConversationState.CLOSED.value, conversation_id),
@@ -601,9 +631,12 @@ class SqliteMessageBus:
             )
             _rec(
                 _evts.CONVERSATION_CLOSED,
-                scope='management',
+                scope=scope,
                 ts=time.time(),
-                data={'conversation_id': conversation_id},
+                data={
+                    'conversation_id': conversation_id,
+                    'agent_name': existing.agent_name if existing else '',
+                },
                 conversation_id=conversation_id,
             )
         except Exception:

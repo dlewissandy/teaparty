@@ -280,10 +280,25 @@ def record_message(
 
     if inserted:
         # Only emit the event on a fresh insert — repeated writes for
-        # the same message_id should not flood the broadcaster.
+        # the same message_id should not flood the broadcaster. Pull
+        # scope / job_id / parent linkage from the launch's contextvars
+        # so per-project rollups can filter by scope.
         from teaparty.telemetry.events import MESSAGE_RECORDED
+        try:
+            from teaparty.mcp.registry import (
+                current_scope as _ctx_scope,
+                current_job_id as _ctx_job,
+                current_parent_session_id as _ctx_parent_sid,
+            )
+            _scope = _ctx_scope.get('management') or 'management'
+            _job_id = _ctx_job.get('') or None
+            _parent_sid = _ctx_parent_sid.get('') or None
+        except Exception:
+            _scope = 'management'
+            _job_id = None
+            _parent_sid = None
         record_event(
-            MESSAGE_RECORDED, scope='management',
+            MESSAGE_RECORDED, scope=_scope,
             session_id=session_id, ts=ts,
             data={
                 'message_id': message_id,
@@ -295,6 +310,8 @@ def record_message(
                 'cache_1h_tokens': cache_1h_tokens,
                 'stop_reason': stop_reason,
             },
+            parent_session_id=_parent_sid,
+            job_id=_job_id,
         )
     return inserted
 

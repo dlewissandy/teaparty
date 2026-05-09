@@ -1513,17 +1513,47 @@ async def launch(
         pass
 
     _tscope = telemetry_scope or scope
+    # Issue #431 — set the dispatch-tree contextvars so any in-process
+    # tool handler (Delegate, AskQuestion) reads consistent job_id /
+    # parent_session_id / depth / scope when it stamps a telemetry row.
+    # ContextVar.set returns a token that we don't reset because launch
+    # blocks for the agent's whole turn — the contextvar reads are
+    # confined to in-process calls during this launch.
+    from teaparty.mcp.registry import (
+        current_job_id as _ctx_job,
+        current_dispatch_depth as _ctx_depth,
+        current_scope as _ctx_scope,
+        current_session_id as _ctx_sid,
+        current_parent_session_id as _ctx_parent_sid,
+    )
+    if job_id:
+        _ctx_job.set(job_id)
+    if dispatch_depth is not None:
+        _ctx_depth.set(int(dispatch_depth))
+    _ctx_scope.set(_tscope)
+    if session_id:
+        _ctx_sid.set(session_id)
+    if parent_session_id:
+        _ctx_parent_sid.set(parent_session_id)
     # Issue #431 — turn_id pairs TURN_START with TURN_COMPLETE without
     # ordering tricks; trigger taxonomy distinguishes initial dispatch
     # from resume / wake so per-session turn counts are answerable
     # from telemetry alone.
     _turn_id = uuid.uuid4().hex
+    # Trigger taxonomy precedence: explicit kwarg > contextvar > heuristic.
+    # The contextvar lets the scheduler / cron runner stamp ``'wake'``
+    # without threading a kwarg through every intermediate frame.
     if trigger:
         _trigger = trigger
-    elif resume_session:
-        _trigger = 'resume'
     else:
-        _trigger = 'new'
+        from teaparty.mcp.registry import current_trigger as _ctx_trigger
+        ctx_trig = _ctx_trigger.get('') or ''
+        if ctx_trig:
+            _trigger = ctx_trig
+        elif resume_session:
+            _trigger = 'resume'
+        else:
+            _trigger = 'new'
     _conv_id = caller_conversation_id or ''
     record_event(
         _telem_events.TURN_START,

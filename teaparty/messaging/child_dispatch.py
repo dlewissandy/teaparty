@@ -980,6 +980,16 @@ async def run_child_lifecycle(
             if gc_replies:
                 initial_message = '\n'.join(gc_replies)
 
+    # Issue #431 — dispatch-tree linkage. Every event row emitted by
+    # this child must carry parent_session_id so SQL can walk the
+    # call tree without re-parsing streams. job_id is inherited from
+    # the metadata block the child was created with, falling back to
+    # the parent's session_id when the parent IS the job lead.
+    parent_sid = getattr(child_session, 'parent_session_id', '') or ''
+    job_id = getattr(child_session, 'job_id', '') or parent_sid
+    parent_depth = getattr(child_session, 'dispatch_depth', None)
+    child_depth = (parent_depth + 1) if isinstance(parent_depth, int) else 1
+
     if worktree_path:
         # Same-repo dispatch: child runs inside its own worktree.
         launch_kwargs_base = dict(
@@ -989,6 +999,9 @@ async def run_child_lifecycle(
             worktree=worktree_path,
             mcp_port=mcp_port,
             session_id=child_session.id,
+            parent_session_id=parent_sid,
+            job_id=job_id,
+            dispatch_depth=child_depth,
             stream_file=os.path.join(child_session.path, 'stream.jsonl'),
         )
     else:
@@ -1009,6 +1022,9 @@ async def run_child_lifecycle(
             config_dir=child_config_dir,
             mcp_port=mcp_port,
             session_id=child_session.id,
+            parent_session_id=parent_sid,
+            job_id=job_id,
+            dispatch_depth=child_depth,
             stream_file=os.path.join(child_session.path, 'stream.jsonl'),
         )
     if llm_caller is not None:

@@ -42,6 +42,36 @@ current_conversation_id: contextvars.ContextVar[str] = contextvars.ContextVar(
     'current_conversation_id', default='',
 )
 
+# Issue #431 — dispatch-tree linkage. Set by ``launch()`` from kwargs
+# so any in-process MCP tool call (Delegate, Send, AskQuestion) can
+# stamp the right ``job_id`` / ``parent_session_id`` / ``dispatch_depth``
+# onto its telemetry rows without re-resolving from disk.
+current_job_id: contextvars.ContextVar[str] = contextvars.ContextVar(
+    'current_job_id', default='',
+)
+current_dispatch_depth: contextvars.ContextVar[int] = contextvars.ContextVar(
+    'current_dispatch_depth', default=0,
+)
+# This agent's parent session in the dispatch tree (NULL for top-level
+# leads). Distinct from current_session_id (this agent's own session).
+current_parent_session_id: contextvars.ContextVar[str] = contextvars.ContextVar(
+    'current_parent_session_id', default='',
+)
+# Set by callers that know the launch was triggered by something other
+# than a normal user dispatch — e.g. the scheduler sets ``'wake'`` so
+# the resulting TURN_START rows are distinguishable from interactive
+# dispatches in telemetry. Empty falls through to launcher's default
+# heuristic (``'resume'`` if resume_session, else ``'new'``).
+current_trigger: contextvars.ContextVar[str] = contextvars.ContextVar(
+    'current_trigger', default='',
+)
+# Scope of the calling agent's launch — TOOL_CALL_COMPLETE and
+# MESSAGE_RECORDED key off this so per-project rollups don't flatten
+# to ``'management'``.
+current_scope: contextvars.ContextVar[str] = contextvars.ContextVar(
+    'current_scope', default='management',
+)
+
 # {agent_name: spawn_fn}
 # spawn_fn(member, composite, context_id) -> (session_id, worktree, result)
 _spawn_fns: dict[str, Callable] = {}

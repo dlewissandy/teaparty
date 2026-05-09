@@ -215,8 +215,9 @@ class SchemaExtensionTests(unittest.TestCase):
         finally:
             conn.close()
         # Now point telemetry at this pre-existing db and record an event.
-        # The migration must add the new columns and seed sidecar tables
-        # without OperationalError on the existing rows.
+        # The migration must add the new columns AND create the sidecar
+        # tables AND seed model_pricing without OperationalError on the
+        # existing rows.
         telemetry.set_teaparty_home(old_home)
         telemetry.record_event(E.TURN_START, scope='management')
         conn = sqlite3.connect(db)
@@ -228,6 +229,27 @@ class SchemaExtensionTests(unittest.TestCase):
             # Existing rows survive.
             count = conn.execute('SELECT COUNT(*) FROM events').fetchone()[0]
             self.assertEqual(count, 2)
+            # Sidecar tables must come into existence on the migrated DB,
+            # not just on fresh ones.
+            tabs = _tables(conn)
+            for sidecar in ('session_messages', 'dispatch_edges',
+                            'model_pricing'):
+                self.assertIn(
+                    sidecar, tabs,
+                    f'migration must create {sidecar!r} sidecar on a '
+                    f'pre-existing telemetry.db — got {tabs}',
+                )
+            # model_pricing seed must run on migrated DBs too — without
+            # this any cost-derivation pass against a migrated DB sees
+            # zero pricing rows and falls through to NULL costs.
+            seeded = conn.execute(
+                'SELECT COUNT(*) FROM model_pricing'
+            ).fetchone()[0]
+            self.assertGreater(
+                seeded, 0,
+                'model_pricing seed must populate the table on migrated '
+                f'DBs — got {seeded} rows',
+            )
         finally:
             conn.close()
 

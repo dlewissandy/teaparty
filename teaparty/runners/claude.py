@@ -880,6 +880,23 @@ class ClaudeRunner:
             record_event as _rec, record_message as _rec_msg,
         )
         from teaparty.telemetry.events import TOOL_CALL_COMPLETE
+        # Issue #431 — read dispatch-tree linkage from the launch's
+        # contextvars so per-tool / per-message rows carry per-project
+        # scope and the right call-tree linkage rather than a hardcoded
+        # 'management' default.
+        try:
+            from teaparty.mcp.registry import (
+                current_scope as _ctx_scope,
+                current_job_id as _ctx_job,
+                current_parent_session_id as _ctx_parent_sid,
+            )
+            _scope = _ctx_scope.get('management') or 'management'
+            _job_id = _ctx_job.get('') or None
+            _parent_sid = _ctx_parent_sid.get('') or None
+        except Exception:
+            _scope = 'management'
+            _job_id = None
+            _parent_sid = None
         etype = event.get('type', '')
         if etype == 'assistant':
             msg = event.get('message') or {}
@@ -973,7 +990,7 @@ class ClaudeRunner:
                     except (ValueError, TypeError):
                         pass
                 _rec(
-                    TOOL_CALL_COMPLETE, scope='management',
+                    TOOL_CALL_COMPLETE, scope=_scope,
                     session_id=self.session_id,
                     ts=end_ts,
                     data={
@@ -986,10 +1003,19 @@ class ClaudeRunner:
                         'is_error': bool(block.get('is_error')),
                         'input_size': pending['input_size'],
                         'output_size': output_size,
+                        # The data field's parent_session_id documents
+                        # the calling session per the issue spec —
+                        # which session issued this tool call.
                         'parent_session_id': self.session_id,
                         'child_session_id': child_sid,
                     },
-                    parent_session_id=self.session_id,
+                    # Indexed-column parent_session_id is the calling
+                    # session's own parent in the dispatch tree, so a
+                    # WITH RECURSIVE walk over events.parent_session_id
+                    # treats tool-call rows as children of the agent
+                    # that issued them — not as self-loops.
+                    parent_session_id=_parent_sid,
+                    job_id=_job_id,
                 )
 
 
