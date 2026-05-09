@@ -351,6 +351,17 @@ class TeaPartyBridge:
         app.router.add_get('/api/telemetry/stats/{scope}', self._handle_telemetry_stats)
         app.router.add_get('/api/telemetry/chart/{chart_type}', self._handle_telemetry_chart)
 
+        # ── Analysis endpoints (Issue #431) ───────────────────────────────────
+        # Cost / Gantt / dispatch-tree analysis queries against
+        # telemetry.db's spec-aligned views. Replaces the four-source
+        # merge in build_analysis_db.py for current and future runs.
+        app.router.add_get('/api/analysis/jobs', self._handle_analysis_jobs)
+        app.router.add_get('/api/analysis/sessions', self._handle_analysis_sessions)
+        app.router.add_get('/api/analysis/job-cost', self._handle_analysis_job_cost)
+        app.router.add_get('/api/analysis/prompt-groups', self._handle_analysis_prompt_groups)
+        app.router.add_get('/api/analysis/gantt/{job_id}', self._handle_analysis_gantt)
+        app.router.add_get('/api/analysis/token-grid', self._handle_analysis_token_grid)
+
         # ── Config endpoints ──────────────────────────────────────────────────
         app.router.add_get('/api/config', self._handle_config)
         app.router.add_post('/api/config/management/toggle', self._handle_config_management_toggle)
@@ -1064,6 +1075,70 @@ class TeaPartyBridge:
                 {'error': f'unknown chart_type: {chart_type!r}'},
                 status=404,
             )
+
+    # ── Analysis handlers (Issue #431) ───────────────────────────────────────
+    # Each endpoint is a thin wrapper around a query helper in
+    # teaparty/telemetry/query.py. The helpers query the spec-aligned
+    # views, so adding a new analysis cut is one Python helper plus
+    # one route — no new tables, no migration.
+
+    async def _handle_analysis_jobs(
+        self, request: web.Request,
+    ) -> web.Response:
+        from teaparty import telemetry
+        return web.json_response({
+            'jobs': telemetry.jobs(
+                project=request.query.get('project') or None,
+            ),
+        })
+
+    async def _handle_analysis_sessions(
+        self, request: web.Request,
+    ) -> web.Response:
+        from teaparty import telemetry
+        return web.json_response({
+            'sessions': telemetry.agent_sessions_catalog(
+                job_id=request.query.get('job') or None,
+                scope=request.query.get('scope') or None,
+            ),
+        })
+
+    async def _handle_analysis_job_cost(
+        self, request: web.Request,
+    ) -> web.Response:
+        from teaparty import telemetry
+        return web.json_response({
+            'rows': telemetry.job_cost_summary(
+                job_id=request.query.get('job') or None,
+            ),
+        })
+
+    async def _handle_analysis_prompt_groups(
+        self, request: web.Request,
+    ) -> web.Response:
+        from teaparty import telemetry
+        return web.json_response({
+            'groups': telemetry.prompt_groups(
+                project=request.query.get('project') or None,
+            ),
+        })
+
+    async def _handle_analysis_gantt(
+        self, request: web.Request,
+    ) -> web.Response:
+        from teaparty import telemetry
+        job_id = request.match_info['job_id']
+        return web.json_response(telemetry.gantt_spans(job_id))
+
+    async def _handle_analysis_token_grid(
+        self, request: web.Request,
+    ) -> web.Response:
+        from teaparty import telemetry
+        return web.json_response({
+            'grid': telemetry.token_grid(
+                job_id=request.query.get('job') or None,
+            ),
+        })
 
     # ── Config handlers ───────────────────────────────────────────────────────
 

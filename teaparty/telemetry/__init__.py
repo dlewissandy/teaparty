@@ -91,6 +91,17 @@ from teaparty.telemetry.query import (
     withdrawal_phase_distribution,
     gate_pass_rate,
     stats_summary,
+    # Issue #431 — spec-aligned analysis queries
+    jobs,
+    session_turns,
+    agent_sessions_catalog,
+    phase_intervals,
+    session_summary,
+    job_cost_summary,
+    job_phase_summary,
+    prompt_groups,
+    gantt_spans,
+    token_grid,
 )
 from teaparty.telemetry.migration import migrate_metrics_db
 
@@ -103,6 +114,9 @@ __all__ = [
     'backtrack_count', 'backtrack_cost', 'phase_distribution',
     'escalation_stats', 'proxy_answer_rate', 'withdrawal_phase_distribution',
     'gate_pass_rate', 'stats_summary',
+    'jobs', 'session_turns', 'agent_sessions_catalog',
+    'phase_intervals', 'session_summary', 'job_cost_summary',
+    'job_phase_summary', 'prompt_groups', 'gantt_spans', 'token_grid',
     'migrate_metrics_db',
     'ALL_EVENT_TYPES',
 ]
