@@ -5,6 +5,7 @@ permissions:
   - Edit
   - Glob
   - Grep
+  - Bash
   - mcp__teaparty-config__list_milestones
   - mcp__teaparty-config__list_milestone_issues
   - mcp__teaparty-config__read_issue

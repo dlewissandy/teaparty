@@ -93,10 +93,16 @@ tier:
 wave:
 ---
 
-{full issue body verbatim from GitHub}
+## Issue body (planning-time snapshot)
+
+{full issue body verbatim from GitHub at sprint-plan time}
+
+## Triage notes
+
+{empty at planning time; humans and agents add triage notes here as the sprint progresses}
 ```
 
-The frontmatter is what `refresh-board`, `prioritize`, and the mark-* skills read and write. The body is the issue text — never modify it after planning, even on refresh.
+The frontmatter is what `refresh-board`, `prioritize`, and the mark-* skills read and write. The "Issue body" section is a planning-time snapshot — `refresh-board` does not rewrite it. The "Triage notes" section is human-editable; sprint mechanics never touch it.
 
 ### 7. Reply
 

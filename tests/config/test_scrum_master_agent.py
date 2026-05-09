@@ -171,11 +171,13 @@ class TestScrumMasterAgentDefinition(unittest.TestCase):
         # Strip permission patterns so ``Write(/path/**)`` matches "Write".
         bare = {entry.split('(', 1)[0].strip() for entry in allow}
 
-        for tool in ('Read', 'Write', 'Edit', 'Glob', 'Grep'):
+        for tool in ('Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash'):
             self.assertIn(
                 tool, bare,
                 f'scrum-master settings.yaml must allow {tool}; '
-                f'cache I/O depends on it.  Got allow list: {sorted(bare)}',
+                f'cache I/O depends on it (archive-sprint uses Bash for '
+                f'``mv`` to move the cache to the archive directory).  '
+                f'Got allow list: {sorted(bare)}',
             )
         # MCP tools the seven skills call: list_milestones,
         # list_milestone_issues, list_project_boards, add_issue_to_board,
