@@ -234,6 +234,28 @@ class TestListMilestones(unittest.TestCase):
             f'are included, got argv={argv!r}',
         )
 
+    def test_returns_empty_array_when_no_milestones(self):
+        """The standard's empty regime: empty response → ``[]``, not
+        ``null``, not ``{}``, not a crash."""
+        fake = _FakeGh(['[]'])
+
+        out = gh.list_milestones_handler(
+            gh_runner=fake, repo_resolver=_fake_resolver(),
+        )
+
+        self.assertEqual(
+            json.loads(out), [],
+            f'empty milestone list must return [], got {out!r}',
+        )
+
+
+_MILESTONES_LOOKUP_RESPONSE = json.dumps([
+    {
+        'number': 1, 'title': 'Tier 4: Proxy Evolution',
+        'state': 'open', 'open_issues': 7, 'due_on': None,
+    },
+])
+
 
 class TestListMilestoneIssues(unittest.TestCase):
 
@@ -241,6 +263,7 @@ class TestListMilestoneIssues(unittest.TestCase):
         return {
             'number': number, 'title': f'Issue {number}', 'state': state,
             'labels': [], 'milestone': {'title': 'Tier 4: Proxy Evolution'},
+            'assignees': [],
         }
 
     def test_default_state_is_all(self):
@@ -253,7 +276,7 @@ class TestListMilestoneIssues(unittest.TestCase):
 
     def test_returns_issues_for_named_milestone(self):
         page = json.dumps([self._canned_issue(427), self._canned_issue(429)])
-        fake = _FakeGh([page])
+        fake = _FakeGh([_MILESTONES_LOOKUP_RESPONSE, page])
 
         out = gh.list_milestone_issues_handler(
             milestone='Tier 4: Proxy Evolution',
@@ -269,27 +292,56 @@ class TestListMilestoneIssues(unittest.TestCase):
     def test_state_value_is_passed_to_gh(self):
         """``state='closed'`` must reach gh's query; otherwise we'd
         return open issues regardless of what the caller asked for."""
-        fake = _FakeGh(['[]'])
+        fake = _FakeGh([_MILESTONES_LOOKUP_RESPONSE, '[]'])
 
         gh.list_milestone_issues_handler(
             milestone='Tier 4: Proxy Evolution', state='closed',
             gh_runner=fake, repo_resolver=_fake_resolver(),
         )
 
-        argv = fake.calls[0]
+        # The second call is the issues query; the state must be
+        # embedded in the URL path or as a flag.
+        issues_call = fake.calls[1]
+        joined = ' '.join(issues_call)
         self.assertIn(
-            'closed', argv,
-            f'state argument must reach gh; argv={argv!r}',
+            'state=closed', joined,
+            f'state argument must reach gh; issues call argv={issues_call!r}',
         )
-        # Accept either a flag-style ``--state closed`` (gh issue list)
-        # or query-string-style ``state=closed`` (gh api).  What we do
-        # NOT accept is the literal string passing through unused.
-        idx = argv.index('closed')
-        prev = argv[idx - 1] if idx > 0 else ''
-        self.assertTrue(
-            prev == '--state' or 'state=closed' in ' '.join(argv),
-            f'state value must be tied to a state flag/parameter, '
-            f'not stranded; argv={argv!r}',
+
+    def test_unknown_milestone_returns_actionable_error(self):
+        """Negative space: a milestone name with no matching record
+        must surface as a clear error, not silently fall through to
+        ``state=all`` and return every issue in the repo."""
+        fake = _FakeGh([_MILESTONES_LOOKUP_RESPONSE])
+
+        out = gh.list_milestone_issues_handler(
+            milestone='No Such Milestone',
+            gh_runner=fake, repo_resolver=_fake_resolver(),
+        )
+
+        result = json.loads(out)
+        self.assertIn(
+            'error', result,
+            f'unknown milestone must return error JSON; got {result!r}',
+        )
+        self.assertIn(
+            'No Such Milestone', result['error'],
+            f'error must name the bad milestone for actionability; got {result!r}',
+        )
+
+    def test_returns_empty_array_when_milestone_has_no_issues(self):
+        """The standard's empty regime: empty response → empty list,
+        not ``null`` or ``{}`` or a crash."""
+        fake = _FakeGh([_MILESTONES_LOOKUP_RESPONSE, '[]'])
+
+        out = gh.list_milestone_issues_handler(
+            milestone='Tier 4: Proxy Evolution',
+            gh_runner=fake, repo_resolver=_fake_resolver(),
+        )
+
+        self.assertEqual(
+            json.loads(out), [],
+            f'empty milestone must return [], got {out!r}',
         )
 
 
@@ -361,43 +413,62 @@ class TestCreateIssue(unittest.TestCase):
 
 
 class TestCloseAndReopenIssue(unittest.TestCase):
+    """AC 5/6: close and reopen accept an optional comment.
 
-    def test_close_with_comment_invokes_gh_issue_close_with_body(self):
-        """AC 5: close_issue accepts an optional resolution comment."""
-        fake = _FakeGh(['', ''])  # comment then close, or close with -c
+    Asserts on argv structure rather than on a joined-string blob so
+    several plausible-but-wrong implementations are caught:
+      * posting the comment as a separate ``gh issue comment`` call
+      * sending the comment to a different issue number
+      * passing the comment as ``--title`` on a new issue
+      * binding the comment to ``reopen`` while ``close`` runs without it
+    """
+
+    def test_close_with_comment_invokes_single_gh_call_with_bound_body(self):
+        fake = _FakeGh([''])
 
         gh.close_issue_handler(
             number=427, comment='resolved by #500',
             gh_runner=fake, repo_resolver=_fake_resolver(),
         )
 
-        joined_all = ' '.join(' '.join(c) for c in fake.calls)
-        self.assertIn(
-            'close', joined_all,
-            f'close_issue must invoke gh issue close; calls={fake.calls!r}',
+        self.assertEqual(
+            len(fake.calls), 1,
+            f'close_issue must produce exactly one gh call (close + '
+            f'comment in the same invocation), got {fake.calls!r}',
         )
+        argv = fake.calls[0]
+        self.assertEqual(argv[0], 'issue', f'argv[0] must be "issue"; argv={argv!r}')
+        self.assertEqual(argv[1], 'close', f'argv[1] must be "close"; argv={argv!r}')
+        self.assertEqual(argv[2], '427', f'argv[2] must be "427"; argv={argv!r}')
         self.assertIn(
-            'resolved by #500', joined_all,
-            f'close_issue must include the resolution comment; calls={fake.calls!r}',
+            '-c', argv,
+            f'comment must be passed via -c flag; argv={argv!r}',
+        )
+        comment_idx = argv.index('-c')
+        self.assertEqual(
+            argv[comment_idx + 1], 'resolved by #500',
+            f'-c flag must be immediately followed by the comment; '
+            f'argv={argv!r}',
         )
 
-    def test_reopen_with_comment_invokes_gh_issue_reopen(self):
-        """AC 6."""
-        fake = _FakeGh(['', ''])
+    def test_reopen_with_comment_invokes_single_gh_call_with_bound_body(self):
+        fake = _FakeGh([''])
 
         gh.reopen_issue_handler(
             number=427, comment='reopened: more work needed',
             gh_runner=fake, repo_resolver=_fake_resolver(),
         )
 
-        joined_all = ' '.join(' '.join(c) for c in fake.calls)
-        self.assertIn(
-            'reopen', joined_all,
-            f'reopen_issue must invoke gh issue reopen; calls={fake.calls!r}',
-        )
-        self.assertIn(
-            'more work needed', joined_all,
-            f'reopen_issue must include the comment; calls={fake.calls!r}',
+        self.assertEqual(len(fake.calls), 1)
+        argv = fake.calls[0]
+        self.assertEqual(argv[0], 'issue')
+        self.assertEqual(argv[1], 'reopen')
+        self.assertEqual(argv[2], '427')
+        comment_idx = argv.index('-c')
+        self.assertEqual(
+            argv[comment_idx + 1], 'reopened: more work needed',
+            f'-c flag must be immediately followed by the comment; '
+            f'argv={argv!r}',
         )
 
     def test_close_without_comment_does_not_post_empty_comment(self):
@@ -410,7 +481,6 @@ class TestCloseAndReopenIssue(unittest.TestCase):
             number=427, gh_runner=fake, repo_resolver=_fake_resolver(),
         )
 
-        # No call should carry an empty -c '' or --body ''.
         for argv in fake.calls:
             for i, tok in enumerate(argv):
                 if tok in ('-c', '--body') and i + 1 < len(argv):
@@ -420,12 +490,32 @@ class TestCloseAndReopenIssue(unittest.TestCase):
                         f'empty body; argv={argv!r}',
                     )
 
+    def test_reopen_without_comment_does_not_post_empty_comment(self):
+        """Symmetric negative-space coverage for reopen."""
+        fake = _FakeGh([''])
+
+        gh.reopen_issue_handler(
+            number=427, gh_runner=fake, repo_resolver=_fake_resolver(),
+        )
+
+        for argv in fake.calls:
+            for i, tok in enumerate(argv):
+                if tok in ('-c', '--body') and i + 1 < len(argv):
+                    self.assertNotEqual(
+                        argv[i + 1], '',
+                        f'reopen_issue without comment must not pass an '
+                        f'empty body; argv={argv!r}',
+                    )
+
 
 class TestSetIssueMilestone(unittest.TestCase):
 
-    def test_milestone_name_reaches_gh(self):
+    def test_milestone_name_reaches_gh_bound_to_correct_issue(self):
         """AC 7: caller passes a milestone name; the handler routes it
-        to gh issue edit --milestone."""
+        to gh issue edit --milestone for the *specified* issue.
+
+        Pinning the issue number positionally catches a regression
+        that ignored the ``number`` argument or hardcoded an issue."""
         fake = _FakeGh([''])
 
         gh.set_issue_milestone_handler(
@@ -433,14 +523,18 @@ class TestSetIssueMilestone(unittest.TestCase):
             gh_runner=fake, repo_resolver=_fake_resolver(),
         )
 
-        joined = ' '.join(fake.calls[0])
-        self.assertIn(
-            'Tier 4: Proxy Evolution', joined,
-            f'milestone name must be passed to gh; argv={fake.calls[0]!r}',
+        argv = fake.calls[0]
+        self.assertEqual(argv[0], 'issue', f'argv[0] must be "issue"; argv={argv!r}')
+        self.assertEqual(argv[1], 'edit', f'argv[1] must be "edit"; argv={argv!r}')
+        self.assertEqual(
+            argv[2], '427',
+            f'argv[2] must be the target issue number; argv={argv!r}',
         )
-        self.assertIn(
-            '--milestone', joined,
-            f'must use gh issue edit --milestone; argv={fake.calls[0]!r}',
+        ms_idx = argv.index('--milestone')
+        self.assertEqual(
+            argv[ms_idx + 1], 'Tier 4: Proxy Evolution',
+            f'--milestone must be immediately followed by the milestone '
+            f'name; argv={argv!r}',
         )
 
 
@@ -507,12 +601,27 @@ class TestListIssueComments(unittest.TestCase):
         self.assertEqual(result[0]['body'], 'first')
         self.assertEqual(result[1]['body'], 'second')
 
+    def test_returns_empty_array_when_no_comments(self):
+        fake = _FakeGh(['[]'])
+
+        out = gh.list_issue_comments_handler(
+            number=427, gh_runner=fake, repo_resolver=_fake_resolver(),
+        )
+
+        self.assertEqual(json.loads(out), [])
+
 
 class TestCreateComment(unittest.TestCase):
 
-    def test_invokes_gh_issue_comment(self):
-        """AC 10."""
-        fake = _FakeGh(['https://github.com/dlewissandy/teaparty/issues/427#issuecomment-1234567\n'])
+    def test_invokes_gh_issue_comment_with_target_number(self):
+        """AC 10: posts a comment to the named issue.  A handler that
+        ignored the ``number`` argument and posted to a different
+        issue would pass a substring check on argv but fail this
+        positional pin."""
+        fake = _FakeGh([
+            'https://github.com/dlewissandy/teaparty/issues/427'
+            '#issuecomment-1234567\n',
+        ])
 
         gh.create_comment_handler(
             number=427, body='hello there',
@@ -520,12 +629,24 @@ class TestCreateComment(unittest.TestCase):
         )
 
         argv = fake.calls[0]
-        joined = ' '.join(argv)
-        self.assertIn(
-            'comment', joined,
-            f'create_comment must invoke gh issue comment; argv={argv!r}',
+        self.assertEqual(
+            argv[0], 'issue',
+            f'argv[0] must be "issue"; argv={argv!r}',
         )
-        self.assertIn('hello there', joined)
+        self.assertEqual(
+            argv[1], 'comment',
+            f'argv[1] must be "comment"; argv={argv!r}',
+        )
+        self.assertEqual(
+            argv[2], '427',
+            f'argv[2] must be the target issue number "427"; argv={argv!r}',
+        )
+        body_idx = argv.index('--body')
+        self.assertEqual(
+            argv[body_idx + 1], 'hello there',
+            f'--body flag must be immediately followed by the comment '
+            f'body; argv={argv!r}',
+        )
 
 
 # ── 3. Projects V2 board handlers ───────────────────────────────────────────
@@ -596,53 +717,75 @@ class TestListProjectBoards(unittest.TestCase):
 
 class TestAddIssueToBoard(unittest.TestCase):
 
-    def test_idempotent_returns_same_item_id_on_repeat(self):
-        """AC 12: idempotent — repeat calls return the same item id.
+    def test_repeat_calls_send_same_content_id_to_mutation(self):
+        """AC 12: idempotency contract — repeat calls for the same
+        issue must pass the same ``contentId`` to the mutation.
 
-        The handler must check whether the issue is already on the
-        board before calling addProjectV2ItemById; otherwise the
-        mutation is fine (GitHub returns the existing id) but the
-        round-trip is wasted.  Either way, the *return value* must
-        be identical across repeated calls.
-        """
-        # Two scenarios canned:
-        #   1. First call resolves board, adds issue, gets item id
-        #   2. Second call resolves board, finds existing item, returns same id
-        # The exact gh script the handler uses is an implementation
-        # choice, but the *result* must be the same id both times.
-        first_response = json.dumps({
-            'data': {'addProjectV2ItemById': {'item': {'id': 'PVTI_xyz123'}}},
+        GitHub's ``addProjectV2ItemById`` is naturally idempotent —
+        when called for an issue already on the board it returns the
+        existing item id rather than creating a new one.  The handler's
+        contract is to delegate that idempotency to GitHub: it must
+        resolve the same ``contentId`` (the issue's GraphQL node id)
+        on every call, so GitHub recognizes the repeat and returns
+        the same item.
+
+        A handler that fabricated a fresh id, or that resolved the
+        contentId differently between calls, would break the contract
+        even if GitHub happened to deduplicate.  This test catches
+        both: it scripts two distinct mutation responses (different
+        item ids) and asserts the mutation argv carries the same
+        contentId both times — proving the handler asks GitHub the
+        same question both times."""
+        mutation_response_1 = json.dumps({
+            'data': {'addProjectV2ItemById': {'item': {'id': 'PVTI_first'}}},
         })
-        # On the second call, depending on implementation, it might
-        # query existing items or just call add again.  Either way
-        # the response should yield item id PVTI_xyz123.
-        second_response = json.dumps({
-            'data': {'addProjectV2ItemById': {'item': {'id': 'PVTI_xyz123'}}},
+        mutation_response_2 = json.dumps({
+            'data': {'addProjectV2ItemById': {'item': {'id': 'PVTI_second'}}},
         })
 
-        # First invocation — board lookup may need its own response.
         fake = _FakeGh([
-            _BOARDS_GRAPHQL_RESPONSE, first_response,
-            _BOARDS_GRAPHQL_RESPONSE, second_response,
+            _BOARDS_GRAPHQL_RESPONSE, mutation_response_1,
+            _BOARDS_GRAPHQL_RESPONSE, mutation_response_2,
         ])
 
-        out1 = gh.add_issue_to_board_handler(
+        gh.add_issue_to_board_handler(
             number=427, gh_runner=fake, repo_resolver=_fake_resolver(),
         )
-        out2 = gh.add_issue_to_board_handler(
+        gh.add_issue_to_board_handler(
             number=427, gh_runner=fake, repo_resolver=_fake_resolver(),
         )
 
-        item1 = json.loads(out1)['item_id']
-        item2 = json.loads(out2)['item_id']
-        self.assertEqual(
-            item1, item2,
-            f'add_issue_to_board must be idempotent (AC 12); '
-            f'got {item1!r} then {item2!r}',
+        # Calls 1 (board+issue lookup) and 3 (board+issue lookup again):
+        # both must request the same issue node.  We extract the issue
+        # number from the GraphQL query and assert it's identical.
+        first_lookup = ' '.join(fake.calls[0])
+        second_lookup = ' '.join(fake.calls[2])
+        self.assertIn('issue(number: 427)', first_lookup)
+        self.assertIn('issue(number: 427)', second_lookup)
+
+        # Calls 2 and 4: the mutation argv must carry the same
+        # contentId on both invocations — that's the load-bearing
+        # part of idempotency.  A handler that derived contentId from
+        # local state (or fabricated one) would diverge here even if
+        # given the same canned response.
+        first_mutation = fake.calls[1]
+        second_mutation = fake.calls[3]
+        first_content = next(
+            (a for a in first_mutation if a.startswith('contentId=')), None,
+        )
+        second_content = next(
+            (a for a in second_mutation if a.startswith('contentId=')), None,
+        )
+        self.assertIsNotNone(
+            first_content,
+            f'mutation must carry contentId arg; argv={first_mutation!r}',
         )
         self.assertEqual(
-            item1, 'PVTI_xyz123',
-            f'expected item id PVTI_xyz123 from canned response; got {item1!r}',
+            first_content, second_content,
+            f'idempotency contract: repeat calls must pass the same '
+            f'contentId so GitHub can dedupe.  Got first={first_content!r}, '
+            f'second={second_content!r} — divergence here means the '
+            f'handler is fabricating ids and GitHub may double-add.',
         )
 
 
@@ -656,8 +799,12 @@ class TestSetBoardStatus(unittest.TestCase):
         a non-default option-id mapping and asserts the handler
         sends the *option id from that board*, not a default."""
 
-        # Same status names but different option ids than the project
-        # memory references — i.e. the board has been reconfigured.
+        # Same canonical status name set but different option ids than
+        # the live project memory references — i.e. the board has been
+        # reconfigured.  All five canonical names are present so the
+        # board IS recognized as a sprint board (no silent fallback);
+        # what differs is the option ids, which is exactly what
+        # ``set_board_status`` must resolve dynamically.
         custom_board = json.dumps({
             'data': {
                 'repository': {
@@ -676,8 +823,12 @@ class TestSetBoardStatus(unittest.TestCase):
                                          'name': 'Backlog'},
                                         {'id': 'OPT_APPROVED_NEW',
                                          'name': 'Approved'},
+                                        {'id': 'OPT_IN_PROGRESS_NEW',
+                                         'name': 'In Progress'},
                                         {'id': 'OPT_DONE_NEW',
                                          'name': 'Done'},
+                                        {'id': 'OPT_WONTDO_NEW',
+                                         'name': "Won't Do"},
                                     ],
                                 }],
                             },
@@ -807,42 +958,29 @@ class TestPaginationConcatenatesAllPages(unittest.TestCase):
     header has no ``rel="next"`` (REST).
     """
 
-    def test_list_milestone_issues_concatenates_rest_pages(self):
-        # gh issue list with --json returns a single JSON array; gh
-        # paginates internally when --limit is high enough.  Our
-        # handler must request a limit large enough to capture all
-        # issues — easiest robust path is ``--limit 1000`` (the
-        # GitHub REST max-per-call effective ceiling for issue lists)
-        # or ``gh api --paginate``.  Either way, a multi-page-equivalent
-        # canned response with 150 entries must return all 150.
-        many = [
-            {'number': i, 'title': f'I{i}', 'state': 'open',
-             'labels': [], 'milestone': {'title': 'Tier 4: Proxy Evolution'}}
-            for i in range(1, 151)
-        ]
-        fake = _FakeGh([json.dumps(many)])
+    def test_list_milestone_issues_uses_paginate(self):
+        """AC 17 (behavior side): the handler must request gh to
+        paginate internally rather than capping at a fixed limit.
 
-        out = gh.list_milestone_issues_handler(
+        With ``_FakeGh`` we cannot exercise real subprocess pagination;
+        the load-bearing assertion is that ``--paginate`` is on the
+        argv so the contract is delegated to gh.  A handler that used
+        ``--limit 1000`` would silently truncate any milestone larger
+        than that — caught by this assertion."""
+        fake = _FakeGh([_MILESTONES_LOOKUP_RESPONSE, '[]'])
+
+        gh.list_milestone_issues_handler(
             milestone='Tier 4: Proxy Evolution',
             gh_runner=fake, repo_resolver=_fake_resolver(),
         )
 
-        result = json.loads(out)
-        self.assertEqual(
-            len(result), 150,
-            f'list_milestone_issues must return all 150 issues; '
-            f'got {len(result)} (silent truncation is the bug AC 17 '
-            f'guards against)',
-        )
-        # The handler's gh call must request enough to cover this set —
-        # i.e. either --paginate or a high --limit.  Without that, real
-        # gh would cap at 30 even though our fake returned 150.
-        argv = fake.calls[0]
-        joined = ' '.join(argv)
-        self.assertTrue(
-            '--paginate' in argv or '--limit' in argv,
-            f'list_milestone_issues must use --paginate or --limit '
-            f'to avoid silent truncation; argv={argv!r}',
+        # The second call is the issues query.
+        issues_call = fake.calls[1]
+        self.assertIn(
+            '--paginate', issues_call,
+            f'list_milestone_issues must use --paginate to avoid '
+            f'silent truncation past a fixed cap; issues call argv='
+            f'{issues_call!r}',
         )
 
     def test_list_issue_comments_uses_paginate(self):
@@ -873,6 +1011,251 @@ class TestPaginationConcatenatesAllPages(unittest.TestCase):
         self.assertIn(
             '--paginate', argv,
             f'list_milestones must use --paginate; argv={argv!r}',
+        )
+
+
+class TestSprintBoardSelection(unittest.TestCase):
+    """`_pick_sprint_board` and the contract it enforces: only the
+    canonical-Status board is a valid target for ``add_issue_to_board``,
+    ``set_board_status``, and ``read_board_status``.  Anything else
+    must surface an actionable error rather than silently writing to
+    the wrong board."""
+
+    def _board(self, options: list[str], **extra) -> dict:
+        return {
+            'id': extra.get('id', 'PVT_test'),
+            'number': extra.get('number', 1),
+            'title': extra.get('title', 'test board'),
+            'status_field_id': extra.get('status_field_id', 'PVTSSF_test'),
+            'status_options': [
+                {'id': f'opt_{i}', 'name': name}
+                for i, name in enumerate(options)
+            ],
+        }
+
+    def test_picks_board_with_canonical_status_options(self):
+        """Two boards in the repo, only one canonical — the canonical
+        one is selected."""
+        boards = [
+            self._board(['Backlog', 'Done'], id='PVT_other'),
+            self._board(
+                ['Backlog', 'Approved', 'In Progress', 'Done', "Won't Do"],
+                id='PVT_canonical',
+            ),
+        ]
+        chosen = gh._pick_sprint_board(boards)
+        self.assertIsNotNone(chosen)
+        self.assertEqual(
+            chosen['id'], 'PVT_canonical',
+            'must select the board declaring the canonical Status set, '
+            f'not the first board returned; got {chosen!r}',
+        )
+
+    def test_returns_none_when_no_board_has_canonical_status_set(self):
+        """The user's no-silent-fallbacks rule: a non-canonical board
+        is not a substitute for the sprint board."""
+        boards = [self._board(['Open', 'Closed'], id='PVT_only')]
+        self.assertIsNone(
+            gh._pick_sprint_board(boards),
+            'a board without the canonical Status options is not a '
+            'sprint board; substituting it would silently write to '
+            'the wrong target',
+        )
+
+    def test_returns_none_for_empty_board_list(self):
+        self.assertIsNone(gh._pick_sprint_board([]))
+
+    def test_set_board_status_errors_when_no_canonical_board(self):
+        """End-to-end: with no canonical sprint board, the handler
+        must NOT mutate.  It must return an actionable error JSON."""
+        non_canonical = json.dumps({
+            'data': {
+                'repository': {
+                    'projectsV2': {
+                        'pageInfo': {'hasNextPage': False, 'endCursor': None},
+                        'nodes': [{
+                            'id': 'PVT_random',
+                            'number': 5,
+                            'title': 'Random',
+                            'fields': {
+                                'nodes': [{
+                                    'id': 'PVTSSF_random',
+                                    'name': 'Status',
+                                    'options': [
+                                        {'id': 'A', 'name': 'Open'},
+                                        {'id': 'B', 'name': 'Closed'},
+                                    ],
+                                }],
+                            },
+                        }],
+                    },
+                },
+            },
+        })
+        fake = _FakeGh([non_canonical])
+
+        out = gh.set_board_status_handler(
+            number=427, status='Approved',
+            gh_runner=fake, repo_resolver=_fake_resolver(),
+        )
+
+        result = json.loads(out)
+        self.assertIn(
+            'error', result,
+            f'must return error JSON when no canonical board; got {result!r}',
+        )
+        self.assertEqual(
+            len(fake.calls), 1,
+            f'must NOT mutate when no canonical board; expected 1 call '
+            f'(board lookup only), got {len(fake.calls)}: {fake.calls!r}',
+        )
+
+    def test_add_issue_to_board_errors_when_no_canonical_board(self):
+        empty_boards = json.dumps({
+            'data': {
+                'repository': {
+                    'projectsV2': {
+                        'pageInfo': {'hasNextPage': False, 'endCursor': None},
+                        'nodes': [],
+                    },
+                    'issue': {'id': 'I_kwDOissue'},
+                },
+            },
+        })
+        fake = _FakeGh([empty_boards])
+
+        out = gh.add_issue_to_board_handler(
+            number=427, gh_runner=fake, repo_resolver=_fake_resolver(),
+        )
+
+        result = json.loads(out)
+        self.assertIn('error', result)
+        self.assertEqual(
+            len(fake.calls), 1,
+            'must NOT call addProjectV2ItemById when no canonical board exists',
+        )
+
+
+class TestBoardHandlerErrorBranches(unittest.TestCase):
+    """Each board handler must surface its real error branches as
+    structured errors that name what is missing — not silently fall
+    through or crash on a None."""
+
+    def test_set_board_status_errors_when_issue_not_on_board(self):
+        # Board exists, status is valid, but no item matches the issue number.
+        empty_items = json.dumps({
+            'data': {
+                'repository': {
+                    'projectV2': {
+                        'items': {
+                            'pageInfo': {
+                                'hasNextPage': False, 'endCursor': None,
+                            },
+                            'nodes': [],
+                        },
+                    },
+                },
+            },
+        })
+        fake = _FakeGh([_BOARDS_GRAPHQL_RESPONSE, empty_items])
+
+        out = gh.set_board_status_handler(
+            number=427, status='Approved',
+            gh_runner=fake, repo_resolver=_fake_resolver(),
+        )
+
+        result = json.loads(out)
+        self.assertIn(
+            'error', result,
+            f'must error when issue not on board; got {result!r}',
+        )
+        self.assertIn('427', result['error'])
+        self.assertIn(
+            'add_issue_to_board', result['error'],
+            'error must point caller to the corrective tool; '
+            f'got {result!r}',
+        )
+        self.assertEqual(
+            len(fake.calls), 2,
+            f'must NOT issue the mutation when item is missing; '
+            f'expected 2 calls, got {len(fake.calls)}',
+        )
+
+    def test_read_board_status_errors_when_issue_not_on_board(self):
+        empty_items = json.dumps({
+            'data': {
+                'repository': {
+                    'projectV2': {
+                        'items': {
+                            'pageInfo': {
+                                'hasNextPage': False, 'endCursor': None,
+                            },
+                            'nodes': [],
+                        },
+                    },
+                },
+            },
+        })
+        fake = _FakeGh([_BOARDS_GRAPHQL_RESPONSE, empty_items])
+
+        out = gh.read_board_status_handler(
+            number=427, gh_runner=fake, repo_resolver=_fake_resolver(),
+        )
+
+        result = json.loads(out)
+        self.assertIn(
+            'error', result,
+            f'must error when issue not on board; got {result!r}',
+        )
+        self.assertIn('427', result['error'])
+
+    def test_add_issue_to_board_errors_when_issue_not_in_repo(self):
+        """If GitHub returns ``issue: null`` (issue not found in repo),
+        the handler must NOT call the mutation with a null contentId."""
+        no_issue = json.dumps({
+            'data': {
+                'repository': {
+                    'projectsV2': {
+                        'pageInfo': {'hasNextPage': False, 'endCursor': None},
+                        'nodes': [{
+                            'id': 'PVT_kwHOAH4OHc4BR81E',
+                            'number': 2,
+                            'title': 'TeaParty',
+                            'fields': {
+                                'nodes': [{
+                                    'id': 'PVTSSF_x',
+                                    'name': 'Status',
+                                    'options': [
+                                        {'id': 'a', 'name': 'Backlog'},
+                                        {'id': 'b', 'name': 'Approved'},
+                                        {'id': 'c', 'name': 'In Progress'},
+                                        {'id': 'd', 'name': 'Done'},
+                                        {'id': 'e', 'name': "Won't Do"},
+                                    ],
+                                }],
+                            },
+                        }],
+                    },
+                    'issue': None,
+                },
+            },
+        })
+        fake = _FakeGh([no_issue])
+
+        out = gh.add_issue_to_board_handler(
+            number=99999, gh_runner=fake, repo_resolver=_fake_resolver(),
+        )
+
+        result = json.loads(out)
+        self.assertIn(
+            'error', result,
+            f'must error when issue is not in repo; got {result!r}',
+        )
+        self.assertIn('99999', result['error'])
+        self.assertEqual(
+            len(fake.calls), 1,
+            f'must NOT issue the addProjectV2ItemById mutation with a '
+            f'null contentId; expected 1 call, got {len(fake.calls)}',
         )
 
 

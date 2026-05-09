@@ -169,19 +169,59 @@ def list_milestone_issues_handler(
     gh_runner: GhRunner = _run_gh,
     repo_resolver: RepoResolver = _resolve_repo,
 ) -> str:
-    """List issues attached to a milestone.  ``state`` is ``open|closed|all``."""
+    """List issues attached to a milestone.  ``state`` is ``open|closed|all``.
+
+    First resolves the milestone name to its number (the REST issues
+    endpoint accepts only milestone numbers, not names), then walks
+    the issues endpoint with ``--paginate`` so all pages return.
+    """
     if state not in ('open', 'closed', 'all'):
         return json.dumps({'error': f'invalid state {state!r}; must be open|closed|all'})
     owner, repo = repo_resolver()
-    out = gh_runner(
-        'issue', 'list',
-        '--repo', f'{owner}/{repo}',
-        '--milestone', milestone,
-        '--state', state,
-        '--json', 'number,title,state,labels,milestone,assignees',
-        '--limit', '1000',
+
+    milestone_number = _resolve_milestone_number(
+        owner, repo, milestone, gh_runner=gh_runner,
     )
-    return out.strip() or '[]'
+    if milestone_number is None:
+        return json.dumps({'error': f'unknown milestone {milestone!r}'})
+
+    raw = _gh_api(
+        f'/repos/{owner}/{repo}/issues'
+        f'?milestone={milestone_number}&state={state}&per_page=100',
+        gh_runner=gh_runner, paginate=True,
+    )
+    items = json.loads(raw) if raw.strip() else []
+    # The issues endpoint returns both issues and PRs; filter PRs out
+    # so the caller sees only issues, matching the gh issue list shape.
+    issues = [i for i in items if not i.get('pull_request')]
+    result = [{
+        'number': i.get('number'),
+        'title': i.get('title'),
+        'state': i.get('state'),
+        'labels': i.get('labels', []),
+        'milestone': i.get('milestone'),
+        'assignees': i.get('assignees', []),
+    } for i in issues]
+    return json.dumps(result)
+
+
+def _resolve_milestone_number(
+    owner: str, repo: str, milestone: str,
+    *,
+    gh_runner: GhRunner,
+) -> int | None:
+    """Look up a milestone number by title (or accept a numeric string)."""
+    if milestone.isdigit():
+        return int(milestone)
+    out = _gh_api(
+        f'/repos/{owner}/{repo}/milestones?state=all&per_page=100',
+        gh_runner=gh_runner, paginate=True,
+    )
+    raw = json.loads(out) if out.strip() else []
+    for m in raw:
+        if m.get('title') == milestone:
+            return m.get('number')
+    return None
 
 
 def read_issue_handler(
@@ -418,25 +458,29 @@ def _extract_boards(response: dict) -> list[dict]:
 
 
 def _pick_sprint_board(boards: list[dict]) -> dict | None:
-    """Return the first board whose Status field carries the canonical
-    sprint set (Backlog/Approved/In Progress/Done/Won't Do).
+    """Return the unique board whose Status field carries the canonical
+    sprint set (Backlog/Approved/In Progress/Done/Won't Do), or
+    ``None`` if no such board exists.
 
     A repo can have multiple linked Projects V2 boards; the sprint
-    board is the one whose Status field declares this option set.  No
-    other board is a meaningful target for ``set_board_status`` and
-    similar tools.
+    board is identified by its option set, not by ordering.  Refusing
+    to substitute when the canonical board is missing is intentional —
+    silently writing Status to a different board would corrupt state
+    invisibly.
     """
     canonical = {'Backlog', 'Approved', 'In Progress', 'Done', "Won't Do"}
     for b in boards:
         names = {o.get('name') for o in b.get('status_options', [])}
         if canonical.issubset(names):
             return b
-    # Fall back to the first board with any status options at all —
-    # better than nothing for non-standard configurations.
-    for b in boards:
-        if b.get('status_options'):
-            return b
     return None
+
+
+_NO_SPRINT_BOARD_ERROR = (
+    'no sprint board found: no Projects V2 board declares the '
+    "canonical Status option set "
+    "(Backlog, Approved, In Progress, Done, Won't Do)"
+)
 
 
 def list_project_boards_handler(
@@ -528,7 +572,7 @@ def add_issue_to_board_handler(
     boards = _extract_boards(response)
     board = _pick_sprint_board(boards)
     if board is None:
-        return json.dumps({'error': 'no Projects V2 board found for this repo'})
+        return json.dumps({'error': _NO_SPRINT_BOARD_ERROR})
 
     repo_node = (response.get('data') or {}).get('repository') or {}
     issue_node = repo_node.get('issue') or {}
@@ -569,7 +613,7 @@ def set_board_status_handler(
     boards = _extract_boards(response)
     board = _pick_sprint_board(boards)
     if board is None:
-        return json.dumps({'error': 'no Projects V2 board found for this repo'})
+        return json.dumps({'error': _NO_SPRINT_BOARD_ERROR})
 
     option = next(
         (o for o in board.get('status_options', [])
@@ -633,7 +677,7 @@ def read_board_status_handler(
     boards = _extract_boards(response)
     board = _pick_sprint_board(boards)
     if board is None:
-        return json.dumps({'error': 'no Projects V2 board found for this repo'})
+        return json.dumps({'error': _NO_SPRINT_BOARD_ERROR})
 
     for item in _query_board_items(
         owner, repo, board['number'],
