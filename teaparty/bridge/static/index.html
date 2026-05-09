@@ -361,6 +361,13 @@ function render() {
   orgHtml += '<span class="oc-icon">&#9881;</span>';
   orgHtml += '<div><div class="oc-label">Management Team</div><div class="oc-meta">Organization catalog</div></div>';
   orgHtml += '</a>';
+  // Issue #431 — token-grid dashboard. The Statistics page reaches
+  // the user via the ticker bar (#406); the token-grid is a new
+  // analysis cut that needs its own entry point.
+  orgHtml += '<a class="org-card" href="token-grid.html">';
+  orgHtml += '<span class="oc-icon">&#128459;</span>';
+  orgHtml += '<div><div class="oc-label">Token Grid</div><div class="oc-meta">Role &times; phase breakdown</div></div>';
+  orgHtml += '</a>';
 
   if (totalEsc > 0) {
     orgHtml += '<div class="org-card" style="border-color:var(--red)">';

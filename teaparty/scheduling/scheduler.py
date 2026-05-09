@@ -245,6 +245,14 @@ class CronScheduler:
             _plan_tmp.write(task_description)
             _plan_tmp_path = _plan_tmp.name
         try:
+            # Issue #431 — every TURN_START emitted under this scheduler
+            # run inherits trigger='wake' through the contextvar so
+            # cron-fired turns are distinguishable from interactive
+            # dispatches in telemetry.
+            from teaparty.mcp.registry import (
+                current_trigger as _ctx_trigger,
+            )
+            _ctx_trigger.set('wake')
             session = session_factory(
                 task_description,
                 poc_root=poc_root,

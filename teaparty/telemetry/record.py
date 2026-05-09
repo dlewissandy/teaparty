@@ -148,6 +148,12 @@ def record_event(
     session_id: Optional[str] = None,
     data: Optional[dict] = None,
     ts: Optional[float] = None,
+    turn_id: Optional[str] = None,
+    conversation_id: Optional[str] = None,
+    parent_session_id: Optional[str] = None,
+    job_id: Optional[str] = None,
+    dispatch_depth: Optional[int] = None,
+    cost_source: Optional[str] = None,
 ) -> Optional[int]:
     """Record a telemetry event. Returns the inserted row id, or ``None``.
 
@@ -161,6 +167,11 @@ def record_event(
     ``'management'`` or a project slug. ``agent_name`` and
     ``session_id`` are nullable for non-agent events (system start,
     cron, human-triggered config edits).
+
+    The dispatch-tree linkage kwargs (``turn_id``, ``conversation_id``,
+    ``parent_session_id``, ``job_id``, ``dispatch_depth``, ``cost_source``)
+    are persisted as indexed columns on the events table so analyses can
+    walk the call tree without joining to the bus.
     """
     if ts is None:
         ts = time.time()
@@ -178,9 +189,13 @@ def record_event(
             with _lock:
                 cur = conn.execute(
                     'INSERT INTO events '
-                    '(ts, scope, agent_name, session_id, event_type, data) '
-                    'VALUES (?, ?, ?, ?, ?, ?)',
-                    (ts, scope, agent_name, session_id, event_type, data_json),
+                    '(ts, scope, agent_name, session_id, event_type, data, '
+                    ' turn_id, conversation_id, parent_session_id, '
+                    ' job_id, dispatch_depth, cost_source) '
+                    'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    (ts, scope, agent_name, session_id, event_type, data_json,
+                     turn_id, conversation_id, parent_session_id,
+                     job_id, dispatch_depth, cost_source),
                 )
                 row_id = cur.lastrowid
                 conn.commit()
@@ -201,8 +216,160 @@ def record_event(
         'session_id': session_id,
         'ts': ts,
         'data': data or {},
+        'turn_id': turn_id,
+        'conversation_id': conversation_id,
+        'parent_session_id': parent_session_id,
+        'job_id': job_id,
+        'dispatch_depth': dispatch_depth,
+        'cost_source': cost_source,
     })
 
+    return row_id
+
+
+def record_message(
+    *,
+    session_id: str,
+    message_id: str,
+    ts: Optional[float] = None,
+    model: Optional[str] = None,
+    input_tokens: Optional[int] = None,
+    output_tokens: Optional[int] = None,
+    cache_read_tokens: Optional[int] = None,
+    cache_5m_tokens: Optional[int] = None,
+    cache_1h_tokens: Optional[int] = None,
+    stop_reason: Optional[str] = None,
+) -> bool:
+    """Record one assistant message in the dedupe sidecar.
+
+    Returns ``True`` when this call inserted a new row, ``False`` when an
+    earlier write already claimed ``(session_id, message_id)``. The
+    PRIMARY KEY contract is the dedupe — a single Claude API response
+    emits multiple SDK ``assistant`` events sharing one message_id and
+    one usage object. First-write-wins; later writes are silently
+    discarded by ``INSERT OR IGNORE``.
+
+    The function also emits a ``MESSAGE_RECORDED`` event for the live
+    broadcaster (so dashboards see it in real time), but the
+    authoritative dedupe contract is the sidecar table.
+    """
+    if ts is None:
+        ts = time.time()
+    conn = _ensure_conn()
+    inserted = False
+    if conn is not None:
+        try:
+            with _lock:
+                cur = conn.execute(
+                    'INSERT OR IGNORE INTO session_messages '
+                    '(session_id, message_id, ts, model, input_tokens, '
+                    ' output_tokens, cache_read_tokens, cache_5m_tokens, '
+                    ' cache_1h_tokens, stop_reason) '
+                    'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    (session_id, message_id, ts, model, input_tokens,
+                     output_tokens, cache_read_tokens, cache_5m_tokens,
+                     cache_1h_tokens, stop_reason),
+                )
+                inserted = cur.rowcount > 0
+                conn.commit()
+        except Exception:
+            _log.warning(
+                'telemetry.record_message: write failed for %s/%s',
+                session_id, message_id, exc_info=True,
+            )
+
+    if inserted:
+        # Only emit the event on a fresh insert — repeated writes for
+        # the same message_id should not flood the broadcaster. Pull
+        # scope / job_id / parent linkage from the launch's contextvars
+        # so per-project rollups can filter by scope.
+        from teaparty.telemetry.events import MESSAGE_RECORDED
+        try:
+            from teaparty.mcp.registry import (
+                current_scope as _ctx_scope,
+                current_job_id as _ctx_job,
+                current_parent_session_id as _ctx_parent_sid,
+            )
+            _scope = _ctx_scope.get('management') or 'management'
+            _job_id = _ctx_job.get('') or None
+            _parent_sid = _ctx_parent_sid.get('') or None
+        except Exception:
+            _scope = 'management'
+            _job_id = None
+            _parent_sid = None
+        record_event(
+            MESSAGE_RECORDED, scope=_scope,
+            session_id=session_id, ts=ts,
+            data={
+                'message_id': message_id,
+                'model': model,
+                'input_tokens': input_tokens,
+                'output_tokens': output_tokens,
+                'cache_read_tokens': cache_read_tokens,
+                'cache_5m_tokens': cache_5m_tokens,
+                'cache_1h_tokens': cache_1h_tokens,
+                'stop_reason': stop_reason,
+            },
+            parent_session_id=_parent_sid,
+            job_id=_job_id,
+        )
+    return inserted
+
+
+def record_dispatch_edge(
+    *,
+    parent_session_id: str,
+    child_session_id: str,
+    member: Optional[str] = None,
+    skill: Optional[str] = None,
+    task_summary: Optional[str] = None,
+    ts: Optional[float] = None,
+    job_id: Optional[str] = None,
+) -> Optional[int]:
+    """Record a Delegate edge in the dispatch_edges sidecar.
+
+    One row per Delegate call. The companion ``DISPATCH_EDGE`` event in
+    the events table carries the same data and lets live broadcasters
+    update without polling the sidecar.
+    """
+    if ts is None:
+        ts = time.time()
+    conn = _ensure_conn()
+    row_id: Optional[int] = None
+    if conn is not None:
+        try:
+            with _lock:
+                cur = conn.execute(
+                    'INSERT INTO dispatch_edges '
+                    '(parent_session_id, child_session_id, member, skill, '
+                    ' task_summary, ts, job_id) '
+                    'VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    (parent_session_id, child_session_id, member, skill,
+                     task_summary, ts, job_id),
+                )
+                row_id = cur.lastrowid
+                conn.commit()
+        except Exception:
+            _log.warning(
+                'telemetry.record_dispatch_edge: write failed for %s -> %s',
+                parent_session_id, child_session_id, exc_info=True,
+            )
+
+    from teaparty.telemetry.events import DISPATCH_EDGE
+    record_event(
+        DISPATCH_EDGE, scope='management',
+        session_id=parent_session_id, ts=ts,
+        data={
+            'parent_session_id': parent_session_id,
+            'child_session_id': child_session_id,
+            'member': member,
+            'skill': skill,
+            'task_summary': task_summary,
+            'job_id': job_id,
+        },
+        parent_session_id=parent_session_id,
+        job_id=job_id,
+    )
     return row_id
 
 

@@ -921,6 +921,12 @@ class Orchestrator:
                 f'job:{self.project_slug}:{self.session_id}'
                 if self.project_slug and self.session_id else ''
             ),
+            # Issue #431 — the project lead IS the job root. Mark its
+            # own TURN_* events with the right linkage so cost-per-job
+            # rollups don't lose the lead's own cost. Children inherit
+            # job_id via run_child_lifecycle plumbing.
+            job_id=self.session_id or '',
+            dispatch_depth=0,
         )
         if self._llm_caller is not None:
             base['llm_caller'] = self._llm_caller

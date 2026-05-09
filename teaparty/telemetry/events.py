@@ -123,6 +123,28 @@ MIGRATION_RUN = 'migration_run'
 PROXY_UPDATED = 'proxy_updated'
 PROXY_DIVERGED_FROM_HUMAN = 'proxy_diverged_from_human'
 
+# ── Dispatch-tree metadata (Issue #431) ──────────────────────────────────────
+# Per-tool-call records: every tool_use + tool_result pair becomes one event,
+# replacing the unpopulated tools_called count dict on TURN_COMPLETE.
+TOOL_CALL_COMPLETE = 'tool_call_complete'
+
+# Per-assistant-message dedupe — sidecar event that mirrors the row written
+# to the session_messages PRIMARY KEY (session_id, message_id) table.
+MESSAGE_RECORDED = 'message_recorded'
+
+# Delegate edges — emitted at the moment Delegate fires. Sidecar dispatch_edges
+# row carries the same data plus job_id linkage.
+DISPATCH_EDGE = 'dispatch_edge'
+
+# AskQuestion → proxy edge — emitted when AskQuestion fires, linking the
+# asking session to the spawned proxy session so cost rolls up via SQL.
+PROXY_INVOKED = 'proxy_invoked'
+
+# Conversation lifecycle bookends — open + close events recorded directly
+# in telemetry so spans are visible without joining to the bus.
+CONVERSATION_OPENED = 'conversation_opened'
+CONVERSATION_CLOSED = 'conversation_closed'
+
 
 ALL_EVENT_TYPES: frozenset[str] = frozenset({
     TURN_START, TURN_COMPLETE,
@@ -154,4 +176,7 @@ ALL_EVENT_TYPES: frozenset[str] = frozenset({
     PIN_ARTIFACT, UNPIN_ARTIFACT,
     SERVER_START, SERVER_SHUTDOWN, CONFIG_LOADED, MIGRATION_RUN,
     PROXY_UPDATED, PROXY_DIVERGED_FROM_HUMAN,
+    # Issue #431 — dispatch-tree metadata
+    TOOL_CALL_COMPLETE, MESSAGE_RECORDED, DISPATCH_EDGE,
+    PROXY_INVOKED, CONVERSATION_OPENED, CONVERSATION_CLOSED,
 })

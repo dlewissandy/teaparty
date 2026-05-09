@@ -209,6 +209,7 @@ class AskQuestionRunner:
                     'question_len': len(question),
                     'initiating_session_id': self.session_id,
                 },
+                parent_session_id=self.session_id,
             )
         except Exception:
             pass
@@ -313,6 +314,21 @@ class AskQuestionRunner:
         )
         child_session.parent_session_id = self._dispatcher_session.id
         child_session.initial_message = question
+        # Issue #431 — propagate the asking session's job_id and
+        # dispatch_depth onto the proxy session so its TURN_* events
+        # roll up under the right job in cost queries. Reading the
+        # contextvars matches what the asking session's launch set.
+        try:
+            from teaparty.mcp.registry import (
+                current_job_id as _ctx_job,
+                current_dispatch_depth as _ctx_depth,
+            )
+            child_session.job_id = _ctx_job.get('') or ''
+            ask_depth = _ctx_depth.get(0)
+            child_session.dispatch_depth = ask_depth + 1
+        except Exception:
+            child_session.job_id = ''
+            child_session.dispatch_depth = None
         # Materialize the caller's worktree into the proxy's cwd (#425).
         # The proxy's cwd IS the clone of the caller's worktree; the
         # diligence rail walks it directly.  The question reaches the
@@ -371,6 +387,35 @@ class AskQuestionRunner:
             parent_sid=self._dispatcher_session.id,
             child_sid=qualifier,
         )
+
+        # Issue #431 — PROXY_INVOKED records the asking-session →
+        # proxy-session edge so cost roll-up via parent_session_id
+        # answers "what was the proxy overhead for job N?" in pure SQL.
+        try:
+            import hashlib
+            from teaparty.telemetry import record_event as _rec_evt
+            from teaparty.telemetry.events import PROXY_INVOKED
+            from teaparty.mcp.registry import current_job_id as _ctx_job
+            asking_sid = self.session_id
+            asking_agent = self._dispatcher_session.agent_name or ''
+            q_hash = hashlib.sha1(question.encode('utf-8')).hexdigest()
+            _rec_evt(
+                PROXY_INVOKED,
+                scope=self.project_slug or self._scope or 'management',
+                agent_name=asking_agent,
+                session_id=asking_sid,
+                data={
+                    'asking_session_id': asking_sid,
+                    'asking_agent_name': asking_agent,
+                    'proxy_session_id': proxy_session_key,
+                    'question_hash': q_hash,
+                    'question_first_500': question[:500],
+                },
+                parent_session_id=asking_sid,
+                job_id=_ctx_job.get('') or None,
+            )
+        except Exception:
+            _log.debug('PROXY_INVOKED emit failed', exc_info=True)
 
         # The proxy bus is where the accordion reads dialog messages from.
         proxy_bus = self._resolve_proxy_bus()

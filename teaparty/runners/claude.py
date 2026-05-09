@@ -35,6 +35,31 @@ class ClaudeResult:
     duration_ms: int = 0
     stderr_lines: list[str] = field(default_factory=list)
     context_budget: ContextBudget = field(default_factory=ContextBudget)
+    # ── Issue #431: additive SDK result fields ─────────────────────────
+    # These are captured from the orchestrator stream's `result` records
+    # so TURN_COMPLETE can include them without re-parsing the stream.
+    cache_read_tokens: int = 0
+    cache_create_tokens: int = 0
+    cache_5m_tokens: int = 0
+    cache_1h_tokens: int = 0
+    num_turns: int = 0
+    duration_api_ms: int = 0
+    stop_reason: str = ''
+    is_error: bool = False
+    api_error_status: str = ''
+    model: str = ''
+    # The Claude SDK uuid from `system/init`. Distinct from the
+    # teaparty-side session_id (which is the dispatch hex / job id);
+    # this is what the analysis script uses to cross-link to claude-home
+    # JSONL files.
+    claude_session_uuid: str = ''
+    # Per-tool-use counts. Populated by the streamer as tool_use blocks
+    # arrive; emitted into TURN_COMPLETE.tools_called.
+    tools_called: dict[str, int] = field(default_factory=dict)
+    # Concatenated text-block content from assistant events. Used only
+    # for response_text_len in TURN_COMPLETE; the full text is not
+    # stored in telemetry.
+    response_text: str = ''
 
     @property
     def had_errors(self) -> bool:
@@ -127,6 +152,24 @@ class ClaudeRunner:
         self._last_duration_ms: int = 0
         self._sm = RunnerSM()
         self._context_budget = ContextBudget()
+        # ── Issue #431 — additive fields for self-sufficient telemetry ─
+        self._accumulated_cache_read_tokens: int = 0
+        self._accumulated_cache_create_tokens: int = 0
+        self._accumulated_cache_5m_tokens: int = 0
+        self._accumulated_cache_1h_tokens: int = 0
+        self._accumulated_num_turns: int = 0
+        self._last_duration_api_ms: int = 0
+        self._last_stop_reason: str = ''
+        self._is_error: bool = False
+        self._api_error_status: str = ''
+        self._extracted_model: str = ''
+        # tool_use_id → (start_ts, tool_name, mcp_server, input_size)
+        # Pending entries get paired with tool_result on close to emit
+        # TOOL_CALL_COMPLETE.
+        self._open_tool_uses: dict[str, dict[str, Any]] = {}
+        # Tool-name count rollup for TURN_COMPLETE.tools_called.
+        self._tools_called: dict[str, int] = {}
+        self._response_text_chunks: list[str] = []
 
     async def run(self) -> ClaudeResult:
         """Run the Claude CLI and stream output. Returns result.
@@ -227,6 +270,20 @@ class ClaudeRunner:
                 duration_ms=self._last_duration_ms,
                 stderr_lines=stderr_lines,
                 context_budget=self._context_budget,
+                # Issue #431 additive fields.
+                cache_read_tokens=self._accumulated_cache_read_tokens,
+                cache_create_tokens=self._accumulated_cache_create_tokens,
+                cache_5m_tokens=self._accumulated_cache_5m_tokens,
+                cache_1h_tokens=self._accumulated_cache_1h_tokens,
+                num_turns=self._accumulated_num_turns,
+                duration_api_ms=self._last_duration_api_ms,
+                stop_reason=self._last_stop_reason,
+                is_error=self._is_error,
+                api_error_status=self._api_error_status,
+                model=self._extracted_model,
+                claude_session_uuid=self._extracted_session_id,
+                tools_called=dict(self._tools_called),
+                response_text=''.join(self._response_text_chunks),
             )
         finally:
             # Kill subprocess on cancellation or exception (issue #159).
@@ -442,6 +499,8 @@ class ClaudeRunner:
                             last_lead_event_time = now
 
                         # Track tool call lifecycle for watchdog cascade
+                        # AND emit Issue #431 TOOL_CALL_COMPLETE / capture
+                        # tools_called / response_text from the same scan.
                         etype = event_data.get('type', '')
                         if etype == 'tool_use':
                             tool_id = event_data.get('tool_use_id', '')
@@ -450,6 +509,12 @@ class ClaudeRunner:
                         elif etype == 'tool_result':
                             tool_id = event_data.get('tool_use_id', '')
                             open_tool_calls.pop(tool_id, None)
+                        # Inspect message content blocks for tool_use /
+                        # tool_result / text and per-message usage.
+                        # (Some streams put tool_use at top-level via
+                        # the etype branch above; the canonical shape
+                        # is inside assistant.message.content blocks.)
+                        self._process_stream_event(event_data, now)
 
                         # Track background agent lifecycle
                         subtype = event_data.get('subtype', '')
@@ -718,13 +783,24 @@ class ClaudeRunner:
             )
 
     def _maybe_extract_session_id(self, event: dict) -> None:
-        if (event.get('type') == 'system'
-                and event.get('subtype') == 'init'
-                and not self._extracted_session_id):
-            self._extracted_session_id = event.get('session_id', '')
+        if event.get('type') == 'system' and event.get('subtype') == 'init':
+            if not self._extracted_session_id:
+                self._extracted_session_id = event.get('session_id', '')
+            # Capture the per-call model. A single launch can record
+            # turns under different models (compaction can split runs);
+            # we report the most recently seen one.
+            model = event.get('model')
+            if model:
+                self._extracted_model = model
 
     def _maybe_extract_cost(self, event: dict) -> None:
-        """Accumulate cost and turn stats from result events (Issues #262, #341)."""
+        """Accumulate cost / token / SDK-result stats from result records.
+
+        Originally added in Issues #262 / #341 for cost_usd and
+        in/out tokens; extended in Issue #431 to capture the additive
+        fields the analysis script needs (5m/1h cache split, num_turns,
+        duration_api_ms, stop_reason, is_error, api_error_status).
+        """
         if event.get('type') != 'result':
             return
         cost = event.get('total_cost_usd', 0.0)
@@ -736,15 +812,211 @@ class ClaudeRunner:
                 self._accumulated_model_costs[model] = (
                     self._accumulated_model_costs.get(model, 0.0) + model_cost
                 )
-        input_tokens = event.get('input_tokens', 0)
+        usage = event.get('usage') or {}
+        # Older streams report tokens at the top level; newer streams
+        # nest them under usage. Take whichever is present.
+        input_tokens = (
+            usage.get('input_tokens')
+            if usage.get('input_tokens') is not None
+            else event.get('input_tokens', 0)
+        )
         if input_tokens:
-            self._accumulated_input_tokens += input_tokens
-        output_tokens = event.get('output_tokens', 0)
+            self._accumulated_input_tokens += int(input_tokens)
+        output_tokens = (
+            usage.get('output_tokens')
+            if usage.get('output_tokens') is not None
+            else event.get('output_tokens', 0)
+        )
         if output_tokens:
-            self._accumulated_output_tokens += output_tokens
+            self._accumulated_output_tokens += int(output_tokens)
         duration_ms = event.get('duration_ms', 0)
         if duration_ms:
             self._last_duration_ms = duration_ms
+
+        # Issue #431: additive fields from the SDK result.
+        cr = usage.get('cache_read_input_tokens', 0)
+        if cr:
+            self._accumulated_cache_read_tokens += int(cr)
+        cc = usage.get('cache_creation') or {}
+        c5 = cc.get('ephemeral_5m_input_tokens', 0) or 0
+        c1 = cc.get('ephemeral_1h_input_tokens', 0) or 0
+        if c5:
+            self._accumulated_cache_5m_tokens += int(c5)
+        if c1:
+            self._accumulated_cache_1h_tokens += int(c1)
+        # The current cache_create rollup keeps the existing
+        # TURN_COMPLETE field meaning intact (sum of 5m + 1h).
+        self._accumulated_cache_create_tokens += int(c5) + int(c1)
+
+        n_turns = event.get('num_turns', 0)
+        if n_turns:
+            self._accumulated_num_turns += int(n_turns)
+        api_ms = event.get('duration_api_ms', 0)
+        if api_ms:
+            self._last_duration_api_ms = int(api_ms)
+        stop_reason = event.get('stop_reason') or usage.get('stop_reason')
+        if stop_reason:
+            self._last_stop_reason = stop_reason
+        if event.get('is_error'):
+            self._is_error = True
+        api_err = event.get('api_error_status')
+        if api_err:
+            self._api_error_status = api_err
+
+    def _process_stream_event(self, event: dict, now: float) -> None:
+        """Emit Issue #431 telemetry from a single stream event.
+
+        - assistant events trigger record_message (dedupe-keyed on
+          (session_id, message_id)) and accumulate response text.
+        - tool_use blocks open a pending tool call.
+        - tool_result blocks (in user events) close the pending tool
+          call and emit TOOL_CALL_COMPLETE.
+
+        The session_id used for telemetry is the teaparty-side id
+        (``self.session_id``), not the SDK uuid — that keeps cost
+        rollups consistent with the dispatch tree.
+        """
+        from teaparty.telemetry import (
+            record_event as _rec, record_message as _rec_msg,
+        )
+        from teaparty.telemetry.events import TOOL_CALL_COMPLETE
+        # Issue #431 — read dispatch-tree linkage from the launch's
+        # contextvars so per-tool / per-message rows carry per-project
+        # scope and the right call-tree linkage rather than a hardcoded
+        # 'management' default.
+        try:
+            from teaparty.mcp.registry import (
+                current_scope as _ctx_scope,
+                current_job_id as _ctx_job,
+                current_parent_session_id as _ctx_parent_sid,
+            )
+            _scope = _ctx_scope.get('management') or 'management'
+            _job_id = _ctx_job.get('') or None
+            _parent_sid = _ctx_parent_sid.get('') or None
+        except Exception:
+            _scope = 'management'
+            _job_id = None
+            _parent_sid = None
+        etype = event.get('type', '')
+        if etype == 'assistant':
+            msg = event.get('message') or {}
+            mid = msg.get('id')
+            if mid:
+                usage = msg.get('usage') or {}
+                cc = usage.get('cache_creation') or {}
+                _rec_msg(
+                    session_id=self.session_id,
+                    message_id=mid,
+                    ts=event.get('timestamp') or now,
+                    model=msg.get('model'),
+                    input_tokens=usage.get('input_tokens'),
+                    output_tokens=usage.get('output_tokens'),
+                    cache_read_tokens=usage.get('cache_read_input_tokens'),
+                    cache_5m_tokens=cc.get('ephemeral_5m_input_tokens'),
+                    cache_1h_tokens=cc.get('ephemeral_1h_input_tokens'),
+                    stop_reason=msg.get('stop_reason'),
+                )
+            for block in (msg.get('content') or []):
+                if not isinstance(block, dict):
+                    continue
+                btype = block.get('type')
+                if btype == 'text':
+                    self._response_text_chunks.append(
+                        block.get('text', '') or '',
+                    )
+                elif btype == 'tool_use':
+                    use_id = block.get('id') or ''
+                    name = block.get('name') or ''
+                    if use_id and name:
+                        # Built-ins have no MCP server prefix; mcp tools
+                        # are named ``mcp__<server>__<tool>``.
+                        mcp_server = None
+                        if name.startswith('mcp__'):
+                            parts = name.split('__', 2)
+                            if len(parts) >= 2:
+                                mcp_server = parts[1]
+                        input_blob = block.get('input') or {}
+                        try:
+                            input_size = len(json.dumps(input_blob))
+                        except (TypeError, ValueError):
+                            input_size = 0
+                        self._open_tool_uses[use_id] = {
+                            'tool_name': name,
+                            'mcp_server': mcp_server,
+                            'start_ts': now,
+                            'input_size': input_size,
+                        }
+                        self._tools_called[name] = (
+                            self._tools_called.get(name, 0) + 1
+                        )
+        elif etype == 'user':
+            msg = event.get('message') or {}
+            for block in (msg.get('content') or []):
+                if not isinstance(block, dict):
+                    continue
+                if block.get('type') != 'tool_result':
+                    continue
+                use_id = block.get('tool_use_id') or ''
+                pending = self._open_tool_uses.pop(use_id, None)
+                if pending is None:
+                    continue
+                content = block.get('content')
+                if isinstance(content, str):
+                    output_size = len(content)
+                else:
+                    try:
+                        output_size = len(json.dumps(content))
+                    except (TypeError, ValueError):
+                        output_size = 0
+                end_ts = now
+                start_ts = pending['start_ts']
+                duration_ms = int((end_ts - start_ts) * 1000)
+                # Resolve child_session_id from Send / Delegate /
+                # AskQuestion result text. The result format is
+                # ``{"conversation_id": "dispatch:<hex>"}`` or similar.
+                child_sid = None
+                if isinstance(content, str):
+                    try:
+                        parsed = json.loads(content)
+                        if isinstance(parsed, dict):
+                            cid = (
+                                parsed.get('conversation_id')
+                                or parsed.get('child_session_id')
+                            )
+                            if isinstance(cid, str) and ':' in cid:
+                                child_sid = cid.partition(':')[2]
+                            elif isinstance(cid, str):
+                                child_sid = cid
+                    except (ValueError, TypeError):
+                        pass
+                _rec(
+                    TOOL_CALL_COMPLETE, scope=_scope,
+                    session_id=self.session_id,
+                    ts=end_ts,
+                    data={
+                        'tool_use_id': use_id,
+                        'tool_name': pending['tool_name'],
+                        'mcp_server': pending['mcp_server'],
+                        'start_ts': start_ts,
+                        'end_ts': end_ts,
+                        'duration_ms': duration_ms,
+                        'is_error': bool(block.get('is_error')),
+                        'input_size': pending['input_size'],
+                        'output_size': output_size,
+                        # The data field's parent_session_id documents
+                        # the calling session per the issue spec —
+                        # which session issued this tool call.
+                        'parent_session_id': self.session_id,
+                        'child_session_id': child_sid,
+                    },
+                    # Indexed-column parent_session_id is the calling
+                    # session's own parent in the dispatch tree, so a
+                    # WITH RECURSIVE walk over events.parent_session_id
+                    # treats tool-call rows as children of the agent
+                    # that issued them — not as self-loops.
+                    parent_session_id=_parent_sid,
+                    job_id=_job_id,
+                )
 
 
 # ── 529 overload detection ───────────────────────────────────────────────────

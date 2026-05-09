@@ -60,11 +60,16 @@ from teaparty.telemetry.events import (
     SERVER_START, SERVER_SHUTDOWN, CONFIG_LOADED, MIGRATION_RUN,
     # Proxy evolution
     PROXY_UPDATED, PROXY_DIVERGED_FROM_HUMAN,
+    # Issue #431 — dispatch-tree metadata
+    TOOL_CALL_COMPLETE, MESSAGE_RECORDED, DISPATCH_EDGE,
+    PROXY_INVOKED, CONVERSATION_OPENED, CONVERSATION_CLOSED,
     # All event types (for tests / coverage)
     ALL_EVENT_TYPES,
 )
 from teaparty.telemetry.record import (
     record_event,
+    record_message,
+    record_dispatch_edge,
     delete_scope,
     set_broadcaster,
     set_teaparty_home,
@@ -86,17 +91,32 @@ from teaparty.telemetry.query import (
     withdrawal_phase_distribution,
     gate_pass_rate,
     stats_summary,
+    # Issue #431 — spec-aligned analysis queries
+    jobs,
+    session_turns,
+    agent_sessions_catalog,
+    phase_intervals,
+    session_summary,
+    job_cost_summary,
+    job_phase_summary,
+    prompt_groups,
+    gantt_spans,
+    token_grid,
 )
 from teaparty.telemetry.migration import migrate_metrics_db
 
 __all__ = [
-    'record_event', 'delete_scope', 'set_broadcaster', 'set_teaparty_home', 'configure',
+    'record_event', 'record_message', 'record_dispatch_edge',
+    'delete_scope', 'set_broadcaster', 'set_teaparty_home', 'configure',
     'reset_for_tests',
     'Event', 'query_events',
     'total_cost', 'turn_count', 'active_sessions', 'gates_awaiting_input',
     'backtrack_count', 'backtrack_cost', 'phase_distribution',
     'escalation_stats', 'proxy_answer_rate', 'withdrawal_phase_distribution',
     'gate_pass_rate', 'stats_summary',
+    'jobs', 'session_turns', 'agent_sessions_catalog',
+    'phase_intervals', 'session_summary', 'job_cost_summary',
+    'job_phase_summary', 'prompt_groups', 'gantt_spans', 'token_grid',
     'migrate_metrics_db',
     'ALL_EVENT_TYPES',
 ]

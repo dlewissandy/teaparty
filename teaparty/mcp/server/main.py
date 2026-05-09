@@ -1441,15 +1441,21 @@ def create_http_app(port: int = 8082):
             current_agent_name,
             current_conversation_id,
             current_session_id,
+            current_job_id,
+            current_parent_session_id,
+            current_dispatch_depth,
+            current_scope,
         )
         current_agent_name.set(agent_name)
+        current_scope.set(scope_name)
         # Session ID present in 4-part paths: /mcp/{scope}/{agent}/{session_id}
         if len(parts) >= 4:
             current_session_id.set(parts[3])
-        # The caller's bus conv_id — passed via ``?conv=`` by ``launch()``.
-        # Consumers that need to stamp ``parent_conversation_id`` on a
-        # new dispatch row read this value.  Deriving it from session_id
-        # is the bug; propagating it from the launcher is the fix.
+        # Issue #431 — propagate dispatch-tree linkage from the URL
+        # query string. The launcher writes ``conv=``, ``job=``,
+        # ``parent=``, ``depth=`` into the MCP URL at compose time so
+        # tool handlers running in a separate ASGI request task see
+        # the same call-tree context as the agent's TURN_*.
         query_string = scope.get('query_string', b'').decode('utf-8', 'replace')
         if query_string:
             from urllib.parse import parse_qs
@@ -1457,6 +1463,18 @@ def create_http_app(port: int = 8082):
             conv_vals = qs.get('conv') or qs.get('conversation_id')
             if conv_vals:
                 current_conversation_id.set(conv_vals[0])
+            job_vals = qs.get('job') or qs.get('job_id')
+            if job_vals:
+                current_job_id.set(job_vals[0])
+            parent_vals = qs.get('parent') or qs.get('parent_session_id')
+            if parent_vals:
+                current_parent_session_id.set(parent_vals[0])
+            depth_vals = qs.get('depth') or qs.get('dispatch_depth')
+            if depth_vals:
+                try:
+                    current_dispatch_depth.set(int(depth_vals[0]))
+                except (TypeError, ValueError):
+                    pass
 
         # Load allowlist
         if cache_key not in _allowlist_cache:

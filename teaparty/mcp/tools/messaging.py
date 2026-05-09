@@ -309,6 +309,28 @@ async def _default_delegate_post(
         return json.dumps({'status': 'failed', 'reason': reason})
 
     conv_id = f'dispatch:{session_id}'
+    # Issue #431 — every Delegate call is an edge in the dispatch tree.
+    # Recording it as a first-class row makes the tree query
+    # ``SELECT ... FROM dispatch_edges WHERE job_id=?`` answerable
+    # without parsing every stream file.
+    try:
+        from teaparty.telemetry import record_dispatch_edge
+        from teaparty.mcp.registry import (
+            current_session_id as _curr_sid,
+            current_job_id as _curr_job,
+        )
+        record_dispatch_edge(
+            parent_session_id=_curr_sid.get('') or '',
+            child_session_id=session_id,
+            member=member,
+            skill=skill,
+            task_summary=composite[:300],
+            job_id=_curr_job.get('') or None,
+        )
+    except Exception:
+        _delegate_log.debug(
+            'record_dispatch_edge raised', exc_info=True,
+        )
     _delegate_log.info(
         'delegate: member=%r conv=%s skill=%r elapsed=%.2fs',
         member, conv_id, skill, _time.monotonic() - t0,

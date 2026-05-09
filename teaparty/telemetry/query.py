@@ -436,6 +436,249 @@ def _count(
     ))
 
 
+# ── Spec-aligned analysis queries (Issue #431) ──────────────────────────────
+#
+# These helpers wrap the SQL views defined in ``schema.py``. They mirror
+# the canonical spec's ``analysis.db`` queries so plot scripts and
+# dashboards can drive the same shapes against ``telemetry.db``
+# directly. Each returns plain-dict rows for easy JSON serialization.
+
+
+def _rows_to_dicts(cur: sqlite3.Cursor) -> list[dict]:
+    cols = [c[0] for c in cur.description]
+    return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
+def _select_dicts(sql: str, params: tuple = ()) -> list[dict]:
+    """Run a SELECT against the telemetry DB and return list[dict].
+
+    Returns ``[]`` when telemetry is unconfigured (so callers don't
+    have to guard the unconfigured-bridge case).
+    """
+    conn = _record._ensure_conn()  # noqa: SLF001
+    if conn is None:
+        return []
+    with _record._lock:  # noqa: SLF001
+        cur = conn.execute(sql, params)
+        return _rows_to_dicts(cur)
+
+
+def jobs(project: Optional[str] = None) -> list[dict]:
+    """Return job rows from the ``jobs`` view, optionally filtered by project."""
+    if project:
+        return _select_dicts(
+            'SELECT * FROM jobs WHERE project = ? ORDER BY ts DESC',
+            (project,),
+        )
+    return _select_dicts('SELECT * FROM jobs ORDER BY ts DESC')
+
+
+def session_turns(
+    session_id: Optional[str] = None,
+    job_id: Optional[str] = None,
+) -> list[dict]:
+    """One row per teaparty turn from the ``session_turns`` view."""
+    where: list[str] = []
+    params: list[Any] = []
+    if session_id is not None:
+        where.append('session_id = ?')
+        params.append(session_id)
+    if job_id is not None:
+        where.append('job_id = ?')
+        params.append(job_id)
+    sql = 'SELECT * FROM session_turns'
+    if where:
+        sql += ' WHERE ' + ' AND '.join(where)
+    sql += ' ORDER BY ts'
+    return _select_dicts(sql, tuple(params))
+
+
+def agent_sessions_catalog(
+    job_id: Optional[str] = None,
+    scope: Optional[str] = None,
+) -> list[dict]:
+    """One row per session, with role/depth/parent/job linkage."""
+    where: list[str] = []
+    params: list[Any] = []
+    if job_id is not None:
+        where.append('job_id = ?')
+        params.append(job_id)
+    if scope is not None:
+        where.append('scope = ?')
+        params.append(scope)
+    sql = 'SELECT * FROM agent_sessions'
+    if where:
+        sql += ' WHERE ' + ' AND '.join(where)
+    sql += ' ORDER BY first_ts'
+    return _select_dicts(sql, tuple(params))
+
+
+def phase_intervals(session_id: Optional[str] = None) -> list[dict]:
+    """Phase intervals derived via LEAD over PHASE_CHANGED."""
+    if session_id:
+        return _select_dicts(
+            'SELECT * FROM phase_intervals WHERE session_id = ? '
+            'ORDER BY start_ts',
+            (session_id,),
+        )
+    return _select_dicts('SELECT * FROM phase_intervals ORDER BY start_ts')
+
+
+def session_summary(session_id: Optional[str] = None) -> list[dict]:
+    """Per-session token/cost/duration rollup."""
+    if session_id:
+        return _select_dicts(
+            'SELECT * FROM session_summary WHERE session_id = ?',
+            (session_id,),
+        )
+    return _select_dicts('SELECT * FROM session_summary ORDER BY cost_usd DESC')
+
+
+def job_cost_summary(job_id: Optional[str] = None) -> list[dict]:
+    """Per-job per-role per-agent cost rollup — the motivating
+    cost-per-job query from the issue body."""
+    if job_id:
+        return _select_dicts(
+            'SELECT * FROM job_cost_summary WHERE job_id = ? '
+            'ORDER BY cost_usd DESC',
+            (job_id,),
+        )
+    return _select_dicts(
+        'SELECT * FROM job_cost_summary ORDER BY cost_usd DESC'
+    )
+
+
+def job_phase_summary(job_id: Optional[str] = None) -> list[dict]:
+    """Per-job per-role rollup."""
+    if job_id:
+        return _select_dicts(
+            'SELECT * FROM job_phase_summary WHERE job_id = ?',
+            (job_id,),
+        )
+    return _select_dicts('SELECT * FROM job_phase_summary')
+
+
+def prompt_groups(project: Optional[str] = None) -> list[dict]:
+    """Byte-identical prompt groupings."""
+    if project:
+        return _select_dicts(
+            'SELECT * FROM prompt_groups WHERE project = ?',
+            (project,),
+        )
+    return _select_dicts('SELECT * FROM prompt_groups')
+
+
+def gantt_spans(job_id: str) -> dict:
+    """Return everything needed to draw a Gantt chart for one job:
+    session bars, phase intervals, tool spans, dispatch edges.
+
+    Single-call so the dashboard can render a job's tree in one
+    round-trip without composing four separate queries.
+    """
+    sessions = agent_sessions_catalog(job_id=job_id)
+    session_ids = [s['session_id'] for s in sessions]
+    placeholders = ','.join('?' for _ in session_ids) or "''"
+    intervals = (
+        _select_dicts(
+            f'SELECT * FROM phase_intervals '
+            f'WHERE session_id IN ({placeholders}) ORDER BY start_ts',
+            tuple(session_ids),
+        )
+        if session_ids
+        else []
+    )
+    tool_spans = (
+        _select_dicts(
+            f"SELECT id, ts, session_id, parent_session_id, "
+            f"json_extract(data, '$.tool_name')   AS tool_name, "
+            f"json_extract(data, '$.mcp_server')  AS mcp_server, "
+            f"json_extract(data, '$.start_ts')    AS start_ts, "
+            f"json_extract(data, '$.end_ts')      AS end_ts, "
+            f"json_extract(data, '$.duration_ms') AS duration_ms, "
+            f"json_extract(data, '$.is_error')    AS is_error, "
+            f"json_extract(data, '$.child_session_id') AS child_session_id "
+            f"FROM events WHERE event_type='tool_call_complete' "
+            f"AND session_id IN ({placeholders}) "
+            f"ORDER BY ts",
+            tuple(session_ids),
+        )
+        if session_ids
+        else []
+    )
+    edges = _select_dicts(
+        'SELECT * FROM dispatch_edges WHERE job_id = ? ORDER BY ts',
+        (job_id,),
+    )
+    return {
+        'job_id':           job_id,
+        'sessions':         sessions,
+        'phase_intervals':  intervals,
+        'tool_spans':       tool_spans,
+        'dispatch_edges':   edges,
+    }
+
+
+def token_grid(job_id: Optional[str] = None) -> list[dict]:
+    """Per-role per-phase output-token grid for a job (or org-wide).
+
+    Joins ``session_messages`` (the deduped per-message sidecar) to
+    ``agent_sessions`` (for role) and ``phase_intervals`` (for phase).
+    Sub-agents don't emit their own ``PHASE_CHANGED`` events; their
+    phase is inherited from the parent session's intervals at the
+    message's timestamp via a fallback subquery. Without this fallback
+    every sub-agent message falls into the ``unknown`` bucket.
+    """
+    where = ''
+    params: tuple[Any, ...] = ()
+    if job_id is not None:
+        where = 'WHERE a.job_id = ?'
+        params = (job_id,)
+    # CTE'd phase resolution avoids the ambiguous reference SQLite
+    # would otherwise see between the COALESCE alias and the
+    # phase_intervals.phase column exposed through the JOIN.
+    sql = f'''
+        WITH attributed AS (
+            SELECT
+                a.role AS role,
+                COALESCE(
+                    p_self.phase,
+                    (SELECT pp.phase FROM phase_intervals pp
+                        WHERE pp.session_id = a.parent_session_id
+                          AND m.ts >= pp.start_ts
+                          AND (pp.end_ts IS NULL OR m.ts < pp.end_ts)
+                        LIMIT 1),
+                    'unknown'
+                ) AS phase_label,
+                m.message_id,
+                m.input_tokens,
+                m.output_tokens,
+                m.cache_read_tokens,
+                m.cache_5m_tokens,
+                m.cache_1h_tokens
+            FROM session_messages m
+            JOIN agent_sessions a ON a.session_id = m.session_id
+            LEFT JOIN phase_intervals p_self
+                ON p_self.session_id = m.session_id
+                AND m.ts >= p_self.start_ts
+                AND (p_self.end_ts IS NULL OR m.ts < p_self.end_ts)
+            {where}
+        )
+        SELECT
+            role,
+            phase_label                            AS phase,
+            COUNT(message_id)                      AS messages,
+            COALESCE(SUM(input_tokens), 0)         AS input_tokens,
+            COALESCE(SUM(output_tokens), 0)        AS output_tokens,
+            COALESCE(SUM(cache_read_tokens), 0)    AS cache_read_tokens,
+            COALESCE(SUM(cache_5m_tokens), 0)      AS cache_5m_tokens,
+            COALESCE(SUM(cache_1h_tokens), 0)      AS cache_1h_tokens
+        FROM attributed
+        GROUP BY role, phase_label
+        ORDER BY role, phase_label
+    '''
+    return _select_dicts(sql, params)
+
+
 def stats_summary(
     scope: Optional[str] = None,
     agent: Optional[str] = None,

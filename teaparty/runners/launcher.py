@@ -405,6 +405,13 @@ def compose_launch_worktree(
     mcp_port: int = 0,
     session_id: str = '',
     caller_conversation_id: str = '',
+    # Issue #431 — propagate dispatch-tree linkage into the MCP URL
+    # so in-process tool handlers running in separate ASGI request
+    # tasks read consistent contextvar values. Empty / None falls
+    # through; the middleware leaves the contextvar at its default.
+    job_id: str = '',
+    parent_session_id: str = '',
+    dispatch_depth: int | None = None,
 ) -> None:
     """Compose the .claude/ directory in a worktree for an agent launch.
 
@@ -510,11 +517,22 @@ def compose_launch_worktree(
         # ``parent_conversation_id`` on new dispatches — the single
         # codepath that replaces three independent ``f'dispatch:{sid}'``
         # derivations (chat tier, CfA engine, escalation).
+        # Build the URL query string. Each param threads a launch-time
+        # value into the MCP middleware's contextvar set so in-process
+        # tool handlers (which run in a separate ASGI request task)
+        # see the same job/parent/depth as the agent's TURN_*.
+        from urllib.parse import quote, urlencode
+        _qs_pairs: list[tuple[str, str]] = []
         if caller_conversation_id:
-            from urllib.parse import quote
-            mcp_url = (
-                f'{mcp_url}?conv={quote(caller_conversation_id, safe="")}'
-            )
+            _qs_pairs.append(('conv', caller_conversation_id))
+        if job_id:
+            _qs_pairs.append(('job', job_id))
+        if parent_session_id:
+            _qs_pairs.append(('parent', parent_session_id))
+        if dispatch_depth is not None:
+            _qs_pairs.append(('depth', str(dispatch_depth)))
+        if _qs_pairs:
+            mcp_url = f'{mcp_url}?{urlencode(_qs_pairs, quote_via=quote)}'
         mcp_data = {
             'mcpServers': {
                 'teaparty-config': {
@@ -706,6 +724,10 @@ def compose_launch_config(
     mcp_port: int = 0,
     session_id: str = '',
     caller_conversation_id: str = '',
+    # Issue #431 — propagate dispatch-tree linkage into the MCP URL.
+    job_id: str = '',
+    parent_session_id: str = '',
+    dispatch_depth: int | None = None,
 ) -> dict[str, str]:
     """Compose per-launch config files for a chat-tier agent launch.
 
@@ -781,11 +803,18 @@ def compose_launch_config(
             mcp_url = f'http://localhost:{mcp_port}/mcp/{scope}/{agent_name}/{session_id}'
         else:
             mcp_url = f'http://localhost:{mcp_port}/mcp/{scope}/{agent_name}'
+        from urllib.parse import quote, urlencode
+        _qs_pairs: list[tuple[str, str]] = []
         if caller_conversation_id:
-            from urllib.parse import quote
-            mcp_url = (
-                f'{mcp_url}?conv={quote(caller_conversation_id, safe="")}'
-            )
+            _qs_pairs.append(('conv', caller_conversation_id))
+        if job_id:
+            _qs_pairs.append(('job', job_id))
+        if parent_session_id:
+            _qs_pairs.append(('parent', parent_session_id))
+        if dispatch_depth is not None:
+            _qs_pairs.append(('depth', str(dispatch_depth)))
+        if _qs_pairs:
+            mcp_url = f'{mcp_url}?{urlencode(_qs_pairs, quote_via=quote)}'
         mcp_data = {
             'mcpServers': {
                 'teaparty-config': {
@@ -1352,6 +1381,17 @@ async def launch(
     # bug class this fix eliminates.  Empty => MCP handlers fall back
     # to session-id derivation (preserves test paths).
     caller_conversation_id: str = '',
+    # Issue #431 — TURN_START.trigger taxonomy.
+    # ``new`` = fresh session, no parent, no resume.
+    # ``dispatch`` = first launch of a session just spawned by a parent.
+    # ``resume`` = re-entry into an existing session.
+    # ``wake`` = woken by a scheduled task / cron firing.
+    # Empty defaults to 'resume' when resume_session is set, else 'new'.
+    trigger: str = '',
+    # Issue #431 — dispatch-tree linkage carried by every event row.
+    parent_session_id: str = '',
+    job_id: str = '',
+    dispatch_depth: int | None = None,
 ) -> ClaudeResult:
     """Launch an agent through the unified codepath.
 
@@ -1426,6 +1466,9 @@ async def launch(
             mcp_port=mcp_port,
             session_id=session_id,
             caller_conversation_id=caller_conversation_id,
+            job_id=job_id,
+            parent_session_id=parent_session_id,
+            dispatch_depth=dispatch_depth,
         )
         chat_settings_path = cfg['settings_path']
         chat_mcp_path = cfg['mcp_path']
@@ -1441,6 +1484,9 @@ async def launch(
             mcp_port=mcp_port,
             session_id=session_id,
             caller_conversation_id=caller_conversation_id,
+            job_id=job_id,
+            parent_session_id=parent_session_id,
+            dispatch_depth=dispatch_depth,
         )
 
     # Read agent frontmatter for tools and permission mode
@@ -1502,17 +1548,64 @@ async def launch(
         pass
 
     _tscope = telemetry_scope or scope
+    # Issue #431 — set the dispatch-tree contextvars so any in-process
+    # tool handler (Delegate, AskQuestion) reads consistent job_id /
+    # parent_session_id / depth / scope when it stamps a telemetry row.
+    # ContextVar.set returns a token that we don't reset because launch
+    # blocks for the agent's whole turn — the contextvar reads are
+    # confined to in-process calls during this launch.
+    from teaparty.mcp.registry import (
+        current_job_id as _ctx_job,
+        current_dispatch_depth as _ctx_depth,
+        current_scope as _ctx_scope,
+        current_session_id as _ctx_sid,
+        current_parent_session_id as _ctx_parent_sid,
+    )
+    if job_id:
+        _ctx_job.set(job_id)
+    if dispatch_depth is not None:
+        _ctx_depth.set(int(dispatch_depth))
+    _ctx_scope.set(_tscope)
+    if session_id:
+        _ctx_sid.set(session_id)
+    if parent_session_id:
+        _ctx_parent_sid.set(parent_session_id)
+    # Issue #431 — turn_id pairs TURN_START with TURN_COMPLETE without
+    # ordering tricks; trigger taxonomy distinguishes initial dispatch
+    # from resume / wake so per-session turn counts are answerable
+    # from telemetry alone.
+    _turn_id = uuid.uuid4().hex
+    # Trigger taxonomy precedence: explicit kwarg > contextvar > heuristic.
+    # The contextvar lets the scheduler / cron runner stamp ``'wake'``
+    # without threading a kwarg through every intermediate frame.
+    if trigger:
+        _trigger = trigger
+    else:
+        from teaparty.mcp.registry import current_trigger as _ctx_trigger
+        ctx_trig = _ctx_trigger.get('') or ''
+        if ctx_trig:
+            _trigger = ctx_trig
+        elif resume_session:
+            _trigger = 'resume'
+        else:
+            _trigger = 'new'
+    _conv_id = caller_conversation_id or ''
     record_event(
         _telem_events.TURN_START,
         scope=_tscope,
         agent_name=agent_name,
         session_id=session_id,
         data={
-            'trigger': 'dispatch' if resume_session else 'new',
+            'trigger': _trigger,
             'claude_session': resume_session or '',
             'model': '',
             'resume_from_phase': None,
         },
+        turn_id=_turn_id,
+        conversation_id=_conv_id or None,
+        parent_session_id=parent_session_id or None,
+        job_id=job_id or None,
+        dispatch_depth=dispatch_depth,
     )
     _turn_start_wall = time.time()
 
@@ -1544,7 +1637,9 @@ async def launch(
         env_vars=env_vars or {},
     )
 
-    # Emit turn_complete with per-turn cost, tokens, and duration.
+    # Emit turn_complete with per-turn cost, tokens, and duration —
+    # plus the additive SDK result fields (Issue #431) so analyses
+    # can run against telemetry.db without re-parsing streams.
     record_event(
         _telem_events.TURN_COMPLETE,
         scope=_tscope,
@@ -1556,12 +1651,28 @@ async def launch(
             'cost_usd':             result.cost_usd,
             'input_tokens':         result.input_tokens,
             'output_tokens':        result.output_tokens,
-            'cache_read_tokens':    getattr(result, 'cache_read_tokens', 0),
-            'cache_create_tokens':  getattr(result, 'cache_create_tokens', 0),
-            'response_text_len':    len(getattr(result, 'response_text', '') or ''),
-            'tools_called':         getattr(result, 'tools_called', {}) or {},
+            'cache_read_tokens':    result.cache_read_tokens,
+            'cache_create_tokens':  result.cache_create_tokens,
+            'response_text_len':    len(result.response_text or ''),
+            'tools_called':         dict(result.tools_called or {}),
             'wall_duration_ms':     int((time.time() - _turn_start_wall) * 1000),
+            # Issue #431 — additive fields from the SDK result.
+            'num_turns':            result.num_turns,
+            'duration_api_ms':      result.duration_api_ms,
+            'stop_reason':          result.stop_reason,
+            'is_error':             result.is_error,
+            'api_error_status':     result.api_error_status,
+            'cache_5m_tokens':      result.cache_5m_tokens,
+            'cache_1h_tokens':      result.cache_1h_tokens,
+            'model':                result.model,
+            'claude_session_uuid':  result.claude_session_uuid,
         },
+        turn_id=_turn_id,
+        conversation_id=_conv_id or None,
+        parent_session_id=parent_session_id or None,
+        job_id=job_id or None,
+        dispatch_depth=dispatch_depth,
+        cost_source='stream_result',
     )
 
     return result
