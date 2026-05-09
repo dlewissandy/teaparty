@@ -33,6 +33,8 @@ workgroups:
   config: workgroups/quality-control.yaml
 - name: Research
   config: workgroups/research.yaml
+- name: software-development
+  config: workgroups/software-development.yaml
 - name: Writing
   config: workgroups/writing.yaml
 stats:

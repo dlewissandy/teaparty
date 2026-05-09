@@ -494,6 +494,34 @@ class TestSoftwareDevelopmentRosterRecognition(unittest.TestCase):
             f'lead Delegates to at every pipeline hop.',
         )
 
+    def test_project_lead_roster_includes_software_development_lead(self):
+        """AC4: the lead reports completion back to the project lead.
+        For that dispatch to be possible the project-lead's roster
+        must list software-development-lead as a member — otherwise
+        the project-lead's BusDispatcher rejects the Delegate
+        (unknown member) and the pipeline cannot be invoked."""
+        from teaparty.config.config_reader import load_project_team
+        from teaparty.config.roster import derive_team_roster
+
+        project_dir = REPO_ROOT
+        proj = load_project_team(project_dir)
+        roster = derive_team_roster(proj.lead, TEAPARTY_HOME)
+        self.assertIsNotNone(
+            roster,
+            f'derive_team_roster({proj.lead!r}) returned None; the '
+            f'project-lead itself is not discoverable.',
+        )
+        assert roster is not None
+        member_names = {m.name for m in roster.members}
+        self.assertIn(
+            LEAD_NAME, member_names,
+            f'project-lead roster must include {LEAD_NAME!r} as a '
+            f'member so the project-lead can Delegate to it.  '
+            f'Got members {sorted(member_names)}.  Add '
+            f'software-development to the project.yaml `workgroups:` '
+            f'list AND `members.workgroups:` list.',
+        )
+
 
 # ── 6. Dependencies (verify-only per issue boundaries) ─────────────────────
 

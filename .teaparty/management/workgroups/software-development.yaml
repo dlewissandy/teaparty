@@ -1,0 +1,23 @@
+name: software-development
+description: Per-issue orchestration of the fix-issue pipeline. One lead instance
+  per open GitHub issue; parallel issues run as parallel leads. The lead delegates
+  implementation to coding-lead, verification to quality-control-lead, intent-fidelity
+  audit to auditor, and a second coding round to resolve audit findings.
+lead: software-development-lead
+humans:
+  decider: primus
+members:
+  agents:
+  - coding-lead
+  - quality-control-lead
+  - auditor
+  hooks: []
+artifacts:
+- path: .teaparty/workgroups/NORMS-software-development.md
+  label: Norms
+stats:
+  storage: .teaparty/stats/software-development.json
+agents:
+- name: coding-lead
+- name: quality-control-lead
+- name: auditor

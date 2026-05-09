@@ -9,12 +9,14 @@ workgroups:
 - ref: Intake
 - ref: Research
 - ref: quality-control
+- ref: software-development
 members:
   workgroups:
   - Coding
   - Intake
   - Research
   - Quality Control
+  - software-development
   agents:
   - scrum-master
   skills: []
