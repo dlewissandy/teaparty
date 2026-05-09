@@ -3,7 +3,11 @@
 The events table is the append-only log; sidecar tables hold data with
 non-trivial dedupe contracts (per-message tokens, dispatch edges) and
 the model-pricing reference table used to derive cost when the SDK does
-not return ``cost_usd`` directly.
+not return ``cost_usd`` directly. Spec-aligned views expose the
+analysis-shape queries (agent_sessions catalog, phase_intervals,
+session_summary, job_cost_summary, prompt_groups) directly over the
+events log so dashboards and plot scripts can run against telemetry.db
+without a separate analysis.db build step.
 
 Issue #405 introduced the events table. Issue #431 added:
 - six indexed columns on events (turn_id, conversation_id,
@@ -12,6 +16,9 @@ Issue #405 introduced the events table. Issue #431 added:
 - ``session_messages`` sidecar (PRIMARY KEY on (session_id, message_id))
 - ``dispatch_edges`` sidecar
 - ``model_pricing`` sidecar with seed rows for the current model lineup
+- ``jobs``, ``session_turns``, ``agent_sessions``, ``phase_intervals``,
+  ``session_summary``, ``job_phase_summary``, ``job_cost_summary``,
+  ``prompt_groups`` as SQL views over the above
 """
 from __future__ import annotations
 
@@ -103,6 +110,247 @@ CREATE TABLE IF NOT EXISTS model_pricing (
 """
 
 
+_VIEWS_SQL = """
+-- ─────────────────────────────────────────────────────────────────────
+-- Spec-aligned views (Issue #431).
+--
+-- Each view extracts a flat shape from the events log + JSON data
+-- payload so dashboards and plot scripts can query telemetry.db with
+-- the same SQL the canonical spec's analysis.db expects. SQLite views
+-- are virtual — no storage cost, no migration cost, no
+-- duplication. Replacing or extending a view is DROP + CREATE.
+--
+-- Naming follows the canonical spec at
+-- ~/git/dlewissandy.github.io/site/blog/early-dialog-matters/
+-- build_analysis_db.py::init_schema(). The plot scripts run
+-- unchanged against these views.
+-- ─────────────────────────────────────────────────────────────────────
+
+DROP VIEW IF EXISTS jobs;
+DROP VIEW IF EXISTS session_turns;
+DROP VIEW IF EXISTS agent_sessions;
+DROP VIEW IF EXISTS phase_intervals;
+DROP VIEW IF EXISTS session_summary;
+DROP VIEW IF EXISTS job_phase_summary;
+DROP VIEW IF EXISTS job_cost_summary;
+DROP VIEW IF EXISTS prompt_groups;
+
+-- One row per job, drawn from JOB_CREATED events. The plot scripts
+-- use prompt_hash to group byte-identical reruns; first_ts / last_ts
+-- come from the messages sidecar's per-job timestamp range.
+CREATE VIEW jobs AS
+SELECT
+    json_extract(data, '$.job_id')          AS job_id,
+    json_extract(data, '$.project')         AS project,
+    json_extract(data, '$.slug')            AS slug,
+    json_extract(data, '$.classification')  AS classification,
+    json_extract(data, '$.prompt_text')     AS prompt_text,
+    json_extract(data, '$.prompt_hash')     AS prompt_hash,
+    json_extract(data, '$.prompt_bytes')    AS prompt_bytes,
+    json_extract(data, '$.branch')          AS branch,
+    json_extract(data, '$.status')          AS status,
+    json_extract(data, '$.created_at')      AS created_at,
+    json_extract(data, '$.issue')           AS issue,
+    ts                                      AS ts,
+    session_id                              AS session_id
+FROM events
+WHERE event_type = 'job_created';
+
+-- One row per teaparty turn (i.e., per launch). This is the canonical
+-- per-turn record. Source priority:
+--   stream_result = orchestrator-side (authoritative)
+--   bridge_turn   = bridge-side (authoritative for hex dispatch ids)
+--   computed      = derived from tokens × pricing when neither exists
+-- ``cost_source`` is the indexed column attribution.
+CREATE VIEW session_turns AS
+SELECT
+    id,
+    session_id,
+    ts,
+    scope,
+    agent_name,
+    turn_id,
+    conversation_id,
+    parent_session_id,
+    job_id,
+    dispatch_depth,
+    cost_source,
+    CAST(json_extract(data, '$.cost_usd')        AS REAL)    AS cost_usd,
+    CAST(json_extract(data, '$.duration_ms')     AS INTEGER) AS duration_ms,
+    CAST(json_extract(data, '$.duration_api_ms') AS INTEGER) AS duration_api_ms,
+    CAST(json_extract(data, '$.wall_duration_ms')AS INTEGER) AS wall_duration_ms,
+    CAST(json_extract(data, '$.num_turns')       AS INTEGER) AS num_turns,
+    CAST(json_extract(data, '$.input_tokens')    AS INTEGER) AS input_tokens,
+    CAST(json_extract(data, '$.output_tokens')   AS INTEGER) AS output_tokens,
+    CAST(json_extract(data, '$.cache_read_tokens')   AS INTEGER) AS cache_read_tokens,
+    CAST(json_extract(data, '$.cache_create_tokens') AS INTEGER) AS cache_create_tokens,
+    CAST(json_extract(data, '$.cache_5m_tokens') AS INTEGER) AS cache_5m_tokens,
+    CAST(json_extract(data, '$.cache_1h_tokens') AS INTEGER) AS cache_1h_tokens,
+    json_extract(data, '$.model')               AS model,
+    json_extract(data, '$.claude_session_uuid') AS claude_session_uuid,
+    json_extract(data, '$.stop_reason')         AS stop_reason,
+    json_extract(data, '$.is_error')            AS is_error,
+    json_extract(data, '$.api_error_status')    AS api_error_status,
+    CAST(json_extract(data, '$.exit_code')       AS INTEGER) AS exit_code,
+    CAST(json_extract(data, '$.response_text_len') AS INTEGER) AS response_text_len,
+    json_extract(data, '$.tools_called')        AS tools_called
+FROM events
+WHERE event_type = 'turn_complete';
+
+-- Catalog of distinct sessions, derived from the events log. Role is
+-- inferred from agent_name and dispatch_depth: depth 0 leads are
+-- project_lead, depth 1 leads are team_lead, the proxy and
+-- office-manager are special. Specialists are everything else.
+CREATE VIEW agent_sessions AS
+SELECT
+    e.session_id,
+    MAX(e.scope)             AS scope,
+    MAX(e.agent_name)        AS agent_name,
+    MAX(e.parent_session_id) AS parent_session_id,
+    MAX(e.job_id)            AS job_id,
+    MAX(e.dispatch_depth)    AS dispatch_depth,
+    MAX(e.conversation_id)   AS conversation_id,
+    MIN(e.ts)                AS first_ts,
+    MAX(e.ts)                AS last_ts,
+    -- Role inference. Lead agent names ending in '-lead' or matching
+    -- known leads count as leads at their dispatch depth; proxy and
+    -- management agents have explicit roles.
+    CASE
+        WHEN MAX(e.agent_name) = 'proxy'                      THEN 'proxy'
+        WHEN MAX(e.agent_name) IN ('office-manager','human')  THEN 'management'
+        WHEN MAX(e.dispatch_depth) IS NULL                    THEN 'unknown'
+        WHEN MAX(e.dispatch_depth) = 0                        THEN 'project_lead'
+        WHEN MAX(e.dispatch_depth) = 1
+             AND (MAX(e.agent_name) LIKE '%-lead'
+                  OR MAX(e.agent_name) LIKE '%-manager')      THEN 'team_lead'
+        WHEN MAX(e.agent_name) LIKE '%-lead'                  THEN 'team_lead'
+        ELSE 'specialist'
+    END AS role,
+    -- Pull model and SDK uuid from the most recent TURN_COMPLETE.
+    (SELECT json_extract(t.data, '$.model')
+       FROM events t
+       WHERE t.session_id = e.session_id
+         AND t.event_type = 'turn_complete'
+       ORDER BY t.ts DESC LIMIT 1) AS model,
+    (SELECT json_extract(t.data, '$.claude_session_uuid')
+       FROM events t
+       WHERE t.session_id = e.session_id
+         AND t.event_type = 'turn_complete'
+       ORDER BY t.ts DESC LIMIT 1) AS claude_session_uuid
+FROM events e
+WHERE e.session_id IS NOT NULL
+GROUP BY e.session_id;
+
+-- Phase intervals via the LEAD window function: each PHASE_CHANGED
+-- event opens a phase; the next PHASE_CHANGED on the same session
+-- closes it. The spec needs ~60 lines of Python to derive this from
+-- a four-source merge — telemetry's single canonical event log
+-- collapses it to one window.
+CREATE VIEW phase_intervals AS
+SELECT
+    id                                            AS source_event_id,
+    session_id,
+    scope,
+    ts                                            AS start_ts,
+    LEAD(ts) OVER (PARTITION BY session_id ORDER BY ts, id) AS end_ts,
+    json_extract(data, '$.new_phase')             AS phase,
+    json_extract(data, '$.new_state')             AS new_state,
+    json_extract(data, '$.old_state')             AS old_state,
+    json_extract(data, '$.target_state')          AS target_state,
+    json_extract(data, '$.action')                AS action,
+    json_extract(data, '$.actor')                 AS actor
+FROM events
+WHERE event_type = 'phase_changed';
+
+-- Per-session token / cost / duration rollup.
+CREATE VIEW session_summary AS
+SELECT
+    a.session_id,
+    a.job_id,
+    a.parent_session_id,
+    a.agent_name,
+    a.role,
+    a.dispatch_depth                          AS depth,
+    a.model,
+    a.scope,
+    COUNT(t.id)                               AS n_turns_recorded,
+    COALESCE(SUM(t.cost_usd), 0)              AS cost_usd,
+    COALESCE(SUM(t.duration_ms), 0)           AS duration_ms,
+    COALESCE(SUM(t.duration_api_ms), 0)       AS duration_api_ms,
+    COALESCE(SUM(t.num_turns), 0)             AS sdk_num_turns,
+    COALESCE(SUM(t.input_tokens), 0)          AS input_tokens,
+    COALESCE(SUM(t.output_tokens), 0)         AS output_tokens,
+    COALESCE(SUM(t.cache_read_tokens), 0)     AS cache_read_tokens,
+    COALESCE(SUM(t.cache_5m_tokens), 0)       AS cache_5m_tokens,
+    COALESCE(SUM(t.cache_1h_tokens), 0)       AS cache_1h_tokens
+FROM agent_sessions a
+LEFT JOIN session_turns t ON t.session_id = a.session_id
+GROUP BY a.session_id;
+
+-- Per-job per-phase rollup. The phase column is best-effort: it
+-- comes from the agent's session phase derived in agent_sessions
+-- (NULL for sessions whose phase isn't decidable from the events log).
+CREATE VIEW job_phase_summary AS
+SELECT
+    a.job_id,
+    j.slug,
+    j.classification,
+    a.role,
+    COUNT(DISTINCT a.session_id)              AS sessions,
+    COUNT(t.id)                               AS turns,
+    COALESCE(SUM(t.cost_usd), 0)              AS cost_usd,
+    COALESCE(SUM(t.duration_ms), 0)           AS duration_ms,
+    COALESCE(SUM(t.input_tokens), 0)          AS input_tokens,
+    COALESCE(SUM(t.output_tokens), 0)         AS output_tokens,
+    COALESCE(SUM(t.cache_read_tokens), 0)     AS cache_read_tokens,
+    COALESCE(SUM(t.cache_5m_tokens), 0)       AS cache_5m_tokens,
+    COALESCE(SUM(t.cache_1h_tokens), 0)       AS cache_1h_tokens
+FROM agent_sessions a
+LEFT JOIN jobs j         ON j.job_id = a.job_id
+LEFT JOIN session_turns t ON t.session_id = a.session_id
+WHERE a.job_id IS NOT NULL
+GROUP BY a.job_id, a.role;
+
+-- Per-job per-role per-agent cost rollup — the motivating cost-per-job
+-- query from the issue body.
+CREATE VIEW job_cost_summary AS
+SELECT
+    a.job_id,
+    j.slug,
+    j.classification,
+    a.role,
+    a.agent_name,
+    COUNT(DISTINCT a.session_id)              AS sessions,
+    COALESCE(SUM(t.cost_usd), 0)              AS cost_usd,
+    COALESCE(SUM(t.duration_ms), 0)           AS duration_ms,
+    COALESCE(SUM(t.input_tokens), 0)          AS input_tokens,
+    COALESCE(SUM(t.output_tokens), 0)         AS output_tokens
+FROM agent_sessions a
+LEFT JOIN jobs j         ON j.job_id = a.job_id
+LEFT JOIN session_turns t ON t.session_id = a.session_id
+WHERE a.job_id IS NOT NULL
+GROUP BY a.job_id, a.role, a.agent_name;
+
+-- Byte-identical prompt grouping (the prompt_groups view from the
+-- spec). Counts how many jobs share a prompt_hash so reruns of an
+-- identical prompt are visible at a glance.
+CREATE VIEW prompt_groups AS
+SELECT
+    project,
+    prompt_hash,
+    COUNT(*)                                  AS jobs,
+    MIN(slug)                                 AS sample_slug,
+    MIN(prompt_bytes)                         AS prompt_bytes,
+    GROUP_CONCAT(job_id, ',')                 AS job_ids,
+    MIN(created_at)                           AS first_attempt,
+    MAX(created_at)                           AS last_attempt
+FROM jobs
+WHERE prompt_hash IS NOT NULL
+GROUP BY project, prompt_hash
+ORDER BY jobs DESC;
+"""
+
+
 # Per-1M-token rates in USD as of 2026-Q1. Update when Anthropic adjusts
 # pricing; analyses that derive cost_usd from tokens will pick up the
 # new rate on the next aggregation pass.
@@ -168,4 +416,8 @@ def apply_schema(conn: sqlite3.Connection) -> None:
         'VALUES (?, ?, ?, ?, ?, ?, ?)',
         _MODEL_PRICING_SEED,
     )
+    # 6. Spec-aligned views. Recreated on every apply so view
+    #    definitions track the schema; views are virtual so this is a
+    #    no-cost operation.
+    conn.executescript(_VIEWS_SQL)
     conn.commit()

@@ -1069,5 +1069,262 @@ class BackwardCompatibilityTests(unittest.TestCase):
             )
 
 
+# ── Spec-aligned views ───────────────────────────────────────────────────────
+
+
+class SpecAlignedViewsTests(unittest.TestCase):
+    """The views (jobs, session_turns, agent_sessions, phase_intervals,
+    session_summary, job_cost_summary, prompt_groups) expose
+    analysis-shape queries directly from telemetry.db so dashboards and
+    plot scripts run without a separate analysis.db build."""
+
+    def setUp(self) -> None:
+        telemetry.reset_for_tests()
+        self.home = _make_home()
+
+    def tearDown(self) -> None:
+        telemetry.reset_for_tests()
+
+    def _seed_one_job_one_lead_one_specialist(self) -> None:
+        """Build a minimal but realistic event log: one job, one
+        project-lead session, one dispatched specialist."""
+        # Job created.
+        telemetry.record_event(
+            E.JOB_CREATED, scope='comics',
+            data={
+                'job_id': 'job-J', 'project': 'comics',
+                'slug': 'fix-bug', 'classification': 'fix-issue',
+                'prompt_text': 'fix it', 'prompt_hash': 'h-XYZ',
+                'prompt_bytes': 6, 'branch': 'fix/x',
+                'status': 'active', 'created_at': '2026-05-09T00:00:00Z',
+            },
+            ts=100.0, job_id='job-J',
+        )
+        # Project lead's TURN_COMPLETE.
+        telemetry.record_event(
+            E.TURN_COMPLETE, scope='comics',
+            agent_name='exec-lead', session_id='job-J',
+            data={
+                'cost_usd': 0.50, 'duration_ms': 12000,
+                'input_tokens': 3000, 'output_tokens': 1500,
+                'cache_read_tokens': 5000, 'cache_5m_tokens': 1000,
+                'cache_1h_tokens': 0, 'num_turns': 5,
+                'duration_api_ms': 11000, 'stop_reason': 'end_turn',
+                'is_error': False, 'model': 'claude-opus-4-7',
+                'claude_session_uuid': 'lead-uuid',
+                'tools_called': {'Bash': 3, 'Read': 5},
+                'response_text_len': 800, 'exit_code': 0,
+            },
+            ts=200.0,
+            turn_id='turn-1',
+            conversation_id='dispatch:job-J',
+            parent_session_id=None,
+            job_id='job-J',
+            dispatch_depth=0,
+            cost_source='stream_result',
+        )
+        # Specialist's TURN_COMPLETE — child of the lead.
+        telemetry.record_event(
+            E.TURN_COMPLETE, scope='comics',
+            agent_name='developer', session_id='child-spec',
+            data={
+                'cost_usd': 0.10, 'duration_ms': 4000,
+                'input_tokens': 800, 'output_tokens': 200,
+                'cache_read_tokens': 1000, 'cache_5m_tokens': 0,
+                'cache_1h_tokens': 0, 'num_turns': 1,
+                'duration_api_ms': 3500, 'stop_reason': 'end_turn',
+                'is_error': False, 'model': 'claude-sonnet-4-6',
+                'claude_session_uuid': 'spec-uuid',
+                'tools_called': {'Edit': 1},
+                'response_text_len': 100, 'exit_code': 0,
+            },
+            ts=300.0,
+            turn_id='turn-2',
+            conversation_id='dispatch:child-spec',
+            parent_session_id='job-J',
+            job_id='job-J',
+            dispatch_depth=1,
+            cost_source='stream_result',
+        )
+
+    def test_jobs_view_exposes_job_metadata_via_sql(self) -> None:
+        self._seed_one_job_one_lead_one_specialist()
+        db = os.path.join(self.home, 'telemetry.db')
+        conn = sqlite3.connect(db)
+        try:
+            row = conn.execute(
+                "SELECT job_id, project, slug, prompt_hash, prompt_bytes, "
+                "branch, status FROM jobs"
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertEqual(
+            row,
+            ('job-J', 'comics', 'fix-bug', 'h-XYZ', 6, 'fix/x', 'active'),
+            f'jobs view must expose JOB_CREATED.data fields — got {row!r}',
+        )
+
+    def test_session_turns_view_extracts_data_payload_into_columns(
+        self,
+    ) -> None:
+        self._seed_one_job_one_lead_one_specialist()
+        db = os.path.join(self.home, 'telemetry.db')
+        conn = sqlite3.connect(db)
+        try:
+            rows = conn.execute(
+                'SELECT session_id, agent_name, cost_usd, input_tokens, '
+                'output_tokens, cache_5m_tokens, num_turns, model, '
+                'cost_source FROM session_turns ORDER BY ts'
+            ).fetchall()
+        finally:
+            conn.close()
+        self.assertEqual(
+            rows,
+            [
+                ('job-J', 'exec-lead', 0.50, 3000, 1500, 1000, 5,
+                 'claude-opus-4-7', 'stream_result'),
+                ('child-spec', 'developer', 0.10, 800, 200, 0, 1,
+                 'claude-sonnet-4-6', 'stream_result'),
+            ],
+            f'session_turns must extract the SDK additive fields from '
+            f'data — got {rows!r}',
+        )
+
+    def test_agent_sessions_view_derives_role_from_depth(self) -> None:
+        self._seed_one_job_one_lead_one_specialist()
+        db = os.path.join(self.home, 'telemetry.db')
+        conn = sqlite3.connect(db)
+        try:
+            rows = dict(conn.execute(
+                'SELECT session_id, role FROM agent_sessions'
+            ).fetchall())
+        finally:
+            conn.close()
+        self.assertEqual(
+            rows,
+            {'job-J': 'project_lead', 'child-spec': 'specialist'},
+            f'agent_sessions must infer project_lead at depth=0 and '
+            f'specialist for non-lead agent_names at depth>0 — got {rows!r}',
+        )
+
+    def test_session_summary_aggregates_per_session_costs(self) -> None:
+        self._seed_one_job_one_lead_one_specialist()
+        # Add a second TURN_COMPLETE for the lead session — verifies SUM.
+        telemetry.record_event(
+            E.TURN_COMPLETE, scope='comics',
+            agent_name='exec-lead', session_id='job-J',
+            data={'cost_usd': 0.20, 'input_tokens': 100,
+                  'output_tokens': 50, 'duration_ms': 1000},
+            ts=400.0, turn_id='turn-3', job_id='job-J',
+            cost_source='stream_result',
+        )
+        db = os.path.join(self.home, 'telemetry.db')
+        conn = sqlite3.connect(db)
+        try:
+            rows = {
+                r[0]: r[1:] for r in conn.execute(
+                    'SELECT session_id, n_turns_recorded, cost_usd, '
+                    'input_tokens FROM session_summary'
+                )
+            }
+        finally:
+            conn.close()
+        self.assertEqual(
+            rows.get('job-J'),
+            (2, 0.70, 3100),
+            f'session_summary for the lead must SUM 0.50+0.20=0.70 '
+            f'cost and 3000+100=3100 input_tokens across two turns — '
+            f'got {rows.get("job-J")!r}',
+        )
+
+    def test_phase_intervals_pairs_with_lead_window(self) -> None:
+        # Two phase changes on one session — first interval has end_ts
+        # equal to the second event's ts; the second interval is open.
+        telemetry.record_event(
+            E.PHASE_CHANGED, scope='comics', session_id='job-J',
+            data={'old_state': 'INTENT', 'new_state': 'PLAN',
+                  'new_phase': 'plan', 'action': 'transition'},
+            ts=100.0,
+        )
+        telemetry.record_event(
+            E.PHASE_CHANGED, scope='comics', session_id='job-J',
+            data={'old_state': 'PLAN', 'new_state': 'EXEC',
+                  'new_phase': 'exec', 'action': 'transition'},
+            ts=200.0,
+        )
+        db = os.path.join(self.home, 'telemetry.db')
+        conn = sqlite3.connect(db)
+        try:
+            rows = conn.execute(
+                'SELECT session_id, phase, new_state, start_ts, end_ts '
+                'FROM phase_intervals ORDER BY start_ts'
+            ).fetchall()
+        finally:
+            conn.close()
+        self.assertEqual(
+            rows,
+            [
+                ('job-J', 'plan', 'PLAN', 100.0, 200.0),
+                ('job-J', 'exec', 'EXEC', 200.0, None),
+            ],
+            f'phase_intervals must pair successive PHASE_CHANGED events '
+            f'via LEAD window — got {rows!r}',
+        )
+
+    def test_job_cost_summary_breaks_cost_by_job_role_agent(self) -> None:
+        self._seed_one_job_one_lead_one_specialist()
+        db = os.path.join(self.home, 'telemetry.db')
+        conn = sqlite3.connect(db)
+        try:
+            rows = conn.execute(
+                'SELECT job_id, role, agent_name, sessions, cost_usd '
+                'FROM job_cost_summary ORDER BY agent_name'
+            ).fetchall()
+        finally:
+            conn.close()
+        self.assertEqual(
+            rows,
+            [
+                ('job-J', 'specialist', 'developer', 1, 0.10),
+                ('job-J', 'project_lead', 'exec-lead', 1, 0.50),
+            ],
+            f'job_cost_summary must break cost down by '
+            f'job_id × role × agent — got {rows!r}',
+        )
+
+    def test_prompt_groups_counts_byte_identical_runs(self) -> None:
+        # Two byte-identical jobs (same prompt_hash) and one different.
+        for jid, slug, h in (
+            ('job-A', 'redo', 'h-X'),
+            ('job-B', 'redo', 'h-X'),
+            ('job-C', 'other', 'h-Y'),
+        ):
+            telemetry.record_event(
+                E.JOB_CREATED, scope='comics',
+                data={
+                    'job_id': jid, 'project': 'comics', 'slug': slug,
+                    'classification': 'fix-issue', 'prompt_hash': h,
+                    'prompt_bytes': 30,
+                    'created_at': f'2026-05-09T0{jid[-1]}:00:00Z',
+                },
+                ts=100.0, job_id=jid,
+            )
+        db = os.path.join(self.home, 'telemetry.db')
+        conn = sqlite3.connect(db)
+        try:
+            rows = conn.execute(
+                'SELECT prompt_hash, jobs, sample_slug FROM prompt_groups '
+                'ORDER BY jobs DESC, prompt_hash'
+            ).fetchall()
+        finally:
+            conn.close()
+        self.assertEqual(
+            rows,
+            [('h-X', 2, 'redo'), ('h-Y', 1, 'other')],
+            f'prompt_groups must collapse byte-identical jobs and '
+            f'expose count + sample slug — got {rows!r}',
+        )
+
+
 if __name__ == '__main__':
     unittest.main()
