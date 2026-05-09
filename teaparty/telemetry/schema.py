@@ -210,7 +210,9 @@ SELECT
     MAX(e.agent_name)        AS agent_name,
     MAX(e.parent_session_id) AS parent_session_id,
     MAX(e.job_id)            AS job_id,
+    MAX(e.job_id)            AS job_session_id,  -- spec alias
     MAX(e.dispatch_depth)    AS dispatch_depth,
+    MAX(e.dispatch_depth)    AS depth,           -- spec alias
     MAX(e.conversation_id)   AS conversation_id,
     MIN(e.ts)                AS first_ts,
     MAX(e.ts)                AS last_ts,
@@ -238,7 +240,16 @@ SELECT
        FROM events t
        WHERE t.session_id = e.session_id
          AND t.event_type = 'turn_complete'
-       ORDER BY t.ts DESC LIMIT 1) AS claude_session_uuid
+       ORDER BY t.ts DESC LIMIT 1) AS claude_session_uuid,
+    -- Phase inference: latest PHASE_CHANGED.new_phase observed during
+    -- this session. NULL for sub-agents that don't emit their own
+    -- phase changes — analysts wanting per-message phase attribution
+    -- should join through phase_intervals.
+    (SELECT json_extract(p.data, '$.new_phase')
+       FROM events p
+       WHERE p.session_id = e.session_id
+         AND p.event_type = 'phase_changed'
+       ORDER BY p.ts DESC LIMIT 1) AS phase
 FROM events e
 WHERE e.session_id IS NOT NULL
 GROUP BY e.session_id;
@@ -463,6 +474,36 @@ _EVENTS_ADDITIVE_COLUMNS = (
     ('cost_source',       'TEXT'),
 )
 
+# VIRTUAL generated columns that surface the most-queried JSON keys as
+# top-level columns on the events table. SQLite computes these at query
+# time from ``data``; no storage cost. The motivating queries listed in
+# Issue #431's body (``SELECT cost_usd, ... FROM events WHERE
+# event_type='turn_complete'``) run verbatim with these columns in
+# place — without them every analyst has to wrap each field in
+# json_extract().
+_EVENTS_GENERATED_COLUMNS = (
+    # Per-turn fields (TURN_START / TURN_COMPLETE.data).
+    ('trigger',           "TEXT    GENERATED ALWAYS AS (json_extract(data, '$.trigger'))           VIRTUAL"),
+    ('cost_usd',          "REAL    GENERATED ALWAYS AS (json_extract(data, '$.cost_usd'))          VIRTUAL"),
+    ('input_tokens',      "INTEGER GENERATED ALWAYS AS (json_extract(data, '$.input_tokens'))      VIRTUAL"),
+    ('output_tokens',     "INTEGER GENERATED ALWAYS AS (json_extract(data, '$.output_tokens'))     VIRTUAL"),
+    ('cache_read_tokens', "INTEGER GENERATED ALWAYS AS (json_extract(data, '$.cache_read_tokens')) VIRTUAL"),
+    ('cache_5m_tokens',   "INTEGER GENERATED ALWAYS AS (json_extract(data, '$.cache_5m_tokens'))   VIRTUAL"),
+    ('cache_1h_tokens',   "INTEGER GENERATED ALWAYS AS (json_extract(data, '$.cache_1h_tokens'))   VIRTUAL"),
+    ('num_turns',         "INTEGER GENERATED ALWAYS AS (json_extract(data, '$.num_turns'))         VIRTUAL"),
+    ('duration_ms',       "INTEGER GENERATED ALWAYS AS (json_extract(data, '$.duration_ms'))       VIRTUAL"),
+    ('duration_api_ms',   "INTEGER GENERATED ALWAYS AS (json_extract(data, '$.duration_api_ms'))   VIRTUAL"),
+    ('stop_reason',       "TEXT    GENERATED ALWAYS AS (json_extract(data, '$.stop_reason'))       VIRTUAL"),
+    ('is_error',          "INTEGER GENERATED ALWAYS AS (json_extract(data, '$.is_error'))          VIRTUAL"),
+    ('model',             "TEXT    GENERATED ALWAYS AS (json_extract(data, '$.model'))             VIRTUAL"),
+    # Per-tool-call fields (TOOL_CALL_COMPLETE.data).
+    ('tool_name',         "TEXT    GENERATED ALWAYS AS (json_extract(data, '$.tool_name'))         VIRTUAL"),
+    ('mcp_server',        "TEXT    GENERATED ALWAYS AS (json_extract(data, '$.mcp_server'))        VIRTUAL"),
+    # Proxy linkage (PROXY_INVOKED.data).
+    ('proxy_session_id',  "TEXT    GENERATED ALWAYS AS (json_extract(data, '$.proxy_session_id'))  VIRTUAL"),
+    ('asking_session_id', "TEXT    GENERATED ALWAYS AS (json_extract(data, '$.asking_session_id')) VIRTUAL"),
+)
+
 
 def apply_schema(conn: sqlite3.Connection) -> None:
     """Create / migrate the telemetry schema. Idempotent.
@@ -479,6 +520,16 @@ def apply_schema(conn: sqlite3.Connection) -> None:
     #    columns. ALTER TABLE ADD COLUMN is the idiomatic SQLite
     #    migration; OperationalError means the column already exists.
     for name, sql_type in _EVENTS_ADDITIVE_COLUMNS:
+        try:
+            conn.execute(f'ALTER TABLE events ADD COLUMN {name} {sql_type}')
+        except sqlite3.OperationalError:
+            pass
+    # 2b. VIRTUAL generated columns. These compute on read from
+    #     ``data`` so the issue body's SQL queries (``SELECT cost_usd
+    #     ... FROM events``) run verbatim. SQLite supports adding
+    #     VIRTUAL generated columns via ALTER TABLE; STORED would not
+    #     be ALTER-addable. Idempotent against existing columns.
+    for name, sql_type in _EVENTS_GENERATED_COLUMNS:
         try:
             conn.execute(f'ALTER TABLE events ADD COLUMN {name} {sql_type}')
         except sqlite3.OperationalError:

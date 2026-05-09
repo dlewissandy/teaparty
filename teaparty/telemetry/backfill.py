@@ -260,7 +260,8 @@ def backfill_stream_file(
     for rec in _iter_jsonl(path):
         rtype = rec.get('type')
         if rtype == 'system' and rec.get('subtype') == 'init':
-            if not init_uuid:
+            first_init = init_uuid is None
+            if first_init:
                 init_uuid = rec.get('session_id')
                 if init_uuid:
                     session_already_done = _session_already_backfilled(
@@ -268,6 +269,26 @@ def backfill_stream_file(
                     )
             if rec.get('model'):
                 init_model = rec.get('model')
+            # Issue #431 — emit a TURN_START event for the launch the
+            # init record represents. Without this, queries that count
+            # turn_starts per session (the spec's resume-signal
+            # query) produce zero for backfilled jobs even after
+            # turn_complete is emitted from the matching result.
+            if init_uuid and not session_already_done:
+                record_event(
+                    E.TURN_START,
+                    scope=project,
+                    session_id=init_uuid,
+                    ts=rec.get('timestamp'),
+                    data={
+                        'trigger':              'new',
+                        'claude_session':       init_uuid,
+                        'model':                init_model or '',
+                        'resume_from_phase':    None,
+                        'backfilled':           True,
+                    },
+                    job_id=job_id,
+                )
             continue
 
         # Without a session uuid we can't key MESSAGE_RECORDED — skip
