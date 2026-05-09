@@ -209,6 +209,7 @@ class AskQuestionRunner:
                     'question_len': len(question),
                     'initiating_session_id': self.session_id,
                 },
+                parent_session_id=self.session_id,
             )
         except Exception:
             pass
@@ -371,6 +372,33 @@ class AskQuestionRunner:
             parent_sid=self._dispatcher_session.id,
             child_sid=qualifier,
         )
+
+        # Issue #431 — PROXY_INVOKED records the asking-session →
+        # proxy-session edge so cost roll-up via parent_session_id
+        # answers "what was the proxy overhead for job N?" in pure SQL.
+        try:
+            import hashlib
+            from teaparty.telemetry import record_event as _rec_evt
+            from teaparty.telemetry.events import PROXY_INVOKED
+            asking_sid = self.session_id
+            asking_agent = self._dispatcher_session.agent_name or ''
+            q_hash = hashlib.sha1(question.encode('utf-8')).hexdigest()
+            _rec_evt(
+                PROXY_INVOKED,
+                scope=self.project_slug or self._scope or 'management',
+                agent_name=asking_agent,
+                session_id=asking_sid,
+                data={
+                    'asking_session_id': asking_sid,
+                    'asking_agent_name': asking_agent,
+                    'proxy_session_id': proxy_session_key,
+                    'question_hash': q_hash,
+                    'question_first_500': question[:500],
+                },
+                parent_session_id=asking_sid,
+            )
+        except Exception:
+            _log.debug('PROXY_INVOKED emit failed', exc_info=True)
 
         # The proxy bus is where the accordion reads dialog messages from.
         proxy_bus = self._resolve_proxy_bus()

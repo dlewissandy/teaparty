@@ -60,11 +60,16 @@ from teaparty.telemetry.events import (
     SERVER_START, SERVER_SHUTDOWN, CONFIG_LOADED, MIGRATION_RUN,
     # Proxy evolution
     PROXY_UPDATED, PROXY_DIVERGED_FROM_HUMAN,
+    # Issue #431 — dispatch-tree metadata
+    TOOL_CALL_COMPLETE, MESSAGE_RECORDED, DISPATCH_EDGE,
+    PROXY_INVOKED, CONVERSATION_OPENED, CONVERSATION_CLOSED,
     # All event types (for tests / coverage)
     ALL_EVENT_TYPES,
 )
 from teaparty.telemetry.record import (
     record_event,
+    record_message,
+    record_dispatch_edge,
     delete_scope,
     set_broadcaster,
     set_teaparty_home,
@@ -90,7 +95,8 @@ from teaparty.telemetry.query import (
 from teaparty.telemetry.migration import migrate_metrics_db
 
 __all__ = [
-    'record_event', 'delete_scope', 'set_broadcaster', 'set_teaparty_home', 'configure',
+    'record_event', 'record_message', 'record_dispatch_edge',
+    'delete_scope', 'set_broadcaster', 'set_teaparty_home', 'configure',
     'reset_for_tests',
     'Event', 'query_events',
     'total_cost', 'turn_count', 'active_sessions', 'gates_awaiting_input',

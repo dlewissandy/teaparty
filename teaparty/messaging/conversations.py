@@ -445,6 +445,30 @@ class SqliteMessageBus:
              project_slug, worktree_path),
         )
         self._conn.commit()
+        # Issue #431 — emit a CONVERSATION_OPENED span event so the
+        # conversation's open / close bookends are visible in
+        # telemetry without joining to the bus. Best-effort: a missing
+        # telemetry store (tests that don't configure one) is fine.
+        try:
+            from teaparty.telemetry import (
+                record_event as _rec, events as _evts,
+            )
+            _rec(
+                _evts.CONVERSATION_OPENED,
+                scope=project_slug or 'management',
+                agent_name=agent_name,
+                ts=ts,
+                data={
+                    'conversation_id': cid,
+                    'type': conv_type.value,
+                    'parent_conversation_id': parent_conversation_id,
+                    'request_id': request_id,
+                    'agent_name': agent_name,
+                },
+                conversation_id=cid,
+            )
+        except Exception:
+            pass
         return Conversation(
             id=cid, type=conv_type,
             state=state, created_at=ts,
@@ -570,6 +594,20 @@ class SqliteMessageBus:
             (ConversationState.CLOSED.value, conversation_id),
         )
         self._conn.commit()
+        # Issue #431 — close-side bookend for the conversation span.
+        try:
+            from teaparty.telemetry import (
+                record_event as _rec, events as _evts,
+            )
+            _rec(
+                _evts.CONVERSATION_CLOSED,
+                scope='management',
+                ts=time.time(),
+                data={'conversation_id': conversation_id},
+                conversation_id=conversation_id,
+            )
+        except Exception:
+            pass
 
     def set_awaiting_input(self, conversation_id: str, value: bool) -> None:
         """Set or clear the awaiting_input flag on a conversation.

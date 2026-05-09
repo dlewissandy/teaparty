@@ -53,7 +53,8 @@ class RecordEventTests(unittest.TestCase):
             'telemetry package must not create per-scope metrics.db files',
         )
 
-    # ── Success criterion 2: one table with indexed columns ──────────────
+    # ── Success criterion 2: events table with indexes; sidecar tables
+    #    for dedupe contracts (Issue #431).
     def test_schema_has_events_table_with_all_indexes(self) -> None:
         telemetry.record_event(E.TURN_START, scope='management')
         db = os.path.join(self.home, 'telemetry.db')
@@ -63,9 +64,13 @@ class RecordEventTests(unittest.TestCase):
                 "SELECT name FROM sqlite_master WHERE type='table' "
                 "AND name NOT LIKE 'sqlite_%'"
             ).fetchall()}
+            # events is the canonical log; the three sidecars hold data
+            # with non-trivial dedupe / reference contracts (Issue #431).
             self.assertEqual(
-                tables, {'events'},
-                f'events must be the only telemetry table, found: {tables}',
+                tables,
+                {'events', 'session_messages', 'dispatch_edges',
+                 'model_pricing'},
+                f'unexpected telemetry tables, found: {tables}',
             )
             indexes = {r[0] for r in conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='index' "

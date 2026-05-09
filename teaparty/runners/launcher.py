@@ -1352,6 +1352,17 @@ async def launch(
     # bug class this fix eliminates.  Empty => MCP handlers fall back
     # to session-id derivation (preserves test paths).
     caller_conversation_id: str = '',
+    # Issue #431 — TURN_START.trigger taxonomy.
+    # ``new`` = fresh session, no parent, no resume.
+    # ``dispatch`` = first launch of a session just spawned by a parent.
+    # ``resume`` = re-entry into an existing session.
+    # ``wake`` = woken by a scheduled task / cron firing.
+    # Empty defaults to 'resume' when resume_session is set, else 'new'.
+    trigger: str = '',
+    # Issue #431 — dispatch-tree linkage carried by every event row.
+    parent_session_id: str = '',
+    job_id: str = '',
+    dispatch_depth: int | None = None,
 ) -> ClaudeResult:
     """Launch an agent through the unified codepath.
 
@@ -1502,17 +1513,34 @@ async def launch(
         pass
 
     _tscope = telemetry_scope or scope
+    # Issue #431 — turn_id pairs TURN_START with TURN_COMPLETE without
+    # ordering tricks; trigger taxonomy distinguishes initial dispatch
+    # from resume / wake so per-session turn counts are answerable
+    # from telemetry alone.
+    _turn_id = uuid.uuid4().hex
+    if trigger:
+        _trigger = trigger
+    elif resume_session:
+        _trigger = 'resume'
+    else:
+        _trigger = 'new'
+    _conv_id = caller_conversation_id or ''
     record_event(
         _telem_events.TURN_START,
         scope=_tscope,
         agent_name=agent_name,
         session_id=session_id,
         data={
-            'trigger': 'dispatch' if resume_session else 'new',
+            'trigger': _trigger,
             'claude_session': resume_session or '',
             'model': '',
             'resume_from_phase': None,
         },
+        turn_id=_turn_id,
+        conversation_id=_conv_id or None,
+        parent_session_id=parent_session_id or None,
+        job_id=job_id or None,
+        dispatch_depth=dispatch_depth,
     )
     _turn_start_wall = time.time()
 
@@ -1544,7 +1572,9 @@ async def launch(
         env_vars=env_vars or {},
     )
 
-    # Emit turn_complete with per-turn cost, tokens, and duration.
+    # Emit turn_complete with per-turn cost, tokens, and duration —
+    # plus the additive SDK result fields (Issue #431) so analyses
+    # can run against telemetry.db without re-parsing streams.
     record_event(
         _telem_events.TURN_COMPLETE,
         scope=_tscope,
@@ -1556,12 +1586,28 @@ async def launch(
             'cost_usd':             result.cost_usd,
             'input_tokens':         result.input_tokens,
             'output_tokens':        result.output_tokens,
-            'cache_read_tokens':    getattr(result, 'cache_read_tokens', 0),
-            'cache_create_tokens':  getattr(result, 'cache_create_tokens', 0),
-            'response_text_len':    len(getattr(result, 'response_text', '') or ''),
-            'tools_called':         getattr(result, 'tools_called', {}) or {},
+            'cache_read_tokens':    result.cache_read_tokens,
+            'cache_create_tokens':  result.cache_create_tokens,
+            'response_text_len':    len(result.response_text or ''),
+            'tools_called':         dict(result.tools_called or {}),
             'wall_duration_ms':     int((time.time() - _turn_start_wall) * 1000),
+            # Issue #431 — additive fields from the SDK result.
+            'num_turns':            result.num_turns,
+            'duration_api_ms':      result.duration_api_ms,
+            'stop_reason':          result.stop_reason,
+            'is_error':             result.is_error,
+            'api_error_status':     result.api_error_status,
+            'cache_5m_tokens':      result.cache_5m_tokens,
+            'cache_1h_tokens':      result.cache_1h_tokens,
+            'model':                result.model,
+            'claude_session_uuid':  result.claude_session_uuid,
         },
+        turn_id=_turn_id,
+        conversation_id=_conv_id or None,
+        parent_session_id=parent_session_id or None,
+        job_id=job_id or None,
+        dispatch_depth=dispatch_depth,
+        cost_source='stream_result',
     )
 
     return result

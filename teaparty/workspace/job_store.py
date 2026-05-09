@@ -216,6 +216,40 @@ async def create_job(
     })
     _save_index(index_path, index)
 
+    # Issue #431 — emit JOB_CREATED with the full metadata block so the
+    # spec query "byte-identical prompts grouped by hash" is answerable
+    # from telemetry alone.
+    try:
+        from teaparty.telemetry import (
+            record_event as _rec, events as _evts,
+        )
+        prompt_hash = hashlib.sha1(
+            task.encode('utf-8', errors='replace'),
+        ).hexdigest()
+        project = os.path.basename(os.path.normpath(project_root))
+        _rec(
+            _evts.JOB_CREATED,
+            scope=project,
+            session_id=short,
+            data={
+                'job_id': job_id,
+                'project': project,
+                'slug': slug,
+                'classification': '',  # Filled by downstream analysis.
+                'prompt_text': task,
+                'prompt_hash': prompt_hash,
+                'prompt_bytes': len(task),
+                'branch': branch_name,
+                'status': 'active',
+                'created_at': now,
+                'issue': issue,
+            },
+            ts=datetime.fromisoformat(now).timestamp(),
+            job_id=job_id,
+        )
+    except Exception:
+        log.debug('JOB_CREATED telemetry failed', exc_info=True)
+
     return {
         'job_id': job_id,
         'job_dir': job_dir,

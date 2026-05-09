@@ -511,8 +511,16 @@ async def run_agent_loop(
         launch_kwargs = dict(launch_kwargs_base)
         launch_kwargs['message'] = current_message
         launch_kwargs['on_stream_event'] = on_event
+        # Issue #431 — distinguish first-launch-of-spawned-session
+        # ('dispatch') from subsequent re-entries ('resume'). The
+        # launcher's default heuristic only sees resume_session, so it
+        # would label both initial dispatches and resumes as 'new' /
+        # 'resume'. Here we know which one it is.
         if current_claude_session:
             launch_kwargs['resume_session'] = current_claude_session
+            launch_kwargs['trigger'] = 'resume'
+        else:
+            launch_kwargs['trigger'] = 'dispatch'
 
         if on_phase is not None:
             try:
