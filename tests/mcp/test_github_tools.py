@@ -276,10 +276,20 @@ class TestListMilestoneIssues(unittest.TestCase):
             gh_runner=fake, repo_resolver=_fake_resolver(),
         )
 
-        joined = ' '.join(fake.calls[0])
+        argv = fake.calls[0]
         self.assertIn(
-            'state=closed', joined,
-            f'state argument must reach gh; argv={fake.calls[0]!r}',
+            'closed', argv,
+            f'state argument must reach gh; argv={argv!r}',
+        )
+        # Accept either a flag-style ``--state closed`` (gh issue list)
+        # or query-string-style ``state=closed`` (gh api).  What we do
+        # NOT accept is the literal string passing through unused.
+        idx = argv.index('closed')
+        prev = argv[idx - 1] if idx > 0 else ''
+        self.assertTrue(
+            prev == '--state' or 'state=closed' in ' '.join(argv),
+            f'state value must be tied to a state flag/parameter, '
+            f'not stranded; argv={argv!r}',
         )
 
 
@@ -520,7 +530,9 @@ class TestCreateComment(unittest.TestCase):
 
 # ── 3. Projects V2 board handlers ───────────────────────────────────────────
 
-# Canned GraphQL responses used across board tests.
+# Canned GraphQL responses used across board tests.  The combined
+# response carries both board metadata and the issue node id so a
+# handler can resolve everything in one query before mutating.
 _BOARDS_GRAPHQL_RESPONSE = json.dumps({
     'data': {
         'repository': {
@@ -545,6 +557,7 @@ _BOARDS_GRAPHQL_RESPONSE = json.dumps({
                     },
                 }],
             },
+            'issue': {'id': 'I_kwDOteaparty427'},
         },
     },
 })

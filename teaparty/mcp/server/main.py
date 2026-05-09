@@ -82,6 +82,22 @@ from teaparty.mcp.tools.image_gen import (
     image_gen_flux_handler,
     image_gen_stability_handler,
 )
+from teaparty.mcp.tools.github import (
+    list_milestones_handler,
+    list_milestone_issues_handler,
+    read_issue_handler,
+    create_issue_handler,
+    close_issue_handler,
+    reopen_issue_handler,
+    set_issue_milestone_handler,
+    set_issue_labels_handler,
+    list_issue_comments_handler,
+    create_comment_handler,
+    list_project_boards_handler,
+    add_issue_to_board_handler,
+    set_board_status_handler,
+    read_board_status_handler,
+)
 
 
 MCP_SERVER_NAME = 'teaparty-config'
@@ -992,6 +1008,154 @@ def create_server(agent_tools: set[str] | None = None) -> FastMCP:
             max_results: Maximum number of results (1–25).
         """
         return await patent_search_epo_handler(query=query, max_results=max_results)
+
+    # ── GitHub Projects V2 + issue management tools ──────────────────────────
+
+    @server.tool()
+    async def list_milestones() -> str:
+        """List all milestones in the repo.
+
+        Returns a JSON array; each entry has number, title, state,
+        open_issues, and due_on.  Repo identity is resolved from the
+        project's git remote — no repo parameter.
+        """
+        return list_milestones_handler()
+
+    @server.tool()
+    async def list_milestone_issues(milestone: str, state: str = 'all') -> str:
+        """List issues attached to a milestone.
+
+        Args:
+            milestone: Milestone name (not number).
+            state: 'open', 'closed', or 'all' (default 'all').
+        """
+        return list_milestone_issues_handler(milestone=milestone, state=state)
+
+    @server.tool()
+    async def read_issue(number: int) -> str:
+        """Return an issue's number, title, body, state, labels, milestone, assignees.
+
+        Args:
+            number: Issue number.
+        """
+        return read_issue_handler(number=number)
+
+    @server.tool()
+    async def create_issue(
+        title: str,
+        body: str,
+        milestone: str = '',
+        labels: str = '',
+    ) -> str:
+        """Create a new issue.  Returns the new issue number.
+
+        Args:
+            title: Issue title.
+            body: Issue body (Markdown).
+            milestone: Optional milestone name.
+            labels: Optional comma-separated label names.
+        """
+        label_list = [l.strip() for l in labels.split(',') if l.strip()]
+        return create_issue_handler(
+            title=title, body=body, milestone=milestone, labels=label_list,
+        )
+
+    @server.tool()
+    async def close_issue(number: int, comment: str = '') -> str:
+        """Close an issue, optionally with a resolution comment.
+
+        Args:
+            number: Issue number.
+            comment: Optional resolution comment.
+        """
+        return close_issue_handler(number=number, comment=comment)
+
+    @server.tool()
+    async def reopen_issue(number: int, comment: str = '') -> str:
+        """Reopen an issue, optionally with a comment.
+
+        Args:
+            number: Issue number.
+            comment: Optional comment.
+        """
+        return reopen_issue_handler(number=number, comment=comment)
+
+    @server.tool()
+    async def set_issue_milestone(number: int, milestone: str) -> str:
+        """Set the milestone for an issue (by name).
+
+        Args:
+            number: Issue number.
+            milestone: Milestone name.
+        """
+        return set_issue_milestone_handler(number=number, milestone=milestone)
+
+    @server.tool()
+    async def set_issue_labels(number: int, labels: str) -> str:
+        """Replace the label set on an issue.
+
+        Args:
+            number: Issue number.
+            labels: Comma-separated label names; replaces the full set.
+        """
+        label_list = [l.strip() for l in labels.split(',') if l.strip()]
+        return set_issue_labels_handler(number=number, labels=label_list)
+
+    @server.tool()
+    async def list_issue_comments(number: int) -> str:
+        """List all comments on an issue.
+
+        Args:
+            number: Issue number.
+        """
+        return list_issue_comments_handler(number=number)
+
+    @server.tool()
+    async def create_comment(number: int, body: str) -> str:
+        """Post a comment on an issue.
+
+        Args:
+            number: Issue number.
+            body: Comment body (Markdown).
+        """
+        return create_comment_handler(number=number, body=body)
+
+    @server.tool()
+    async def list_project_boards() -> str:
+        """List Projects V2 boards linked to the repo with Status field metadata.
+
+        Used at sprint-setup to discover the board whose Status field
+        carries Backlog / Approved / In Progress / Done / Won't Do.
+        """
+        return list_project_boards_handler()
+
+    @server.tool()
+    async def add_issue_to_board(number: int) -> str:
+        """Add an issue to the sprint board (idempotent).
+
+        Args:
+            number: Issue number.
+        """
+        return add_issue_to_board_handler(number=number)
+
+    @server.tool()
+    async def set_board_status(number: int, status: str) -> str:
+        """Set the Status field for an issue's board item by status name.
+
+        Args:
+            number: Issue number.
+            status: Status name (e.g. 'Approved', 'In Progress', 'Done').
+        """
+        return set_board_status_handler(number=number, status=status)
+
+    @server.tool()
+    async def read_board_status(number: int) -> str:
+        """Return the current Status field name for an issue.
+
+        Args:
+            number: Issue number.
+        """
+        return read_board_status_handler(number=number)
 
     # ── Image generation tools ────────────────────────────────────────────────
 
