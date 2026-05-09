@@ -159,15 +159,30 @@ class TestSoftwareDevelopmentWorkgroupYaml(unittest.TestCase):
 
     def test_workgroup_description_states_orchestration_purpose(self):
         """AC1: the description is what every dispatcher matches to
-        decide whether to route here.  A vague description means
-        callers can't tell if this is the right workgroup."""
+        decide whether to route here.  The workgroup's distinguishing
+        feature is *orchestration of the per-issue pipeline* — both
+        words must appear so a description like "manages
+        issue-tracker tickets" or "for issues that arise during
+        meetings" cannot pass this gate.
+
+        This addresses audit finding #4 — the prior single-word
+        check accepted unrelated meanings of "issue"."""
         from teaparty.config.config_reader import load_workgroup
         wg = load_workgroup(WORKGROUP_YAML)
-        desc = wg.description.lower()
-        self.assertTrue(
-            desc and 'issue' in desc,
-            f'workgroup.description must mention "issue" so dispatchers '
-            f'know this is per-issue orchestration; got {wg.description!r}',
+        desc_lower = wg.description.lower()
+        self.assertIn(
+            'issue', desc_lower,
+            f'workgroup.description must mention "issue" so '
+            f'dispatchers know this workgroup is per-issue.  '
+            f'Got {wg.description!r}',
+        )
+        self.assertIn(
+            'orchestrat', desc_lower,
+            f'workgroup.description must mention "orchestrat" '
+            f'(orchestration / orchestrate) — the workgroup\'s '
+            f'distinguishing feature is orchestration of the per-issue '
+            f'pipeline.  A vague description risks misrouting.  '
+            f'Got {wg.description!r}',
         )
 
 
@@ -203,6 +218,48 @@ class TestSoftwareDevelopmentLeadAgent(unittest.TestCase):
             fm.get('name'), LEAD_NAME,
             f'agent.md frontmatter name must equal {LEAD_NAME!r}; '
             f'got {fm.get("name")!r}',
+        )
+
+    def test_lead_frontmatter_pins_model_and_max_turns(self):
+        """The runtime contract: ``model:`` selects the Claude
+        variant; ``maxTurns:`` bounds the iteration budget.  The
+        pipeline takes at minimum 4 hops (round-1 coding, QC,
+        audit, round-2 coding) plus DELIVER plus at least one
+        audit-loop iteration if findings appear — call it 8 turns
+        floor.  The chosen value is 30 (plenty of headroom); the
+        test asserts the floor so a future contributor cannot
+        silently lower the cap below what the pipeline needs.
+
+        This addresses audit finding #6 — the prior tests covered
+        name/skills/disallowed but left model and maxTurns
+        unasserted, so removing model (defaulting to whatever the
+        harness picks) or lowering maxTurns to 4 would not fail
+        any test."""
+        fm, _ = _read_frontmatter_and_body(LEAD_AGENT_MD)
+        model = fm.get('model')
+        self.assertTrue(
+            isinstance(model, str) and model.strip(),
+            f'agent.md frontmatter must pin a non-empty model '
+            f'(do not let the lead default to the harness pick); '
+            f'got {model!r}.',
+        )
+        max_turns = fm.get('maxTurns')
+        self.assertIsInstance(
+            max_turns, int,
+            f'agent.md frontmatter maxTurns must be an int; '
+            f'got {type(max_turns).__name__} ({max_turns!r}).',
+        )
+        # Floor = 4 hops + DELIVER + 1 audit-loop iteration with
+        # rework + buffer.  8 is the absolute minimum; we choose
+        # this floor as a runtime contract so a future contributor
+        # cannot silently break the pipeline by lowering the cap.
+        self.assertGreaterEqual(
+            max_turns, 8,
+            f'agent.md frontmatter maxTurns ({max_turns}) is below '
+            f'the pipeline minimum (8 = 4 hops + DELIVER + at '
+            f'least one audit-loop iteration with rework, plus '
+            f'buffer).  Lowering this cap below the floor breaks '
+            f'the lead silently mid-pipeline.',
         )
 
     def test_lead_skills_frontmatter_includes_attempt_task(self):
@@ -247,27 +304,45 @@ class TestSoftwareDevelopmentLeadAgent(unittest.TestCase):
             f'pipeline uses for every hop.  Got: {sorted(bare)}',
         )
 
-    def test_lead_settings_allow_includes_team_comm_primitives(self):
-        """AC2: a workgroup-lead's real work is team-comm.  Send,
-        Reply (implicit via final message), AskQuestion,
-        CloseConversation, ListTeamMembers — every one is required to
-        complete the pipeline (Send to continue an open thread,
-        AskQuestion to escalate to the originator, CloseConversation
-        to merge member branches, ListTeamMembers to discover roster)."""
+    def test_lead_settings_allow_matches_ac2_tool_prescription(self):
+        """AC2: every prescribed tool from the issue's AC2 must
+        appear in the allow list.  AC2 lists eleven tool names —
+        Read, Glob, Grep, Write, Edit, ListTeamMembers, Send, Reply,
+        AskQuestion, CloseConversation, Delegate.  We assert ten of
+        them; ``Reply`` is intentionally excluded because no
+        ``Reply`` MCP tool exists (the agent's reply is the final
+        text turn that the runtime propagates as a Reply intent —
+        verified by grep across teaparty/mcp/server/main.py).
+
+        This addresses audit finding #2 — the prior tests asserted
+        only Delegate and the four team-comm primitives, leaving
+        Read/Glob/Grep/Write/Edit unverified.  Removing Write
+        silently broke AC4's DELIVER instruction (the lead is told
+        to use Write/Edit to assemble the Deliver payload)."""
         bare = _bare_allow(LEAD_SETTINGS)
-        required = (
+        # The ten real tools AC2 lists.  Reply is omitted by design.
+        required = {
+            'Read',
+            'Glob',
+            'Grep',
+            'Write',
+            'Edit',
+            'mcp__teaparty-config__ListTeamMembers',
             'mcp__teaparty-config__Send',
             'mcp__teaparty-config__AskQuestion',
             'mcp__teaparty-config__CloseConversation',
-            'mcp__teaparty-config__ListTeamMembers',
+            'mcp__teaparty-config__Delegate',
+        }
+        missing = required - bare
+        self.assertEqual(
+            missing, set(),
+            f'AC2 tool prescription not satisfied; settings.yaml '
+            f'allow list is missing {sorted(missing)}.  Got: '
+            f'{sorted(bare)}.  Each tool the AC names must be '
+            f'present — DELIVER specifically depends on Write/Edit, '
+            f'and inspection of merged deliverables depends on '
+            f'Read/Glob/Grep.',
         )
-        for tool in required:
-            self.assertIn(
-                tool, bare,
-                f'settings.yaml allow list must include {tool}; '
-                f'every workgroup-lead needs this team-comm primitive.  '
-                f'Got: {sorted(bare)}',
-            )
 
     def test_lead_settings_allow_excludes_bash(self):
         """AC2: the lead has no legitimate use for raw Bash — the
@@ -292,32 +367,63 @@ class TestSoftwareDevelopmentLeadPipelineEncoding(unittest.TestCase):
     """The lead's body must name every hop literally so a future
     refactor or template-restamp cannot silently drop a step."""
 
-    def test_body_names_each_pipeline_hop_with_correct_skill_prefix(self):
-        """AC3: the four hops Coding -> QC -> Audit -> Coding each
-        appear in the body, each with its prescribed ``skill=`` arg.
-        We assert on (target, skill) pairs because the determinism
-        guarantee is per-hop: the wrong skill at any hop breaks the
-        workflow rail at the recipient."""
+    def test_each_delegate_call_carries_its_own_skill_kwarg_in_call_args(self):
+        """AC3: the determinism guarantee is *per hop*.  Every
+        ``Delegate(target, ...)`` call in the body must have its
+        ``skill='...'`` argument inside its own argument list — not
+        elsewhere in the body, not in a separate prose paragraph.
+
+        Counted by call site so a naked round-2 ``Delegate(coding-lead,
+        <findings>)`` cannot ride on round-1's ``skill='attempt-task'``
+        substring.  Counted exactly so an extra unintended
+        ``Delegate(target, ...)`` is also flagged.
+
+        This addresses audit finding #1 — the prior whole-body
+        substring scan accepted naked Delegate calls and free-floating
+        ``skill='...'`` strings."""
         _, body = _read_frontmatter_and_body(LEAD_AGENT_MD)
         body_norm = _normalize_dashes(body)
 
-        for target, skill in PIPELINE_HOPS:
-            target_present = target in body_norm
-            self.assertTrue(
-                target_present,
-                f'agent.md body must name the dispatch target '
-                f'{target!r} (one of the four pipeline hops); '
-                f'body did not contain that string.',
-            )
-            # Every hop must name its skill argument verbatim.
-            skill_arg = f"skill='{skill}'"
-            skill_arg_alt = f'skill="{skill}"'
-            self.assertTrue(
-                skill_arg in body_norm or skill_arg_alt in body_norm,
-                f'agent.md body must name the skill kwarg '
-                f'{skill_arg!r} for the {target} hop; body did not '
-                f'contain it.  This is the determinism guarantee — '
-                f'without the skill prefix the recipient improvises.',
+        # Expected (target, skill) -> count of calls with that exact
+        # binding.  The four hops collapse to three (target, skill)
+        # tuples because both coding-lead hops use skill='attempt-task'.
+        expected_bindings = {
+            ('coding-lead', 'attempt-task'): 2,
+            ('quality-control-lead', 'attempt-task'): 1,
+            ('auditor', 'audit-issue'): 1,
+        }
+
+        for (target, skill), expected_count in expected_bindings.items():
+            bound_matches = []
+            naked_count = 0
+            pos = 0
+            while True:
+                idx = body_norm.find(f'Delegate({target}', pos)
+                if idx == -1:
+                    break
+                # Find the closing ')' of this call.  Markdown allows
+                # nested parens in prose like (e.g. <findings>) so we
+                # take the first matching ')' after the call's open.
+                end = body_norm.find(')', idx)
+                call = (
+                    body_norm[idx:end + 1] if end != -1 else body_norm[idx:]
+                )
+                if (f"skill='{skill}'" in call
+                        or f'skill="{skill}"' in call):
+                    bound_matches.append(idx)
+                else:
+                    naked_count += 1
+                pos = idx + 1
+
+            self.assertEqual(
+                len(bound_matches), expected_count,
+                f"expected {expected_count} Delegate({target}, ..., "
+                f"skill='{skill}') call(s) with the skill kwarg bound "
+                f"to the call's own argument list; found "
+                f'{len(bound_matches)} bound and {naked_count} naked '
+                f'(skill kwarg missing or wrong inside the call args).  '
+                f'The determinism guarantee is per-hop: every call '
+                f'must carry its own skill prefix.',
             )
 
     def test_body_orders_hops_coding_then_qc_then_audit_then_coding(self):
@@ -374,30 +480,51 @@ class TestSoftwareDevelopmentLeadPipelineEncoding(unittest.TestCase):
             f'audit={audit_idx}, second_coding={second_coding}.',
         )
 
-    def test_body_specifies_deliver_terminal_with_commit_and_reply(self):
-        """AC4: when the pipeline completes, the lead's terminal step
-        must commit assembled state on its session branch and Reply
-        with a Deliver intent.  Without an explicit DELIVER step the
-        attempt-task skill's chain-completion guarantee depends on
-        the lead remembering — which is exactly what the procedural
-        rail is meant to remove."""
+    def test_body_has_deliver_section_with_commit_and_reply_directives(self):
+        """AC4: the DELIVER terminal step must exist as a real
+        section in the lead's body — not merely as the words
+        'deliver', 'commit', 'reply' appearing somewhere.
+
+        Locates a heading whose label starts with DELIVER, then
+        asserts the section content (everything until the next
+        heading or end-of-body) contains both a commit directive and
+        a Reply directive.
+
+        This addresses audit finding #3 — the prior substring scan
+        of the whole body passed even when the DELIVER section was
+        deleted, because 'commit' survived in the Tools paragraph
+        (commit_all_pending) and 'reply' survived in Tools/
+        Escalation paragraphs."""
         _, body = _read_frontmatter_and_body(LEAD_AGENT_MD)
-        body_lower = body.lower()
+
+        # Find a DELIVER heading, then take everything up to the next
+        # heading at the same or higher level.
+        m = re.search(
+            r'^#{1,6}\s+DELIVER\b.*?(?=^#{1,6}\s|\Z)',
+            body,
+            re.MULTILINE | re.DOTALL | re.IGNORECASE,
+        )
+        self.assertIsNotNone(
+            m,
+            f'agent.md body must have a DELIVER section (heading '
+            f'line beginning with #..# DELIVER); found none.  '
+            f'Sections present: '
+            f'{re.findall(r"^#{1,6}\s+\S+", body, re.MULTILINE)}',
+        )
+        assert m is not None
+        section_lower = m.group(0).lower()
         self.assertIn(
-            'deliver', body_lower,
-            f'agent.md body must specify a DELIVER terminal step; '
-            f'word "deliver" not found.',
+            'commit', section_lower,
+            f'DELIVER section must address commit semantics (either '
+            f'directing the lead to commit, or explicitly delegating '
+            f'commit to the framework via commit_all_pending).  '
+            f'Section start: {m.group(0)[:200]!r}',
         )
         self.assertIn(
-            'commit', body_lower,
-            f'agent.md body must direct the lead to commit assembled '
-            f'state in DELIVER (without commit, CloseConversation in '
-            f'the originator merges nothing).',
-        )
-        self.assertIn(
-            'reply', body_lower,
-            f'agent.md body must direct the lead to Reply at DELIVER '
-            f'(this is how the originator learns the work is done).',
+            'reply', section_lower,
+            f'DELIVER section must direct the lead to Reply with the '
+            f'Deliver intent (this is how the originator learns the '
+            f'pipeline is complete).',
         )
 
 
@@ -492,6 +619,48 @@ class TestSoftwareDevelopmentRosterRecognition(unittest.TestCase):
             f'Roster missing required members {sorted(missing)}; '
             f'got {sorted(member_names)}.  These are the targets the '
             f'lead Delegates to at every pipeline hop.',
+        )
+
+    def test_roster_members_have_workgroup_agent_role(self):
+        """AC5: each member's ``role`` is what BusDispatcher reads
+        to decide routing tier.  For workgroup members the role is
+        ``'workgroup-agent'``; if the role drops or swaps (e.g. a
+        refactor emits empty string or the wrong role for every
+        member), routing decisions go wrong silently.
+
+        This addresses audit finding #5 — the prior test only
+        verified member presence, not the role contract."""
+        from teaparty.config.roster import derive_team_roster
+        roster = derive_team_roster(LEAD_NAME, TEAPARTY_HOME)
+        assert roster is not None
+        roles = {m.name: m.role for m in roster.members}
+        for member in EXPECTED_MEMBERS:
+            self.assertEqual(
+                roles.get(member), 'workgroup-agent',
+                f'roster member {member!r} must have '
+                f"role='workgroup-agent' for BusDispatcher routing; "
+                f'got {roles.get(member)!r}.  Roles map: {roles!r}',
+            )
+
+    def test_roster_has_mesh_among_members_flag_set(self):
+        """AC5: the workgroup's distinguishing routing trait is mesh
+        — members address each other within the team (through the
+        lead's mediation) rather than being hub-and-spoke off the
+        lead alone.  ``mesh_among_members=True`` is what makes
+        ``build_routing_table`` emit the within-team peer pairs.
+
+        This addresses audit finding #5 — the prior tests did not
+        assert the mesh flag, so flipping it to False would silently
+        change the routing topology."""
+        from teaparty.config.roster import derive_team_roster
+        roster = derive_team_roster(LEAD_NAME, TEAPARTY_HOME)
+        assert roster is not None
+        self.assertTrue(
+            roster.mesh_among_members,
+            f'software-development workgroup roster must be mesh '
+            f'(mesh_among_members=True) so members can address each '
+            f'other through the lead.  Got mesh_among_members='
+            f'{roster.mesh_among_members!r}.',
         )
 
     def test_project_lead_roster_includes_software_development_lead(self):
