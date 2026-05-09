@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TeaParty — Token Grid</title>
+<link rel="stylesheet" href="styles.css">
+<script src="breadcrumb.js"></script>
+<style>
+  .grid-page { padding: 16px; overflow: auto; flex: 1; }
+  .grid-header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 12px; }
+  .grid-title { font-size: 16px; font-weight: 600; color: var(--green); }
+  .grid-meta  { font-size: 10px; color: var(--text-dim); }
+  table.grid {
+    border-collapse: collapse; font-size: 11px; min-width: 480px;
+    background: var(--surface); border: 1px solid var(--border);
+  }
+  table.grid th, table.grid td {
+    padding: 6px 10px; border: 1px solid var(--border); text-align: right;
+  }
+  table.grid th:first-child, table.grid td:first-child { text-align: left; }
+  table.grid th { background: var(--bg); color: var(--text-dim); font-weight: 600; }
+  table.grid td.cell {
+    font-variant-numeric: tabular-nums; color: var(--text);
+  }
+  table.grid td.cell.empty { color: var(--text-dim); }
+  table.grid tfoot td { background: var(--bg); font-weight: 600; }
+  .grid-empty { font-size: 12px; color: var(--text-dim); padding: 32px; text-align: center; }
+  .grid-toggle { font-size: 10px; }
+  .grid-toggle button {
+    margin-right: 6px; padding: 3px 9px; font-size: 9px; font-family: inherit;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 3px;
+    color: var(--text-dim); cursor: pointer;
+  }
+  .grid-toggle button.active { border-color: var(--green); color: var(--green); }
+</style>
+</head>
+<body>
+
+<div style="display:flex;flex-direction:column;height:100vh">
+<div id="breadcrumb-slot" style="padding:6px 12px;flex-shrink:0"></div>
+<div class="grid-page">
+  <div class="grid-header">
+    <div class="grid-title">Token Grid</div>
+    <div class="grid-meta" id="meta">loading…</div>
+  </div>
+  <div class="grid-toggle">
+    <span style="margin-right:6px;color:var(--text-dim);">metric:</span>
+    <button id="m-output" class="active" data-metric="output_tokens">output</button>
+    <button id="m-input"               data-metric="input_tokens">input</button>
+    <button id="m-cache-read"          data-metric="cache_read_tokens">cache read</button>
+    <button id="m-cache-5m"            data-metric="cache_5m_tokens">cache 5m</button>
+    <button id="m-cache-1h"            data-metric="cache_1h_tokens">cache 1h</button>
+  </div>
+  <div id="grid-root" style="margin-top:12px">
+    <div class="grid-empty">Loading…</div>
+  </div>
+</div>
+</div>
+
+<script>
+var _params = new URLSearchParams(window.location.search);
+var _job_id = _params.get('job') || '';
+var _metric = 'output_tokens';
+var _data = null;
+
+// ── Breadcrumb ────────────────────────────────────────────────────────────────
+(function () {
+  document.getElementById('breadcrumb-slot').innerHTML = breadcrumbBar([
+    { label: 'Home', href: 'index.html' },
+    { label: 'Statistics', href: 'stats.html' },
+    { label: 'Token Grid' },
+  ]);
+}());
+
+document.querySelectorAll('.grid-toggle button').forEach(function (b) {
+  b.addEventListener('click', function () {
+    document.querySelectorAll('.grid-toggle button').forEach(function (bb) {
+      bb.classList.remove('active');
+    });
+    b.classList.add('active');
+    _metric = b.dataset.metric;
+    if (_data) renderGrid(_data);
+  });
+});
+
+var url = '/api/analysis/token-grid' + (_job_id ? '?job=' + encodeURIComponent(_job_id) : '');
+fetch(url)
+  .then(function (r) { return r.json(); })
+  .then(function (body) {
+    _data = body.grid || [];
+    renderGrid(_data);
+  })
+  .catch(function (err) {
+    document.getElementById('grid-root').innerHTML =
+      '<div class="grid-empty">Failed to load token-grid data: ' + err + '</div>';
+  });
+
+function renderGrid(rows) {
+  if (!rows.length) {
+    document.getElementById('grid-root').innerHTML =
+      '<div class="grid-empty">No assistant messages recorded yet ' +
+      (_job_id ? 'for job ' + _job_id : 'org-wide') +
+      '. Run the job to populate session_messages.</div>';
+    document.getElementById('meta').textContent =
+      _job_id ? ('job ' + _job_id + ' — empty') : 'org-wide — empty';
+    return;
+  }
+
+  // Pivot: rows = roles, cols = phases.
+  var roles  = [];
+  var phases = [];
+  var byCell = {};
+  rows.forEach(function (r) {
+    if (roles.indexOf(r.role) < 0) roles.push(r.role);
+    if (phases.indexOf(r.phase) < 0) phases.push(r.phase);
+    byCell[r.role + '' + r.phase] = r;
+  });
+  roles.sort();
+  // Phase ordering: intent → plan → exec → others (alphabetical).
+  var phaseOrder = ['intent', 'plan', 'exec'];
+  phases.sort(function (a, b) {
+    var ai = phaseOrder.indexOf(a), bi = phaseOrder.indexOf(b);
+    if (ai >= 0 && bi >= 0) return ai - bi;
+    if (ai >= 0) return -1;
+    if (bi >= 0) return 1;
+    return a < b ? -1 : a > b ? 1 : 0;
+  });
+
+  // Compute a max for color scaling.
+  var maxV = 0;
+  roles.forEach(function (role) {
+    phases.forEach(function (phase) {
+      var c = byCell[role + '' + phase];
+      if (c && c[_metric] && c[_metric] > maxV) maxV = c[_metric];
+    });
+  });
+
+  var html = ['<table class="grid"><thead><tr><th>role \\ phase</th>'];
+  phases.forEach(function (p) { html.push('<th>' + p + '</th>'); });
+  html.push('<th>total</th></tr></thead><tbody>');
+
+  var colTotals = {};
+  var grand = 0;
+  roles.forEach(function (role) {
+    html.push('<tr><td>' + role + '</td>');
+    var rowTotal = 0;
+    phases.forEach(function (phase) {
+      var c = byCell[role + '' + phase];
+      var v = c ? (c[_metric] || 0) : 0;
+      rowTotal += v;
+      colTotals[phase] = (colTotals[phase] || 0) + v;
+      var bg = '';
+      if (v > 0 && maxV > 0) {
+        var t = Math.sqrt(v / maxV);
+        var alpha = (0.1 + t * 0.55).toFixed(3);
+        bg = ' style="background: rgba(120, 168, 116, ' + alpha + ')"';
+      }
+      html.push('<td class="cell' + (v === 0 ? ' empty' : '') + '"' + bg + '>' +
+        v.toLocaleString() + '</td>');
+    });
+    grand += rowTotal;
+    html.push('<td class="cell">' + rowTotal.toLocaleString() + '</td></tr>');
+  });
+  html.push('</tbody><tfoot><tr><td>total</td>');
+  phases.forEach(function (p) {
+    html.push('<td>' + (colTotals[p] || 0).toLocaleString() + '</td>');
+  });
+  html.push('<td>' + grand.toLocaleString() + '</td></tr></tfoot></table>');
+
+  document.getElementById('grid-root').innerHTML = html.join('');
+  document.getElementById('meta').textContent =
+    (_job_id ? 'job ' + _job_id : 'org-wide') +
+    ' — ' + roles.length + ' roles × ' + phases.length + ' phases, ' +
+    grand.toLocaleString() + ' ' + _metric.replace('_', ' ') + ' total';
+}
+</script>
+</body>
+</html>

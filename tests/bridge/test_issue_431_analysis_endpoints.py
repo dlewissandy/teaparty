@@ -213,5 +213,61 @@ class AnalysisEndpointTests(unittest.TestCase):
         self._run(_run())
 
 
+class AnalysisDashboardPagesTests(unittest.TestCase):
+    """The Gantt and token-grid HTML pages must exist, link to the
+    analysis API, and be reachable from the home page."""
+
+    def _read(self, name: str) -> str:
+        path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+            'teaparty', 'bridge', 'static', name,
+        )
+        with open(path) as f:
+            return f.read()
+
+    def test_gantt_page_exists_and_calls_gantt_endpoint(self) -> None:
+        src = self._read('gantt.html')
+        self.assertIn(
+            "/api/analysis/gantt/", src,
+            'gantt.html must fetch from /api/analysis/gantt/<job_id> — '
+            'without this the page renders but pulls no data',
+        )
+        self.assertIn(
+            'sessions', src,
+            'gantt.html must reference the sessions array in the '
+            'response payload',
+        )
+        self.assertIn(
+            'tool_spans', src,
+            'gantt.html must render tool spans (the unique value of '
+            'TOOL_CALL_COMPLETE on a Gantt chart)',
+        )
+        self.assertIn(
+            'dispatch_edges', src,
+            'gantt.html must draw dispatch edges connecting parent/child '
+            'sessions — that is what makes it a tree, not just bars',
+        )
+
+    def test_token_grid_page_exists_and_calls_token_grid_endpoint(
+        self,
+    ) -> None:
+        src = self._read('token-grid.html')
+        self.assertIn(
+            '/api/analysis/token-grid', src,
+            'token-grid.html must fetch from /api/analysis/token-grid',
+        )
+        # The page pivots on role × phase, so both must be referenced.
+        self.assertIn('role', src.lower())
+        self.assertIn('phase', src.lower())
+
+    def test_home_page_links_to_token_grid(self) -> None:
+        src = self._read('index.html')
+        self.assertIn(
+            'token-grid.html', src,
+            'index.html must link to token-grid.html so users can '
+            'reach the new token-grid dashboard from the home page',
+        )
+
+
 if __name__ == '__main__':
     unittest.main()
