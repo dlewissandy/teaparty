@@ -282,6 +282,7 @@ class ProjectTeam:
     humans: list[Human] = field(default_factory=list)
     workgroups: list[WorkgroupRef | WorkgroupEntry] = field(default_factory=list)
     members_workgroups: list[str] = field(default_factory=list)
+    members_agents: list[str] = field(default_factory=list)
     members_skills: list[str] | None = None
     norms: dict[str, list[str]] = field(default_factory=dict)
     scheduled: list[ScheduledTask] = field(default_factory=list)
@@ -461,6 +462,7 @@ def load_project_team(
         humans=_parse_humans(data.get('humans')),
         workgroups=_parse_workgroup_entries(data.get('workgroups')),
         members_workgroups=members.get('workgroups') or [],
+        members_agents=members.get('agents') or [],
         members_skills=members.get('skills'),
         norms=data.get('norms', {}),
         scheduled=_parse_scheduled(data.get('scheduled')),

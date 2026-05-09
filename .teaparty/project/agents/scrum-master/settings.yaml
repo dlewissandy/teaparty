@@ -1,0 +1,15 @@
+permissions:
+  allow:
+  - Read
+  - Write
+  - Edit
+  - Glob
+  - Grep
+  - Bash
+  - mcp__teaparty-config__list_milestones
+  - mcp__teaparty-config__list_milestone_issues
+  - mcp__teaparty-config__read_issue
+  - mcp__teaparty-config__list_project_boards
+  - mcp__teaparty-config__add_issue_to_board
+  - mcp__teaparty-config__set_board_status
+  - mcp__teaparty-config__read_board_status

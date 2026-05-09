@@ -514,6 +514,126 @@ class TestMatrixWorkgroupLoan(unittest.TestCase):
         self.assertIn('surveyor', member_names)
 
 
+# ── 1d. Project-direct specialists (members.agents on a project) ──────────
+
+class TestProjectDirectSpecialists(unittest.TestCase):
+    """A project's roster includes agents declared in ``members.agents``.
+
+    Mirrors the management-tier ``members.agents`` field, but with one
+    deliberate asymmetry: management's ``members.agents`` agents are
+    NOT on the OM bus roster (the OM dispatches via leads only).
+    Projects do place their direct specialists on the bus roster —
+    a project-tier specialist like ``scrum-master`` is reached by the
+    project lead via ``Send``, per the issue spec for #429.
+
+    The role tag for these members is ``project-specialist`` (not
+    ``workgroup-lead``, since they head no workgroup).
+    """
+
+    def setUp(self):
+        # A project with a workgroup AND a direct specialist.
+        self.proj = _make_project_dir(
+            textwrap.dedent("""\
+                name: Alpha
+                description: Alpha project.
+                lead: alpha-lead
+                members:
+                  workgroups:
+                    - Coding
+                  agents:
+                    - scrum-master
+                workgroups:
+                  - ref: Coding
+            """),
+        )
+        # Write the scrum-master agent.md into the project so its
+        # description can be read into the roster member entry.
+        scrum_dir = os.path.join(
+            self.proj, '.teaparty', 'project', 'agents', 'scrum-master',
+        )
+        os.makedirs(scrum_dir)
+        with open(os.path.join(scrum_dir, 'agent.md'), 'w') as f:
+            f.write(
+                '---\n'
+                'name: scrum-master\n'
+                'description: Sprint mechanics specialist.\n'
+                '---\nbody\n',
+            )
+        self.home = _make_teaparty_home(
+            textwrap.dedent(f"""\
+                name: Management Team
+                description: Test.
+                lead: office-manager
+                projects:
+                  - name: Alpha
+                    path: {self.proj}
+                    config: .teaparty/project/project.yaml
+                members: {{}}
+            """),
+            workgroup_files={'Coding.yaml': WORKGROUP_CODING_YAML},
+        )
+        self.tp = os.path.join(self.home, '.teaparty')
+
+    def test_project_roster_includes_direct_specialist(self):
+        """``alpha-lead`` is the project lead; their roster must
+        include ``scrum-master`` as a direct member, alongside the
+        ``coding-lead`` workgroup-lead."""
+        roster = derive_team_roster('alpha-lead', self.tp)
+        self.assertIsNotNone(roster, 'project lead must resolve')
+        self.assertEqual(roster.lead, 'alpha-lead')
+        names = {m.name for m in roster.members}
+        self.assertIn(
+            'scrum-master', names,
+            f'alpha-lead\'s roster must include the project-direct '
+            f'specialist scrum-master from members.agents.  Got '
+            f'{sorted(names)}.',
+        )
+        # Workgroup leads remain on the roster.
+        self.assertIn('coding-lead', names)
+
+    def test_specialist_member_carries_project_specialist_role(self):
+        roster = derive_team_roster('alpha-lead', self.tp)
+        scrum_member = next(
+            (m for m in roster.members if m.name == 'scrum-master'),
+            None,
+        )
+        self.assertIsNotNone(scrum_member)
+        self.assertEqual(
+            scrum_member.role, 'project-specialist',
+            f'A project members.agents entry must carry role '
+            f'"project-specialist"; got {scrum_member.role!r}',
+        )
+
+    def test_specialist_member_description_comes_from_agent_md(self):
+        """The roster member's description must come from the agent's
+        own ``agent.md`` frontmatter (so ListTeamMembers and the
+        agent's self-description cannot disagree)."""
+        roster = derive_team_roster('alpha-lead', self.tp)
+        scrum_member = next(
+            m for m in roster.members if m.name == 'scrum-master'
+        )
+        self.assertEqual(
+            scrum_member.description,
+            'Sprint mechanics specialist.',
+            f'Member description must equal the agent\'s frontmatter '
+            f'description; got {scrum_member.description!r}.',
+        )
+
+    def test_routing_table_allows_project_lead_to_specialist(self):
+        """The project lead must be able to ``Send`` to the
+        specialist.  This is the load-bearing routing contract for
+        #429: ``mark-in-progress`` is "called by project lead", which
+        means the project lead's routing table includes scrum-master."""
+        roster = derive_team_roster('alpha-lead', self.tp)
+        table = build_routing_table(roster)
+        self.assertTrue(
+            table.allows('alpha-lead', 'scrum-master'),
+            'project lead must be authorized to Send to its '
+            'project-direct specialist (scrum-master) — without this '
+            'the issue\'s "called by project lead" contract is broken',
+        )
+
+
 # ── 2. build_routing_table from a management Roster ───────────────────────
 
 class TestRoutingTableFromManagementRoster(unittest.TestCase):
