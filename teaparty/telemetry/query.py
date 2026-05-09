@@ -622,33 +622,59 @@ def token_grid(job_id: Optional[str] = None) -> list[dict]:
     """Per-role per-phase output-token grid for a job (or org-wide).
 
     Joins ``session_messages`` (the deduped per-message sidecar) to
-    ``agent_sessions`` (for role) and ``phase_intervals`` (for phase)
-    so each message is attributed to the phase it landed in.
+    ``agent_sessions`` (for role) and ``phase_intervals`` (for phase).
+    Sub-agents don't emit their own ``PHASE_CHANGED`` events; their
+    phase is inherited from the parent session's intervals at the
+    message's timestamp via a fallback subquery. Without this fallback
+    every sub-agent message falls into the ``unknown`` bucket.
     """
     where = ''
     params: tuple[Any, ...] = ()
     if job_id is not None:
         where = 'WHERE a.job_id = ?'
         params = (job_id,)
+    # CTE'd phase resolution avoids the ambiguous reference SQLite
+    # would otherwise see between the COALESCE alias and the
+    # phase_intervals.phase column exposed through the JOIN.
     sql = f'''
+        WITH attributed AS (
+            SELECT
+                a.role AS role,
+                COALESCE(
+                    p_self.phase,
+                    (SELECT pp.phase FROM phase_intervals pp
+                        WHERE pp.session_id = a.parent_session_id
+                          AND m.ts >= pp.start_ts
+                          AND (pp.end_ts IS NULL OR m.ts < pp.end_ts)
+                        LIMIT 1),
+                    'unknown'
+                ) AS phase_label,
+                m.message_id,
+                m.input_tokens,
+                m.output_tokens,
+                m.cache_read_tokens,
+                m.cache_5m_tokens,
+                m.cache_1h_tokens
+            FROM session_messages m
+            JOIN agent_sessions a ON a.session_id = m.session_id
+            LEFT JOIN phase_intervals p_self
+                ON p_self.session_id = m.session_id
+                AND m.ts >= p_self.start_ts
+                AND (p_self.end_ts IS NULL OR m.ts < p_self.end_ts)
+            {where}
+        )
         SELECT
-            a.role                                  AS role,
-            COALESCE(p.phase, 'unknown')            AS phase,
-            COUNT(m.message_id)                     AS messages,
-            COALESCE(SUM(m.input_tokens), 0)        AS input_tokens,
-            COALESCE(SUM(m.output_tokens), 0)       AS output_tokens,
-            COALESCE(SUM(m.cache_read_tokens), 0)   AS cache_read_tokens,
-            COALESCE(SUM(m.cache_5m_tokens), 0)     AS cache_5m_tokens,
-            COALESCE(SUM(m.cache_1h_tokens), 0)     AS cache_1h_tokens
-        FROM session_messages m
-        JOIN agent_sessions a ON a.session_id = m.session_id
-        LEFT JOIN phase_intervals p
-            ON p.session_id = m.session_id
-            AND m.ts >= p.start_ts
-            AND (p.end_ts IS NULL OR m.ts < p.end_ts)
-        {where}
-        GROUP BY a.role, COALESCE(p.phase, 'unknown')
-        ORDER BY a.role, phase
+            role,
+            phase_label                            AS phase,
+            COUNT(message_id)                      AS messages,
+            COALESCE(SUM(input_tokens), 0)         AS input_tokens,
+            COALESCE(SUM(output_tokens), 0)        AS output_tokens,
+            COALESCE(SUM(cache_read_tokens), 0)    AS cache_read_tokens,
+            COALESCE(SUM(cache_5m_tokens), 0)      AS cache_5m_tokens,
+            COALESCE(SUM(cache_1h_tokens), 0)      AS cache_1h_tokens
+        FROM attributed
+        GROUP BY role, phase_label
+        ORDER BY role, phase_label
     '''
     return _select_dicts(sql, params)
 

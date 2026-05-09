@@ -238,13 +238,26 @@ def backfill_stream_file(
     *,
     job_id: str,
     project: str,
+    agent_name: str = '',
+    parent_session_id: str = '',
+    dispatch_depth: int | None = None,
+    phase: str = '',
 ) -> BackfillCounts:
     """Parse one stream JSONL file and emit MESSAGE_RECORDED /
-    TOOL_CALL_COMPLETE / DISPATCH_EDGE rows.
+    TOOL_CALL_COMPLETE / DISPATCH_EDGE / TURN_COMPLETE / TURN_START
+    rows.
 
     The session_id used for emitted rows is the SDK uuid from the
     first ``system/init`` record in the stream — that's what the
     canonical spec uses to cross-link to claude-home jsonl files.
+
+    ``agent_name`` and ``dispatch_depth`` populate the events table's
+    indexed columns so the agent_sessions view can derive role.
+    Without these, every backfilled session collapses to role=unknown.
+
+    ``phase`` (when non-empty) drives a synthetic PHASE_CHANGED event
+    at the start of the stream so phase_intervals carries the phase
+    label — sub-agents inherit this through joins on parent_session_id.
     """
     counts = BackfillCounts()
     counts.streams_parsed += 1
@@ -278,6 +291,7 @@ def backfill_stream_file(
                 record_event(
                     E.TURN_START,
                     scope=project,
+                    agent_name=agent_name or None,
                     session_id=init_uuid,
                     ts=rec.get('timestamp'),
                     data={
@@ -288,7 +302,31 @@ def backfill_stream_file(
                         'backfilled':           True,
                     },
                     job_id=job_id,
+                    parent_session_id=parent_session_id or None,
+                    dispatch_depth=dispatch_depth,
                 )
+                # Synthetic PHASE_CHANGED on first init so the
+                # phase_intervals view exposes the phase span. Skipped
+                # on subsequent inits in the same stream — the same
+                # phase is in effect across all its result records.
+                if phase and first_init:
+                    record_event(
+                        E.PHASE_CHANGED,
+                        scope=project,
+                        agent_name=agent_name or None,
+                        session_id=init_uuid,
+                        ts=rec.get('timestamp'),
+                        data={
+                            'old_state':  '',
+                            'new_state':  phase.upper(),
+                            'new_phase':  phase,
+                            'action':     'backfilled',
+                            'backfilled': True,
+                        },
+                        job_id=job_id,
+                        parent_session_id=parent_session_id or None,
+                        dispatch_depth=dispatch_depth,
+                    )
             continue
 
         # Without a session uuid we can't key MESSAGE_RECORDED — skip
@@ -334,10 +372,13 @@ def backfill_stream_file(
             record_event(
                 E.TURN_COMPLETE,
                 scope=project,
+                agent_name=agent_name or None,
                 session_id=init_uuid,
                 ts=rec.get('timestamp'),
                 data=data,
                 job_id=job_id,
+                parent_session_id=parent_session_id or None,
+                dispatch_depth=dispatch_depth,
                 cost_source='stream_result',
             )
             counts.tool_calls_inserted += 0  # no-op; documented for symmetry
@@ -437,6 +478,7 @@ def backfill_stream_file(
                 record_event(
                     E.TOOL_CALL_COMPLETE,
                     scope=project,
+                    agent_name=agent_name or None,
                     session_id=init_uuid,
                     ts=end_ts,
                     data={
@@ -453,8 +495,9 @@ def backfill_stream_file(
                         'child_session_id': child_sid,
                         'backfilled': True,
                     },
-                    parent_session_id=init_uuid,
+                    parent_session_id=parent_session_id or init_uuid,
                     job_id=job_id,
+                    dispatch_depth=dispatch_depth,
                 )
                 counts.tool_calls_inserted += 1
 
@@ -481,7 +524,14 @@ def backfill_stream_file(
 
 
 def backfill_job_dir(job_dir: Path, project: str) -> BackfillCounts:
-    """Backfill one ``job-X--slug`` directory."""
+    """Backfill one ``job-X--slug`` directory.
+
+    Walks the project lead's three phase streams plus every
+    ``tasks/<hex>/stream.jsonl`` for sub-agents dispatched out of the
+    job. Each stream's TURN_* / MESSAGE / TOOL rows carry the right
+    agent_name / dispatch_depth / parent_session_id so role inference
+    in agent_sessions works without falling back to 'unknown'.
+    """
     counts = BackfillCounts()
     counts.job_dirs_visited += 1
     short, _ = _parse_job_dir_name(job_dir.name)
@@ -489,12 +539,67 @@ def backfill_job_dir(job_dir: Path, project: str) -> BackfillCounts:
 
     counts.merge(backfill_job_metadata(job_dir, project))
 
-    for _phase, fname in PHASE_STREAM_FILES:
+    # The project lead's per-phase streams. Agent name follows the
+    # spec's PHASE_AGENT_HINT mapping.
+    phase_lead_uuids: list[str] = []
+    for phase, fname in PHASE_STREAM_FILES:
         path = job_dir / fname
-        if path.exists():
-            counts.merge(
-                backfill_stream_file(path, job_id=job_id, project=project),
-            )
+        if not path.exists():
+            continue
+        sub_counts = backfill_stream_file(
+            path, job_id=job_id, project=project,
+            agent_name=f'{phase}-lead',
+            parent_session_id='',
+            dispatch_depth=0,
+            phase=phase,
+        )
+        counts.merge(sub_counts)
+        # Record the SDK uuid for this phase stream so sub-agents can
+        # link to the right parent session.
+        try:
+            for rec in _iter_jsonl(path):
+                if rec.get('type') == 'system' and rec.get('subtype') == 'init':
+                    sid = rec.get('session_id')
+                    if sid:
+                        phase_lead_uuids.append(sid)
+                    break
+        except Exception:  # pragma: no cover
+            pass
+
+    # Sub-agent task streams. Each task dir has metadata.json with
+    # agent_name + parent_session_id; the lead's SDK uuid is the
+    # natural parent for dispatch-tree linkage.
+    tasks_dir = job_dir / 'tasks'
+    if tasks_dir.is_dir():
+        for task_dir in sorted(tasks_dir.iterdir()):
+            if not task_dir.is_dir():
+                continue
+            task_stream = task_dir / 'stream.jsonl'
+            if not task_stream.exists():
+                continue
+            meta_path = task_dir / 'metadata.json'
+            agent_name = ''
+            parent_sid = phase_lead_uuids[-1] if phase_lead_uuids else ''
+            if meta_path.exists():
+                try:
+                    meta = json.loads(meta_path.read_text())
+                    agent_name = meta.get('agent_name') or ''
+                    parent_sid = (
+                        meta.get('parent_claude_session_id')
+                        or parent_sid
+                    )
+                except (OSError, json.JSONDecodeError):
+                    pass
+            counts.merge(backfill_stream_file(
+                task_stream, job_id=job_id, project=project,
+                agent_name=agent_name,
+                parent_session_id=parent_sid,
+                dispatch_depth=1,
+                # Sub-agents inherit phase from parent — left empty
+                # so analysts get phase via the parent's
+                # phase_intervals row at message ts.
+                phase='',
+            ))
     return counts
 
 
