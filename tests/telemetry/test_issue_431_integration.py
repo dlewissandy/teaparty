@@ -362,6 +362,24 @@ class StreamParserDedupeAndToolEmissionTests(unittest.TestCase):
             f'to one row — got {row_count}',
         )
 
+    def test_read_stdout_calls_process_stream_event(self) -> None:
+        """Wiring assertion — _process_stream_event must be invoked from
+        read_stdout so MESSAGE_RECORDED / TOOL_CALL_COMPLETE actually
+        fire on the live stream. Without this call, the per-message
+        dedupe and per-tool-call records never reach the events table
+        in production no matter how correct the helper logic is."""
+        import inspect
+        from teaparty.runners import claude as _claude
+        # The reference must appear inside ClaudeRunner._stream_with_watchdog
+        # (which defines read_stdout as a closure).
+        src = inspect.getsource(_claude.ClaudeRunner._stream_with_watchdog)
+        self.assertIn(
+            'self._process_stream_event(', src,
+            'read_stdout must call self._process_stream_event(...) '
+            'so per-message dedupe and TOOL_CALL_COMPLETE fire on '
+            'the live stream',
+        )
+
     def test_tool_use_then_tool_result_emits_tool_call_complete(self) -> None:
         runner = self._make_runner()
         # Open a tool call.

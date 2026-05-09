@@ -634,6 +634,32 @@ class MessageRecordedDedupeTests(unittest.TestCase):
             f'not summed — got {row}',
         )
 
+    def test_record_message_emits_message_recorded_event_only_once(
+        self,
+    ) -> None:
+        """The MESSAGE_RECORDED event is for live broadcasters; firing
+        it on every duplicate write would flood the WebSocket channel
+        and overcount in any downstream that joins on the events
+        table. record_message must emit the event only on a fresh
+        insert (rowcount > 0)."""
+        for _ in range(3):
+            telemetry.record_message(
+                session_id='sess-O', message_id='msg-once', ts=1000.0,
+                model='claude-opus-4-7',
+                input_tokens=10, output_tokens=20,
+                cache_read_tokens=0, cache_5m_tokens=0,
+                cache_1h_tokens=0, stop_reason='end_turn',
+            )
+        events = telemetry.query_events(event_type=E.MESSAGE_RECORDED)
+        msg_events = [e for e in events
+                      if e.data.get('message_id') == 'msg-once']
+        self.assertEqual(
+            len(msg_events), 1,
+            f'MESSAGE_RECORDED must fire exactly once per unique '
+            f'message_id even when record_message is called repeatedly '
+            f'— got {len(msg_events)}',
+        )
+
     def test_record_message_tracks_distinct_messages_separately(self) -> None:
         for mid, n_in in (('msg-1', 100), ('msg-2', 250)):
             telemetry.record_message(
