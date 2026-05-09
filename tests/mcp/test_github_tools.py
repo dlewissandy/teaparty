@@ -373,6 +373,26 @@ class TestReadIssue(unittest.TestCase):
         self.assertEqual(result['number'], 427)
         self.assertEqual(result['state'], 'open')
 
+        # The handler must request these fields explicitly via --json;
+        # without it, ``gh issue view`` returns human-readable text and
+        # the JSON parse would fail in production.  The fake replays
+        # canned JSON regardless of argv, so this assertion is the only
+        # thing that pins the actual gh contract.
+        argv = fake.calls[0]
+        self.assertIn(
+            '--json', argv,
+            f'read_issue must request structured output via --json; '
+            f'argv={argv!r}',
+        )
+        json_idx = argv.index('--json')
+        json_fields = argv[json_idx + 1].split(',')
+        for required in ('body', 'labels', 'state', 'milestone', 'assignees'):
+            self.assertIn(
+                required, json_fields,
+                f'--json field selector must include AC-3 field {required!r}; '
+                f'got fields {json_fields!r}',
+            )
+
 
 class TestCreateIssue(unittest.TestCase):
 
@@ -393,6 +413,10 @@ class TestCreateIssue(unittest.TestCase):
         )
 
     def test_milestone_and_labels_are_passed_through(self):
+        """Each value must be bound to its flag — a handler that put
+        the milestone name in ``--label`` (or vice versa) would pass
+        a substring check on the joined argv but fail this positional
+        pin."""
         fake = _FakeGh(['https://github.com/dlewissandy/teaparty/issues/9877\n'])
 
         gh.create_issue_handler(
@@ -403,13 +427,23 @@ class TestCreateIssue(unittest.TestCase):
         )
 
         argv = fake.calls[0]
-        joined = ' '.join(argv)
-        self.assertIn(
-            'Tier 4: Proxy Evolution', joined,
-            f'milestone must be passed to gh; argv={argv!r}',
+        ms_idx = argv.index('--milestone')
+        self.assertEqual(
+            argv[ms_idx + 1], 'Tier 4: Proxy Evolution',
+            f'--milestone must be immediately followed by the milestone '
+            f'name; argv={argv!r}',
         )
-        self.assertIn('tier-4', joined)
-        self.assertIn('mcp', joined)
+        # Each label must appear as the value following its own --label flag.
+        label_values = [
+            argv[i + 1]
+            for i, tok in enumerate(argv)
+            if tok == '--label' and i + 1 < len(argv)
+        ]
+        self.assertEqual(
+            sorted(label_values), sorted(['tier-4', 'mcp']),
+            f'each label must follow a --label flag; got label_values='
+            f'{label_values!r} from argv={argv!r}',
+        )
 
 
 class TestCloseAndReopenIssue(unittest.TestCase):
@@ -786,6 +820,17 @@ class TestAddIssueToBoard(unittest.TestCase):
             f'contentId so GitHub can dedupe.  Got first={first_content!r}, '
             f'second={second_content!r} — divergence here means the '
             f'handler is fabricating ids and GitHub may double-add.',
+        )
+        # The contentId must come from the canned response's
+        # ``repository.issue.id`` — pinning the exact value catches a
+        # regression that statically fabricates a constant contentId
+        # (which would still satisfy the equality assertion above).
+        self.assertEqual(
+            first_content, 'contentId=I_kwDOteaparty427',
+            f'contentId must be derived from repository.issue.id in '
+            f'the GraphQL response, not fabricated; got {first_content!r}. '
+            f'A handler that hardcodes a constant id would mutate the '
+            f'wrong issue when given a different number.',
         )
 
 
