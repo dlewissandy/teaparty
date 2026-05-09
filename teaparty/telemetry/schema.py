@@ -134,6 +134,8 @@ DROP VIEW IF EXISTS session_summary;
 DROP VIEW IF EXISTS job_phase_summary;
 DROP VIEW IF EXISTS job_cost_summary;
 DROP VIEW IF EXISTS prompt_groups;
+DROP VIEW IF EXISTS gates;
+DROP VIEW IF EXISTS gate_dialog_summary;
 
 -- One row per job, drawn from JOB_CREATED events. The plot scripts
 -- use prompt_hash to group byte-identical reruns; first_ts / last_ts
@@ -330,6 +332,84 @@ LEFT JOIN jobs j         ON j.job_id = a.job_id
 LEFT JOIN session_turns t ON t.session_id = a.session_id
 WHERE a.job_id IS NOT NULL
 GROUP BY a.job_id, a.role, a.agent_name;
+
+-- Gate spans, paired via LEAD over GATE_OPENED → first matching
+-- GATE_PASSED / GATE_FAILED. Each gate gets one row whose
+-- ``wall_seconds`` is the time it was open. Powers the gate-friction
+-- analyses the canonical spec exposes via gate_dialog_summary.
+CREATE VIEW gates AS
+WITH opens AS (
+    SELECT
+        e.id                                  AS opened_id,
+        e.session_id                          AS session_id,
+        e.scope                               AS scope,
+        e.ts                                  AS opened_ts,
+        json_extract(e.data, '$.gate_type')   AS gate_type,
+        json_extract(e.data, '$.phase_entering') AS phase_entering
+    FROM events e
+    WHERE e.event_type = 'gate_opened'
+),
+closes AS (
+    SELECT
+        e.session_id                          AS session_id,
+        e.ts                                  AS closed_ts,
+        json_extract(e.data, '$.gate_type')   AS gate_type,
+        CASE
+            WHEN e.event_type = 'gate_passed' THEN 'passed'
+            WHEN e.event_type = 'gate_failed' THEN 'failed'
+            ELSE 'unknown'
+        END                                   AS outcome
+    FROM events e
+    WHERE e.event_type IN ('gate_passed', 'gate_failed')
+),
+paired AS (
+    SELECT
+        o.opened_id, o.session_id, o.scope, o.opened_ts, o.gate_type,
+        o.phase_entering,
+        (SELECT c.closed_ts FROM closes c
+            WHERE c.session_id = o.session_id
+              AND c.gate_type = o.gate_type
+              AND c.closed_ts > o.opened_ts
+            ORDER BY c.closed_ts ASC LIMIT 1) AS closed_ts,
+        (SELECT c.outcome    FROM closes c
+            WHERE c.session_id = o.session_id
+              AND c.gate_type = o.gate_type
+              AND c.closed_ts > o.opened_ts
+            ORDER BY c.closed_ts ASC LIMIT 1) AS outcome
+    FROM opens o
+)
+SELECT
+    opened_id, session_id, scope, gate_type, phase_entering,
+    opened_ts, closed_ts,
+    COALESCE(outcome, 'open') AS outcome,
+    CASE WHEN closed_ts IS NOT NULL
+         THEN closed_ts - opened_ts
+         ELSE NULL
+    END AS wall_seconds
+FROM paired;
+
+-- gate_dialog_summary joins the gates view to jobs to expose the
+-- spec's per-gate friction analysis: outcome × dialog turns × wall
+-- seconds. ``dialog_turns`` is approximated as the count of
+-- gate_input_received events for the gate's session in the open
+-- window — operators can refine this query if they want a stricter
+-- definition.
+CREATE VIEW gate_dialog_summary AS
+SELECT
+    g.session_id,
+    j.slug,
+    j.classification,
+    g.gate_type,
+    g.outcome,
+    (SELECT COUNT(*) FROM events e
+        WHERE e.event_type = 'gate_input_received'
+          AND e.session_id = g.session_id
+          AND e.ts >= g.opened_ts
+          AND (g.closed_ts IS NULL OR e.ts <= g.closed_ts))
+        AS dialog_turns,
+    g.wall_seconds
+FROM gates g
+LEFT JOIN jobs j ON j.session_id = g.session_id;
 
 -- Byte-identical prompt grouping (the prompt_groups view from the
 -- spec). Counts how many jobs share a prompt_hash so reruns of an

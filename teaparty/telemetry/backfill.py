@@ -129,11 +129,30 @@ def _dispatch_edge_already_recorded(
     return row is not None
 
 
+def _session_already_backfilled(session_id: str) -> bool:
+    """Skip a stream's TURN_COMPLETE / TOOL_CALL_COMPLETE emission when
+    its session was already backfilled. Streams are static files, so
+    once processed they don't need to be re-processed; the events
+    table itself answers the dedupe question."""
+    conn = _record._ensure_conn()  # noqa: SLF001
+    if conn is None:
+        return False
+    with _record._lock:  # noqa: SLF001
+        row = conn.execute(
+            "SELECT 1 FROM events WHERE session_id = ? "
+            "AND event_type IN ('turn_complete', 'tool_call_complete') "
+            "LIMIT 1",
+            (session_id,),
+        ).fetchone()
+    return row is not None
+
+
 @dataclass
 class BackfillCounts:
     """Per-run row counts. Aggregated across job dirs by ``backfill_all``."""
     jobs_inserted: int = 0
     jobs_skipped: int = 0
+    turns_inserted: int = 0
     messages_inserted: int = 0
     messages_skipped: int = 0
     tool_calls_inserted: int = 0
@@ -145,6 +164,7 @@ class BackfillCounts:
     def merge(self, other: 'BackfillCounts') -> None:
         self.jobs_inserted += other.jobs_inserted
         self.jobs_skipped += other.jobs_skipped
+        self.turns_inserted += other.turns_inserted
         self.messages_inserted += other.messages_inserted
         self.messages_skipped += other.messages_skipped
         self.tool_calls_inserted += other.tool_calls_inserted
@@ -229,19 +249,81 @@ def backfill_stream_file(
     counts = BackfillCounts()
     counts.streams_parsed += 1
     init_uuid: str | None = None
+    init_model: str | None = None
     pending_tools: dict[str, dict] = {}
     pending_delegates: dict[str, dict] = {}
+    # Set after the first system/init: True iff this session already
+    # has TURN_COMPLETE rows in the events table, in which case we
+    # skip non-message emissions to keep the second pass a no-op.
+    session_already_done: bool = False
 
     for rec in _iter_jsonl(path):
         rtype = rec.get('type')
         if rtype == 'system' and rec.get('subtype') == 'init':
             if not init_uuid:
                 init_uuid = rec.get('session_id')
+                if init_uuid:
+                    session_already_done = _session_already_backfilled(
+                        init_uuid,
+                    )
+            if rec.get('model'):
+                init_model = rec.get('model')
             continue
 
         # Without a session uuid we can't key MESSAGE_RECORDED — skip
         # any records that arrive before system/init.
         if init_uuid is None:
+            continue
+
+        if rtype == 'result':
+            if session_already_done:
+                continue
+            # Each ``result`` record is the end-of-call SDK report and
+            # is the authoritative cost source for historical runs.
+            # Emit a TURN_COMPLETE event with the same field shape as
+            # the live launcher emission so per-job cost rollups in
+            # job_cost_summary / session_summary actually contain cost
+            # for backfilled jobs.
+            usage = rec.get('usage') or {}
+            cc = usage.get('cache_creation') or {}
+            c5 = cc.get('ephemeral_5m_input_tokens') or 0
+            c1 = cc.get('ephemeral_1h_input_tokens') or 0
+            data = {
+                'cost_usd':           rec.get('total_cost_usd') or 0.0,
+                'duration_ms':        rec.get('duration_ms'),
+                'duration_api_ms':    rec.get('duration_api_ms'),
+                'num_turns':          rec.get('num_turns') or 0,
+                'input_tokens':       usage.get('input_tokens'),
+                'output_tokens':      usage.get('output_tokens'),
+                'cache_read_tokens':  usage.get('cache_read_input_tokens'),
+                'cache_create_tokens': c5 + c1,
+                'cache_5m_tokens':    c5,
+                'cache_1h_tokens':    c1,
+                'stop_reason':        usage.get('stop_reason')
+                                      or rec.get('stop_reason'),
+                'is_error':           bool(rec.get('is_error')),
+                'api_error_status':   rec.get('api_error_status'),
+                'model':              init_model or '',
+                'claude_session_uuid': init_uuid,
+                'tools_called':       {},
+                'response_text_len':  0,
+                'exit_code':          0,
+                'backfilled':         True,
+            }
+            record_event(
+                E.TURN_COMPLETE,
+                scope=project,
+                session_id=init_uuid,
+                ts=rec.get('timestamp'),
+                data=data,
+                job_id=job_id,
+                cost_source='stream_result',
+            )
+            counts.tool_calls_inserted += 0  # no-op; documented for symmetry
+            counts.messages_inserted += 0
+            counts.streams_parsed += 0
+            # Track the new TURN_COMPLETE row count separately.
+            counts.turns_inserted += 1
             continue
 
         if rtype == 'assistant':
@@ -300,6 +382,8 @@ def backfill_stream_file(
                     }
 
         elif rtype == 'user':
+            if session_already_done:
+                continue
             msg = rec.get('message') or {}
             for c in (msg.get('content') or []):
                 if not isinstance(c, dict):

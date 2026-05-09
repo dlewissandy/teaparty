@@ -169,10 +169,22 @@ function renderGrid(rows) {
   html.push('<td>' + grand.toLocaleString() + '</td></tr></tfoot></table>');
 
   document.getElementById('grid-root').innerHTML = html.join('');
-  document.getElementById('meta').textContent =
-    (_job_id ? 'job ' + _job_id : 'org-wide') +
+  var meta = document.getElementById('meta');
+  meta.textContent = '';
+  var summary = (_job_id ? 'job ' + _job_id : 'org-wide') +
     ' — ' + roles.length + ' roles × ' + phases.length + ' phases, ' +
     grand.toLocaleString() + ' ' + _metric.replace('_', ' ') + ' total';
+  meta.appendChild(document.createTextNode(summary));
+  if (_job_id) {
+    var sep = document.createElement('span');
+    sep.textContent = ' · ';
+    meta.appendChild(sep);
+    var ganttLink = document.createElement('a');
+    ganttLink.href = 'gantt.html?job=' + encodeURIComponent(_job_id);
+    ganttLink.textContent = 'view Gantt';
+    ganttLink.style.color = 'var(--green)';
+    meta.appendChild(ganttLink);
+  }
 }
 </script>
 </body>

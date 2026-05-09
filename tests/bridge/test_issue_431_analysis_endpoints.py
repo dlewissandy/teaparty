@@ -194,6 +194,44 @@ class AnalysisEndpointTests(unittest.TestCase):
                 self.assertIn('dispatch_edges', body)
         self._run(_run())
 
+    def test_token_grid_endpoint_returns_grid_payload(self) -> None:
+        """The /api/analysis/token-grid endpoint must round-trip the
+        view's per-role per-phase rollup. Without this test, replacing
+        the handler body with `return {}` would not flip any
+        assertion."""
+        from aiohttp.test_utils import TestServer, TestClient
+        from teaparty import telemetry as _t
+        # Seed one assistant message so the token-grid join produces a
+        # non-empty result.
+        _t.record_message(
+            session_id='job-A', message_id='m-1', ts=200.5,
+            model='claude-opus-4-7',
+            input_tokens=100, output_tokens=200,
+            cache_read_tokens=0, cache_5m_tokens=0,
+            cache_1h_tokens=0, stop_reason='end_turn',
+        )
+        app = self._make_app()
+
+        async def _run():
+            async with TestClient(TestServer(app)) as client:
+                resp = await client.get(
+                    '/api/analysis/token-grid?job=job-A',
+                )
+                self.assertEqual(resp.status, 200)
+                body = await resp.json()
+                self.assertIn('grid', body)
+                # Even a one-message seed must produce one row.
+                self.assertEqual(
+                    len(body['grid']), 1,
+                    f'token-grid must contain exactly one row for the '
+                    f'one seeded message — got {body["grid"]!r}',
+                )
+                row = body['grid'][0]
+                self.assertEqual(row['output_tokens'], 200)
+                self.assertEqual(row['input_tokens'], 100)
+                self.assertEqual(row['messages'], 1)
+        self._run(_run())
+
     def test_sessions_endpoint_filters_by_job(self) -> None:
         from aiohttp.test_utils import TestServer, TestClient
         app = self._make_app()
@@ -259,6 +297,31 @@ class AnalysisDashboardPagesTests(unittest.TestCase):
         # The page pivots on role × phase, so both must be referenced.
         self.assertIn('role', src.lower())
         self.assertIn('phase', src.lower())
+        # Each metric the spec calls out must be selectable on the page.
+        for metric in (
+            'output_tokens', 'input_tokens', 'cache_read_tokens',
+            'cache_5m_tokens', 'cache_1h_tokens',
+        ):
+            self.assertIn(
+                'data-metric="' + metric + '"', src,
+                f'token-grid.html must offer {metric!r} as a metric '
+                f'toggle — without this the cache-tier breakdown the '
+                f'issue body calls out is hidden',
+            )
+
+    def test_token_grid_page_links_back_to_gantt_when_job_set(
+        self,
+    ) -> None:
+        """The user's invariant for the dashboard is one consistent
+        navigation surface. Token-grid for a specific job must link
+        to that job's Gantt."""
+        src = self._read('token-grid.html')
+        self.assertIn(
+            "gantt.html?job=", src,
+            'token-grid.html must link to gantt.html when ?job is set so '
+            'users can drill from the role/phase rollup into the per-tool '
+            'span timeline',
+        )
 
     def test_home_page_links_to_token_grid(self) -> None:
         src = self._read('index.html')

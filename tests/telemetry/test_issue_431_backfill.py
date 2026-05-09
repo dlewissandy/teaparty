@@ -274,6 +274,150 @@ class BackfillStreamFileTests(unittest.TestCase):
         )
 
 
+def _result_record(
+    *,
+    cost_usd: float = 0.5,
+    duration_ms: int = 12_000,
+    duration_api_ms: int = 11_000,
+    num_turns: int = 3,
+    input_tokens: int = 1500,
+    output_tokens: int = 800,
+    cache_read: int = 4000,
+    cache_5m: int = 1000,
+    cache_1h: int = 0,
+    stop_reason: str = 'end_turn',
+    is_error: bool = False,
+    timestamp: float = 1100.0,
+) -> dict:
+    return {
+        'type': 'result',
+        'timestamp': timestamp,
+        'total_cost_usd': cost_usd,
+        'duration_ms': duration_ms,
+        'duration_api_ms': duration_api_ms,
+        'num_turns': num_turns,
+        'is_error': is_error,
+        'stop_reason': stop_reason,
+        'usage': {
+            'input_tokens': input_tokens,
+            'output_tokens': output_tokens,
+            'cache_read_input_tokens': cache_read,
+            'cache_creation': {
+                'ephemeral_5m_input_tokens': cache_5m,
+                'ephemeral_1h_input_tokens': cache_1h,
+            },
+        },
+    }
+
+
+class BackfillTurnCompleteFromResultRecordsTests(unittest.TestCase):
+    """Each `result` record in a stream becomes a TURN_COMPLETE event,
+    so cost-per-job rollups against the spec-aligned views actually
+    contain cost data for historical jobs."""
+
+    def setUp(self) -> None:
+        self._home = _make_home()
+        self._tmp = tempfile.mkdtemp(prefix='backfill-result-')
+
+    def tearDown(self) -> None:
+        telemetry.reset_for_tests()
+        shutil.rmtree(self._home, ignore_errors=True)
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def test_result_record_yields_one_turn_complete_with_cost(self) -> None:
+        path = Path(self._tmp) / 'stream.jsonl'
+        with open(path, 'w') as f:
+            f.write(json.dumps(_system_init('uuid-R')) + '\n')
+            f.write(json.dumps(_result_record(
+                cost_usd=0.42, input_tokens=1000, output_tokens=300,
+                cache_5m=500, cache_1h=0, num_turns=2,
+            )) + '\n')
+
+        counts = backfill_stream_file(
+            path, job_id='job-R', project='comics',
+        )
+        self.assertEqual(
+            counts.turns_inserted, 1,
+            f'one result record must produce one TURN_COMPLETE — '
+            f'got {counts.turns_inserted}',
+        )
+        evs = telemetry.query_events(event_type=E.TURN_COMPLETE)
+        self.assertEqual(len(evs), 1)
+        d = evs[0].data
+        self.assertEqual(d['cost_usd'], 0.42)
+        self.assertEqual(d['input_tokens'], 1000)
+        self.assertEqual(d['cache_5m_tokens'], 500)
+        self.assertEqual(d['num_turns'], 2)
+        self.assertTrue(
+            d.get('backfilled'),
+            'backfilled TURN_COMPLETE must carry data.backfilled=True so '
+            'analyses can distinguish historical from live data',
+        )
+        # cost_source must be the indexed column.
+        db = os.path.join(self._home, 'telemetry.db')
+        conn = sqlite3.connect(db)
+        try:
+            cs = conn.execute(
+                "SELECT cost_source FROM events "
+                "WHERE event_type='turn_complete'"
+            ).fetchone()[0]
+        finally:
+            conn.close()
+        self.assertEqual(cs, 'stream_result')
+
+    def test_session_summary_view_carries_cost_after_backfill(self) -> None:
+        """End-to-end: the cost-per-job query the issue motivates must
+        actually return non-zero cost after backfilling a stream
+        file's result records — that's the headline contract."""
+        path = Path(self._tmp) / 'stream.jsonl'
+        with open(path, 'w') as f:
+            f.write(json.dumps(_system_init('uuid-S')) + '\n')
+            f.write(json.dumps(_result_record(cost_usd=0.30)) + '\n')
+            f.write(json.dumps(_system_init('uuid-S')) + '\n')
+            f.write(json.dumps(_result_record(cost_usd=0.20)) + '\n')
+
+        counts = backfill_stream_file(
+            path, job_id='job-S', project='comics',
+        )
+        self.assertEqual(counts.turns_inserted, 2)
+        db = os.path.join(self._home, 'telemetry.db')
+        conn = sqlite3.connect(db)
+        try:
+            cost = conn.execute(
+                "SELECT cost_usd FROM session_summary "
+                "WHERE session_id='uuid-S'"
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertIsNotNone(cost)
+        self.assertAlmostEqual(
+            cost[0], 0.50, places=6,
+            msg=f'session_summary.cost_usd must SUM 0.30+0.20=0.50 — '
+                f'got {cost[0]}',
+        )
+
+    def test_second_pass_inserts_zero_new_turn_complete_rows(self) -> None:
+        """Idempotency for TURN_COMPLETE: re-running the backfill on
+        the same stream produces zero new rows."""
+        path = Path(self._tmp) / 'stream.jsonl'
+        with open(path, 'w') as f:
+            f.write(json.dumps(_system_init('uuid-I')) + '\n')
+            f.write(json.dumps(_result_record(cost_usd=0.10)) + '\n')
+
+        first = backfill_stream_file(
+            path, job_id='job-I', project='comics',
+        )
+        second = backfill_stream_file(
+            path, job_id='job-I', project='comics',
+        )
+        self.assertEqual(first.turns_inserted, 1)
+        self.assertEqual(
+            second.turns_inserted, 0,
+            f'second pass must insert no new TURN_COMPLETE rows — '
+            f'got {second.turns_inserted}',
+        )
+
+
 class BackfillJobMetadataTests(unittest.TestCase):
 
     def setUp(self) -> None:

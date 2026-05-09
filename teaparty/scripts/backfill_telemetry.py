@@ -115,6 +115,7 @@ def main(argv: list[str] | None = None) -> int:
         f'  jobs inserted:           {counts.jobs_inserted}\n'
         f'  jobs skipped (existing): {counts.jobs_skipped}\n'
         f'  streams parsed:          {counts.streams_parsed}\n'
+        f'  turn_complete inserted:  {counts.turns_inserted}\n'
         f'  messages inserted:       {counts.messages_inserted}\n'
         f'  messages skipped (dedup):{counts.messages_skipped}\n'
         f'  tool calls inserted:     {counts.tool_calls_inserted}\n'

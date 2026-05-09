@@ -1292,6 +1292,120 @@ class SpecAlignedViewsTests(unittest.TestCase):
             f'job_id × role × agent — got {rows!r}',
         )
 
+    def test_job_phase_summary_breaks_rollups_by_role(self) -> None:
+        self._seed_one_job_one_lead_one_specialist()
+        db = os.path.join(self.home, 'telemetry.db')
+        conn = sqlite3.connect(db)
+        try:
+            rows = {
+                r[0]: r[1:] for r in conn.execute(
+                    'SELECT role, sessions, turns, cost_usd '
+                    'FROM job_phase_summary WHERE job_id=?',
+                    ('job-J',),
+                )
+            }
+        finally:
+            conn.close()
+        self.assertEqual(
+            rows.get('project_lead'),
+            (1, 1, 0.50),
+            f'job_phase_summary for the lead must report 1 session × '
+            f'1 turn × $0.50 — got {rows.get("project_lead")!r}',
+        )
+        self.assertEqual(
+            rows.get('specialist'),
+            (1, 1, 0.10),
+            f'job_phase_summary for the specialist must report 1 × 1 × $0.10 '
+            f'— got {rows.get("specialist")!r}',
+        )
+
+    def test_gates_view_pairs_open_with_close(self) -> None:
+        # Open a gate, close it 30s later as 'passed'.
+        telemetry.record_event(
+            E.GATE_OPENED, scope='comics', session_id='job-G',
+            data={'gate_type': 'plan_approval',
+                  'phase_entering': 'plan'},
+            ts=1000.0,
+        )
+        telemetry.record_event(
+            E.GATE_INPUT_RECEIVED, scope='comics', session_id='job-G',
+            data={'gate_type': 'plan_approval'},
+            ts=1010.0,
+        )
+        telemetry.record_event(
+            E.GATE_INPUT_RECEIVED, scope='comics', session_id='job-G',
+            data={'gate_type': 'plan_approval'},
+            ts=1020.0,
+        )
+        telemetry.record_event(
+            E.GATE_PASSED, scope='comics', session_id='job-G',
+            data={'gate_type': 'plan_approval'},
+            ts=1030.0,
+        )
+        # And a second gate that's still open.
+        telemetry.record_event(
+            E.GATE_OPENED, scope='comics', session_id='job-G',
+            data={'gate_type': 'exec_approval',
+                  'phase_entering': 'exec'},
+            ts=1100.0,
+        )
+        db = os.path.join(self.home, 'telemetry.db')
+        conn = sqlite3.connect(db)
+        try:
+            rows = conn.execute(
+                'SELECT gate_type, outcome, wall_seconds, dialog_turns '
+                'FROM gate_dialog_summary ORDER BY gate_type'
+            ).fetchall()
+        finally:
+            conn.close()
+        self.assertEqual(
+            rows,
+            [
+                ('exec_approval', 'open',   None, 0),
+                ('plan_approval', 'passed', 30.0, 2),
+            ],
+            f'gate_dialog_summary must pair open with close, compute '
+            f'wall_seconds, and count gate_input_received in the '
+            f'window — got {rows!r}',
+        )
+
+    def test_views_remain_views_not_materialized_tables(self) -> None:
+        """The user's invariant — \"never two databases\" — extends to
+        \"never materialized analysis tables\". Each view must remain a
+        view in sqlite_master so queries always see fresh data."""
+        self._seed_one_job_one_lead_one_specialist()
+        db = os.path.join(self.home, 'telemetry.db')
+        conn = sqlite3.connect(db)
+        try:
+            views = {
+                r[0] for r in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='view'"
+                )
+            }
+            tables = {
+                r[0] for r in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' "
+                    "AND name NOT LIKE 'sqlite_%'"
+                )
+            }
+        finally:
+            conn.close()
+        for required_view in (
+            'jobs', 'session_turns', 'agent_sessions', 'phase_intervals',
+            'session_summary', 'job_phase_summary', 'job_cost_summary',
+            'prompt_groups',
+        ):
+            self.assertIn(
+                required_view, views,
+                f'{required_view!r} must remain a view, not be promoted '
+                f'to a materialized table',
+            )
+            self.assertNotIn(
+                required_view, tables,
+                f'{required_view!r} must NOT exist as a table — that '
+                f'would fork freshness from the events log',
+            )
+
     def test_prompt_groups_counts_byte_identical_runs(self) -> None:
         # Two byte-identical jobs (same prompt_hash) and one different.
         for jid, slug, h in (
