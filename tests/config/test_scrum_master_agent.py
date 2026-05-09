@@ -207,22 +207,23 @@ class TestScrumMasterAgentDefinition(unittest.TestCase):
 
     def test_agent_operational_frontmatter(self):
         """AC: ``model`` and ``maxTurns`` are operational contracts.
-        Bumping the agent to opus changes cost; removing ``maxTurns``
-        removes the runaway-loop guard.  Both must be pinned."""
+        Bumping the agent to opus changes cost; removing or loosening
+        ``maxTurns`` removes the runaway-loop guard.  Both are pinned
+        to specific values; drift in either direction (``maxTurns: 200``
+        is as much a regression as ``maxTurns: 1``) must fail this test."""
         fm, _ = _read_frontmatter_and_body(AGENT_MD)
         self.assertEqual(
             fm.get('model'), 'sonnet',
             f'agent.md must declare ``model: sonnet`` (cost discipline); '
             f'got {fm.get("model")!r}',
         )
-        self.assertIsInstance(
-            fm.get('maxTurns'), int,
-            f'agent.md must declare an integer ``maxTurns`` to bound '
-            f'runaway loops; got {fm.get("maxTurns")!r}',
-        )
-        self.assertGreaterEqual(
-            fm.get('maxTurns', 0), 1,
-            f'agent.md ``maxTurns`` must be >= 1; got {fm.get("maxTurns")!r}',
+        self.assertEqual(
+            fm.get('maxTurns'), 20,
+            f'agent.md must declare ``maxTurns: 20``; this value is the '
+            f'pinned runaway-loop bound for the scrum-master.  Drift in '
+            f'either direction is a regression — silently raising the '
+            f'cap (``maxTurns: 200``) defeats the guard.  '
+            f'Got {fm.get("maxTurns")!r}.',
         )
 
     def test_agent_settings_permits_every_required_tool(self):
@@ -680,6 +681,44 @@ class TestPerSkillContracts(unittest.TestCase):
             'milestone', low,
             'archive-sprint/SKILL.md must mention the milestone in the '
             'context of the do-not-close rule',
+        )
+
+    def test_archive_sprint_allowed_tools_contains_bash(self):
+        """AC: ``archive-sprint`` step 2 runs ``mv`` via Bash to move
+        the cache to the archive directory.  The skill's ``allowed-tools``
+        must list Bash explicitly — the agent-level subset check
+        catches drift in one direction (skill declaring a tool the
+        agent forbids) but not the other (skill body uses a tool it
+        never declared)."""
+        tools = set(_skill_allowed_tools('archive-sprint'))
+        self.assertIn(
+            'Bash', tools,
+            'archive-sprint/SKILL.md ``allowed-tools`` must include '
+            '``Bash``; step 2 runs ``mv .teaparty/project/sprint '
+            '.teaparty/project/sprint-archive/...`` which requires '
+            'Bash. Without the declaration the skill aborts at the '
+            'rename step.',
+        )
+
+    def test_sprint_plan_step_5_uses_unambiguous_data_path(self):
+        """AC (intent finding 2): step 5 of ``sprint-plan`` must call
+        ``read_board_status`` per issue without a fallback that defers
+        to ``list_milestone_issues`` (the listing does not include
+        Projects V2 Status).  Catch a regression that re-introduces
+        an ``or use the data already returned`` fallback."""
+        _, body = _read_frontmatter_and_body(_skill_path('sprint-plan'))
+        low = body.lower()
+        self.assertIn(
+            'read_board_status', low,
+            'sprint-plan/SKILL.md step 5 must reference '
+            '``read_board_status`` to populate the index status column.',
+        )
+        self.assertNotIn(
+            'or use the data', low,
+            'sprint-plan/SKILL.md must not contain the ambiguous '
+            '``or use the data already returned`` fallback — '
+            '``list_milestone_issues`` does not return Projects V2 '
+            'Status, so the fallback is unmoored from the data path.',
         )
 
 
