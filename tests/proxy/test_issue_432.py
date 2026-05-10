@@ -544,6 +544,107 @@ class TestRecordingSitePopulatesEmbeddings(unittest.TestCase):
         finally:
             self._restore_default_embed()
 
+    def test_escalation_recording_populates_three_embeddings(self):
+        """Every AskQuestion → answer cycle stores a chunk with all three embeddings.
+
+        Per §7 of cfa-engineering.md, escalation is the primary proxy-human
+        interaction.  Without recording at this site, the proxy's memory
+        only grows from withdrawals and [CORRECTION:...] markers — neither
+        of which fires on the routine case.
+        """
+        self._stub_default_embed()
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                teaparty_home = os.path.join(tmp, '.teaparty')
+                proxy_dir = os.path.join(teaparty_home, 'proxy')
+                project_dir = os.path.join(teaparty_home, 'project')
+                os.makedirs(proxy_dir)
+                os.makedirs(project_dir)
+                with open(os.path.join(project_dir, 'project.yaml'), 'w') as fh:
+                    fh.write('description: a test project\n')
+                infra_dir = os.path.join(tmp, 'job-test')
+                os.makedirs(infra_dir)
+                with open(os.path.join(infra_dir, 'PROMPT.txt'), 'w') as fh:
+                    fh.write('Please review this thing.')
+
+                from teaparty.proxy.hooks import record_escalation_chunk
+                record_escalation_chunk(
+                    question='Should we ship this plan?',
+                    answer='Yes — but add a rollback strategy first.',
+                    teaparty_home=teaparty_home,
+                    infra_dir=infra_dir,
+                    qualifier='session-123',
+                )
+
+                db_path = os.path.join(proxy_dir, '.proxy-memory.db')
+                conn = open_proxy_db(db_path)
+                try:
+                    chunks = query_chunks(conn, type='escalation')
+                finally:
+                    conn.close()
+                self.assertEqual(
+                    len(chunks), 1,
+                    f'Expected exactly one escalation chunk; got {len(chunks)}',
+                )
+                c = chunks[0]
+                self.assertIsNotNone(
+                    c.embedding_conversation,
+                    'Escalation chunk must populate embedding_conversation '
+                    '(question + answer is the dialog that just happened)',
+                )
+                self.assertIsNotNone(
+                    c.embedding_job,
+                    'Escalation chunk must populate embedding_job from PROMPT.txt',
+                )
+                self.assertIsNotNone(
+                    c.embedding_project,
+                    'Escalation chunk must populate embedding_project from project.yaml',
+                )
+                self.assertIn(
+                    'Should we ship this plan?', c.content,
+                    'Escalation chunk content must include the question for prompt serialization',
+                )
+                self.assertIn(
+                    'Yes — but add a rollback strategy first.', c.content,
+                    'Escalation chunk content must include the answer for prompt serialization',
+                )
+        finally:
+            self._restore_default_embed()
+
+    def test_escalation_recording_skips_when_no_answer(self):
+        """An escalation that produced no answer (error path) does not write a chunk.
+
+        Negative-space check: a failed escalation should not corrupt memory
+        with empty content; the recording site short-circuits.
+        """
+        self._stub_default_embed()
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                teaparty_home = os.path.join(tmp, '.teaparty')
+                proxy_dir = os.path.join(teaparty_home, 'proxy')
+                os.makedirs(proxy_dir)
+
+                from teaparty.proxy.hooks import record_escalation_chunk
+                record_escalation_chunk(
+                    question='ignored',
+                    answer='',
+                    teaparty_home=teaparty_home,
+                )
+
+                db_path = os.path.join(proxy_dir, '.proxy-memory.db')
+                if os.path.isfile(db_path):
+                    conn = open_proxy_db(db_path)
+                    try:
+                        chunks = query_chunks(conn, type='escalation')
+                    finally:
+                        conn.close()
+                    self.assertEqual(
+                        len(chunks), 0,
+                        f'Empty-answer escalation must not create a chunk; got {len(chunks)}',
+                    )
+        finally:
+            self._restore_default_embed()
+
     def test_withdrawal_recording_populates_three_embeddings(self):
         """Withdrawal chunks populate all three embeddings via SessionState path.
 

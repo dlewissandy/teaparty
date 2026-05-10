@@ -124,6 +124,58 @@ def _context_embeddings_for(
     )
 
 
+def record_escalation_chunk(
+    *,
+    question: str,
+    answer: str,
+    teaparty_home: str,
+    infra_dir: str = '',
+    qualifier: str = '',
+) -> None:
+    """Record an AskQuestion → answer interaction as a memory chunk (#432).
+
+    Fires after the proxy returns from an escalation.  The conversation text
+    is the question + answer pair — the §7 [ask] / [respond] cycle the
+    spec describes.  Without this, the proxy's "memory of the human" never
+    grows from the routine interaction the protocol is built around.
+    """
+    if not question or not answer:
+        return
+    from teaparty.proxy.memory import (
+        MemoryChunk, open_proxy_db, store_chunk, increment_interaction_counter,
+    )
+    import uuid as _uuid
+    mem_path = proxy_memory_path(teaparty_home)
+    parent = os.path.dirname(mem_path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    conn = open_proxy_db(mem_path)
+    try:
+        conversation_text = f'Question: {question}\nAnswer: {answer}'
+        ctx = _embed_context(
+            conn,
+            conversation_text=conversation_text,
+            job_text=_read_prompt_text(infra_dir),
+            project_text=_read_project_description(teaparty_home),
+        )
+        current = increment_interaction_counter(conn)
+        chunk = MemoryChunk(
+            id=_uuid.uuid4().hex,
+            type='escalation',
+            state='',
+            task_type=qualifier,
+            outcome='answered',
+            content=conversation_text,
+            traces=[current],
+            embedding_conversation=ctx.get('conversation'),
+            embedding_job=ctx.get('job'),
+            embedding_project=ctx.get('project'),
+        )
+        store_chunk(conn, chunk)
+    finally:
+        conn.close()
+
+
 def proxy_post_invoke(response_text: str, session: AgentSession) -> None:
     """Process [CORRECTION:...] and [REINFORCE:...] signals from proxy response.
 

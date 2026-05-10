@@ -359,9 +359,10 @@ def record_interaction(
 ### Integration Points
 
 1. **`proxy_build_prompt` in `teaparty/proxy/hooks.py`** — composes conversation/job/project context, embeds it, and passes as `context_embeddings` to `retrieve_chunks`.
-2. **`proxy_post_invoke` in `teaparty/proxy/hooks.py`** — populates `embedding_conversation`/`embedding_job`/`embedding_project` on review-correction chunks.
-3. **`_record_withdrawal_memory_chunk` in `teaparty/workspace/withdraw.py`** — same population path on withdrawal chunks.
-4. **`record_steering_chunk` in `teaparty/proxy/memory.py`** — embeds the steering directive itself as the conversation vector so it surfaces broadly via cosine.
+2. **`record_escalation_chunk` in `teaparty/proxy/hooks.py`** — fires after `AskQuestionRunner.run` completes (the §7 [ask] / [respond] cycle). The conversation embedding holds the question+answer dialog. This is the routine recording site; the proxy's memory grows from every escalation.
+3. **`proxy_post_invoke` in `teaparty/proxy/hooks.py`** — populates `embedding_conversation`/`embedding_job`/`embedding_project` on review-correction chunks (`[CORRECTION:...]` marker).
+4. **`_record_withdrawal_memory_chunk` in `teaparty/workspace/withdraw.py`** — same population path on withdrawal chunks.
+5. **`record_steering_chunk` in `teaparty/proxy/memory.py`** — embeds the steering directive itself as the conversation vector so it surfaces broadly via cosine.
 
 The text sources are read once per session: `conversation` from the session's message log; `job` from `.teaparty/jobs/{job-id}/PROMPT.txt`; `project` from `description:` in `.teaparty/project/project.yaml`.
 
