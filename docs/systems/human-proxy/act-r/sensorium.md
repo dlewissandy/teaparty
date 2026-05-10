@@ -16,7 +16,7 @@ If the proxy encodes all of them into every memory chunk, the chunks become high
 
 The human brain solves this with **attention**. The retina takes in millions of signals, but attention selects what gets processed deeply. The rest is sensed but not attended to. The proxy needs the same mechanism: a way to determine which percepts are salient at each interaction, and to encode only those into the memory chunk.
 
-**Note on upstream context.** Upstream context (the intent behind the plan, the plan behind the deliverable) is sensed by the proxy and used in Pass 2 (the posterior prompt includes it alongside the artifact). It enters memory through two existing embedding dimensions: the artifact embedding (since the artifact is evaluated against upstream context and the embedding captures their relationship) and the stimulus embedding (since the gate question often references the upstream source, e.g., "does this plan address the intent's success criteria?"). A dedicated upstream embedding dimension was considered but removed because it overlapped with artifact and stimulus without adding discriminating power. Upstream context is passed as raw text in the prompt, not embedded independently.
+**Note on upstream context.** Upstream context (the intent behind the plan, the plan behind the deliverable) is sensed by the proxy and used in Pass 2 (the posterior prompt includes it alongside the artifact). It enters memory through the conversation and job embeddings — the conversation embedding captures the dialog leading to the gate, and the job embedding captures the human's original request that the artifact is being evaluated against. Upstream context is passed as raw text in the prompt, not embedded independently.
 
 ---
 
