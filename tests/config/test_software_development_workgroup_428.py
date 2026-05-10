@@ -20,7 +20,7 @@ Static inspection of the management catalog artifacts.  Layered:
   6. Dependencies (verify-only, per issue boundaries) — the upstream
      dependencies named by the issue exist: coding workgroup + lead,
      quality-control workgroup + lead, auditor agent, attempt-task
-     skill, audit-issue skill, and the ``Delegate`` MCP tool.
+     skill, and the ``Delegate`` MCP tool.
 
 Tests inspect on-disk artifacts; they do not invoke the agent.  These
 artifacts are the deliverable.
@@ -54,17 +54,27 @@ LEAD_DIR = os.path.join(MGMT_AGENTS, LEAD_NAME)
 LEAD_AGENT_MD = os.path.join(LEAD_DIR, 'agent.md')
 LEAD_SETTINGS = os.path.join(LEAD_DIR, 'settings.yaml')
 
-EXPECTED_MEMBERS = ('coding-lead', 'quality-control-lead', 'auditor')
+EXPECTED_MEMBERS = (
+    'coding-lead',
+    'quality-control-lead',
+    'quality-assurance-lead',
+    'writing-lead',
+)
 
-# The four hops the issue prescribes, in order.  Each tuple is
-# (target_member, expected_skill_kwarg).  The lead's body must name
-# every (target, skill) pair literally — this is the mechanism by
-# which the pipeline is deterministic at every hop.
+# Pipeline hops in order.  After redesign all members are
+# workgroup-leads, so every hop uses Delegate(target, skill='attempt-task')
+# uniformly -- no special cases.
+#
+# The fifth hop (writing-lead) is conditional (only if the issue
+# implies user/dev-facing doc changes); the body must still name
+# the call so future contributors know the option exists.  Round-2
+# coding is also conditional (only if QA returned blocking findings).
 PIPELINE_HOPS = (
     ('coding-lead', 'attempt-task'),
     ('quality-control-lead', 'attempt-task'),
-    ('auditor', 'audit-issue'),
+    ('quality-assurance-lead', 'attempt-task'),
     ('coding-lead', 'attempt-task'),
+    ('writing-lead', 'attempt-task'),
 )
 
 
@@ -140,12 +150,13 @@ class TestSoftwareDevelopmentWorkgroupYaml(unittest.TestCase):
             f'workgroup.lead must be {LEAD_NAME!r}; got {wg.lead!r}',
         )
 
-    def test_workgroup_members_include_coding_lead_qc_lead_and_auditor(self):
-        """AC1: the lead's pipeline dispatches to coding-lead,
-        quality-control-lead, and auditor.  Any missing member means
-        the corresponding pipeline hop has no covering agent and the
-        attempt-task ``no covering member`` branch fires — silently
-        breaking the orchestration."""
+    def test_workgroup_members_are_all_workgroup_leads(self):
+        """AC1 (post-redesign): every SD member is itself a
+        workgroup-lead.  The four expected members are coding-lead,
+        quality-control-lead, quality-assurance-lead, and
+        writing-lead.  Uniform-membership-of-leads is what makes
+        every hop a uniform Delegate(target, skill='attempt-task')
+        with no special cases."""
         from teaparty.config.config_reader import load_workgroup
         wg = load_workgroup(WORKGROUP_YAML)
         members = set(wg.members_agents)
@@ -155,6 +166,22 @@ class TestSoftwareDevelopmentWorkgroupYaml(unittest.TestCase):
             f'workgroup.members.agents missing required members '
             f'{sorted(missing)}; got {sorted(members)}.  Each hop in '
             f'the pipeline must have a covering member in the roster.',
+        )
+
+    def test_workgroup_members_does_not_include_specialist_auditor(self):
+        """AC1 (post-redesign): the auditor is no longer a direct SD
+        member.  Audit work is owned by the QA workgroup; SD
+        delegates to quality-assurance-lead, which routes to its
+        own auditor member.  Putting auditor back as a direct SD
+        member reintroduces the mixed-kind defect (lead + specialist
+        peers) the redesign removed."""
+        from teaparty.config.config_reader import load_workgroup
+        wg = load_workgroup(WORKGROUP_YAML)
+        self.assertNotIn(
+            'auditor', wg.members_agents,
+            f'auditor must NOT be a direct member of software-development; '
+            f'audit ownership belongs to the quality-assurance workgroup.  '
+            f'Got members: {wg.members_agents!r}',
         )
 
     def test_workgroup_description_states_orchestration_purpose(self):
@@ -385,12 +412,14 @@ class TestSoftwareDevelopmentLeadPipelineEncoding(unittest.TestCase):
         body_norm = _normalize_dashes(body)
 
         # Expected (target, skill) -> count of calls with that exact
-        # binding.  The four hops collapse to three (target, skill)
-        # tuples because both coding-lead hops use skill='attempt-task'.
+        # binding.  Post-redesign every hop uses skill='attempt-task'
+        # uniformly (no special cases): coding (twice -- round 1 and
+        # conditional round 2), QC, QA, and writing (conditional).
         expected_bindings = {
             ('coding-lead', 'attempt-task'): 2,
             ('quality-control-lead', 'attempt-task'): 1,
-            ('auditor', 'audit-issue'): 1,
+            ('quality-assurance-lead', 'attempt-task'): 1,
+            ('writing-lead', 'attempt-task'): 1,
         }
 
         for (target, skill), expected_count in expected_bindings.items():
@@ -426,22 +455,23 @@ class TestSoftwareDevelopmentLeadPipelineEncoding(unittest.TestCase):
                 f'must carry its own skill prefix.',
             )
 
-    def test_body_orders_hops_coding_then_qc_then_audit_then_coding(self):
-        """AC3: the order matters — Audit before second Coding (so the
-        second Coding round consumes audit findings), QC before Audit
-        (so audit reviews tested code, not raw output).  We verify
-        ordering by index, not by re-spelling the sequence in prose
-        (which a refactor could rewrite without changing meaning)."""
+    def test_body_orders_hops_coding_qc_qa_then_round2_then_writing(self):
+        """AC3 (post-redesign): the order matters.  QC must precede
+        QA (so QA reviews tested code).  QA must precede round-2
+        Coding (so the second round consumes QA findings).  Writing
+        comes last (so docs reflect the final, audit-clean state).
+
+        Verified by index, not by re-spelling the sequence in
+        prose.  A refactor that silently re-orders the hops would
+        fail this test."""
         _, body = _read_frontmatter_and_body(LEAD_AGENT_MD)
         body_norm = _normalize_dashes(body)
 
-        # First occurrence of each Delegate target line.  We index on
-        # the literal target+skill pair to disambiguate the two
-        # coding-lead hops.
         first_coding = body_norm.find("Delegate(coding-lead")
         first_qc = body_norm.find("Delegate(quality-control-lead")
-        audit_idx = body_norm.find("Delegate(auditor")
-        # Second coding hop = next coding-lead occurrence after first.
+        qa_idx = body_norm.find("Delegate(quality-assurance-lead")
+        writing_idx = body_norm.find("Delegate(writing-lead")
+        # Round-2 coding = next coding-lead occurrence after the first.
         if first_coding == -1:
             second_coding = -1
         else:
@@ -452,32 +482,39 @@ class TestSoftwareDevelopmentLeadPipelineEncoding(unittest.TestCase):
         for label, idx in (
             ('first coding-lead', first_coding),
             ('quality-control-lead', first_qc),
-            ('auditor', audit_idx),
-            ('second coding-lead', second_coding),
+            ('quality-assurance-lead', qa_idx),
+            ('round-2 coding-lead', second_coding),
+            ('writing-lead', writing_idx),
         ):
             self.assertGreater(
                 idx, -1,
                 f'agent.md body must contain the {label} dispatch; '
-                f'index search returned -1.  Each of the four hops '
-                f'must appear in the body in order.',
+                f'index search returned -1.  Each hop must appear '
+                f'in the body in order.',
             )
 
         self.assertLess(
             first_coding, first_qc,
-            f'first coding-lead hop must precede quality-control-lead '
-            f'hop in the body; got indices coding={first_coding}, '
-            f'qc={first_qc}.',
+            f'first coding-lead hop must precede quality-control-lead; '
+            f'got indices coding={first_coding}, qc={first_qc}.',
         )
         self.assertLess(
-            first_qc, audit_idx,
-            f'quality-control-lead hop must precede auditor hop; '
-            f'got qc={first_qc}, audit={audit_idx}.',
+            first_qc, qa_idx,
+            f'quality-control-lead hop must precede '
+            f'quality-assurance-lead (QA reviews tested code); '
+            f'got qc={first_qc}, qa={qa_idx}.',
         )
         self.assertLess(
-            audit_idx, second_coding,
-            f'auditor hop must precede the second coding-lead hop '
-            f'(round 2 consumes audit findings); got '
-            f'audit={audit_idx}, second_coding={second_coding}.',
+            qa_idx, second_coding,
+            f'quality-assurance-lead hop must precede the round-2 '
+            f'coding-lead hop (round 2 consumes QA findings); '
+            f'got qa={qa_idx}, round2={second_coding}.',
+        )
+        self.assertLess(
+            second_coding, writing_idx,
+            f'round-2 coding-lead hop must precede writing-lead '
+            f'(docs reflect the final audit-clean state); '
+            f'got round2={second_coding}, writing={writing_idx}.',
         )
 
     def test_body_has_deliver_section_with_commit_and_reply_directives(self):
@@ -725,36 +762,78 @@ class TestSoftwareDevelopmentDependencies(unittest.TestCase):
             f'dependency missing: {qc_lead}',
         )
 
-    def test_auditor_agent_exists(self):
-        auditor_md = os.path.join(MGMT_AGENTS, 'auditor', 'agent.md')
-        self.assertTrue(
-            os.path.isfile(auditor_md),
-            f'dependency missing: {auditor_md}.  The audit hop '
-            f'targets this specialist.',
+    def test_quality_assurance_workgroup_and_lead_exist(self):
+        """Post-redesign dependency: the QA workgroup is an SD
+        member, so its YAML and lead must exist."""
+        qa_yaml = os.path.join(MGMT_WORKGROUPS, 'quality-assurance.yaml')
+        qa_lead = os.path.join(
+            MGMT_AGENTS, 'quality-assurance-lead', 'agent.md',
         )
+        self.assertTrue(
+            os.path.isfile(qa_yaml),
+            f'dependency missing: {qa_yaml}',
+        )
+        self.assertTrue(
+            os.path.isfile(qa_lead),
+            f'dependency missing: {qa_lead}',
+        )
+
+    def test_writing_workgroup_and_lead_exist(self):
+        """Post-redesign dependency: writing-lead is an SD member
+        for the conditional Writing hop."""
+        writing_yaml = os.path.join(MGMT_WORKGROUPS, 'writing.yaml')
+        writing_lead = os.path.join(
+            MGMT_AGENTS, 'writing-lead', 'agent.md',
+        )
+        self.assertTrue(
+            os.path.isfile(writing_yaml),
+            f'dependency missing: {writing_yaml}',
+        )
+        self.assertTrue(
+            os.path.isfile(writing_lead),
+            f'dependency missing: {writing_lead}',
+        )
+
+    def test_auditor_is_member_of_quality_assurance_workgroup(self):
+        """Post-redesign: the auditor lives in QA, not as a direct
+        SD member.  Verifying the QA workgroup includes auditor
+        keeps the audit function reachable through the QA-lead hop
+        (the SD pipeline does not need to know about it)."""
+        from teaparty.config.config_reader import load_workgroup
+        qa = load_workgroup(
+            os.path.join(MGMT_WORKGROUPS, 'quality-assurance.yaml'),
+        )
+        self.assertIn(
+            'auditor', qa.members_agents,
+            f'auditor must be a member of the quality-assurance '
+            f'workgroup so the QA-lead can route audit work to it.  '
+            f'QA members: {qa.members_agents!r}',
+        )
+
+    def test_quality_control_workgroup_does_not_carry_qa_concerns(self):
+        """Post-redesign QC scope is narrowed to test-execution.
+        The qa-reviewer and acceptance-tester roles moved to the
+        new QA workgroup; QC should no longer list them so the
+        boundary between QA and QC is structural, not just
+        documentary."""
+        from teaparty.config.config_reader import load_workgroup
+        qc = load_workgroup(
+            os.path.join(MGMT_WORKGROUPS, 'quality-control.yaml'),
+        )
+        for moved in ('qa-reviewer', 'acceptance-tester'):
+            self.assertNotIn(
+                moved, qc.members_agents,
+                f'{moved!r} must NOT remain in quality-control after '
+                f'the QA/QC split; it belongs to quality-assurance.  '
+                f'QC members: {qc.members_agents!r}',
+            )
 
     def test_attempt_task_skill_exists(self):
         skill_md = os.path.join(MGMT_SKILLS, 'attempt-task', 'SKILL.md')
         self.assertTrue(
             os.path.isfile(skill_md),
-            f'dependency missing: {skill_md}.  The lead and the '
-            f'coding-lead/qc-lead hops all run this skill.',
-        )
-
-    def test_audit_issue_skill_exists(self):
-        # audit-issue is user-invocable and lives in ~/.claude/skills/
-        # not the management catalog.  We accept either location: the
-        # lead Delegates with skill='audit-issue' and the skill must
-        # be resolvable from the recipient's runtime.
-        candidates = (
-            os.path.expanduser('~/.claude/skills/audit-issue/SKILL.md'),
-            os.path.join(MGMT_SKILLS, 'audit-issue', 'SKILL.md'),
-        )
-        found = [c for c in candidates if os.path.isfile(c)]
-        self.assertTrue(
-            found,
-            f'dependency missing: audit-issue skill not found at any '
-            f'of {candidates}.  The audit hop dispatches this skill.',
+            f'dependency missing: {skill_md}.  The lead and every '
+            f'sub-lead hop runs this skill.',
         )
 
     def test_delegate_mcp_tool_is_registered(self):

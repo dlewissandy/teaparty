@@ -1,0 +1,23 @@
+name: quality-assurance
+description: Intent fidelity, definition-of-done, acceptance criteria, and process
+  discipline. Distinct from Quality Control (which tests the artifact's behavior);
+  QA verifies the artifact matches what was asked for and that the process produced
+  it under the right gates. Owns intent-fidelity audits and acceptance review.
+lead: quality-assurance-lead
+humans:
+  decider: primus
+members:
+  agents:
+  - auditor
+  - qa-reviewer
+  - acceptance-tester
+  hooks: []
+artifacts:
+- path: .teaparty/workgroups/NORMS-quality-assurance.md
+  label: Norms
+stats:
+  storage: .teaparty/stats/quality-assurance.json
+agents:
+- name: auditor
+- name: qa-reviewer
+- name: acceptance-tester

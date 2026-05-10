@@ -9,6 +9,8 @@ workgroups:
 - ref: Intake
 - ref: Research
 - ref: quality-control
+- ref: quality-assurance
+- ref: Writing
 - ref: software-development
 members:
   workgroups:
@@ -16,6 +18,8 @@ members:
   - Intake
   - Research
   - Quality Control
+  - quality-assurance
+  - Writing
   - software-development
   agents:
   - scrum-master

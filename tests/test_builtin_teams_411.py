@@ -58,8 +58,17 @@ _TEAM_SPEC: dict[str, dict] = {
     },
     'quality-control': {
         'lead': 'quality-control-lead',
-        'members': ['qa-reviewer', 'test-reviewer', 'regression-tester',
-                    'acceptance-tester', 'performance-analyst', 'ai-smell'],
+        'members': ['test-reviewer', 'regression-tester',
+                    'performance-analyst', 'ai-smell'],
+    },
+    'quality-assurance': {
+        'lead': 'quality-assurance-lead',
+        'members': ['auditor', 'qa-reviewer', 'acceptance-tester'],
+    },
+    'software-development': {
+        'lead': 'software-development-lead',
+        'members': ['coding-lead', 'quality-control-lead',
+                    'quality-assurance-lead', 'writing-lead'],
     },
     'art': {
         'lead': 'art-lead',
@@ -124,12 +133,28 @@ _AGENT_TOOLS: dict[str, set[str]] = {
     'voice-editor':         {'Read', 'Write', 'Edit'},
     # Quality-control
     'quality-control-lead': _UNIFIED_LEAD_TOOLS,
-    'qa-reviewer':          {'Read', 'Write', 'Glob', 'Grep'},
     'test-reviewer':        {'Read', 'Glob', 'Grep', 'Bash'},
     'regression-tester':    {'Bash', 'Read', 'Glob', 'Grep'},
-    'acceptance-tester':    {'Read', 'Write', 'Bash'},
     'performance-analyst':  {'Bash', 'Read', 'Write', 'Glob', 'Grep'},
     'ai-smell':             {'Read', 'Write'},
+    # Quality-assurance (split from QC: intent fidelity vs. behavior verification)
+    'quality-assurance-lead': _UNIFIED_LEAD_TOOLS,
+    'auditor':              {'Read', 'Grep', 'Glob', 'Bash'},
+    'qa-reviewer':          {'Read', 'Write', 'Glob', 'Grep'},
+    'acceptance-tester':    {'Read', 'Write', 'Bash'},
+    # Software-development (per-issue orchestrator; members are themselves leads
+    # so the lead uses Delegate per hop rather than Send, and has no Bash --
+    # worktree creation comes with the dispatch, member merges go through
+    # CloseConversation, and commit_all_pending in close_conversation.py
+    # commits pending edits before the originator's squash-merge).
+    'software-development-lead': {
+        'Read', 'Glob', 'Grep', 'Write', 'Edit',
+        'mcp__teaparty-config__Delegate',
+        'mcp__teaparty-config__Send',
+        'mcp__teaparty-config__CloseConversation',
+        'mcp__teaparty-config__AskQuestion',
+        'mcp__teaparty-config__ListTeamMembers',
+    },
     # Art
     'art-lead':             _UNIFIED_LEAD_TOOLS,
     'svg-artist':           {'Write', 'Read'},
@@ -387,11 +412,21 @@ class TestDigestSkill(unittest.TestCase):
 class TestDigestSkillOnAllAgents(unittest.TestCase):
     """AC5 — every new built-in team agent lists digest in its skills."""
 
-    def test_every_agent_lists_digest_skill(self):
-        """All 38 new agents declare digest in their skills list."""
+    def test_every_specialist_lists_digest_skill(self):
+        """Every specialist (non-lead) member of a built-in team
+        declares digest in its skills list.
+
+        Leads run a workflow rail (``attempt-task`` or ``execute``)
+        instead of digest -- they consolidate, they do not write
+        findings to scratch.  Meta-teams whose members are themselves
+        leads (e.g. software-development) also skip the digest check
+        for those members."""
         for team, spec in _TEAM_SPEC.items():
-            all_team_agents = [spec['lead']] + spec['members']
-            for agent in all_team_agents:
+            for agent in [spec['lead']] + spec['members']:
+                # Skip any agent whose role is lead (their workflow
+                # skill is attempt-task or execute, not digest).
+                if agent.endswith('-lead'):
+                    continue
                 with self.subTest(team=team, agent=agent):
                     skills = _agent_skills(agent)
                     self.assertIn(
