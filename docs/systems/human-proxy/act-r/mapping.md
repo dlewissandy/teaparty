@@ -6,67 +6,45 @@ ACT-R's declarative memory concepts mapped to the proxy agent's concrete structu
 
 ## What Are the Chunks?
 
-Each chunk represents a **memory of an interaction** between the proxy and the human. A chunk is created whenever the proxy observes or participates in a decision. The chunk is a structured tuple. Field ordering matters.
+Each chunk represents a **memory of an interaction** between the proxy and the human. A chunk is created whenever the proxy observes or participates in a decision. The chunk is a structured tuple.
 
 ```python
 {
-    # Structural fields (SQL-filtered, exact match)
-    "type": "gate_outcome",          # or "dialog_turn", "discovery_response"
-    "state": "PLAN_ASSERT",          # CfA state where interaction occurred
-    "task_type": "security",         # project/task category
+    # Identity / metadata (carried for audit and prompt serialization;
+    # not used as retrieval filters)
+    "type": "gate_outcome",          # or "dialog_turn", "review_correction", "steering", "withdrawal"
+    "state": "PLAN",                 # CfA state where the interaction occurred (or "" for non-CfA)
+    "task_type": "security",         # task category — analytics only
     "outcome": "correct",            # approve, correct, dismiss, promote, discuss
-    "lens": "",                      # for discovery mode: which lens produced this
+    "lens": "",                      # discovery lens, if applicable
 
-    # Two-pass prediction results (see sensorium.md)
-    "prior_confidence": 0.8,          # Pass 1: confidence without artifact
-    "posterior_confidence": 0.85,     # Pass 2: confidence after reading artifact
-    "prediction_delta": "Missing rollback section changed prediction",
-    "salient_percepts": ["no rollback strategy", "database migration risk"],
-
-    # Categorical prior/posterior prediction fields exist in the schema
-    # (prior_prediction, posterior_prediction) but are no longer populated.
-    # The conversational-prompts migration moved categorical action
-    # classification downstream to `_classify_review` in
-    # teaparty/cfa/actors.py, which runs on the final human/proxy response
-    # rather than per-pass.  Historical rows written before the migration
-    # may still have values.
-
-    # Content fields
+    # Content
     "human_response": "Add a rollback strategy for the migration",
     "delta": "",                     # what the proxy got wrong vs human response
-    "content": "...",                # full text of the interaction
+    "content": "...",                # full text of the interaction (rendered into the prompt)
 
     # Memory dynamics
     "traces": [42, 47],              # interaction sequence numbers when accessed
 
-    # Independent embeddings per percept dimension
-    "embedding_situation": [...],    # state + task type
-    "embedding_artifact": [...],     # the artifact content at review time
-    "embedding_stimulus": [...],     # the question or observation
-    "embedding_response": [...],     # the human's response
+    # Three-dim retrieval embeddings (issue #432)
+    "embedding_conversation": [...], # the thread's conversation through this stimulus
+    "embedding_job": [...],          # the job's PROMPT.txt (the human's request)
+    "embedding_project": [...],      # the project description (project.yaml)
+
+    # Salience embedding — independent retrieval path (sensorium.md)
     "embedding_salience": [...],     # the prediction delta (what surprised the proxy)
 }
 ```
 
-The chunk has three layers.
+**Retrieval is purely vector-based** (issue #432). Identity columns like `state`, `task_type`, and `lens` are recorded for audit and prompt context but do not partition the candidate set. Discrimination at retrieval time comes from cosine similarity over the three rich embeddings:
 
-**Structural fields** (type, state, task_type, outcome, lens) are categorical. They are queried by exact match via SQL. They preserve the relational structure of the interaction: who did what at which gate with what result. Embeddings cannot capture this ordering reliably.
+| Embedding | What it captures | Source text at recording |
+|-----------|------------------|--------------------------|
+| **Conversation** | the dialog leading to the chunk's stimulus | thread history through the latest turn |
+| **Job** | the larger intent the proxy is serving | `.teaparty/jobs/{job-id}/PROMPT.txt` |
+| **Project** | the codebase and conventions | `description:` from `.teaparty/project/project.yaml` |
 
-**Two-pass prediction fields** capture the prior (before seeing the artifact), the posterior (after), and the delta between them. The delta is the salience signal. It identifies what in the artifact changed the proxy's mind. See [sensorium.md](sensorium.md) for the full design.
-
-**Independent embeddings** represent each percept dimension as a separate vector. At retrieval time, matching across multiple dimensions produces specific, selective associations. A chunk that scores high on situation AND artifact AND salience is a strong association. A chunk that scores high on only one dimension is a weak one.
-
-| Embedding | What it captures | Retrieval use |
-|-----------|-----------------|---------------|
-| **Situation** | CfA state plus task type | "What happened at PLAN_ASSERT for security?" |
-| **Artifact** | The artifact under review | "What happened when the plan had gaps?" |
-| **Stimulus** | The question or observation | "What happened when the proxy asked this?" |
-| **Response** | The human's actual response | "Has the human given this kind of feedback before?" |
-| **Salience** | The prediction delta | "When has the proxy been surprised by this pattern?" |
-
-This replaces the single content embedding with a multi-dimensional representation that separates what the proxy sensed from what happened. It enables retrieval by any dimension or intersection of dimensions.
-
-**Note on multi-dimensional retrieval.** Using independent embeddings per chunk and aggregating cosine similarities at retrieval time is a novel design choice without published validation. The closest precedent is Park, J.S., et al.'s (2023) generative agents, which combine separate recency, importance, and relevance scores. Those are different signal types, not faceted semantic embeddings. Phase 1 should include an explicit ablation comparing 4-dimensional experience retrieval against a single blended embedding to determine whether the added complexity and embedding cost earn their keep. Salience retrieval should be evaluated separately: does providing attention-model context improve posterior accuracy? This is a cleaner ablation because it isolates the experience question from the attention question.
+The proxy is general — it can be asked about a codebase, a movie, a personal decision. There is no guaranteed artifact, no guaranteed CfA state, no guaranteed task category at retrieval. Only the three above are universally available. Conversation carries the bulk of contextual signal; job and project add the surrounding intent and the codebase identity. Activation (recency × frequency) handles the temporal layer; cosine on the three embeddings handles the contextual layer.
 
 ---
 
@@ -118,42 +96,50 @@ Each conversational exchange in a discussion creates its own chunk:
 
 ---
 
-## Retrieval: Structural Filtering + Semantic Ranking
+## Retrieval: Activation Filter + Weighted-Cosine Ranking
 
-In ACT-R, context sensitivity is handled by **spreading activation**. A graph-based mechanism routes activation from the current focus to associated chunks. ACT-R uses this because it operates on symbolic representations with typed associations between chunks.
+In ACT-R, context sensitivity is handled by **spreading activation** — a graph-based mechanism routing activation from the current focus to associated chunks via typed symbolic associations.
 
-We replace spreading activation with **vector embeddings**. Each chunk's content is embedded via the same infrastructure used by the learning system (`memory_indexer.py`). Semantic similarity between the current context and stored memories is computed directly via cosine similarity. This substitution provides context-sensitive retrieval without requiring a pre-built associative graph, which is an advantage for a system where associations are learned from unstructured text. However, it is a different mechanism with different properties. Embeddings capture semantic overlap in text, not structural associations between concepts.
+We replace spreading activation with **cosine similarity over text embeddings**. The chunk's three rich embeddings (conversation, job, project) are compared at retrieval time against query embeddings built from the proxy's current context using the same embedding model. Cosine on rich text discriminates; the structural fields are recorded but not used for filtering (issue #432).
 
-This combination of activation-based decay with embedding similarity has direct precedent in the research literature. Honda, Fujita, Zempo, & Fukushima (HAI '25) combine ACT-R base-level activation with cosine similarity for LLM agent memory retrieval. Meghdadi, Duff, & Demberg (Frontiers in Language Sciences, 2026) demonstrate that language model embedding cosine similarity is a valid substitute for hand-coded association strengths within the ACT-R framework. Their work is in psycholinguistic modeling (associative priming in the Lexical Decision Task), but the methodological pattern of using LM embeddings where ACT-R uses symbolic associations transfers to our context. Park, J.S., et al.'s (2023) generative agents use a structurally similar weighted combination of recency, importance, and relevance. This establishes the pattern of hybrid retrieval for agent memory.
+This combination of activation-based decay with embedding similarity has direct precedent in the research literature. Honda, Fujita, Zempo, & Fukushima (HAI '25) combine ACT-R base-level activation with cosine similarity for LLM agent memory retrieval. Meghdadi, Duff, & Demberg (Frontiers in Language Sciences, 2026) demonstrate that language model embedding cosine similarity is a valid substitute for hand-coded association strengths within the ACT-R framework. Park, J.S., et al.'s (2023) generative agents use a structurally similar weighted combination of recency, importance, and relevance.
 
 Retrieval operates in two stages.
 
-**Stage 1: Activation filtering.** Compute raw base-level activation B for each chunk. Discard chunks with B below tau (-0.5). This is the ACT-R retrieval threshold. It filters for memory accessibility. Chunks below threshold are effectively forgotten. This keeps tau's semantics aligned with ACT-R: it gates on activation, not on a mixed score.
+**Stage 1: Activation filtering.** Compute raw base-level activation B for each chunk. Discard chunks with B below tau (-0.5). This is the ACT-R retrieval threshold. Chunks below threshold are effectively forgotten.
 
-**Stage 2: Composite scoring and ranking.** For survivors of the activation filter, compute a composite score for ranking:
+**Stage 2: Composite scoring and ranking.** For survivors, compute the composite score:
 
 ```
-composite = activation_weight * tanh(B - τ)  +  semantic_weight * cosine_avg  +  noise
+cosine = w_conv · cos(chunk.conversation, ctx.conversation)
+       + w_job  · cos(chunk.job,          ctx.job)
+       + w_proj · cos(chunk.project,      ctx.project)
+
+composite = activation_weight · tanh(B − τ)
+          + semantic_weight   · cosine
+          + noise
 ```
 
 Where:
-- `B` is the base-level activation (recency and frequency via ACT-R)
-- `tanh(B - τ)` maps B to (-1, 1) with a principled zero crossing at the retrieval threshold τ
-- `cosine_avg` is the average cosine similarity across the 4 experience embedding dimensions (situation, artifact, stimulus, response — salience is retrieved independently, see below)
+- `B` is the base-level activation (recency × frequency via ACT-R)
+- `tanh(B − τ)` maps B to (-1, 1) with a zero crossing at τ (issue #416)
+- `w_conv = 0.9`, `w_job = 0.05`, `w_proj = 0.05` — conversation carries the bulk of contextual signal at retrieval time
+- A missing chunk- or query-side embedding on a dimension contributes zero (no renormalization), so chunks with sparser embeddings degrade gracefully toward activation-only ranking
 - `noise` is logistic noise (see [overview.md](overview.md))
-- `activation_weight` and `semantic_weight` control the balance (starting point: 0.5 / 0.5)
+- `activation_weight` and `semantic_weight` default to 0.5 each
 
-**Why tanh(B - τ).** Cosine similarity already lives on a natural scale: 0 = orthogonal (no contribution), +1 = perfect match, -1 = antithesis. No normalization needed. Raw activation B is on a log scale with no natural upper bound. To make the two components commensurable, we need a monotonic map from ℝ → (-1, 1). Shifting by τ grounds the zero point: a chunk at exactly the retrieval threshold contributes nothing to the composite, mirroring the cosine semantics. The tradeoff between recency and frequency in B is ACT-R's design; `tanh` is a monotonic transform and preserves it exactly.
+**Why these weights.** Conversation captures what is being said and what has just been said — the moment-to-moment context that most strongly determines relevance. Job and project add the surrounding intent and the codebase's identity, but the same job often spans many distinguishable conversations, and the same project spans many jobs. Conversation is the dominant signal; job and project are tiebreakers.
 
-**Cosine averaging.** The semantic score is computed by summing cosine similarities across the 4 experience dimensions (situation, artifact, stimulus, response) and dividing by 4, not just the number of populated ones. This means a chunk with high similarity on 2 populated dimensions out of 4 gets `(sim1 + sim2 + 0 + 0) / 4`, while a chunk with moderate similarity across all 4 gets `(sim1 + sim2 + sim3 + sim4) / 4`. This rewards breadth of matching: chunks that match across more dimensions score higher than chunks that match narrowly on fewer dimensions, all else being equal. Salience is excluded from composite scoring and retrieved independently via `retrieve_salience()`.
+**Why no `/N` averaging.** The weights sum to 1.0 explicitly. A chunk that perfectly matches the current context on all three dimensions reaches `cosine = 1.0`. The old `/4` averaging capped reachable cosine at 0.75 even on a perfect three-of-four match because `response` could never be queried.
 
-Both components are on (-1, 1) with a principled zero crossing. The 0.5 / 0.5 weight split has unambiguous meaning: at exactly the threshold and orthogonal context, composite = 0 + 0 + noise.
-
-| Parameter | Starting Value | Role | Source |
-|-----------|---------------|------|--------|
-| Activation weight | 0.5 | Weight of `tanh(B − τ)` activation contribution in composite | Design parameter; calibrate empirically |
-| Semantic weight | 0.5 | Weight of cosine similarity in composite | Design parameter; calibrate empirically |
-| Noise scale (s) | 0.08 | Logistic noise scale; std dev ≈ πs/√3 ≈ 0.145 | Calibrated so noise perturbs ranking without dominating signal |
+| Parameter | Starting Value | Role |
+|-----------|---------------|------|
+| Activation weight | 0.5 | Weight of `tanh(B − τ)` |
+| Semantic weight | 0.5 | Weight of the weighted-cosine term |
+| `w_conv` | 0.9 | Conversation cosine weight |
+| `w_job` | 0.05 | Job cosine weight |
+| `w_proj` | 0.05 | Project cosine weight |
+| Noise scale (s) | 0.08 | Logistic noise (std dev ≈ πs/√3 ≈ 0.145) |
 
 ---
 
@@ -161,10 +147,10 @@ Both components are on (-1, 1) with a principled zero crossing. The 0.5 / 0.5 we
 
 When the proxy needs to act (what question to ask at a gate, what observation to surface, how to respond in a discussion):
 
-1. **Filter by activation.** Compute raw B for all chunks matching structural criteria (state, task_type). Discard chunks with B below tau (-0.5).
-2. **Score.** For each survivor, compute the composite score (`tanh(B − τ)` activation contribution plus semantic similarity plus noise).
+1. **Filter by activation.** Compute raw B for every non-deleted chunk. Discard chunks with B below tau (-0.5).
+2. **Score.** For each survivor, compute the composite score (`tanh(B − τ)` activation contribution plus weighted-cosine semantic similarity plus noise).
 3. **Retrieve top-k.** Return the highest-scoring chunks.
-4. **Serialize and embed.** Convert retrieved chunks to text for the proxy's LLM prompt. The serialization includes structural fields (state, task_type, outcome), prediction fields (prior/posterior), and content. Embeddings are not included (they are binary noise). Each chunk occupies approximately 400-600 tokens (~500 average), so the chunk context is limited to a budget (e.g., 10 chunks at 5000 tokens). The serialization format uses Markdown for readability: heading for each chunk ID, subheadings for each field type, prose content inline.
+4. **Serialize and embed.** Convert retrieved chunks to text for the proxy's LLM prompt. The serialization includes the chunk's metadata (state, task_type, outcome) and content. Embeddings are not included (they are binary noise). Each chunk occupies approximately 400-600 tokens; the chunk context is limited to a budget (e.g., 10 chunks at 5000 tokens).
 5. **Reason.** The proxy's LLM prompt receives the serialized chunks as context: "Here are your relevant memories of working with this human..." The LLM reasons over them to produce a prediction, an observation, or a response.
 6. **Record.** After the human responds, a new chunk is created (or an existing chunk is reinforced with a new trace). The cycle continues.
 
@@ -217,31 +203,26 @@ The traces list grows as chunks are retrieved and reinforced across sessions. Wi
 ```python
 @dataclass
 class MemoryChunk:
-    id: str                          # unique identifier
-    type: str                        # gate_outcome, dialog_turn, discovery_response
-    state: str                       # CfA state or DISCOVERY_{lens}
-    task_type: str                   # project slug or empty
-    outcome: str                     # approve, correct, dismiss, promote, discuss
-    lens: str                        # discovery lens (empty for gate mode)
-    prior_prediction: str            # Pass 1 prediction (deprecated; empty
-                                     # on new chunks; classification now
-                                     # runs downstream)
-    prior_confidence: float          # Pass 1 confidence
-    posterior_prediction: str        # Pass 2 prediction (deprecated — see
-                                     # prior_prediction note)
-    posterior_confidence: float      # Pass 2 confidence
-    prediction_delta: str            # what changed between passes (salience)
-    salient_percepts: list[str]      # artifact features that caused the shift
-    human_response: str              # what the human actually did
-    delta: str                       # proxy error vs human response
-    content: str                     # full text of the interaction
-    traces: list[int]                # list of interaction sequence numbers
-    embedding_model: str             # which model produced the vectors
-    embedding_situation: list[float] | None
-    embedding_artifact: list[float] | None
-    embedding_stimulus: list[float] | None
-    embedding_response: list[float] | None
+    id: str                              # unique identifier
+    type: str                            # gate_outcome, dialog_turn, review_correction, steering, withdrawal
+    state: str                           # CfA state at recording time (or '' for non-CfA)
+    task_type: str                       # task category — analytics only
+    outcome: str                         # approve, correct, dismiss, promote, discuss
+    lens: str                            # discovery lens, if applicable
+    human_response: str                  # what the human actually said
+    delta: str                           # proxy error vs human response
+    content: str                         # full text of the interaction (for prompt serialization)
+    traces: list[int]                    # interaction sequence numbers
+    embedding_model: str                 # which embedding model produced the vectors
+    embedding_conversation: list[float] | None
+    embedding_job: list[float] | None
+    embedding_project: list[float] | None
     embedding_salience: list[float] | None
+    # Two-pass prediction fields (sensorium.md)
+    prior_confidence: float
+    posterior_confidence: float
+    prediction_delta: str
+    salient_percepts: list[str]
 ```
 
 ### Storage
@@ -254,9 +235,7 @@ CREATE TABLE proxy_chunks (
     task_type TEXT DEFAULT '',
     outcome TEXT NOT NULL,
     lens TEXT DEFAULT '',
-    prior_prediction TEXT DEFAULT '',   -- deprecated; empty on new chunks
     prior_confidence REAL DEFAULT 0,
-    posterior_prediction TEXT DEFAULT '', -- deprecated; empty on new chunks
     posterior_confidence REAL DEFAULT 0,
     prediction_delta TEXT DEFAULT '',
     salient_percepts TEXT DEFAULT '[]', -- JSON array of strings
@@ -264,17 +243,14 @@ CREATE TABLE proxy_chunks (
     delta TEXT DEFAULT '',
     content TEXT NOT NULL,
     traces TEXT NOT NULL,              -- JSON array of interaction sequence numbers
-    embedding_model TEXT DEFAULT '',   -- which model produced the vectors (determined internally)
-    embedding_situation TEXT,          -- JSON array of floats
-    embedding_artifact TEXT,
-    embedding_stimulus TEXT,
-    embedding_response TEXT,
+    embedding_model TEXT DEFAULT '',
+    embedding_conversation TEXT,       -- JSON array of floats
+    embedding_job TEXT,
+    embedding_project TEXT,
     embedding_salience TEXT,
-    embedding_blended TEXT,            -- single blended embedding (ablation: Configuration B)
-    deleted_at INTEGER DEFAULT NULL    -- soft-delete timestamp; memory_depth filters WHERE deleted_at IS NULL
+    deleted_at INTEGER DEFAULT NULL    -- soft-delete timestamp
 );
 
--- Global interaction counter (monotonically increasing)
 CREATE TABLE proxy_state (
     key TEXT PRIMARY KEY,
     value INTEGER NOT NULL
@@ -282,13 +258,13 @@ CREATE TABLE proxy_state (
 INSERT OR IGNORE INTO proxy_state (key, value) VALUES ('interaction_counter', 0);
 ```
 
-The embedding_model column records which model produced the vectors, enabling re-embedding migration when the model changes.
-
 ### Core Functions
 
 ```python
-EXPERIENCE_EMBEDDING_DIMENSIONS = 4  # situation, artifact, stimulus, response
-# Salience is retrieved independently via retrieve_salience()
+SEMANTIC_DIMS = ('conversation', 'job', 'project')
+COSINE_WEIGHT_CONVERSATION = 0.9
+COSINE_WEIGHT_JOB = 0.05
+COSINE_WEIGHT_PROJECT = 0.05
 
 
 def base_level_activation(
@@ -310,136 +286,70 @@ def composite_score(
     current_interaction: int,
     activation_weight: float = 0.5,
     semantic_weight: float = 0.5,
-    d: float = 0.5,
-    s: float = 0.08,
-    tau: float = -0.5,
+    d: float = 0.5, s: float = 0.08, tau: float = -0.5,
 ) -> float:
-    """Composite ranking score: tanh-normalised ACT-R activation +
-    multi-dimensional semantic similarity + noise.
+    """tanh(B − τ) activation + weighted three-dim cosine + noise.
 
-    composite = activation_weight * tanh(B - τ)
-              + semantic_weight * cosine_avg
-              + noise
-
-    tanh(B - τ) maps B to (-1, 1) with a zero crossing at the retrieval
-    threshold τ. No min-max range is needed: tanh has no degenerate case.
-
-    context_embeddings: dict mapping dimension names to embedding vectors.
-    The semantic score sums cosine similarities across the 4 experience
-    dimensions and divides by EXPERIENCE_EMBEDDING_DIMENSIONS (4), not
-    the number of populated dimensions. Salience is excluded from
-    composite scoring and retrieved independently.
+    Missing chunk- or query-side embeddings on a dimension contribute
+    zero (no renormalization).
     """
     b = base_level_activation(chunk.traces, current_interaction, d)
     b_norm = math.tanh(b - tau)
 
-    # Experience dimensions only — salience retrieved independently
-    dim_map = {
-        'situation': chunk.embedding_situation,
-        'artifact': chunk.embedding_artifact,
-        'stimulus': chunk.embedding_stimulus,
-        'response': chunk.embedding_response,
+    weights = {
+        'conversation': COSINE_WEIGHT_CONVERSATION,
+        'job':          COSINE_WEIGHT_JOB,
+        'project':      COSINE_WEIGHT_PROJECT,
     }
-    sim_sum = 0.0
-    for dim, context_vec in context_embeddings.items():
-        chunk_vec = dim_map.get(dim)
-        if chunk_vec and context_vec:
-            sim_sum += cosine_similarity(chunk_vec, context_vec)
-    sem = sim_sum / EXPERIENCE_EMBEDDING_DIMENSIONS
+    chunk_vecs = {
+        'conversation': chunk.embedding_conversation,
+        'job':          chunk.embedding_job,
+        'project':      chunk.embedding_project,
+    }
+    sem = 0.0
+    for dim, w in weights.items():
+        cv = chunk_vecs[dim]
+        qv = context_embeddings.get(dim)
+        if cv and qv:
+            sem += w * cosine_similarity(cv, qv)
 
-    noise = logistic_noise(s)
-    return activation_weight * b_norm + semantic_weight * sem + noise
+    return activation_weight * b_norm + semantic_weight * sem + logistic_noise(s)
 
 
 def retrieve(
-    state: str = '',
-    task_type: str = '',
     context_embeddings: dict[str, list[float]] | None = None,
     current_interaction: int = 0,
-    tau: float = -0.5,
-    top_k: int = 10,
+    tau: float = -0.5, top_k: int = 10,
 ) -> list[MemoryChunk]:
-    """Retrieve top-k chunks above activation threshold.
-
-    1. Structural filter on state, task_type
-    2. Activation filter: discard chunks with raw B below tau
-    3. Composite scoring and ranking (tanh normalization — no range needed)
-    """
-    candidates = query_chunks(state=state, task_type=task_type)
+    """Two-stage retrieval: activation filter, then composite ranking."""
     context_embeddings = context_embeddings or {}
-
-    # Stage 1: filter by raw activation (tau on B, not on composite)
-    survivors = []
-    for c in candidates:
-        b = base_level_activation(c.traces, current_interaction)
-        if b > tau:
-            survivors.append(c)
-
-    if not survivors:
-        return []
-
-    # Stage 2: composite scoring for ranking
-    scored = []
-    for chunk in survivors:
-        score = composite_score(
-            chunk, context_embeddings, current_interaction, tau=tau,
-        )
-        scored.append((score, chunk))
+    candidates = query_chunks()  # all non-deleted chunks
+    survivors = [c for c in candidates
+                 if base_level_activation(c.traces, current_interaction) > tau]
+    scored = [(composite_score(c, context_embeddings, current_interaction, tau=tau), c)
+              for c in survivors]
     scored.sort(key=lambda x: -x[0])
-    return [chunk for _, chunk in scored[:top_k]]
+    return [c for _, c in scored[:top_k]]
 
 
 def record_interaction(
-    chunk_id: str | None,
-    interaction_type: str,
-    state: str,
-    task_type: str,
-    outcome: str,
-    content: str,
-    embedding_model: str,
-    delta: str = '',
-    lens: str = '',
-    prior_prediction: str = '',
-    prior_confidence: float = 0.0,
-    posterior_prediction: str = '',
-    posterior_confidence: float = 0.0,
-    prediction_delta: str = '',
-    salient_percepts: list[str] | None = None,
-    human_response: str = '',
-    artifact_text: str = '',
-    stimulus_text: str = '',
+    *, conversation_text: str, job_text: str, project_text: str,
+    type: str, state: str, task_type: str, outcome: str, content: str,
+    human_response: str = '', prediction_delta: str = '',
+    embedding_model: str = '',
 ) -> MemoryChunk:
-    """Record an interaction as a memory chunk.
-    If chunk_id matches existing chunk, adds a trace (reinforcement).
-    Otherwise creates a new chunk with independent per-dimension embeddings.
-    Increments global interaction counter.
-    """
+    """Record an interaction with the three-dim retrieval embeddings populated."""
     current = increment_interaction_counter()
-    if chunk_id and chunk_exists(chunk_id):
-        add_trace(chunk_id, current)
-        return get_chunk(chunk_id)
     chunk = MemoryChunk(
         id=generate_id(),
-        type=interaction_type,
-        state=state,
-        task_type=task_type,
-        outcome=outcome,
-        lens=lens,
-        prior_prediction=prior_prediction,
-        prior_confidence=prior_confidence,
-        posterior_prediction=posterior_prediction,
-        posterior_confidence=posterior_confidence,
+        type=type, state=state, task_type=task_type, outcome=outcome,
+        content=content, human_response=human_response,
         prediction_delta=prediction_delta,
-        salient_percepts=salient_percepts or [],
-        human_response=human_response,
-        delta=delta,
-        content=content,
         traces=[current],
         embedding_model=embedding_model,
-        embedding_situation=embed(f'{state} {task_type}'),
-        embedding_artifact=embed(artifact_text) if artifact_text else None,
-        embedding_stimulus=embed(stimulus_text) if stimulus_text else None,
-        embedding_response=embed(human_response) if human_response else None,
+        embedding_conversation=embed(conversation_text) if conversation_text else None,
+        embedding_job=embed(job_text) if job_text else None,
+        embedding_project=embed(project_text) if project_text else None,
         embedding_salience=embed(prediction_delta) if prediction_delta else None,
     )
     store_chunk(chunk)
@@ -448,13 +358,13 @@ def record_interaction(
 
 ### Integration Points
 
-1. **`consult_proxy()` in `proxy_agent.py`** — add ACT-R memory retrieval. Load relevant chunks into the proxy agent prompt so it can generate the dialog the human would produce. EMA continues to update as a monitoring signal.
+1. **`proxy_build_prompt` in `teaparty/proxy/hooks.py`** — composes conversation/job/project context, embeds it, and passes as `context_embeddings` to `retrieve_chunks`.
+2. **`proxy_post_invoke` in `teaparty/proxy/hooks.py`** — the proxy's agent prompt instructs it to emit `[CORRECTION: ...]` when something is worth remembering and `[REINFORCE: <chunk_id>]` when an existing chunk should be activated. The hook parses those markers and stores curated chunks selectively. The chunk's `embedding_conversation` is the correction text itself, so cosine retrieval matches the chunk against semantically related future queries (not just sessions on the same topic).
+3. **`record_escalation_chunk` in `teaparty/proxy/hooks.py`** — optional raw-transcript recording behind `TEAPARTY_RECORD_ESCALATIONS=1`. Off by default. When on, every AskQuestion → answer cycle stores a chunk; activation decay curates over time. Useful for accumulating a statistical baseline alongside the curated CORRECTION chunks; can crowd the prompt near-term.
+4. **`_record_withdrawal_memory_chunk` in `teaparty/workspace/withdraw.py`** — same population path on withdrawal chunks.
+5. **`record_steering_chunk` in `teaparty/proxy/memory.py`** — embeds the steering directive itself as the conversation vector so it surfaces broadly via cosine.
 
-2. **`record_outcome()` in `scripts/approval_gate.py`** — add chunk creation alongside the existing EMA update. Both systems record the outcome; they serve different purposes.
-
-3. **`_calibrate_confidence()` in `proxy_agent.py`** — replace scalar confidence computation with: the retrieval set IS the confidence signal. The LLM reads the memories and calibrates itself.
-
-4. **Discovery mode** in the Code Collaborator — same `retrieve()` function with discovery-specific state keys.
+The text sources are read once per session: `conversation` from the session's message log; `job` from `.teaparty/jobs/{job-id}/PROMPT.txt`; `project` from `description:` in `.teaparty/project/project.yaml`.
 
 ---
 

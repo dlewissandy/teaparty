@@ -23,6 +23,38 @@ if ! command -v uv >/dev/null 2>&1; then
     echo "uv installed successfully."
 fi
 
+# Ollama provides local, free embeddings for the proxy memory system
+# (issue #432). The system gracefully degrades to recency-only retrieval
+# when ollama isn't available, but cosine relevance ranking needs it.
+if ! command -v ollama >/dev/null 2>&1; then
+    cat <<'EOF' >&2
+ollama not found — TeaParty's proxy memory uses ollama for free, local
+embeddings (the nomic-embed-text model). Install:
+
+  brew install ollama        # macOS
+  # or download from https://ollama.com/download
+
+After install, start it (`ollama serve` or via your menu bar) and re-run.
+EOF
+    exit 1
+fi
+
+# Verify the daemon is reachable. `ollama list` exits non-zero when the
+# daemon isn't running, which is the right signal here.
+if ! ollama list >/dev/null 2>&1; then
+    echo "Error: ollama is installed but not running. Start it with 'ollama serve' (or via the menu bar) and re-run." >&2
+    exit 1
+fi
+
+# Ensure the embedding model is pulled (one-time, ~274MB).
+if ! ollama list 2>/dev/null | awk 'NR>1{print $1}' | grep -q '^nomic-embed-text\(:\|$\)'; then
+    echo "Pulling nomic-embed-text embedding model (one-time, ~274MB)..."
+    if ! ollama pull nomic-embed-text; then
+        echo "Error: failed to pull nomic-embed-text." >&2
+        exit 1
+    fi
+fi
+
 # Run the bridge and every spawned agent against a teaparty-managed
 # Claude Code config directory instead of the user's personal ~/.claude.
 # This jails what slash commands and skills agents see — only entries we

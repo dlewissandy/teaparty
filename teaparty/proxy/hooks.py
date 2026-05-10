@@ -42,6 +42,158 @@ def proxy_bus_path(teaparty_home: str) -> str:
     return os.path.join(proxy_home(teaparty_home), 'proxy-messages.db')
 
 
+def _read_prompt_text(infra_dir: str) -> str:
+    """Return the contents of {infra_dir}/PROMPT.txt or '' (#432)."""
+    if not infra_dir:
+        return ''
+    path = os.path.join(infra_dir, 'PROMPT.txt')
+    if not os.path.isfile(path):
+        return ''
+    with open(path, encoding='utf-8') as fh:
+        return fh.read().strip()
+
+
+def _read_project_description(teaparty_home: str) -> str:
+    """Return the project description from {teaparty_home}/project/project.yaml or '' (#432)."""
+    if not teaparty_home:
+        return ''
+    path = os.path.join(teaparty_home, 'project', 'project.yaml')
+    if not os.path.isfile(path):
+        return ''
+    with open(path, encoding='utf-8') as fh:
+        for line in fh:
+            stripped = line.strip()
+            if stripped.startswith('description:'):
+                return stripped.split(':', 1)[1].strip().strip('"\'')
+    return ''
+
+
+def _build_conversation_text(session: AgentSession, latest_turn: str = '') -> str:
+    """Compose conversation history text for an AgentSession (#432).
+
+    Returns '' if `session` doesn't expose `get_messages` (e.g. a SessionState
+    dataclass).  Callers that have only `infra_dir` should compute conversation
+    text another way and pass it directly to `_embed_context`.
+    """
+    lines: list[str] = []
+    if hasattr(session, 'get_messages'):
+        for msg in session.get_messages():
+            sender = getattr(msg, 'sender', '') or ''
+            content = getattr(msg, 'content', '') or ''
+            if content:
+                lines.append(f'{sender}: {content}')
+    if latest_turn:
+        lines.append(f'human: {latest_turn}')
+    return '\n'.join(lines)
+
+
+def _embed_context(
+    conn, *, conversation_text: str = '', job_text: str = '', project_text: str = '',
+) -> dict[str, list[float]]:
+    """Embed the three context texts into a `context_embeddings` dict (#432).
+
+    A dimension is included only when its source text is non-empty AND the
+    embedding call returns a vector.  Missing dimensions contribute nothing
+    to cosine; chunks fall back to activation alone.
+    """
+    from teaparty.proxy.memory import _default_embed
+    embed = _default_embed(conn)
+    ctx: dict[str, list[float]] = {}
+    for name, text in (
+        ('conversation', conversation_text),
+        ('job', job_text),
+        ('project', project_text),
+    ):
+        if not text:
+            continue
+        vec = embed(text)
+        if vec:
+            ctx[name] = vec
+    return ctx
+
+
+def _context_embeddings_for(
+    session: AgentSession, conn, latest_turn: str = '',
+) -> dict[str, list[float]]:
+    """Build the three-dim query embedding dict for an AgentSession (#432)."""
+    return _embed_context(
+        conn,
+        conversation_text=_build_conversation_text(session, latest_turn=latest_turn),
+        job_text=_read_prompt_text(getattr(session, 'infra_dir', '') or ''),
+        project_text=_read_project_description(getattr(session, 'teaparty_home', '') or ''),
+    )
+
+
+_ESCALATION_FLAG = 'TEAPARTY_RECORD_ESCALATIONS'
+
+
+def _record_escalations_enabled() -> bool:
+    """Whether to capture every AskQuestion → answer cycle as a chunk (#432).
+
+    Off by default: the curated `[CORRECTION:...]`/`[REINFORCE:...]` mechanism
+    is the primary path for memory growth.  Set TEAPARTY_RECORD_ESCALATIONS=1
+    to additionally record raw escalation transcripts as chunks; activation
+    decay handles long-term curation, but routine transcripts may crowd the
+    proxy's prompt context near-term.
+    """
+    val = os.environ.get(_ESCALATION_FLAG, '').strip().lower()
+    return val in ('1', 'true', 'yes', 'on')
+
+
+def record_escalation_chunk(
+    *,
+    question: str,
+    answer: str,
+    teaparty_home: str,
+    infra_dir: str = '',
+    qualifier: str = '',
+) -> None:
+    """Record an AskQuestion → answer interaction as a memory chunk.
+
+    Off by default; gated on `TEAPARTY_RECORD_ESCALATIONS`.  When enabled,
+    fires after the proxy returns from an escalation.  The conversation
+    embedding holds the question+answer dialog so cosine retrieval can
+    match similar past questions to the current one.
+    """
+    if not _record_escalations_enabled():
+        return
+    if not question or not answer:
+        return
+    from teaparty.proxy.memory import (
+        MemoryChunk, open_proxy_db, store_chunk, increment_interaction_counter,
+    )
+    import uuid as _uuid
+    mem_path = proxy_memory_path(teaparty_home)
+    parent = os.path.dirname(mem_path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    conn = open_proxy_db(mem_path)
+    try:
+        conversation_text = f'Question: {question}\nAnswer: {answer}'
+        ctx = _embed_context(
+            conn,
+            conversation_text=conversation_text,
+            job_text=_read_prompt_text(infra_dir),
+            project_text=_read_project_description(teaparty_home),
+        )
+        current = increment_interaction_counter(conn)
+        chunk = MemoryChunk(
+            id=_uuid.uuid4().hex,
+            type='escalation',
+            state='',
+            task_type=qualifier,
+            outcome='answered',
+            content=conversation_text,
+            traces=[current],
+            embedding_conversation=ctx.get('conversation'),
+            embedding_job=ctx.get('job'),
+            embedding_project=ctx.get('project'),
+        )
+        store_chunk(conn, chunk)
+    finally:
+        conn.close()
+
+
 def proxy_post_invoke(response_text: str, session: AgentSession) -> None:
     """Process [CORRECTION:...] and [REINFORCE:...] signals from proxy response.
 
@@ -54,6 +206,7 @@ def proxy_post_invoke(response_text: str, session: AgentSession) -> None:
     """
     from teaparty.proxy.memory import (
         MemoryChunk,
+        _default_embed,
         add_trace,
         get_chunk,
         increment_interaction_counter,
@@ -71,6 +224,17 @@ def proxy_post_invoke(response_text: str, session: AgentSession) -> None:
 
     conn = open_proxy_db(mem_path)
     try:
+        # Job and project come from session context.  Conversation embedding
+        # is the correction text itself — that's the semantic signal cosine
+        # retrieval needs to match against future related queries (#432).
+        # Embedding the surrounding session conversation would tie the
+        # chunk to the session topic instead of the correction's topic,
+        # weakening cross-session retrieval.
+        embed = _default_embed(conn)
+        job_text = _read_prompt_text(getattr(session, 'infra_dir', '') or '')
+        project_text = _read_project_description(getattr(session, 'teaparty_home', '') or '')
+        emb_job = embed(job_text) if job_text else None
+        emb_project = embed(project_text) if project_text else None
         for correction_text in corrections:
             correction_text = correction_text.strip()
             if not correction_text:
@@ -86,6 +250,9 @@ def proxy_post_invoke(response_text: str, session: AgentSession) -> None:
                 outcome='correction',
                 content=correction_text,
                 traces=traces,
+                embedding_conversation=embed(correction_text),
+                embedding_job=emb_job,
+                embedding_project=emb_project,
             )
             store_chunk(conn, chunk)
             _log.info('Recorded review correction %s', chunk_id[:8])
@@ -125,7 +292,11 @@ def proxy_build_prompt(session: AgentSession, latest_human: str) -> str:
         conn = open_proxy_db(mem_path)
         try:
             current = get_interaction_counter(conn)
-            chunks = retrieve_chunks(conn, current_interaction=current, top_k=10)
+            ctx = _context_embeddings_for(session, conn, latest_turn=latest_human)
+            chunks = retrieve_chunks(
+                conn, current_interaction=current, top_k=10,
+                context_embeddings=ctx,
+            )
             entries = []
             for chunk in chunks:
                 activation = base_level_activation(chunk.traces, current)

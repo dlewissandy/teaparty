@@ -220,6 +220,22 @@ class AskQuestionRunner:
             _log.exception('Error routing AskQuestion through proxy')
             answer = ''
 
+        # Issue #432 — optional raw-transcript recording, gated on
+        # TEAPARTY_RECORD_ESCALATIONS.  Off by default; the curated
+        # [CORRECTION:...]/[REINFORCE:...] mechanism is the primary path
+        # for memory growth.
+        try:
+            from teaparty.proxy.hooks import record_escalation_chunk
+            record_escalation_chunk(
+                question=question,
+                answer=answer,
+                teaparty_home=self._teaparty_home,
+                infra_dir=self.infra_dir or '',
+                qualifier=self.session_id or '',
+            )
+        except Exception:
+            _log.exception('Error recording escalation chunk')
+
         # Telemetry: escalation_resolved (Issue #405)
         try:
             from teaparty.telemetry import record_event

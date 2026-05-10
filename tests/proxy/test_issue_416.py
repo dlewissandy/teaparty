@@ -25,14 +25,13 @@ from teaparty.proxy.memory import (
     MemoryChunk,
     base_level_activation,
     composite_score,
-    single_composite_score,
 )
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _make_chunk(traces: list[int], embedding: list[float] | None = None) -> MemoryChunk:
-    """Minimal MemoryChunk with controllable traces and situation embedding."""
+    """Minimal MemoryChunk with controllable traces and conversation embedding."""
     return MemoryChunk(
         id='test-chunk',
         type='gate_outcome',
@@ -40,7 +39,7 @@ def _make_chunk(traces: list[int], embedding: list[float] | None = None) -> Memo
         task_type='proj',
         outcome='approve',
         traces=traces,
-        embedding_situation=embedding,
+        embedding_conversation=embedding,
     )
 
 
@@ -253,47 +252,6 @@ class TestSingleSurvivorPreservesSignal(unittest.TestCase):
         )
 
 
-class TestSingleCompositeScoreUsesTanh(unittest.TestCase):
-    """tanh formula also applies to single_composite_score (blended embedding path)."""
-
-    def test_single_composite_score_activation_uses_tanh(self):
-        """single_composite_score activation term equals tanh(B - τ) at activation_weight=1."""
-        chunk = _make_chunk(traces=[99], embedding=[1.0, 0.0])
-        chunk.embedding_blended = [1.0, 0.0]
-        b = base_level_activation(chunk.traces, 100)
-        tau = RETRIEVAL_THRESHOLD
-        expected = math.tanh(b - tau)
-
-        # No blended context → semantic = 0; s=0 → no noise
-        score = single_composite_score(chunk, [], 100,
-                                       activation_weight=1.0, semantic_weight=0.0, s=0.0)
-        self.assertAlmostEqual(
-            score, expected, places=10,
-            msg=f'single_composite_score with activation_weight=1 must equal '
-                f'tanh(B - τ) = {expected:.6f}; got {score:.6f}',
-        )
-
-    def test_single_survivor_blended_scores_differ_by_activation(self):
-        """In single-embedding mode, two chunks with different B produce different scores.
-
-        age=1 → B=0.0 (strong), age=2 → B≈-0.347 (weak, but above τ=-0.5).
-        """
-        current = 10
-        chunk_recent = _make_chunk(traces=[9])  # age=1, B=0
-        chunk_older = _make_chunk(traces=[8])   # age=2, B≈-0.347
-
-        score_recent = single_composite_score(chunk_recent, [], current,
-                                              activation_weight=1.0, semantic_weight=0.0, s=0.0)
-        score_older = single_composite_score(chunk_older, [], current,
-                                             activation_weight=1.0, semantic_weight=0.0, s=0.0)
-
-        self.assertGreater(
-            score_recent, score_older,
-            msg=f'Recent chunk (age=1, B=0) must outscore older chunk (age=2, B≈-0.347); '
-                f'score_recent={score_recent:.6f}, score_older={score_older:.6f}',
-        )
-
-
 class TestSignatureCleanup(unittest.TestCase):
     """b_min and b_max parameters are removed from the scoring functions.
 
@@ -313,19 +271,6 @@ class TestSignatureCleanup(unittest.TestCase):
         self.assertNotIn(
             'b_max', params,
             msg=f'composite_score must not accept b_max; found params: {params}',
-        )
-
-    def test_single_composite_score_has_no_b_min_b_max_parameters(self):
-        """single_composite_score must not accept b_min or b_max parameters."""
-        sig = inspect.signature(single_composite_score)
-        params = list(sig.parameters.keys())
-        self.assertNotIn(
-            'b_min', params,
-            msg=f'single_composite_score must not accept b_min; found params: {params}',
-        )
-        self.assertNotIn(
-            'b_max', params,
-            msg=f'single_composite_score must not accept b_max; found params: {params}',
         )
 
     def test_normalize_activation_is_removed(self):

@@ -376,8 +376,43 @@ def retrieve_bm25(conn: sqlite3.Connection, query: str, top_k: int = 5) -> list[
 
 # ── Embedding retrieval (optional) ────────────────────────────────────────────
 
+_OLLAMA_PROBE_RESULT: bool | None = None
+
+
+def _ollama_host() -> str:
+    """Return the Ollama base URL (default `http://localhost:11434`)."""
+    host = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
+    if not host.startswith("http"):
+        host = f"http://{host}"
+    return host
+
+
+def _ollama_available() -> bool:
+    """Probe Ollama once per process; cache the result.
+
+    A 0.5s timeout against `/api/tags` is enough to detect a running daemon
+    on localhost without slowing startup when Ollama isn't installed.
+    """
+    global _OLLAMA_PROBE_RESULT
+    if _OLLAMA_PROBE_RESULT is not None:
+        return _OLLAMA_PROBE_RESULT
+    try:
+        import urllib.request
+        req = urllib.request.Request(f"{_ollama_host()}/api/tags", method="GET")
+        with urllib.request.urlopen(req, timeout=0.5) as resp:
+            _OLLAMA_PROBE_RESULT = (resp.status == 200)
+    except Exception:
+        _OLLAMA_PROBE_RESULT = False
+    return _OLLAMA_PROBE_RESULT
+
+
 def detect_provider() -> tuple[str, str]:
-    """Detect which embedding provider would be used. Returns (provider, model)."""
+    """Detect which embedding provider would be used. Returns (provider, model).
+
+    Order of preference: local Ollama (free, fast) → OpenAI → Gemini → none.
+    """
+    if _ollama_available():
+        return ("ollama", "nomic-embed-text")
     if os.environ.get("OPENAI_API_KEY", ""):
         return ("openai", "text-embedding-3-small")
     if os.environ.get("GOOGLE_API_KEY", "") or os.environ.get("GEMINI_API_KEY", ""):
@@ -386,7 +421,7 @@ def detect_provider() -> tuple[str, str]:
 
 
 def try_embed(text: str, conn: sqlite3.Connection | None = None, provider: str = "", model: str = "") -> list[float] | None:
-    """Try to embed text using OpenAI → Gemini → None. Uses embedding_cache if conn provided."""
+    """Try to embed text using Ollama → OpenAI → Gemini → None. Uses embedding_cache if conn provided."""
     text_hash = hashlib.sha256(text.encode()).hexdigest()
 
     # Check cache first
@@ -405,18 +440,42 @@ def try_embed(text: str, conn: sqlite3.Connection | None = None, provider: str =
     actual_provider = ""
     actual_model = ""
 
-    api_key = os.environ.get("OPENAI_API_KEY", "")
-    if api_key:
+    if _ollama_available():
         try:
-            import openai  # type: ignore
-            client = openai.OpenAI(api_key=api_key)
-            m = "text-embedding-3-small"
-            resp = client.embeddings.create(model=m, input=text)
-            embedding = resp.data[0].embedding
-            actual_provider = "openai"
-            actual_model = m
+            import urllib.request
+            payload = json.dumps({
+                "model": "nomic-embed-text",
+                "prompt": text,
+            }).encode("utf-8")
+            req = urllib.request.Request(
+                f"{_ollama_host()}/api/embeddings",
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                vec = data.get("embedding")
+                if vec:
+                    embedding = vec
+                    actual_provider = "ollama"
+                    actual_model = "nomic-embed-text"
         except Exception:
             pass
+
+    if embedding is None:
+        api_key = os.environ.get("OPENAI_API_KEY", "")
+        if api_key:
+            try:
+                import openai  # type: ignore
+                client = openai.OpenAI(api_key=api_key)
+                m = "text-embedding-3-small"
+                resp = client.embeddings.create(model=m, input=text)
+                embedding = resp.data[0].embedding
+                actual_provider = "openai"
+                actual_model = m
+            except Exception:
+                pass
 
     if embedding is None:
         g_key = os.environ.get("GOOGLE_API_KEY", "") or os.environ.get("GEMINI_API_KEY", "")
