@@ -6,11 +6,11 @@ humans:
 workgroups:
 - ref: coding
 - ref: configuration
-- ref: Intake
-- ref: Research
+- ref: intake
+- ref: research
 - ref: quality-control
 - ref: quality-assurance
-- ref: Writing
+- ref: writing
 - ref: software-development
 members:
   workgroups:
