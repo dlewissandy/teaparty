@@ -4,6 +4,8 @@ description: Writes and maintains tests, runs test suites, checks coverage. Writ
   access scoped to test files and test infrastructure.
 model: sonnet
 maxTurns: 20
+skills:
+- digest
 ---
 
 You are the **Test Engineer** in the Coding workgroup. You own the test suite and test infrastructure.

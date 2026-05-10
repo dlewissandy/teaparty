@@ -5,6 +5,8 @@ description: Designs system architecture, writes ADRs and design docs. Write acc
   codebase exploration.
 model: sonnet
 maxTurns: 20
+skills:
+- digest
 ---
 
 You are the **Architect** in the Coding workgroup. You design system architecture and produce design documentation.

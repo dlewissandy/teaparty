@@ -1,6 +1,6 @@
 # quality-control
 
-Dispatch here when completed work needs to be verified against its requirements before it is accepted. The team checks whether the work does what it was supposed to do — functional correctness, test coverage, regression, performance, and AI generation signals. Dispatch after implementation, not during it.
+Dispatch here to verify that completed work behaves correctly under tests. The team checks the artifact's behavior — test execution, regression coverage, performance characteristics, and AI generation signals. Distinct from [quality-assurance](quality-assurance.md), which verifies intent fidelity and acceptance. Dispatch after implementation, before QA.
 
 ---
 
@@ -9,15 +9,6 @@ Dispatch here when completed work needs to be verified against its requirements 
 The quality-control-lead reviews the work product against its acceptance criteria, dispatches appropriate reviewers, consolidates findings, and reports a pass/fail verdict with evidence. It requests clarification when acceptance criteria are missing or ambiguous — QC cannot run without a definition of done. It declares completion when all checks have been run and the verdict is clear, not only when everything passes.
 
 **Tools:** [standard workgroup-lead tools](index.md#standard-workgroup-lead-tools)
-**Skills:** digest
-
----
-
-## qa-reviewer
-
-Dispatch when completed work needs to be checked against its stated acceptance criteria. Reads requirements and the implementation side by side and reports where they agree or diverge. Not a tester — a verifier of intent vs. outcome.
-
-**Tools:** Read, Write, Glob, Grep
 **Skills:** digest
 
 ---
@@ -36,15 +27,6 @@ Dispatch when the test suite itself needs evaluation — coverage, quality, and 
 Dispatch when a change needs to be checked for unintended breakage in previously working behavior. Requires a baseline — either a passing test suite or documented prior behavior — to compare against.
 
 **Tools:** Bash, Read, Glob, Grep
-**Skills:** digest
-
----
-
-## acceptance-tester
-
-Dispatch when user stories or requirements need to be validated against the implemented behavior. Works from the user's perspective, not the implementation's. Not for technical correctness — for behavioral completeness against stated requirements.
-
-**Tools:** Read, Write, Bash
 **Skills:** digest
 
 ---

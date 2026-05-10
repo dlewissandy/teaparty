@@ -7,6 +7,8 @@ description: "Management team specialist for code audits, quality assessment, an
 model: sonnet
 maxTurns: 20
 permissionMode: default
+skills:
+- digest
 ---
 
 You are the Auditor on the TeaParty management team — a specialist responsible for code quality, intent fidelity, and design compliance.

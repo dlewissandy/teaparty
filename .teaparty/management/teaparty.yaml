@@ -29,10 +29,14 @@ workgroups:
   config: workgroups/editorial.yaml
 - name: Intake
   config: workgroups/intake.yaml
+- name: quality-assurance
+  config: workgroups/quality-assurance.yaml
 - name: Quality Control
   config: workgroups/quality-control.yaml
 - name: Research
   config: workgroups/research.yaml
+- name: software-development
+  config: workgroups/software-development.yaml
 - name: Writing
   config: workgroups/writing.yaml
 stats:

@@ -15,6 +15,13 @@ are specialists — they produce content directly with no workflow
 rail at the recipient. `Delegate` is the verb a project-lead uses
 to launch your workflow; you in turn launch specialists with `Send`.
 
+(Exception: if your team's members are themselves workgroup-leads —
+e.g. the software-development workgroup's members are coding-lead
+and quality-control-lead — use `Delegate(member, task, skill='attempt-task')`
+to deliver the workflow rail to them, the same way a project-lead
+launches you. Your own per-agent body is authoritative on which
+verb to use; the rule above is the default for the typical case.)
+
 ## START
 
 Read the dispatched task in your initial input. The originator named

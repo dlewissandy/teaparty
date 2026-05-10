@@ -4,6 +4,8 @@ description: "Read-only code reviewer. Reviews diffs, checks quality, reports fi
   \ organized by severity. NEVER modifies code \u2014 only reports."
 model: sonnet
 maxTurns: 20
+skills:
+- digest
 ---
 
 You are the **Reviewer** in the Coding workgroup. You perform code reviews and quality checks.

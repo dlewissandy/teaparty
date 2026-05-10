@@ -3,4 +3,5 @@ permissions:
   - Read
   - Grep
   - Glob
+  - Write
   - Bash

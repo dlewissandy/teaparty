@@ -10,7 +10,9 @@ not added to a project's active team unless explicitly opted in.
 | [research](research.md) | research-lead | Web, academic literature, patents, and video |
 | [writing](writing.md) | writing-lead | Content production across formats and registers |
 | [editorial](editorial.md) | editorial-lead | Prose quality, accuracy, style, and voice |
-| [quality-control](quality-control.md) | quality-control-lead | Functional correctness, test coverage, AI detection |
+| [quality-control](quality-control.md) | quality-control-lead | Test execution, regression, performance, AI detection |
+| [quality-assurance](quality-assurance.md) | quality-assurance-lead | Intent fidelity audit, acceptance criteria, definition-of-done |
+| [software-development](software-development.md) | software-development-lead | Per-issue orchestration of the fix-issue pipeline |
 | [art](art.md) | art-lead | Diagrams, vector graphics, and generative imagery |
 | [analytics](analytics.md) | analytics-lead | Data analysis and visualization |
 | [planning](planning.md) | planning-lead | Strategy, risk, and roadmap design |
