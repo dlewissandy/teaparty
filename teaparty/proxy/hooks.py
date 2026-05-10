@@ -124,6 +124,22 @@ def _context_embeddings_for(
     )
 
 
+_ESCALATION_FLAG = 'TEAPARTY_RECORD_ESCALATIONS'
+
+
+def _record_escalations_enabled() -> bool:
+    """Whether to capture every AskQuestion → answer cycle as a chunk (#432).
+
+    Off by default: the curated `[CORRECTION:...]`/`[REINFORCE:...]` mechanism
+    is the primary path for memory growth.  Set TEAPARTY_RECORD_ESCALATIONS=1
+    to additionally record raw escalation transcripts as chunks; activation
+    decay handles long-term curation, but routine transcripts may crowd the
+    proxy's prompt context near-term.
+    """
+    val = os.environ.get(_ESCALATION_FLAG, '').strip().lower()
+    return val in ('1', 'true', 'yes', 'on')
+
+
 def record_escalation_chunk(
     *,
     question: str,
@@ -132,13 +148,15 @@ def record_escalation_chunk(
     infra_dir: str = '',
     qualifier: str = '',
 ) -> None:
-    """Record an AskQuestion → answer interaction as a memory chunk (#432).
+    """Record an AskQuestion → answer interaction as a memory chunk.
 
-    Fires after the proxy returns from an escalation.  The conversation text
-    is the question + answer pair — the §7 [ask] / [respond] cycle the
-    spec describes.  Without this, the proxy's "memory of the human" never
-    grows from the routine interaction the protocol is built around.
+    Off by default; gated on `TEAPARTY_RECORD_ESCALATIONS`.  When enabled,
+    fires after the proxy returns from an escalation.  The conversation
+    embedding holds the question+answer dialog so cosine retrieval can
+    match similar past questions to the current one.
     """
+    if not _record_escalations_enabled():
+        return
     if not question or not answer:
         return
     from teaparty.proxy.memory import (
@@ -188,6 +206,7 @@ def proxy_post_invoke(response_text: str, session: AgentSession) -> None:
     """
     from teaparty.proxy.memory import (
         MemoryChunk,
+        _default_embed,
         add_trace,
         get_chunk,
         increment_interaction_counter,
@@ -205,7 +224,17 @@ def proxy_post_invoke(response_text: str, session: AgentSession) -> None:
 
     conn = open_proxy_db(mem_path)
     try:
-        ctx = _context_embeddings_for(session, conn, latest_turn=response_text)
+        # Job and project come from session context.  Conversation embedding
+        # is the correction text itself — that's the semantic signal cosine
+        # retrieval needs to match against future related queries (#432).
+        # Embedding the surrounding session conversation would tie the
+        # chunk to the session topic instead of the correction's topic,
+        # weakening cross-session retrieval.
+        embed = _default_embed(conn)
+        job_text = _read_prompt_text(getattr(session, 'infra_dir', '') or '')
+        project_text = _read_project_description(getattr(session, 'teaparty_home', '') or '')
+        emb_job = embed(job_text) if job_text else None
+        emb_project = embed(project_text) if project_text else None
         for correction_text in corrections:
             correction_text = correction_text.strip()
             if not correction_text:
@@ -221,9 +250,9 @@ def proxy_post_invoke(response_text: str, session: AgentSession) -> None:
                 outcome='correction',
                 content=correction_text,
                 traces=traces,
-                embedding_conversation=ctx.get('conversation'),
-                embedding_job=ctx.get('job'),
-                embedding_project=ctx.get('project'),
+                embedding_conversation=embed(correction_text),
+                embedding_job=emb_job,
+                embedding_project=emb_project,
             )
             store_chunk(conn, chunk)
             _log.info('Recorded review correction %s', chunk_id[:8])

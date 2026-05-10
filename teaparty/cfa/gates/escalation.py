@@ -220,12 +220,10 @@ class AskQuestionRunner:
             _log.exception('Error routing AskQuestion through proxy')
             answer = ''
 
-        # Issue #432 — record the escalation as a memory chunk so the
-        # proxy's "memory of the human" (§7) grows from each routine
-        # interaction, not only from withdrawals and `[CORRECTION:...]`
-        # markers.  The chunk's three retrieval embeddings are populated
-        # from the question+answer dialog (conversation), the job's
-        # PROMPT.txt (job), and the project's project.yaml (project).
+        # Issue #432 — optional raw-transcript recording, gated on
+        # TEAPARTY_RECORD_ESCALATIONS.  Off by default; the curated
+        # [CORRECTION:...]/[REINFORCE:...] mechanism is the primary path
+        # for memory growth.
         try:
             from teaparty.proxy.hooks import record_escalation_chunk
             record_escalation_chunk(

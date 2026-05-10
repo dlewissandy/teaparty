@@ -544,79 +544,77 @@ class TestRecordingSitePopulatesEmbeddings(unittest.TestCase):
         finally:
             self._restore_default_embed()
 
-    def test_escalation_recording_populates_three_embeddings(self):
-        """Every AskQuestion → answer cycle stores a chunk with all three embeddings.
+    def test_correction_embeds_correction_text_not_session_conversation(self):
+        """A CORRECTION chunk's conversation embedding must come from the correction text.
 
-        Per §7 of cfa-engineering.md, escalation is the primary proxy-human
-        interaction.  Without recording at this site, the proxy's memory
-        only grows from withdrawals and [CORRECTION:...] markers — neither
-        of which fires on the routine case.
+        Embedding the surrounding session conversation would tie the chunk
+        to its session topic instead of its semantic content, weakening
+        cross-session retrieval — the case the curated CORRECTION mechanism
+        is designed for.
         """
-        self._stub_default_embed()
+        proxy_hooks = self._stub_default_embed()
+        # Replace the stub with one that returns distinct vectors per text
+        # so we can verify which text was embedded into the conversation slot.
+        from teaparty.proxy import memory as proxy_memory
+        embed_calls: list = []
+
+        def _tracking_embed(conn):
+            def _e(text: str):
+                embed_calls.append(text)
+                return [float(len(text)), 0.0]
+            return _e
+
+        proxy_memory._default_embed = _tracking_embed
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 teaparty_home = os.path.join(tmp, '.teaparty')
                 proxy_dir = os.path.join(teaparty_home, 'proxy')
-                project_dir = os.path.join(teaparty_home, 'project')
                 os.makedirs(proxy_dir)
-                os.makedirs(project_dir)
-                with open(os.path.join(project_dir, 'project.yaml'), 'w') as fh:
-                    fh.write('description: a test project\n')
-                infra_dir = os.path.join(tmp, 'job-test')
-                os.makedirs(infra_dir)
-                with open(os.path.join(infra_dir, 'PROMPT.txt'), 'w') as fh:
-                    fh.write('Please review this thing.')
 
-                from teaparty.proxy.hooks import record_escalation_chunk
-                record_escalation_chunk(
-                    question='Should we ship this plan?',
-                    answer='Yes — but add a rollback strategy first.',
-                    teaparty_home=teaparty_home,
-                    infra_dir=infra_dir,
-                    qualifier='session-123',
+                class _Session:
+                    qualifier = 'test'
+                    def get_messages(self):
+                        # Distinct from the correction text — if proxy_post_invoke
+                        # were embedding the session conversation, this would
+                        # show up as the conversation embedding source.
+                        from collections import namedtuple
+                        Msg = namedtuple('Msg', 'sender content')
+                        return [Msg('human', 'totally unrelated session topic')]
+                stub = _Session()
+                stub.teaparty_home = teaparty_home
+                stub.infra_dir = ''
+
+                proxy_hooks.proxy_post_invoke(
+                    '[CORRECTION: tests must use uv run pytest]', stub,
                 )
 
                 db_path = os.path.join(proxy_dir, '.proxy-memory.db')
                 conn = open_proxy_db(db_path)
                 try:
-                    chunks = query_chunks(conn, type='escalation')
+                    chunks = query_chunks(conn, type='review_correction')
                 finally:
                     conn.close()
-                self.assertEqual(
-                    len(chunks), 1,
-                    f'Expected exactly one escalation chunk; got {len(chunks)}',
-                )
+                self.assertEqual(len(chunks), 1)
                 c = chunks[0]
-                self.assertIsNotNone(
-                    c.embedding_conversation,
-                    'Escalation chunk must populate embedding_conversation '
-                    '(question + answer is the dialog that just happened)',
+                expected_vec = [float(len(c.content)), 0.0]
+                self.assertEqual(
+                    c.embedding_conversation, expected_vec,
+                    f'CORRECTION chunk embedding_conversation must be embed(content), '
+                    f'not embed(session conversation). content={c.content!r}; '
+                    f'expected vec for that text = {expected_vec}; got {c.embedding_conversation}',
                 )
-                self.assertIsNotNone(
-                    c.embedding_job,
-                    'Escalation chunk must populate embedding_job from PROMPT.txt',
-                )
-                self.assertIsNotNone(
-                    c.embedding_project,
-                    'Escalation chunk must populate embedding_project from project.yaml',
-                )
-                self.assertIn(
-                    'Should we ship this plan?', c.content,
-                    'Escalation chunk content must include the question for prompt serialization',
-                )
-                self.assertIn(
-                    'Yes — but add a rollback strategy first.', c.content,
-                    'Escalation chunk content must include the answer for prompt serialization',
+                # Negative-space: session-conversation text should not
+                # appear in the embed call for the conversation dim.
+                self.assertNotIn(
+                    'totally unrelated session topic', embed_calls,
+                    'Session conversation must NOT be embedded as the CORRECTION '
+                    "chunk's conversation vector — that would weaken cross-session retrieval.",
                 )
         finally:
             self._restore_default_embed()
 
-    def test_escalation_recording_skips_when_no_answer(self):
-        """An escalation that produced no answer (error path) does not write a chunk.
-
-        Negative-space check: a failed escalation should not corrupt memory
-        with empty content; the recording site short-circuits.
-        """
+    def test_escalation_chunks_off_by_default(self):
+        """Without TEAPARTY_RECORD_ESCALATIONS=1, no chunk is written."""
         self._stub_default_embed()
         try:
             with tempfile.TemporaryDirectory() as tmp:
@@ -624,12 +622,19 @@ class TestRecordingSitePopulatesEmbeddings(unittest.TestCase):
                 proxy_dir = os.path.join(teaparty_home, 'proxy')
                 os.makedirs(proxy_dir)
 
+                # Ensure the env flag is not set
+                env_clean = {
+                    k: v for k, v in os.environ.items()
+                    if k != 'TEAPARTY_RECORD_ESCALATIONS'
+                }
+                from unittest import mock
                 from teaparty.proxy.hooks import record_escalation_chunk
-                record_escalation_chunk(
-                    question='ignored',
-                    answer='',
-                    teaparty_home=teaparty_home,
-                )
+                with mock.patch.dict(os.environ, env_clean, clear=True):
+                    record_escalation_chunk(
+                        question='Should we ship?',
+                        answer='Yes.',
+                        teaparty_home=teaparty_home,
+                    )
 
                 db_path = os.path.join(proxy_dir, '.proxy-memory.db')
                 if os.path.isfile(db_path):
@@ -640,8 +645,50 @@ class TestRecordingSitePopulatesEmbeddings(unittest.TestCase):
                         conn.close()
                     self.assertEqual(
                         len(chunks), 0,
-                        f'Empty-answer escalation must not create a chunk; got {len(chunks)}',
+                        f'Escalation recording must be off by default; '
+                        f'got {len(chunks)} chunks',
                     )
+        finally:
+            self._restore_default_embed()
+
+    def test_escalation_chunks_on_when_flag_set(self):
+        """With TEAPARTY_RECORD_ESCALATIONS=1, every successful escalation records."""
+        self._stub_default_embed()
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                teaparty_home = os.path.join(tmp, '.teaparty')
+                proxy_dir = os.path.join(teaparty_home, 'proxy')
+                os.makedirs(proxy_dir)
+
+                from unittest import mock
+                from teaparty.proxy.hooks import record_escalation_chunk
+                with mock.patch.dict(
+                    os.environ, {'TEAPARTY_RECORD_ESCALATIONS': '1'}, clear=False,
+                ):
+                    record_escalation_chunk(
+                        question='Should we ship?',
+                        answer='Yes — but add rollback.',
+                        teaparty_home=teaparty_home,
+                    )
+
+                db_path = os.path.join(proxy_dir, '.proxy-memory.db')
+                conn = open_proxy_db(db_path)
+                try:
+                    chunks = query_chunks(conn, type='escalation')
+                finally:
+                    conn.close()
+                self.assertEqual(
+                    len(chunks), 1,
+                    f'Flag-on escalation must produce exactly one chunk; got {len(chunks)}',
+                )
+                self.assertIn(
+                    'Should we ship?', chunks[0].content,
+                    'Escalation chunk content must include the question',
+                )
+                self.assertIn(
+                    'Yes — but add rollback.', chunks[0].content,
+                    'Escalation chunk content must include the answer',
+                )
         finally:
             self._restore_default_embed()
 
