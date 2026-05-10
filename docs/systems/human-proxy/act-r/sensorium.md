@@ -137,29 +137,25 @@ The **salience embedding** is a new dimension. It captures *what changed between
 
 ## The Sensorium as Independent Embeddings
 
-Each percept dimension gets its own embedding, not one blended vector.
+Each chunk carries four embeddings: three rich retrieval dimensions plus the salience signal.
 
 | Dimension | What it captures | Example |
 |-----------|-----------------|---------|
-| **Situation** | Where in the process | PLAN_ASSERT, data-migration project |
-| **Artifact** | What the agent is reviewing | The plan content — structure, gaps, specifics |
-| **Stimulus** | What triggered the interaction | The gate question, the escalation, the observation |
-| **Response** | What the human did | The correction text, the approval, the dismissal |
+| **Conversation** | The dialog leading to the chunk's stimulus | Thread history through the latest turn |
+| **Job** | The larger intent being served | The PROMPT.txt for this job |
+| **Project** | The codebase and conventions | The project's `description:` field |
 | **Salience** | What changed between prior and posterior | The prediction delta — the surprise |
 
-The first four dimensions (situation, artifact, stimulus, response) are the **experience dimensions** — they participate in composite scoring during experience retrieval. Salience is retrieved independently via a dedicated `retrieve_salience()` function that queries only chunks with non-null salience embeddings. This separation means:
+The three retrieval dimensions (conversation, job, project) participate in the weighted-cosine composite (issue #432). Salience is retrieved independently via `retrieve_salience()` — a dedicated path that queries only chunks with non-null salience embeddings. This separation means:
 
-- Experience retrieval answers "what happened in similar situations?" using 4 dimensions
-- Salience retrieval answers "when has the proxy been surprised in ways relevant to this situation?" using a context vector constructed from the artifact + situation
-
+- Experience retrieval answers "what happened in similar situations?" via the conversation/job/project cosine.
+- Salience retrieval answers "when has the proxy been surprised in ways relevant to this situation?" via the prediction-delta vector.
 
 A new interaction can match on:
 
-- Situation alone: "What happens at PLAN_ASSERT?" (high fan, weak signal)
-- Situation plus artifact: "What happens at PLAN_ASSERT when the plan has gaps?" (lower fan, stronger signal)
+- Conversation alone: "Have we just been discussing this kind of thing?" (dominant signal at retrieval time, weight 0.9)
+- Conversation plus project: "Has this come up in this codebase before?" (project tiebreaker, weight 0.05)
 - Salience (independent query): "When has the proxy been surprised by missing safety mechanisms?" (specific, cross-cutting)
-
-For experience retrieval, cosine similarity across the 4 experience dimensions is summed and divided by 4 (the full count, not the populated count). See [mapping.md](mapping.md). This rewards breadth of matching: chunks matching across more experience dimensions score higher than chunks matching narrowly on fewer.
 
 ---
 
@@ -210,7 +206,7 @@ Generate: revised prediction, confidence, what changed and why
 
 ### Cost
 
-Two LLM calls instead of one. At every gate where the proxy runs. This is a real cost increase. Roughly 2x the proxy's current LLM spend. Embedding costs add up to 5 API calls per chunk creation, plus retrieval-time embedding of the current context. These embedding costs are small relative to LLM generation calls but should be tracked in the cost budget.
+Two LLM calls instead of one. At every gate where the proxy runs. This is a real cost increase. Roughly 2x the proxy's current LLM spend. Embedding costs add up to 4 API calls per chunk creation (conversation, job, project, salience-when-present), plus retrieval-time embedding of the current context's three dimensions. These embedding costs are small relative to LLM generation calls but should be tracked in the cost budget.
 
 It is worth it. If the proxy is standing in for the human on important decisions, understanding *what it's looking at and why* is not a luxury. It is the mechanism by which the proxy earns trust: not "I got the right answer" but "I got the right answer because I was looking at the right things."
 

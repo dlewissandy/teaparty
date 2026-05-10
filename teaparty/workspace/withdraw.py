@@ -196,19 +196,30 @@ def _record_withdrawal_memory_chunk(session: SessionState, phase: str) -> None:
 
         conn = open_proxy_db(db_path)
         try:
-            from teaparty.proxy.hooks import _context_embeddings_for
-            ctx = _context_embeddings_for(session, conn)
+            from teaparty.proxy.hooks import (
+                _embed_context, _read_prompt_text, _read_project_description,
+            )
+            content = (
+                f'Human withdrew session during {phase} phase. '
+                f'Task: {session.task or "(unknown)"}. '
+                f'CfA state at withdrawal: {session.cfa_state or "unknown"}.'
+            )
+            # SessionState is a dataclass with infra_dir but no AgentSession
+            # message log; the chunk's content text serves as the conversation
+            # signal here — it summarizes the moment the withdraw fired.
+            ctx = _embed_context(
+                conn,
+                conversation_text=content,
+                job_text=_read_prompt_text(session.infra_dir or ''),
+                project_text=_read_project_description(teaparty_home),
+            )
             chunk = MemoryChunk(
                 id=str(uuid.uuid4()),
                 type='withdrawal',
                 state=session.cfa_state or 'UNKNOWN',
                 task_type=session.project or '',
                 outcome='withdrawn',
-                content=(
-                    f'Human withdrew session during {phase} phase. '
-                    f'Task: {session.task or "(unknown)"}. '
-                    f'CfA state at withdrawal: {session.cfa_state or "unknown"}.'
-                ),
+                content=content,
                 embedding_conversation=ctx.get('conversation'),
                 embedding_job=ctx.get('job'),
                 embedding_project=ctx.get('project'),

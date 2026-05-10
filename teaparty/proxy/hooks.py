@@ -42,89 +42,86 @@ def proxy_bus_path(teaparty_home: str) -> str:
     return os.path.join(proxy_home(teaparty_home), 'proxy-messages.db')
 
 
-def _read_job_text(session: AgentSession) -> str:
-    """Return the job's PROMPT.txt contents when available (#432).
-
-    Sessions without a job (top-level chat, steering) get an empty string.
-    """
-    infra = getattr(session, 'infra_dir', None)
-    if not infra:
+def _read_prompt_text(infra_dir: str) -> str:
+    """Return the contents of {infra_dir}/PROMPT.txt or '' (#432)."""
+    if not infra_dir:
         return ''
-    prompt_path = os.path.join(infra, 'PROMPT.txt')
-    if not os.path.isfile(prompt_path):
+    path = os.path.join(infra_dir, 'PROMPT.txt')
+    if not os.path.isfile(path):
         return ''
-    try:
-        with open(prompt_path, encoding='utf-8') as fh:
-            return fh.read().strip()
-    except OSError:
-        return ''
+    with open(path, encoding='utf-8') as fh:
+        return fh.read().strip()
 
 
-def _read_project_text(session: AgentSession) -> str:
-    """Return the project's description from .teaparty/project/project.yaml (#432)."""
-    home = getattr(session, 'teaparty_home', None)
-    if not home:
+def _read_project_description(teaparty_home: str) -> str:
+    """Return the project description from {teaparty_home}/project/project.yaml or '' (#432)."""
+    if not teaparty_home:
         return ''
-    yaml_path = os.path.join(home, 'project', 'project.yaml')
-    if not os.path.isfile(yaml_path):
+    path = os.path.join(teaparty_home, 'project', 'project.yaml')
+    if not os.path.isfile(path):
         return ''
-    try:
-        with open(yaml_path, encoding='utf-8') as fh:
-            for line in fh:
-                stripped = line.strip()
-                if stripped.startswith('description:'):
-                    return stripped.split(':', 1)[1].strip().strip('"\'')
-    except OSError:
-        pass
+    with open(path, encoding='utf-8') as fh:
+        for line in fh:
+            stripped = line.strip()
+            if stripped.startswith('description:'):
+                return stripped.split(':', 1)[1].strip().strip('"\'')
     return ''
 
 
 def _build_conversation_text(session: AgentSession, latest_turn: str = '') -> str:
-    """Compose the conversation history text used for the conversation embedding (#432)."""
-    try:
-        messages = list(session.get_messages())
-    except Exception:
-        messages = []
-    lines = []
-    for msg in messages:
-        sender = getattr(msg, 'sender', '') or ''
-        content = getattr(msg, 'content', '') or ''
-        if not content:
-            continue
-        lines.append(f'{sender}: {content}')
+    """Compose conversation history text for an AgentSession (#432).
+
+    Returns '' if `session` doesn't expose `get_messages` (e.g. a SessionState
+    dataclass).  Callers that have only `infra_dir` should compute conversation
+    text another way and pass it directly to `_embed_context`.
+    """
+    lines: list[str] = []
+    if hasattr(session, 'get_messages'):
+        for msg in session.get_messages():
+            sender = getattr(msg, 'sender', '') or ''
+            content = getattr(msg, 'content', '') or ''
+            if content:
+                lines.append(f'{sender}: {content}')
     if latest_turn:
         lines.append(f'human: {latest_turn}')
     return '\n'.join(lines)
 
 
-def _context_embeddings_for(
-    session: AgentSession, conn, latest_turn: str = '',
+def _embed_context(
+    conn, *, conversation_text: str = '', job_text: str = '', project_text: str = '',
 ) -> dict[str, list[float]]:
-    """Build the three-dim query embedding dict for retrieval (#432).
+    """Embed the three context texts into a `context_embeddings` dict (#432).
 
-    Each dimension is included only when its source text is non-empty
-    AND the embedding call returns a vector.  Missing dimensions
-    contribute nothing to cosine; chunks fall back to activation alone.
+    A dimension is included only when its source text is non-empty AND the
+    embedding call returns a vector.  Missing dimensions contribute nothing
+    to cosine; chunks fall back to activation alone.
     """
     from teaparty.proxy.memory import _default_embed
     embed = _default_embed(conn)
     ctx: dict[str, list[float]] = {}
-    conv_text = _build_conversation_text(session, latest_turn=latest_turn)
-    if conv_text:
-        vec = embed(conv_text)
+    for name, text in (
+        ('conversation', conversation_text),
+        ('job', job_text),
+        ('project', project_text),
+    ):
+        if not text:
+            continue
+        vec = embed(text)
         if vec:
-            ctx['conversation'] = vec
-    job_text = _read_job_text(session)
-    if job_text:
-        vec = embed(job_text)
-        if vec:
-            ctx['job'] = vec
-    project_text = _read_project_text(session)
-    if project_text:
-        vec = embed(project_text)
-        if vec:
-            ctx['project'] = vec
+            ctx[name] = vec
     return ctx
+
+
+def _context_embeddings_for(
+    session: AgentSession, conn, latest_turn: str = '',
+) -> dict[str, list[float]]:
+    """Build the three-dim query embedding dict for an AgentSession (#432)."""
+    return _embed_context(
+        conn,
+        conversation_text=_build_conversation_text(session, latest_turn=latest_turn),
+        job_text=_read_prompt_text(getattr(session, 'infra_dir', '') or ''),
+        project_text=_read_project_description(getattr(session, 'teaparty_home', '') or ''),
+    )
 
 
 def proxy_post_invoke(response_text: str, session: AgentSession) -> None:
