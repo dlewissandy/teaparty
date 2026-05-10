@@ -394,127 +394,141 @@ class TestSoftwareDevelopmentLeadPipelineEncoding(unittest.TestCase):
     """The lead's body must name every hop literally so a future
     refactor or template-restamp cannot silently drop a step."""
 
+    # The pipeline definition moved out of agent.md and into the
+    # ``fix-issue`` skill graph in #430.  These two tests still pin
+    # the same #428 invariants (per-hop determinism + canonical
+    # ordering) but their substrate is now the phase files of
+    # ``.teaparty/management/skills/fix-issue/`` instead of the lead's
+    # agent.md body.  agent.md only orients the lead at the skill
+    # entry; the hops live in the graph.
+
+    FIX_ISSUE_SKILL_DIR = os.path.join(MGMT_SKILLS, 'fix-issue')
+
+    @staticmethod
+    def _phase_bodies():
+        bodies = []
+        for fname in sorted(os.listdir(
+                TestSoftwareDevelopmentLeadPipelineEncoding.FIX_ISSUE_SKILL_DIR
+        )):
+            if not fname.startswith('phase-') or not fname.endswith('.md'):
+                continue
+            path = os.path.join(
+                TestSoftwareDevelopmentLeadPipelineEncoding.FIX_ISSUE_SKILL_DIR,
+                fname,
+            )
+            with open(path, 'r') as f:
+                bodies.append((fname, f.read()))
+        return bodies
+
     def test_each_delegate_call_carries_its_own_skill_kwarg_in_call_args(self):
-        """AC3: the determinism guarantee is *per hop*.  Every
-        ``Delegate(target, ...)`` call in the body must have its
-        ``skill='...'`` argument inside its own argument list — not
-        elsewhere in the body, not in a separate prose paragraph.
+        """AC3 (post-#430): the determinism guarantee is *per hop*.
+        Every ``Delegate(target, ...)`` call in any fix-issue phase
+        file must have its ``skill='attempt-task'`` argument inside
+        its own argument list — not elsewhere in the body, not in a
+        separate prose paragraph.  Without it, the recipient does
+        not run the standard workgroup-lead workflow on launch and
+        the pipeline becomes non-deterministic.
+        """
+        bodies = self._phase_bodies()
+        self.assertGreater(
+            len(bodies), 0,
+            f'no phase-*.md files found in {self.FIX_ISSUE_SKILL_DIR}',
+        )
 
-        Counted by call site so a naked round-2 ``Delegate(coding-lead,
-        <findings>)`` cannot ride on round-1's ``skill='attempt-task'``
-        substring.  Counted exactly so an extra unintended
-        ``Delegate(target, ...)`` is also flagged.
-
-        This addresses audit finding #1 — the prior whole-body
-        substring scan accepted naked Delegate calls and free-floating
-        ``skill='...'`` strings."""
-        _, body = _read_frontmatter_and_body(LEAD_AGENT_MD)
-        body_norm = _normalize_dashes(body)
-
-        # Expected (target, skill) -> count of calls with that exact
-        # binding.  Post-redesign every hop uses skill='attempt-task'
-        # uniformly (no special cases): coding (twice -- round 1 and
-        # conditional round 2), QC, QA, and writing (conditional).
-        expected_bindings = {
-            ('coding-lead', 'attempt-task'): 2,
-            ('quality-control-lead', 'attempt-task'): 1,
-            ('quality-assurance-lead', 'attempt-task'): 1,
-            ('writing-lead', 'attempt-task'): 1,
-        }
-
-        for (target, skill), expected_count in expected_bindings.items():
-            bound_matches = []
-            naked_count = 0
+        violations: list[str] = []
+        for fname, body in bodies:
+            body_norm = _normalize_dashes(body)
             pos = 0
             while True:
-                idx = body_norm.find(f'Delegate({target}', pos)
+                idx = body_norm.find('Delegate(', pos)
                 if idx == -1:
                     break
-                # Find the closing ')' of this call.  Markdown allows
-                # nested parens in prose like (e.g. <findings>) so we
-                # take the first matching ')' after the call's open.
                 end = body_norm.find(')', idx)
                 call = (
                     body_norm[idx:end + 1] if end != -1 else body_norm[idx:]
                 )
-                if (f"skill='{skill}'" in call
-                        or f'skill="{skill}"' in call):
-                    bound_matches.append(idx)
-                else:
-                    naked_count += 1
+                # Phase files reference Delegate calls in two ways:
+                # the *imperative* form (``Delegate(coding-lead, ...)``,
+                # an instruction the agent runs) and the *descriptive*
+                # form when prose mentions a delegate idiom in passing.
+                # Both must carry the skill kwarg, otherwise a future
+                # author reading the prose copy-pastes a naked call.
+                if (
+                    "skill='attempt-task'" not in call
+                    and 'skill="attempt-task"' not in call
+                ):
+                    violations.append(f'{fname}: naked call near {call[:80]!r}')
                 pos = idx + 1
 
-            self.assertEqual(
-                len(bound_matches), expected_count,
-                f"expected {expected_count} Delegate({target}, ..., "
-                f"skill='{skill}') call(s) with the skill kwarg bound "
-                f"to the call's own argument list; found "
-                f'{len(bound_matches)} bound and {naked_count} naked '
-                f'(skill kwarg missing or wrong inside the call args).  '
-                f'The determinism guarantee is per-hop: every call '
-                f'must carry its own skill prefix.',
+        self.assertEqual(
+            violations, [],
+            'Naked Delegate(...) calls in fix-issue skill phase files '
+            "(missing skill='attempt-task' inside the call's argument "
+            'list):\n' + '\n'.join(f'  {v}' for v in violations),
+        )
+
+    def test_phase_targets_match_canonical_ordering(self):
+        """AC3 (post-#430): the canonical hop ordering.  In the
+        fix-issue skill graph, tests precede fix (failing tests
+        first), audit follows fix and self-review (review tested,
+        implemented code), and the audit phase is the only one that
+        delegates to quality-assurance-lead.
+        """
+        bodies = self._phase_bodies()
+        # Map each phase file -> the (single) lead it targets.
+        target_by_phase: dict[str, str] = {}
+        for fname, body in bodies:
+            body_norm = _normalize_dashes(body)
+            for lead in (
+                'coding-lead',
+                'quality-control-lead',
+                'quality-assurance-lead',
+                'writing-lead',
+            ):
+                if f'Delegate({lead}' in body_norm:
+                    target_by_phase.setdefault(fname, lead)
+                    break
+
+        # Every substantive phase delegates to exactly one lead.
+        for fname, _ in bodies:
+            self.assertIn(
+                fname, target_by_phase,
+                f'phase file {fname} does not name any '
+                f'Delegate(<lead>, ...) target — every substantive '
+                'phase file must dispatch to a workgroup-lead.',
             )
 
-    def test_body_orders_hops_coding_qc_qa_then_round2_then_writing(self):
-        """AC3 (post-redesign): the order matters.  QC must precede
-        QA (so QA reviews tested code).  QA must precede round-2
-        Coding (so the second round consumes QA findings).  Writing
-        comes last (so docs reflect the final, audit-clean state).
-
-        Verified by index, not by re-spelling the sequence in
-        prose.  A refactor that silently re-orders the hops would
-        fail this test."""
-        _, body = _read_frontmatter_and_body(LEAD_AGENT_MD)
-        body_norm = _normalize_dashes(body)
-
-        first_coding = body_norm.find("Delegate(coding-lead")
-        first_qc = body_norm.find("Delegate(quality-control-lead")
-        qa_idx = body_norm.find("Delegate(quality-assurance-lead")
-        writing_idx = body_norm.find("Delegate(writing-lead")
-        # Round-2 coding = next coding-lead occurrence after the first.
-        if first_coding == -1:
-            second_coding = -1
-        else:
-            second_coding = body_norm.find(
-                "Delegate(coding-lead", first_coding + 1,
-            )
-
-        for label, idx in (
-            ('first coding-lead', first_coding),
-            ('quality-control-lead', first_qc),
-            ('quality-assurance-lead', qa_idx),
-            ('round-2 coding-lead', second_coding),
-            ('writing-lead', writing_idx),
+        # Canonical phases that must exist.
+        for required in (
+            'phase-understand.md',
+            'phase-risk.md',
+            'phase-tests.md',
+            'phase-fix.md',
+            'phase-resolution.md',
+            'phase-self-review.md',
+            'phase-audit.md',
         ):
-            self.assertGreater(
-                idx, -1,
-                f'agent.md body must contain the {label} dispatch; '
-                f'index search returned -1.  Each hop must appear '
-                f'in the body in order.',
+            self.assertIn(
+                required, target_by_phase,
+                f'fix-issue skill graph is missing {required}',
             )
 
-        self.assertLess(
-            first_coding, first_qc,
-            f'first coding-lead hop must precede quality-control-lead; '
-            f'got indices coding={first_coding}, qc={first_qc}.',
+        # Tests are written before the fix so the suite is failing
+        # when the fix lands (writing tests against existing code is
+        # decoration, not verification).
+        self.assertEqual(
+            target_by_phase['phase-tests.md'], 'quality-control-lead',
+            "phase-tests.md must Delegate to quality-control-lead "
+            '(failing-test specialist).',
         )
-        self.assertLess(
-            first_qc, qa_idx,
-            f'quality-control-lead hop must precede '
-            f'quality-assurance-lead (QA reviews tested code); '
-            f'got qc={first_qc}, qa={qa_idx}.',
+        self.assertEqual(
+            target_by_phase['phase-fix.md'], 'coding-lead',
+            'phase-fix.md must Delegate to coding-lead.',
         )
-        self.assertLess(
-            qa_idx, second_coding,
-            f'quality-assurance-lead hop must precede the round-2 '
-            f'coding-lead hop (round 2 consumes QA findings); '
-            f'got qa={qa_idx}, round2={second_coding}.',
-        )
-        self.assertLess(
-            second_coding, writing_idx,
-            f'round-2 coding-lead hop must precede writing-lead '
-            f'(docs reflect the final audit-clean state); '
-            f'got round2={second_coding}, writing={writing_idx}.',
+        self.assertEqual(
+            target_by_phase['phase-audit.md'], 'quality-assurance-lead',
+            'phase-audit.md must Delegate to quality-assurance-lead '
+            '(intent audit).',
         )
 
     def test_body_has_deliver_section_with_commit_and_reply_directives(self):
