@@ -29,14 +29,14 @@ NOISE_SCALE = 0.08
 RETRIEVAL_THRESHOLD = -0.5
 ACTIVATION_WEIGHT = 0.5
 SEMANTIC_WEIGHT = 0.5
-TOTAL_EMBEDDING_DIMENSIONS = 5  # All dimensions including salience (storage)
 
-# Experience dimensions — used for composite scoring (issue #227)
-EXPERIENCE_EMBEDDING_DIMENSIONS = 4
-EXPERIENCE_DIMS = ('situation', 'artifact', 'stimulus', 'response')
-
-# All embedding dimension names (including salience — used for storage)
-EMBEDDING_DIMS = ('situation', 'artifact', 'stimulus', 'response', 'salience')
+# Three-dimension cosine retrieval (issue #432). Conversation carries the
+# bulk of contextual signal at retrieval time; job and project add the
+# surrounding intent and the codebase identity.
+COSINE_WEIGHT_CONVERSATION = 0.9
+COSINE_WEIGHT_JOB = 0.05
+COSINE_WEIGHT_PROJECT = 0.05
+SEMANTIC_DIMS = ('conversation', 'job', 'project')
 
 
 @dataclass
@@ -58,12 +58,10 @@ class MemoryChunk:
     content: str = ''                   # full text of the interaction
     traces: list[int] = field(default_factory=list)
     embedding_model: str = ''
-    embedding_situation: list[float] | None = None
-    embedding_artifact: list[float] | None = None
-    embedding_stimulus: list[float] | None = None
-    embedding_response: list[float] | None = None
+    embedding_conversation: list[float] | None = None
+    embedding_job: list[float] | None = None
+    embedding_project: list[float] | None = None
     embedding_salience: list[float] | None = None
-    embedding_blended: list[float] | None = None
 
 
 # ── Database ─────────────────────────────────────────────────────────────────
@@ -87,12 +85,10 @@ CREATE TABLE IF NOT EXISTS proxy_chunks (
     content TEXT NOT NULL,
     traces TEXT NOT NULL,
     embedding_model TEXT DEFAULT '',
-    embedding_situation TEXT,
-    embedding_artifact TEXT,
-    embedding_stimulus TEXT,
-    embedding_response TEXT,
+    embedding_conversation TEXT,
+    embedding_job TEXT,
+    embedding_project TEXT,
     embedding_salience TEXT,
-    embedding_blended TEXT,
     deleted_at INTEGER DEFAULT NULL
 );
 
@@ -131,18 +127,21 @@ def open_proxy_db(db_path: str) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute('PRAGMA journal_mode=WAL')
     conn.executescript(_SCHEMA)
-    # Migration: add embedding_blended column for existing DBs (issue #222)
-    try:
-        conn.execute('ALTER TABLE proxy_chunks ADD COLUMN embedding_blended TEXT')
-        conn.commit()
-    except sqlite3.OperationalError:
-        pass  # column already exists
-    # Migration: add deleted_at column for soft-delete (issue #236)
+    # Migration: deleted_at for soft-delete (issue #236)
     try:
         conn.execute('ALTER TABLE proxy_chunks ADD COLUMN deleted_at INTEGER DEFAULT NULL')
         conn.commit()
     except sqlite3.OperationalError:
         pass  # column already exists
+    # Migration: three-dim retrieval (issue #432). Older DBs carry the
+    # five-dim columns (situation/artifact/stimulus/response/blended); their
+    # data is retired and the new columns hold the active embeddings.
+    for col in ('embedding_conversation', 'embedding_job', 'embedding_project'):
+        try:
+            conn.execute(f'ALTER TABLE proxy_chunks ADD COLUMN {col} TEXT')
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass  # column already exists
     return conn
 
 
@@ -189,10 +188,9 @@ def _store_chunk_no_commit(conn: sqlite3.Connection, chunk: MemoryChunk) -> None
             prediction_delta, salient_percepts,
             human_response, delta, content, traces,
             embedding_model,
-            embedding_situation, embedding_artifact,
-            embedding_stimulus, embedding_response, embedding_salience,
-            embedding_blended)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            embedding_conversation, embedding_job, embedding_project,
+            embedding_salience)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (
             chunk.id, chunk.type, chunk.state, chunk.task_type,
             chunk.outcome, chunk.lens,
@@ -201,12 +199,10 @@ def _store_chunk_no_commit(conn: sqlite3.Connection, chunk: MemoryChunk) -> None
             chunk.prediction_delta, json.dumps(chunk.salient_percepts),
             chunk.human_response, chunk.delta, chunk.content,
             json.dumps(chunk.traces), chunk.embedding_model,
-            _embed_to_json(chunk.embedding_situation),
-            _embed_to_json(chunk.embedding_artifact),
-            _embed_to_json(chunk.embedding_stimulus),
-            _embed_to_json(chunk.embedding_response),
+            _embed_to_json(chunk.embedding_conversation),
+            _embed_to_json(chunk.embedding_job),
+            _embed_to_json(chunk.embedding_project),
             _embed_to_json(chunk.embedding_salience),
-            _embed_to_json(chunk.embedding_blended),
         ),
     )
 
@@ -223,17 +219,21 @@ def record_steering_chunk(
     source: str,
     current_interaction: int,
     task_type: str = '',
+    project_text: str = '',
 ) -> str:
     """Record a steering chunk from the office manager into the shared memory.
 
-    Steering chunks carry durable human preferences and concerns. They are
-    stored as standard MemoryChunk objects in proxy_chunks so the proxy's
-    activation-based retrieval surfaces them at gates when context matches.
+    Steering chunks carry durable human preferences and concerns.  They are
+    project-scoped (no job, no escalation thread).  The directive text itself
+    is embedded as the conversation vector so cosine retrieval can surface
+    these chunks when a current question is semantically related (#432).
 
-    The source (human who produced the directive) is stored in task_type
-    for attribution. Returns the chunk ID.
+    Returns the chunk ID.
     """
     chunk_id = uuid.uuid4().hex
+    embed = _default_embed(conn)
+    emb_conversation = embed(content) if content else None
+    emb_project = embed(project_text) if project_text else None
     chunk = MemoryChunk(
         id=chunk_id,
         type='steering',
@@ -242,6 +242,8 @@ def record_steering_chunk(
         outcome='',
         content=content,
         traces=[current_interaction],
+        embedding_conversation=emb_conversation,
+        embedding_project=emb_project,
     )
     store_chunk(conn, chunk)
     return chunk_id
@@ -369,12 +371,10 @@ def _row_to_chunk(row: sqlite3.Row) -> MemoryChunk:
         content=row['content'],
         traces=json.loads(row['traces']) if row['traces'] else [],
         embedding_model=row['embedding_model'],
-        embedding_situation=_json_to_embed(row['embedding_situation']),
-        embedding_artifact=_json_to_embed(row['embedding_artifact']),
-        embedding_stimulus=_json_to_embed(row['embedding_stimulus']),
-        embedding_response=_json_to_embed(row['embedding_response']),
+        embedding_conversation=_json_to_embed(row['embedding_conversation']),
+        embedding_job=_json_to_embed(row['embedding_job']),
+        embedding_project=_json_to_embed(row['embedding_project']),
         embedding_salience=_json_to_embed(row['embedding_salience']),
-        embedding_blended=_json_to_embed(row['embedding_blended']),
     )
 
 
@@ -431,6 +431,13 @@ def cosine_similarity(a: list[float], b: list[float]) -> float:
     return dot / (mag_a * mag_b)
 
 
+_DIM_WEIGHTS: dict[str, float] = {
+    'conversation': COSINE_WEIGHT_CONVERSATION,
+    'job': COSINE_WEIGHT_JOB,
+    'project': COSINE_WEIGHT_PROJECT,
+}
+
+
 def composite_score(
     chunk: MemoryChunk,
     context_embeddings: dict[str, list[float]],
@@ -441,74 +448,40 @@ def composite_score(
     s: float = NOISE_SCALE,
     tau: float = RETRIEVAL_THRESHOLD,
 ) -> float:
-    """Composite ranking score: tanh-normalised ACT-R activation +
-    multi-dimensional semantic similarity + noise.
+    """Composite ranking score: tanh-normalised activation + weighted
+    three-dimension cosine similarity + logistic noise.
 
     composite = activation_weight * tanh(B - τ)
-              + semantic_weight * cosine_avg
+              + semantic_weight * (
+                    0.9  * cos(conversation)
+                  + 0.05 * cos(job)
+                  + 0.05 * cos(project)
+                )
               + noise
 
-    tanh(B - τ) maps ℝ → (-1, 1) with a principled zero crossing at the
-    retrieval threshold τ: a chunk at exactly threshold contributes nothing,
-    mirroring cosine semantics.  It replaces min-max normalization, which
-    collapsed to a constant 0.5 when only one chunk survived the activation
-    filter (issue #416).
-
-    Cosine similarities are summed across the 4 experience dimensions
-    (situation, artifact, stimulus, response) and divided by
-    EXPERIENCE_EMBEDDING_DIMENSIONS (4).  Salience is excluded from
-    composite scoring and retrieved independently (issue #227).
+    tanh(B - τ) maps ℝ → (-1, 1) with a zero crossing at τ (issue #416).
+    The semantic term sums per-dimension cosines weighted by their fixed
+    contribution; missing chunk- or query-side embeddings on a dimension
+    contribute zero rather than triggering renormalization (issue #432).
+    Salience is excluded and retrieved independently (issue #227).
     """
     b = base_level_activation(chunk.traces, current_interaction, d)
     b_norm = math.tanh(b - tau)
 
-    # Experience dimensions only — salience is retrieved separately (#227)
     dim_map = {
-        'situation': chunk.embedding_situation,
-        'artifact': chunk.embedding_artifact,
-        'stimulus': chunk.embedding_stimulus,
-        'response': chunk.embedding_response,
+        'conversation': chunk.embedding_conversation,
+        'job': chunk.embedding_job,
+        'project': chunk.embedding_project,
     }
-    sim_sum = 0.0
-    for dim, context_vec in context_embeddings.items():
-        chunk_vec = dim_map.get(dim)
+    sem = 0.0
+    for dim, weight in _DIM_WEIGHTS.items():
+        chunk_vec = dim_map[dim]
+        context_vec = context_embeddings.get(dim)
         if chunk_vec and context_vec:
             try:
-                sim_sum += cosine_similarity(chunk_vec, context_vec)
+                sem += weight * cosine_similarity(chunk_vec, context_vec)
             except ValueError:
                 _log.debug('Skipping dim %s: vector length mismatch', dim)
-    sem = sim_sum / EXPERIENCE_EMBEDDING_DIMENSIONS
-
-    noise = logistic_noise(s)
-    return activation_weight * b_norm + semantic_weight * sem + noise
-
-
-def single_composite_score(
-    chunk: MemoryChunk,
-    context_blended: list[float],
-    current_interaction: int,
-    activation_weight: float = ACTIVATION_WEIGHT,
-    semantic_weight: float = SEMANTIC_WEIGHT,
-    d: float = DECAY,
-    s: float = NOISE_SCALE,
-    tau: float = RETRIEVAL_THRESHOLD,
-) -> float:
-    """Composite score using a single blended embedding instead of 5.
-
-    Same structure as composite_score() but replaces the multi-dimensional
-    cosine average with a single cosine similarity on blended embeddings.
-    This is the Configuration B scoring function for the embedding ablation
-    (issue #222).
-    """
-    b = base_level_activation(chunk.traces, current_interaction, d)
-    b_norm = math.tanh(b - tau)
-
-    sem = 0.0
-    if chunk.embedding_blended and context_blended:
-        try:
-            sem = cosine_similarity(chunk.embedding_blended, context_blended)
-        except ValueError:
-            _log.debug('Skipping blended: vector length mismatch')
 
     noise = logistic_noise(s)
     return activation_weight * b_norm + semantic_weight * sem + noise
@@ -523,8 +496,6 @@ def retrieve_chunks(
     task_type: str = '',
     type: str = '',
     context_embeddings: dict[str, list[float]] | None = None,
-    context_blended: list[float] | None = None,
-    scoring: str = 'multi_dim',
     current_interaction: int = 0,
     tau: float = RETRIEVAL_THRESHOLD,
     top_k: int = 10,
@@ -535,15 +506,10 @@ def retrieve_chunks(
 ) -> list[MemoryChunk]:
     """Two-stage retrieval: activation filter, then composite ranking.
 
-    scoring='multi_dim' (default): uses 5 independent embeddings via composite_score().
-        Requires context_embeddings dict mapping dimension names to vectors.
-    scoring='single': uses 1 blended embedding via single_composite_score().
-        Requires context_blended vector. This is Configuration B for the
-        embedding ablation (issue #222).
+    context_embeddings maps dimension names ('conversation', 'job',
+    'project') to query vectors.  Missing dimensions contribute zero to
+    the cosine term (chunks fall back to activation-only ranking).
     """
-    if scoring not in ('multi_dim', 'single'):
-        raise ValueError(f"scoring must be 'multi_dim' or 'single', got {scoring!r}")
-
     candidates = query_chunks(conn, state=state, task_type=task_type, type=type)
     context_embeddings = context_embeddings or {}
 
@@ -560,20 +526,12 @@ def retrieve_chunks(
     # Stage 2: composite scoring
     scored = []
     for _, chunk in survivors:
-        if scoring == 'single':
-            score = single_composite_score(
-                chunk, context_blended or [], current_interaction,
-                activation_weight=activation_weight,
-                semantic_weight=semantic_weight,
-                d=d, s=s, tau=tau,
-            )
-        else:
-            score = composite_score(
-                chunk, context_embeddings, current_interaction,
-                activation_weight=activation_weight,
-                semantic_weight=semantic_weight,
-                d=d, s=s, tau=tau,
-            )
+        score = composite_score(
+            chunk, context_embeddings, current_interaction,
+            activation_weight=activation_weight,
+            semantic_weight=semantic_weight,
+            d=d, s=s, tau=tau,
+        )
         scored.append((score, chunk))
     scored.sort(key=lambda x: -x[0])
     return [chunk for _, chunk in scored[:top_k]]
@@ -773,17 +731,13 @@ def run_scoring_ablation(
                 prior_chunks = eval_chunks[:i]
                 held_out_interaction = min(held_out.traces) if held_out.traces else i
 
-                # Build context embeddings from the held-out chunk's experience
-                # dimensions only — salience is retrieved independently (#227)
                 context_embeddings: dict[str, list[float]] = {}
-                if held_out.embedding_situation:
-                    context_embeddings['situation'] = held_out.embedding_situation
-                if held_out.embedding_artifact:
-                    context_embeddings['artifact'] = held_out.embedding_artifact
-                if held_out.embedding_stimulus:
-                    context_embeddings['stimulus'] = held_out.embedding_stimulus
-                if held_out.embedding_response:
-                    context_embeddings['response'] = held_out.embedding_response
+                if held_out.embedding_conversation:
+                    context_embeddings['conversation'] = held_out.embedding_conversation
+                if held_out.embedding_job:
+                    context_embeddings['job'] = held_out.embedding_job
+                if held_out.embedding_project:
+                    context_embeddings['project'] = held_out.embedding_project
 
                 # Run retrieval on prior chunks only
                 retrieved = _retrieve_from_chunks(
@@ -847,14 +801,12 @@ def run_scoring_ablation(
                         min(held_out.traces) if held_out.traces else i
                     )
                     context_embeddings: dict[str, list[float]] = {}
-                    if held_out.embedding_situation:
-                        context_embeddings['situation'] = held_out.embedding_situation
-                    if held_out.embedding_artifact:
-                        context_embeddings['artifact'] = held_out.embedding_artifact
-                    if held_out.embedding_stimulus:
-                        context_embeddings['stimulus'] = held_out.embedding_stimulus
-                    if held_out.embedding_response:
-                        context_embeddings['response'] = held_out.embedding_response
+                    if held_out.embedding_conversation:
+                        context_embeddings['conversation'] = held_out.embedding_conversation
+                    if held_out.embedding_job:
+                        context_embeddings['job'] = held_out.embedding_job
+                    if held_out.embedding_project:
+                        context_embeddings['project'] = held_out.embedding_project
 
                     retrieved = _retrieve_from_chunks(
                         prior_chunks,
@@ -957,15 +909,16 @@ def record_interaction(
     prediction_delta: str = '',
     salient_percepts: list[str] | None = None,
     human_response: str = '',
-    situation_text: str = '',
-    artifact_text: str = '',
-    stimulus_text: str = '',
+    conversation_text: str = '',
+    job_text: str = '',
+    project_text: str = '',
     embed_fn: Any = None,
 ) -> MemoryChunk:
     """Record an interaction as a memory chunk.
 
     If chunk_id matches an existing chunk, adds a trace (reinforcement).
-    Otherwise creates a new chunk with independent per-dimension embeddings.
+    Otherwise creates a new chunk with the three-dim retrieval embeddings
+    (conversation/job/project) populated from the supplied texts (#432).
     """
     # Compute embeddings BEFORE the transaction — _default_embed routes to
     # try_embed which calls conn.commit() on the embedding_cache table,
@@ -980,18 +933,10 @@ def record_interaction(
         pass
     embedding_model = f'{provider}/{model}' if provider else ''
 
-    emb_situation = _embed(situation_text or f'{state} {task_type}') if situation_text or state else None
-    emb_artifact = _embed(artifact_text) if artifact_text else None
-    emb_stimulus = _embed(stimulus_text) if stimulus_text else None
-    emb_response = _embed(human_response) if human_response else None
+    emb_conversation = _embed(conversation_text) if conversation_text else None
+    emb_job = _embed(job_text) if job_text else None
+    emb_project = _embed(project_text) if project_text else None
     emb_salience = _embed(prediction_delta) if prediction_delta else None
-
-    # Blended embedding: single embedding from concatenated text (issue #222)
-    blended_str = blended_text_from_fields(
-        state=state, task_type=task_type, content=content,
-        human_response=human_response, prediction_delta=prediction_delta,
-    )
-    emb_blended = _embed(blended_str) if blended_str else None
 
     conn.execute('BEGIN IMMEDIATE')
     try:
@@ -1022,12 +967,10 @@ def record_interaction(
             content=content,
             traces=[current],
             embedding_model=embedding_model,
-            embedding_situation=emb_situation,
-            embedding_artifact=emb_artifact,
-            embedding_stimulus=emb_stimulus,
-            embedding_response=emb_response,
+            embedding_conversation=emb_conversation,
+            embedding_job=emb_job,
+            embedding_project=emb_project,
             embedding_salience=emb_salience,
-            embedding_blended=emb_blended,
         )
         _store_chunk_no_commit(conn, chunk)
         _update_accuracy_no_commit(
@@ -1107,36 +1050,6 @@ def get_accuracy(
         'posterior_total': row[3],
         'last_updated': row[4],
     }
-
-
-def blended_text_from_fields(
-    state: str = '',
-    task_type: str = '',
-    content: str = '',
-    human_response: str = '',
-    prediction_delta: str = '',
-) -> str:
-    """Concatenate available text fields into a single string for blended embedding.
-
-    This is the single source of truth for which fields contribute to the
-    blended embedding. Used by record_interaction() and proxy_ablation.blended_text().
-
-    Note: artifact_text and stimulus_text are not stored in the chunk — only
-    their per-dimension embeddings survive. The content field is the closest
-    available proxy.
-    """
-    parts = []
-    if state:
-        parts.append(state)
-    if task_type:
-        parts.append(task_type)
-    if content:
-        parts.append(content)
-    if human_response:
-        parts.append(human_response)
-    if prediction_delta:
-        parts.append(prediction_delta)
-    return ' '.join(parts)
 
 
 def _default_embed(conn: sqlite3.Connection):

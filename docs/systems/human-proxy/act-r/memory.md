@@ -220,12 +220,13 @@ SurpriseDelta
     salient percepts : list of artifact features that caused the shift
 
 MemoryChunk
-    id, type, state, task_type, outcome              -- structural (SQL-filtered)
+    id, type, state, task_type, outcome              -- metadata (audit / prompt context only)
     prior confidence, posterior confidence           -- two-pass trajectory
     surprise description, salient percepts            -- processed percept (empty if no surprise)
     human response                                   -- ground truth (classified via _classify_review)
     traces                                            -- list of interaction numbers
-    embedding_situation, _artifact, _stimulus, _response, _salience -- independent vectors
+    embedding_conversation, _job, _project           -- retrieval vectors (issue #432)
+    embedding_salience                                -- salience vector (independent retrieval path)
 ```
 
 Both passes produce free human-voice text followed by `CONFIDENCE: <float>` on the final line. Surprise extraction runs when confidence shifted significantly (1 additional LLM call). Most gates produce no surprise: 2 calls. Surprises cost 3. Categorical action — which drives learning from human corrections — is classified downstream from the final human/proxy response by `_classify_review` in `teaparty/cfa/actors.py`, not per-pass at the proxy.

@@ -196,6 +196,8 @@ def _record_withdrawal_memory_chunk(session: SessionState, phase: str) -> None:
 
         conn = open_proxy_db(db_path)
         try:
+            from teaparty.proxy.hooks import _context_embeddings_for
+            ctx = _context_embeddings_for(session, conn)
             chunk = MemoryChunk(
                 id=str(uuid.uuid4()),
                 type='withdrawal',
@@ -207,6 +209,9 @@ def _record_withdrawal_memory_chunk(session: SessionState, phase: str) -> None:
                     f'Task: {session.task or "(unknown)"}. '
                     f'CfA state at withdrawal: {session.cfa_state or "unknown"}.'
                 ),
+                embedding_conversation=ctx.get('conversation'),
+                embedding_job=ctx.get('job'),
+                embedding_project=ctx.get('project'),
             )
             store_chunk(conn, chunk)
         finally:

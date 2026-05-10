@@ -256,12 +256,12 @@ class TestRetrievalPrefersContextRelevant(unittest.TestCase):
         """
         match = _unit(1.0, 0.0, 0.0)
         ortho = _unit(0.0, 1.0, 0.0)
-        # Older but relevant: trace 50 ago, conversation matches current
+        # Older but relevant: trace 5 ago, conversation matches current
         relevant_old = _make_chunk(
-            traces=[50], conversation=match, job=match, project=match,
+            traces=[95], conversation=match, job=match, project=match,
         )
         relevant_old.id = 'relevant_old'
-        # Newer but irrelevant
+        # Fresher but irrelevant: trace 1 ago, all dims orthogonal
         irrelevant_new = _make_chunk(
             traces=[99], conversation=ortho, job=ortho, project=ortho,
         )
@@ -310,7 +310,11 @@ class TestProductionWiring(unittest.TestCase):
         # Patch retrieve_chunks at the import site that hooks.py uses.
         from teaparty.proxy import memory as proxy_memory
         original = proxy_memory.retrieve_chunks
+        original_embed = proxy_memory._default_embed
         proxy_memory.retrieve_chunks = fake_retrieve_chunks
+        # Stub the embedder so context_embeddings actually populates in tests
+        # where no real embedding provider is configured.
+        proxy_memory._default_embed = lambda conn: (lambda text: [1.0, 0.0])
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 # Build a minimal session-shaped object
@@ -351,6 +355,7 @@ class TestProductionWiring(unittest.TestCase):
                 )
         finally:
             proxy_memory.retrieve_chunks = original
+            proxy_memory._default_embed = original_embed
 
 
 if __name__ == '__main__':

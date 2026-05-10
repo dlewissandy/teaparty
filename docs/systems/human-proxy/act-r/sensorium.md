@@ -121,11 +121,10 @@ When the interaction completes (the human responds), the memory chunk is constru
     "human_response": "Add a rollback strategy for the migration",
     "delta": "",  # posterior was correct
 
-    # Embeddings — independent vectors per dimension
-    "embedding_situation": [...],    # state + task type
-    "embedding_artifact": [...],     # the artifact content
-    "embedding_stimulus": [...],     # the question/observation
-    "embedding_response": [...],     # the human's response
+    # Embeddings — three retrieval vectors plus salience (issue #432)
+    "embedding_conversation": [...], # the thread's conversation through the stimulus
+    "embedding_job": [...],          # the job description (PROMPT.txt)
+    "embedding_project": [...],      # the project description
     "embedding_salience": [...],     # the prediction delta
 
     "traces": [142]

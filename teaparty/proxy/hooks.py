@@ -42,6 +42,91 @@ def proxy_bus_path(teaparty_home: str) -> str:
     return os.path.join(proxy_home(teaparty_home), 'proxy-messages.db')
 
 
+def _read_job_text(session: AgentSession) -> str:
+    """Return the job's PROMPT.txt contents when available (#432).
+
+    Sessions without a job (top-level chat, steering) get an empty string.
+    """
+    infra = getattr(session, 'infra_dir', None)
+    if not infra:
+        return ''
+    prompt_path = os.path.join(infra, 'PROMPT.txt')
+    if not os.path.isfile(prompt_path):
+        return ''
+    try:
+        with open(prompt_path, encoding='utf-8') as fh:
+            return fh.read().strip()
+    except OSError:
+        return ''
+
+
+def _read_project_text(session: AgentSession) -> str:
+    """Return the project's description from .teaparty/project/project.yaml (#432)."""
+    home = getattr(session, 'teaparty_home', None)
+    if not home:
+        return ''
+    yaml_path = os.path.join(home, 'project', 'project.yaml')
+    if not os.path.isfile(yaml_path):
+        return ''
+    try:
+        with open(yaml_path, encoding='utf-8') as fh:
+            for line in fh:
+                stripped = line.strip()
+                if stripped.startswith('description:'):
+                    return stripped.split(':', 1)[1].strip().strip('"\'')
+    except OSError:
+        pass
+    return ''
+
+
+def _build_conversation_text(session: AgentSession, latest_turn: str = '') -> str:
+    """Compose the conversation history text used for the conversation embedding (#432)."""
+    try:
+        messages = list(session.get_messages())
+    except Exception:
+        messages = []
+    lines = []
+    for msg in messages:
+        sender = getattr(msg, 'sender', '') or ''
+        content = getattr(msg, 'content', '') or ''
+        if not content:
+            continue
+        lines.append(f'{sender}: {content}')
+    if latest_turn:
+        lines.append(f'human: {latest_turn}')
+    return '\n'.join(lines)
+
+
+def _context_embeddings_for(
+    session: AgentSession, conn, latest_turn: str = '',
+) -> dict[str, list[float]]:
+    """Build the three-dim query embedding dict for retrieval (#432).
+
+    Each dimension is included only when its source text is non-empty
+    AND the embedding call returns a vector.  Missing dimensions
+    contribute nothing to cosine; chunks fall back to activation alone.
+    """
+    from teaparty.proxy.memory import _default_embed
+    embed = _default_embed(conn)
+    ctx: dict[str, list[float]] = {}
+    conv_text = _build_conversation_text(session, latest_turn=latest_turn)
+    if conv_text:
+        vec = embed(conv_text)
+        if vec:
+            ctx['conversation'] = vec
+    job_text = _read_job_text(session)
+    if job_text:
+        vec = embed(job_text)
+        if vec:
+            ctx['job'] = vec
+    project_text = _read_project_text(session)
+    if project_text:
+        vec = embed(project_text)
+        if vec:
+            ctx['project'] = vec
+    return ctx
+
+
 def proxy_post_invoke(response_text: str, session: AgentSession) -> None:
     """Process [CORRECTION:...] and [REINFORCE:...] signals from proxy response.
 
@@ -71,6 +156,7 @@ def proxy_post_invoke(response_text: str, session: AgentSession) -> None:
 
     conn = open_proxy_db(mem_path)
     try:
+        ctx = _context_embeddings_for(session, conn, latest_turn=response_text)
         for correction_text in corrections:
             correction_text = correction_text.strip()
             if not correction_text:
@@ -86,6 +172,9 @@ def proxy_post_invoke(response_text: str, session: AgentSession) -> None:
                 outcome='correction',
                 content=correction_text,
                 traces=traces,
+                embedding_conversation=ctx.get('conversation'),
+                embedding_job=ctx.get('job'),
+                embedding_project=ctx.get('project'),
             )
             store_chunk(conn, chunk)
             _log.info('Recorded review correction %s', chunk_id[:8])
@@ -125,7 +214,11 @@ def proxy_build_prompt(session: AgentSession, latest_human: str) -> str:
         conn = open_proxy_db(mem_path)
         try:
             current = get_interaction_counter(conn)
-            chunks = retrieve_chunks(conn, current_interaction=current, top_k=10)
+            ctx = _context_embeddings_for(session, conn, latest_turn=latest_human)
+            chunks = retrieve_chunks(
+                conn, current_interaction=current, top_k=10,
+                context_embeddings=ctx,
+            )
             entries = []
             for chunk in chunks:
                 activation = base_level_activation(chunk.traces, current)
