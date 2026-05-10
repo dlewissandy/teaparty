@@ -17,7 +17,7 @@ The quality-assurance-lead receives a diff and the source-of-truth (issue, desig
 
 Dispatch when a diff needs an intent-fidelity audit against an issue, design doc, or proposal. Reads the source-of-truth and the diff side by side and reports findings — what the source asks for, what the diff delivers, where they diverge. Read-only; does not modify code.
 
-**Tools:** Read, Grep, Glob, Bash
+**Tools:** Read, Write, Grep, Glob, Bash
 **Skills:** digest
 
 ---

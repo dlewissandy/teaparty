@@ -42,6 +42,14 @@ _WORKGROUPS_DIR = management_workgroups_dir(_TEAPARTY_HOME)
 # Expected workgroup members per design doc (docs/reference/built-in-teams/*.md).
 # Format: {team_name: {'lead': str, 'members': [str]}}
 _TEAM_SPEC: dict[str, dict] = {
+    # Pre-existing in management catalog but the design doc spec
+    # (docs/reference/built-in-teams/coding.md) names members and
+    # tools that the agents' settings.yaml did not satisfy until
+    # issue #428 -- track here so future drift fails CI.
+    'coding': {
+        'lead': 'coding-lead',
+        'members': ['architect', 'developer', 'reviewer'],
+    },
     'research': {
         'lead': 'research-lead',
         'members': ['web-researcher', 'literature-researcher', 'patent-researcher',
@@ -105,6 +113,12 @@ _UNIFIED_LEAD_TOOLS: set[str] = {
 
 # Required tools per agent per design doc.
 _AGENT_TOOLS: dict[str, set[str]] = {
+    # Coding (pre-existing in catalog; settings.yaml fixed in #428 to
+    # match the documented tools at docs/reference/built-in-teams/coding.md)
+    'coding-lead':          _UNIFIED_LEAD_TOOLS,
+    'architect':            {'Read', 'Write', 'Glob', 'Grep'},
+    'developer':            {'Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep'},
+    'reviewer':             {'Read', 'Glob', 'Grep', 'Bash'},
     # Research
     'research-lead':        _UNIFIED_LEAD_TOOLS,
     'web-researcher':       {'Read', 'Write', 'Glob', 'WebSearch', 'WebFetch'},
@@ -139,7 +153,7 @@ _AGENT_TOOLS: dict[str, set[str]] = {
     'ai-smell':             {'Read', 'Write'},
     # Quality-assurance (split from QC: intent fidelity vs. behavior verification)
     'quality-assurance-lead': _UNIFIED_LEAD_TOOLS,
-    'auditor':              {'Read', 'Grep', 'Glob', 'Bash'},
+    'auditor':              {'Read', 'Write', 'Grep', 'Glob', 'Bash'},
     'qa-reviewer':          {'Read', 'Write', 'Glob', 'Grep'},
     'acceptance-tester':    {'Read', 'Write', 'Bash'},
     # Software-development (per-issue orchestrator; members are themselves leads
