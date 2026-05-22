@@ -346,24 +346,39 @@ class TestSkillsWiring(unittest.TestCase):
     a skill missing from frontmatter is unreachable; a skill listed
     in frontmatter without a directory raises at staging time."""
 
+    # Skills in ``.teaparty/project/skills/`` that belong to other
+    # project-scope agents, not to scrum-master.  Excluded from the
+    # scrum-master orphan/wiring checks below.  Update when a new
+    # project-scope agent gains a skill in this directory.
+    NON_SCRUM_MASTER_PROJECT_SKILLS = frozenset({
+        'sprint',  # project-lead's sprint-orchestration skill (#430)
+    })
+
     def test_no_orphan_skill_directories(self):
-        """Skill directories that aren't declared in the agent's
-        ``skills:`` are orphans (or, for a future second agent, fine —
-        but at this point in the tree only scrum-master uses
-        ``.teaparty/project/skills/``)."""
+        """Every directory under ``.teaparty/project/skills/`` is either
+        a scrum-master skill (the seven listed in EXPECTED_SKILLS) or
+        an explicitly-recognised skill belonging to another project-
+        scope agent.  Anything else is an orphan and either unreachable
+        or breaks the wiring check below."""
         if not os.path.isdir(PROJECT_SKILLS):
             self.fail(
                 f'{PROJECT_SKILLS} does not exist; sprint-plan and the '
                 f'other six skills cannot be staged without it',
             )
-        on_disk = sorted(
+        on_disk = {
             d for d in os.listdir(PROJECT_SKILLS)
             if os.path.isfile(os.path.join(PROJECT_SKILLS, d, 'SKILL.md'))
+        }
+        scrum_master_on_disk = sorted(
+            on_disk - self.NON_SCRUM_MASTER_PROJECT_SKILLS
         )
         self.assertEqual(
-            sorted(on_disk), sorted(EXPECTED_SKILLS),
+            sorted(scrum_master_on_disk), sorted(EXPECTED_SKILLS),
             f'.teaparty/project/skills/ must contain exactly the seven '
-            f'scrum-master skills; got {on_disk}',
+            f'scrum-master skills (plus any explicitly-recognised skills '
+            f'belonging to other project-scope agents — see '
+            f'NON_SCRUM_MASTER_PROJECT_SKILLS); '
+            f'got scrum-master subset {scrum_master_on_disk}',
         )
 
     def test_agent_skills_frontmatter_matches_on_disk(self):
@@ -373,10 +388,12 @@ class TestSkillsWiring(unittest.TestCase):
             d for d in os.listdir(PROJECT_SKILLS)
             if os.path.isfile(os.path.join(PROJECT_SKILLS, d, 'SKILL.md'))
         } if os.path.isdir(PROJECT_SKILLS) else set()
+        scrum_master_on_disk = on_disk - self.NON_SCRUM_MASTER_PROJECT_SKILLS
         self.assertEqual(
-            declared, on_disk,
+            declared, scrum_master_on_disk,
             f'agent.md ``skills:`` ({sorted(declared)}) must equal the '
-            f'on-disk skill set ({sorted(on_disk)}); drift means a skill '
+            f'scrum-master subset of the on-disk skill set '
+            f'({sorted(scrum_master_on_disk)}); drift means a skill '
             f'is either unreachable or missing',
         )
 
