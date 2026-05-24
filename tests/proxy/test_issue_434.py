@@ -222,7 +222,19 @@ class TestEvictionWiredIntoConsolidation(unittest.TestCase):
     eviction to run as part of _consolidate_proxy_memory.
     """
 
-    def test_consolidation_evicts_stale_and_keeps_fresh(self):
+    def test_consolidation_evicts_only_dormant_below_threshold_chunks(self):
+        """The wired consolidation pass evicts a dormant below-τ chunk while
+        retaining both an above-τ chunk and a below-τ-but-recent chunk —
+        using the shipped STALE_EVICTION_WINDOW default (no explicit window
+        passed), so the wired path proves the dormancy guard AND a silent
+        change to the constant flips this test.
+
+        Counter=100, default window=50:
+          stale       trace age 60  → below τ, dormant       → evicted
+          fresh       trace age  1  → above τ                 → retained
+          recent_low  trace age 40  → below τ but age<window  → retained
+        The 40/60 straddle pins the default window to (40, 60].
+        """
         project_dir = tempfile.mkdtemp()
         db_path = str(Path(project_dir) / '.proxy-memory.db')
         conn = open_proxy_db(db_path)
@@ -230,8 +242,15 @@ class TestEvictionWiredIntoConsolidation(unittest.TestCase):
             _set_counter(conn, 100)
             # Distinct task_types so contradiction-consolidation does not act;
             # only eviction should touch these.
-            _store(conn, id='stale', traces=[40], task_type='a')   # age 60, B<τ, dormant
-            _store(conn, id='fresh', traces=[99], task_type='b')   # age 1, B≈0 > τ
+            _store(conn, id='stale', traces=[40], task_type='a')        # age 60, B<τ, dormant
+            _store(conn, id='fresh', traces=[99], task_type='b')        # age 1,  B≈0 > τ
+            _store(conn, id='recent_low', traces=[60], task_type='c')   # age 40, B<τ, recent
+            b_recent = base_level_activation([60], 100)
+            self.assertLess(
+                b_recent, RETRIEVAL_THRESHOLD,
+                f'fixture: recent_low B={b_recent:.3f} must be below τ so only '
+                f'the dormancy guard (not the τ guard) can retain it',
+            )
         finally:
             conn.close()
 
@@ -243,11 +262,21 @@ class TestEvictionWiredIntoConsolidation(unittest.TestCase):
             active = {c.id for c in query_chunks(conn)}
             self.assertNotIn(
                 'stale', active,
-                'consolidation pass must evict the stale chunk (eviction not wired in)',
+                'consolidation must evict the dormant below-τ chunk via the '
+                'shipped STALE_EVICTION_WINDOW default (eviction not wired in, '
+                'or the default window grew past 60)',
             )
             self.assertIn(
                 'fresh', active,
-                'consolidation pass must retain the above-threshold fresh chunk',
+                'consolidation must retain the above-threshold chunk',
+            )
+            self.assertIn(
+                'recent_low', active,
+                'consolidation must retain the below-τ chunk whose trace is '
+                'within the default window — proves the dormancy guard runs in '
+                'the wired path, not just at the unit level (would fail if the '
+                'wired call evicted everything below τ, or the default window '
+                'shrank below 40)',
             )
         finally:
             conn.close()
