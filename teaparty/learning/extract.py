@@ -1040,6 +1040,7 @@ def _consolidate_proxy_memory(*, project_dir: str) -> None:
     from teaparty.proxy.memory import (
         open_proxy_db,
         consolidate_proxy_entries,
+        evict_stale_chunks,
         get_interaction_counter,
         soft_delete_chunk,
         purge_deleted_chunks,
@@ -1063,6 +1064,16 @@ def _consolidate_proxy_memory(*, project_dir: str) -> None:
                 _log.info(
                     'Proxy consolidation: purged %d old soft-deleted chunks from %s',
                     purged, db_path,
+                )
+
+            # Capacity bound (issue #434): evict chunks that have decayed below
+            # the retrieval threshold and gone dormant. Runs regardless of chunk
+            # count, unlike the contradiction consolidation below.
+            evicted = evict_stale_chunks(conn, current_interaction=current)
+            if evicted:
+                _log.info(
+                    'Proxy consolidation: evicted %d stale chunks from %s',
+                    len(evicted), db_path,
                 )
 
             rows = conn.execute(

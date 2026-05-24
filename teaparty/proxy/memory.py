@@ -25,10 +25,22 @@ _log = logging.getLogger('teaparty.proxy.memory')
 
 # ACT-R parameters (from act-r.md §Standard Parameter Values)
 DECAY = 0.5
-NOISE_SCALE = 0.08
+# Retrieval is deterministic (issue #434): 0.08 was too small to meaningfully
+# randomize retrieval yet nonzero. Set to 0 for reproducible ranking. Raise
+# into ACT-R's 0.2–0.5 band if stochastic retrieval is wanted — a decision to
+# make from data, alongside the dimension-weight tuning.
+NOISE_SCALE = 0.0
 RETRIEVAL_THRESHOLD = -0.5
 ACTIVATION_WEIGHT = 0.5
 SEMANTIC_WEIGHT = 0.5
+
+# Capacity bound (issue #434). An episodic chunk that has fallen below the
+# retrieval threshold AND gone untouched for this many interactions is evicted,
+# so the store does not grow without bound. The window is in interaction-counter
+# units (the proxy's event clock), not wall-clock time. review_correction and
+# steering chunks record direct human teaching and are exempt.
+STALE_EVICTION_WINDOW = 50
+EVICTION_EXEMPT_TYPES = ('review_correction', 'steering')
 
 # Three-dimension cosine retrieval (issue #432). Conversation carries the
 # bulk of contextual signal at retrieval time; job and project add the
@@ -334,6 +346,52 @@ def purge_deleted_chunks(
     return cursor.rowcount
 
 
+def evict_stale_chunks(
+    conn: sqlite3.Connection,
+    current_interaction: int,
+    *,
+    window: int = STALE_EVICTION_WINDOW,
+    tau: float = RETRIEVAL_THRESHOLD,
+    d: float = DECAY,
+    exempt_types: tuple[str, ...] = EVICTION_EXEMPT_TYPES,
+) -> list[str]:
+    """Soft-delete chunks that have decayed out of usefulness (issue #434).
+
+    Canonical ACT-R keeps every chunk forever and lets activation decay handle
+    "forgetting" — but a never-pruned store grows without bound. A chunk is
+    evicted when it is BOTH below the retrieval threshold (base-level
+    activation ≤ τ, so it no longer surfaces) AND dormant (its most recent
+    trace is at least `window` interactions old, so nothing is reinforcing it
+    and it is unlikely to be revived imminently). A frequently-reinforced chunk
+    stays above τ and survives; a recently-touched chunk is inside the window
+    and survives — which preserves ACT-R's context-triggered recall for live
+    memories. Chunks whose type is in `exempt_types` (review_correction,
+    steering — direct human teaching) are never evicted.
+
+    Eviction is a soft-delete: the row remains for the concurrency safe window
+    (see purge_deleted_chunks) so a parallel session can still reinforce it.
+    `window` is in interaction-counter units (the proxy's event clock), not
+    wall-clock time. Returns the ids evicted on this call.
+    """
+    rows = conn.execute(
+        'SELECT id, type, traces FROM proxy_chunks WHERE deleted_at IS NULL',
+    ).fetchall()
+    evicted: list[str] = []
+    for chunk_id, ctype, traces_json in rows:
+        if ctype in exempt_types:
+            continue
+        traces = json.loads(traces_json) if traces_json else []
+        if not traces:
+            continue
+        if current_interaction - max(traces) < window:
+            continue  # recently reinforced — not dormant
+        if base_level_activation(traces, current_interaction, d) > tau:
+            continue  # still above the retrieval threshold
+        soft_delete_chunk(conn, chunk_id, current_interaction)
+        evicted.append(chunk_id)
+    return evicted
+
+
 def query_chunks(
     conn: sqlite3.Connection, *, state: str = '', task_type: str = '',
     type: str = '',
@@ -447,24 +505,33 @@ def composite_score(
     d: float = DECAY,
     s: float = NOISE_SCALE,
     tau: float = RETRIEVAL_THRESHOLD,
+    cosine_weights: dict[str, float] | None = None,
 ) -> float:
     """Composite ranking score: tanh-normalised activation + weighted
     three-dimension cosine similarity + logistic noise.
 
     composite = activation_weight * tanh(B - τ)
-              + semantic_weight * (
-                    0.9  * cos(conversation)
-                  + 0.05 * cos(job)
-                  + 0.05 * cos(project)
-                )
+              + semantic_weight * Σ_dim cosine_weights[dim] * cos(dim)
               + noise
 
+    `cosine_weights` maps dimension name → weight; defaults to _DIM_WEIGHTS
+    (conversation 0.9, job 0.05, project 0.05). They are a parameter rather
+    than a hardcoded constant so they can be tuned from data via ablation
+    (issue #434).
+
     tanh(B - τ) maps ℝ → (-1, 1) with a zero crossing at τ (issue #416).
-    The semantic term sums per-dimension cosines weighted by their fixed
-    contribution; missing chunk- or query-side embeddings on a dimension
-    contribute zero rather than triggering renormalization (issue #432).
-    Salience is excluded and retrieved independently (issue #227).
+    The semantic term sums per-dimension cosines; missing chunk- or
+    query-side embeddings on a dimension contribute zero rather than
+    triggering renormalization (issue #432). Salience is excluded and
+    retrieved independently (issue #227).
+
+    TODO(#434, data-gated): nomic-embed-text cosines cluster in a narrow band
+    (anisotropy), so the semantic term has little ranking spread against the
+    activation term regardless of these weights. Remap the empirical cosine
+    band to [0,1] before weighting once we have real embedding-distribution
+    data to calibrate against.
     """
+    weights = cosine_weights if cosine_weights is not None else _DIM_WEIGHTS
     b = base_level_activation(chunk.traces, current_interaction, d)
     b_norm = math.tanh(b - tau)
 
@@ -474,8 +541,8 @@ def composite_score(
         'project': chunk.embedding_project,
     }
     sem = 0.0
-    for dim, weight in _DIM_WEIGHTS.items():
-        chunk_vec = dim_map[dim]
+    for dim, weight in weights.items():
+        chunk_vec = dim_map.get(dim)
         context_vec = context_embeddings.get(dim)
         if chunk_vec and context_vec:
             try:
@@ -503,12 +570,15 @@ def retrieve_chunks(
     s: float = NOISE_SCALE,
     activation_weight: float = ACTIVATION_WEIGHT,
     semantic_weight: float = SEMANTIC_WEIGHT,
+    cosine_weights: dict[str, float] | None = None,
 ) -> list[MemoryChunk]:
     """Two-stage retrieval: activation filter, then composite ranking.
 
     context_embeddings maps dimension names ('conversation', 'job',
     'project') to query vectors.  Missing dimensions contribute zero to
     the cosine term (chunks fall back to activation-only ranking).
+    cosine_weights overrides the per-dimension weighting (default
+    _DIM_WEIGHTS); see composite_score.
     """
     candidates = query_chunks(conn, state=state, task_type=task_type, type=type)
     context_embeddings = context_embeddings or {}
@@ -531,6 +601,7 @@ def retrieve_chunks(
             activation_weight=activation_weight,
             semantic_weight=semantic_weight,
             d=d, s=s, tau=tau,
+            cosine_weights=cosine_weights,
         )
         scored.append((score, chunk))
     scored.sort(key=lambda x: -x[0])
@@ -624,6 +695,17 @@ ABLATION_CONFIGS = {
     'composite': {'activation_weight': 0.5, 'semantic_weight': 0.5},
     'activation_only': {'activation_weight': 1.0, 'semantic_weight': 0.0},
     'similarity_only': {'activation_weight': 0.0, 'semantic_weight': 1.0},
+    # Dimension-weight variants (issue #434): the 0.9/0.05/0.05 default is a
+    # guess. These let the harness measure whether shifting weight off
+    # conversation onto job/project helps, against the default split.
+    'dims_uniform': {
+        'activation_weight': 0.5, 'semantic_weight': 0.5,
+        'cosine_weights': {'conversation': 1 / 3, 'job': 1 / 3, 'project': 1 / 3},
+    },
+    'dims_conversation_only': {
+        'activation_weight': 0.5, 'semantic_weight': 0.5,
+        'cosine_weights': {'conversation': 1.0, 'job': 0.0, 'project': 0.0},
+    },
 }
 
 
@@ -858,6 +940,7 @@ def _retrieve_from_chunks(
     s: float = 0.0,
     activation_weight: float = ACTIVATION_WEIGHT,
     semantic_weight: float = SEMANTIC_WEIGHT,
+    cosine_weights: dict[str, float] | None = None,
 ) -> list[MemoryChunk]:
     """Retrieve from an in-memory list of chunks (no DB query).
 
@@ -883,6 +966,7 @@ def _retrieve_from_chunks(
             activation_weight=activation_weight,
             semantic_weight=semantic_weight,
             d=d, s=s, tau=tau,
+            cosine_weights=cosine_weights,
         )
         scored.append((score, chunk))
     scored.sort(key=lambda x: -x[0])
