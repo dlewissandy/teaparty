@@ -215,7 +215,7 @@ async def extract_learnings(
 
     await _run_scope(
         'proxy-consolidation', _consolidate_proxy_memory,
-        project_dir=project_dir,
+        project_dir=project_dir, poc_root=poc_root,
     )
 
     # ── Summary diagnostic ────────────────────────────────────────────────────
@@ -954,7 +954,7 @@ def _consolidate_task_and_institutional(*, project_dir: str) -> None:
 
 # ── Proxy contradiction consolidation (#228) ─────────────────────────────────
 
-def _consolidate_proxy_memory(*, project_dir: str) -> None:
+def _consolidate_proxy_memory(*, project_dir: str, poc_root: str) -> None:
     """Run contradiction consolidation on proxy.md (the always-loaded
     preferential store) and on the ACT-R memory DB.
 
@@ -1046,8 +1046,14 @@ def _consolidate_proxy_memory(*, project_dir: str) -> None:
         purge_deleted_chunks,
     )
     import glob as glob_mod
+    from teaparty.proxy.hooks import proxy_home
 
-    db_pattern = os.path.join(project_dir, '.proxy-memory*.db')
+    # The human-proxy writes its ACT-R memory under proxy_home(teaparty_home)
+    # via the runtime hooks (proxy_memory_path), NOT under project_dir — which
+    # holds proxy.md (Stage 2a), a separate preference store. teaparty_home
+    # follows the engine convention {poc_root}/.teaparty (cfa/engine.py).
+    proxy_dir = proxy_home(os.path.join(poc_root, '.teaparty'))
+    db_pattern = os.path.join(proxy_dir, '.proxy-memory*.db')
     db_paths = glob_mod.glob(db_pattern)
 
     for db_path in db_paths:

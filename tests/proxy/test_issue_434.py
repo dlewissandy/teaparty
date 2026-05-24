@@ -28,6 +28,7 @@ Out of scope (do NOT test for here): reverting tanh to min-max (#416 keeps
 from __future__ import annotations
 
 import math
+import os
 import sys
 import tempfile
 import unittest
@@ -235,8 +236,17 @@ class TestEvictionWiredIntoConsolidation(unittest.TestCase):
           recent_low  trace age 40  → below τ but age<window  → retained
         The 40/60 straddle pins the default window to (40, 60].
         """
-        project_dir = tempfile.mkdtemp()
-        db_path = str(Path(project_dir) / '.proxy-memory.db')
+        # The proxy writes its ACT-R memory to the hooks path
+        # proxy_home(teaparty_home)/.proxy-memory.db, NOT under project_dir.
+        # Construct the DB exactly where the runtime hooks would, and drive
+        # consolidation by poc_root — so this test fails if consolidation
+        # resolves the DB any other way (e.g. globbing project_dir, which the
+        # proxy never writes to).
+        from teaparty.proxy.hooks import proxy_memory_path
+        poc_root = tempfile.mkdtemp()
+        project_dir = tempfile.mkdtemp()  # holds proxy.md (Stage 2a); no DB here
+        db_path = proxy_memory_path(os.path.join(poc_root, '.teaparty'))
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
         conn = open_proxy_db(db_path)
         try:
             _set_counter(conn, 100)
@@ -255,16 +265,17 @@ class TestEvictionWiredIntoConsolidation(unittest.TestCase):
             conn.close()
 
         from teaparty.learning.extract import _consolidate_proxy_memory
-        _consolidate_proxy_memory(project_dir=project_dir)
+        _consolidate_proxy_memory(project_dir=project_dir, poc_root=poc_root)
 
         conn = open_proxy_db(db_path)
         try:
             active = {c.id for c in query_chunks(conn)}
             self.assertNotIn(
                 'stale', active,
-                'consolidation must evict the dormant below-τ chunk via the '
-                'shipped STALE_EVICTION_WINDOW default (eviction not wired in, '
-                'or the default window grew past 60)',
+                'consolidation must evict the dormant below-τ chunk on the live '
+                'hooks DB (proxy_home(teaparty_home)/.proxy-memory.db). If '
+                'consolidation still globbed project_dir it would find no DB '
+                'here and evict nothing — stale would remain active.',
             )
             self.assertIn(
                 'fresh', active,
@@ -274,9 +285,8 @@ class TestEvictionWiredIntoConsolidation(unittest.TestCase):
                 'recent_low', active,
                 'consolidation must retain the below-τ chunk whose trace is '
                 'within the default window — proves the dormancy guard runs in '
-                'the wired path, not just at the unit level (would fail if the '
-                'wired call evicted everything below τ, or the default window '
-                'shrank below 40)',
+                'the wired path (would fail if the wired call evicted everything '
+                'below τ, or the default window shrank below 40)',
             )
         finally:
             conn.close()
