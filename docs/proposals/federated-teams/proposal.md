@@ -1,6 +1,13 @@
 # Federated Teams: A Consent-Based Contract Architecture
 
-**Status:** Proposal · **Scope:** cross-human teams, account isolation, the membrane, CfA-as-contract
+**Status:** Proposal (conceptual overview) · **Detailed design:** [`design.md`](design.md)
+**Scope:** cross-human teams, account isolation, the membrane, CfA-as-contract
+
+> This document is the conceptual frame. The implementation-grade
+> specification — data model, contract state machine, mandate evaluation
+> function, membrane wire protocol and consistency model, delegate-memory
+> retrieval/update rules, and execution-owner enforcement — lives in
+> [`design.md`](design.md).
 
 ## Thesis
 
