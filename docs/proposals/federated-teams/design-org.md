@@ -47,7 +47,7 @@ reviewed PR. Layout:
 ```yaml
 id: acme
 display_name: Acme Corp
-admin_model: enterprise_seats | individual_accounts   # §13.4
+admin_model: enterprise_seats | individual_accounts   # §13 item 5
 representatives: [eng_director, product_director]      # roles that may sign engagements
 mandate:                                               # bounds ALL engagements (org-level)
   hard:
@@ -223,7 +223,7 @@ def is_directive(directing_role, supplier_role, work, frontier) -> bool:
         supplier_role in directing_role.authority.may_direct
         and work.domain in supplier_role.mandate_scope.domains
         and work.stakes <= supplier_role.mandate_scope.max_stakes_auto
-        and work.est_tokens <= directing_role.authority.spend_ceiling_tokens_week_remaining
+        and work.est_tokens <= spend_remaining(directing_role)   # ceiling − consumed-this-period (§7)
         and all(t.predicate(work) for t in supplier_role.mandate_scope.hard)   # report's role reservations
         and personal_hard_terms_ok(supplier_human, work)                       # report's PERSONAL reservations
         and frontier.band(sig(work)) != "ASK_ALWAYS"                            # learned: still ask here

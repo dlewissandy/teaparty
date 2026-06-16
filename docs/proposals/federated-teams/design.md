@@ -153,15 +153,22 @@ CREATE TABLE risk_frontier (
 
 ### 2.5 Standing agreement (shared, repo + membrane)
 
+> **Canonical schema:** [`design-org.md`](design-org.md) §1.6 — the standing
+> agreement is between **orgs**, keyed on **org + role**, with `lanes` carrying an
+> explicit `id`, a `direction`, and a `supplier_role`. The block below is the
+> single-human-org *degenerate* rendering of that same schema (each `…_org` is a
+> one-person org named for its human); read field names per §1.6.
+
 ```yaml
-# .teaparty/agreements/<pair_id>.yaml   (PR-reviewed)
-pair_id: alice~bob              # sorted principal ids
+# engagement-space: <partnership repo>/agreement.yaml   (PR-reviewed, dual-signed)
+pair_id: alice~bob              # sorted org ids (here, single-human orgs)
 version: 7
 parties: [alice, bob]
-# bidirectional; each direction lists the lanes the supplier grants the requester
+# bidirectional; each lane grants requester_org a scope on supplier_role
 lanes:
-  - supplier: bob
-    requester: alice
+  - id: 0                       # lanes are addressed by id (Contract.agreement.lane)
+    direction: alice->bob       # alice requests, bob supplies
+    supplier_role: bob/owner
     scope: billing/*            # glob over scope ids
     budget:
       tokens_per_week: 200000
@@ -170,20 +177,20 @@ lanes:
     auto_sign:                  # the soft envelope under which bob's proxy may sign
       max_stakes: 1             # ≤ COSTLY auto-signable; higher escalates
       review_level: STANDARD
-  - supplier: alice
-    requester: bob
+  - id: 1
+    direction: bob->alice
+    supplier_role: alice/owner
     scope: api/*
     budget: { tokens_per_week: 150000, per_job_soft: 40000, wall_sla_hours: 72 }
     auto_sign: { max_stakes: 1, review_level: STANDARD }
-signatures:                     # both humans (or proxies under mandate) on this version
-  alice: { actor: HUMAN, ts: 1739... , version_hash: 9af.. }
-  bob:   { actor: HUMAN, ts: 1739... , version_hash: 9af.. }
+signatures:                     # both representatives (or proxies under mandate) on this version
+  alice: { actor: HUMAN, role: owner, ts: 1739... , version_hash: 9af.. }
+  bob:   { actor: HUMAN, role: owner, ts: 1739... , version_hash: 9af.. }
 ```
 
-A lane is a **scope-grant + budget envelope**. Grants are **role/scope-attached**
-(open decision resolved this way): the lane keys on `scope`, not on a personal
-identity, so it survives personnel rotation; `supplier`/`requester` name the
-principals currently holding those scopes per the roster.
+A lane is a **scope-grant + budget envelope** addressed by `id`. Grants are
+**org/role-attached** (`design-org.md` §1.6): the lane keys on `scope` +
+`supplier_role`, not on a personal identity, so it survives personnel rotation.
 
 ### 2.6 Contract (per job; canonical snapshot on membrane)
 
@@ -191,10 +198,17 @@ principals currently holding those scopes per the roster.
 {
   "id": "ctr_01HX..",            // ULID
   "version": 2,
-  "version_hash": "…",           // sha256 of (terms, parties) at this version
-  "requester": "alice",
-  "supplier":  "bob",
-  "agreement": { "pair_id":"alice~bob", "agreement_version":7, "lane":0 },
+  "version_hash": "…",           // sha256 of (terms, parties, bindings) at this version
+  "cross_org": true,             // false for intra-org/intra-principal contracts
+  "requester_org": "alice",      // org ids (single-human orgs in this example)
+  "supplier_org":  "bob",
+  "requester": "alice",          // the principal currently acting as requester rep
+  "supplier":  "bob",            // the principal currently filling supplier_role
+  "agreement": { "pair_id":"alice~bob", "agreement_version":7, "lane":0 },  // lane by id
+  "bindings": [                  // DAI bindings (design-org.md §2.3); doer carries execution
+    { "participation":"DOER",    "unit":"bob",   "acting_as_role":"owner", "org":"bob",   "carries_execution":true },
+    { "participation":"DECIDER", "unit":"alice", "acting_as_role":"owner", "org":"alice", "carries_execution":false }
+  ],
   "terms": {
     "scope":    { "summary":"…", "scope_ids":["billing/invoices"], "artifacts":["PR"] },
     "intent_ref":"membrane://contracts/ctr_01HX../intent.md",
@@ -212,6 +226,11 @@ principals currently holding those scopes per the roster.
   "history": [ /* prior versions + events */ ]
 }
 ```
+
+`requester`/`supplier` name the principals *currently* filling the requester
+representative and `supplier_role`; `requester_org`/`supplier_org` are the durable
+parties. For intra-org and intra-principal contracts `cross_org:false` and both
+`*_org` fields name the same org.
 
 ---
 
@@ -266,9 +285,14 @@ the risk band. Predicates are a small JSON expression language evaluated against
 pred := {"op":"<=", "lhs":"cost.estimate_p90", "rhs":50000}
       | {"op":"in", "lhs":"scope.scope_ids[*]", "rhs":["billing/*"]}
       | {"op":">=", "lhs":"schedule.deadline_ts", "rhs":"now+48h"}
-      | {"op":"all"|"any", "args":[pred, …]}
+      | {"op":"window", "lhs":"now", "rhs":"fri 16:00-23:59"}
+      | {"op":"count"|"sum", "lhs":"scope.scope_ids[*]", ...}   // one aggregation level
+      | {"op":"all"|"any"|"not", "args":[pred, …]}
 lhs paths resolve against terms; globs allowed; "now+Nh" is wall-clock.
 ```
+
+The full operator set (`==,<=,>=,<,>,in,all,any,not,window,now±Nh,count,sum`) is
+finalized in [`design-org.md`](design-org.md) §13 (item 7).
 
 ### 3.3 The decision function (the crux)
 

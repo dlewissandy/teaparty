@@ -152,4 +152,4 @@ the doer binding as the sole execution carrier). Spine: **Principal**
    org-pair reusing the conflict-free branch model. (`design-org.md` §5)
 4. **Org-definition administration** — resolved: an `admin_model` field
    (`enterprise_seats` vs `individual_accounts`); protocol-neutral.
-   (`design-org.md` §1.1, §13.5)
+   (`design-org.md` §1.1, §13 item 5)
