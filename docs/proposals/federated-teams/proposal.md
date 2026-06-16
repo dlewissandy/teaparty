@@ -1,13 +1,17 @@
 # Federated Teams: A Consent-Based Contract Architecture
 
-**Status:** Proposal (conceptual overview) · **Detailed design:** [`design.md`](design.md)
-**Scope:** cross-human teams, account isolation, the membrane, CfA-as-contract
+**Status:** Superseded in part — read [`model.md`](model.md) first.
+**Detailed design:** [`design.md`](design.md)
 
-> This document is the conceptual frame. The implementation-grade
-> specification — data model, contract state machine, mandate evaluation
-> function, membrane wire protocol and consistency model, delegate-memory
-> retrieval/update rules, and execution-owner enforcement — lives in
-> [`design.md`](design.md).
+> **Reading order:** [`model.md`](model.md) is the authoritative conceptual model
+> (durable **structure** — orgs/teams/roles/memberships — vs. transient **work**
+> — initiatives/engagements — wired by **DAI bindings**). This document predates
+> it and frames every human as their own organization, which `model.md`
+> corrects: the account boundary is *not* the institution boundary, and an org
+> holds many humans. The federation, isolation, and contract reasoning below
+> still hold — but read them as the **inter-org (engagement)** case, which
+> `model.md` places on a spectrum with the lighter intra-org and intra-principal
+> cases. The implementation-grade spec is in [`design.md`](design.md).
 
 ## Thesis
 

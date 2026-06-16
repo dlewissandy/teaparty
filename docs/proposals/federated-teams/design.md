@@ -1,6 +1,6 @@
 # Federated Teams — Detailed Design
 
-**Status:** Design · supersedes the architecture sketch
+**Status:** Design · conceptual frame: [`model.md`](model.md)
 **Reading order:** §1 invariants → §2 data model → §3 negotiation protocol →
 §4 membrane → §5 delegate-memory → §6 cost → §7 enforcement → §8 example.
 
@@ -9,6 +9,20 @@ contract state machine, the mandate evaluation function, the membrane wire
 protocol with its consistency model, the delegate-memory retrieval and update
 rules, and the execution-owner enforcement. Where a value is a tunable, it is
 named in `CONSTANTS` and given a default.
+
+> **Entity reconciliation with [`model.md`](model.md).** This spec was written
+> with the principal (one human) as the contracting party; the model layers an
+> **organization** (many humans, durable hierarchy of roles/teams) above it.
+> Map the terms as follows when reading: a **standing agreement** (§2.5) is
+> between **orgs**, attached to **org + role** (not individuals), and persists
+> across **engagements**; the `alice`/`bob` parties in the worked example (§8)
+> are then the *single-human-org* degenerate case. A **lane** is a scope-grant
+> on a role. The contract machinery here is the **inter-org (engagement)** form;
+> intra-org work is the same machinery with a directive standing agreement
+> (broad auto-sign lanes), and intra-principal work elides it entirely — the
+> spectrum in `model.md`. The **doer binding** is the sole carrier of
+> `execution_owner`; D/A/I advisory and informed bindings are information-only
+> and never trigger §7's dispatch path.
 
 ---
 
