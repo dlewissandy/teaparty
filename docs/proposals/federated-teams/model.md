@@ -142,14 +142,14 @@ the doer binding as the sole execution carrier). Spine: **Principal**
 | Initiative | workspace repo, references its org for authority + staffing |
 | Engagement | cross-org space, anchored to both org repos + the standing agreement |
 
-## Deferred decisions
+## Deferred decisions — all resolved in [`design-org.md`](design-org.md) §13
 
-1. **Matrix depth** — structure is at least a tree of teams; full matrix
-   (cross-functional staffing across functional lines) can be layered on later.
-   Confirmed: project teams *are* matrixed compositions of durable teams.
-2. **Conflict-of-interest policy** — flag-only, or block? Start with flag.
-3. **Engagement-space mechanics** — dedicated partnership repo vs. cross-repo
-   issues/PRs (see `design.md` §4 / §12).
-4. **Org-definition administration** — whether multi-human orgs map onto
-   Anthropic Team/Enterprise seat semantics vs. individual accounts (affects how
-   membership and node registration are administered).
+1. **Matrix depth** — resolved: structure is a graph (functional hierarchy +
+   team composition); initiatives staff cross-functionally. (`design-org.md` §1.5)
+2. **Conflict-of-interest policy** — resolved: `flag` default, `block` (severe
+   only) configurable per partnership. (`design-org.md` §6)
+3. **Engagement-space mechanics** — resolved: a dedicated partnership repo per
+   org-pair reusing the conflict-free branch model. (`design-org.md` §5)
+4. **Org-definition administration** — resolved: an `admin_model` field
+   (`enterprise_seats` vs `individual_accounts`); protocol-neutral.
+   (`design-org.md` §1.1, §13.5)
